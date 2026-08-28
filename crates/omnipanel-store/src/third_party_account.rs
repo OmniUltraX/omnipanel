@@ -3,8 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{Storage, map_sqlite};
 use crate::Vault;
+use crate::storage::{Storage, map_sqlite};
 
 /// 第三方平台。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -160,8 +160,17 @@ impl Storage {
             .map_err(map_sqlite)?;
         let mut out = Vec::new();
         for row in rows {
-            let (id, name, platform, auth_method, username, notes, credential_ref, created_at, updated_at) =
-                row.map_err(map_sqlite)?;
+            let (
+                id,
+                name,
+                platform,
+                auth_method,
+                username,
+                notes,
+                credential_ref,
+                created_at,
+                updated_at,
+            ) = row.map_err(map_sqlite)?;
             out.push(ThirdPartyAccount {
                 id,
                 name,
@@ -207,9 +216,7 @@ impl Storage {
         if existing.is_none() && secret.is_none() {
             return Err(OmniError::new(ErrorCode::InvalidInput, "请填写密钥或密码"));
         }
-        if input.auth_method == ThirdPartyAuthMethod::Password
-            && input.username.trim().is_empty()
-        {
+        if input.auth_method == ThirdPartyAuthMethod::Password && input.username.trim().is_empty() {
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
                 "用户名密码方式需要填写用户名",

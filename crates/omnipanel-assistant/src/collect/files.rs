@@ -12,11 +12,7 @@ impl MetadataCollector for FilesCollector {
     }
 
     fn collect(&self, ctx: &CollectContext) -> OmniResult<ModuleSection> {
-        let items = ctx
-            .file_connections
-            .iter()
-            .map(strip_secret_keys)
-            .collect();
+        let items = ctx.file_connections.iter().map(strip_secret_keys).collect();
         Ok(ModuleSection::from_items(items))
     }
 }

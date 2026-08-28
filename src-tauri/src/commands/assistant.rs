@@ -1,14 +1,14 @@
 //! 助手端同步：采集本机脱敏元数据并上传 OSS。
 
 use omnipanel_assistant::{
+    AuthContext, CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
     assemble_modules, default_collectors, fetch_oss_sts, push_snapshot, sanitize_ai_model_meta,
     sanitize_assistant_conversation_meta, sanitize_connection_meta, sanitize_db_connection_meta,
     sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta,
-    sanitize_terminal_session_meta, upload_object_bytes, upload_snapshot_json, AuthContext,
-    CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
+    sanitize_terminal_session_meta, upload_object_bytes, upload_snapshot_json,
 };
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{load_database_connections, ConnectionKind};
+use omnipanel_store::{ConnectionKind, load_database_connections};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::time::Duration;
@@ -126,10 +126,7 @@ pub async fn assistant_push_snapshot(
     request: AssistantPushRequest,
 ) -> Result<PushSnapshotResult, OmniError> {
     if request.token.trim().is_empty() && !request.dry_run {
-        return Err(OmniError::new(
-            ErrorCode::Auth,
-            "未登录，无法同步到助手端",
-        ));
+        return Err(OmniError::new(ErrorCode::Auth, "未登录，无法同步到助手端"));
     }
 
     let identity = auth_device_identity().await?;
@@ -188,7 +185,12 @@ async fn upload_encrypted_assistant_payload_if_bound(
     ctx: &CollectContext,
     auth: &AuthContext,
 ) -> Result<(), OmniError> {
-    let Some(bind_id) = ctx.bind_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+    let Some(bind_id) = ctx
+        .bind_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
         return Ok(());
     };
     let Some(pk) = omnipanel_store::load_assistant_binding_pubkey(bind_id)? else {
@@ -240,10 +242,7 @@ pub async fn assistant_upload_oss_text(
     request: AssistantUploadTextRequest,
 ) -> Result<AssistantUploadTextResult, OmniError> {
     if request.token.trim().is_empty() {
-        return Err(OmniError::new(
-            ErrorCode::Auth,
-            "未登录，无法上传到 OSS",
-        ));
+        return Err(OmniError::new(ErrorCode::Auth, "未登录，无法上传到 OSS"));
     }
     if request.object_key.trim().is_empty() {
         return Err(OmniError::new(

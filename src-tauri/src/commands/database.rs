@@ -292,7 +292,6 @@ async fn evict_sidecar_agent(connection: &DbConnectionConfig) {
 pub async fn db_list_connections(
     state: State<'_, AppState>,
 ) -> Result<Vec<DbConnectionConfig>, String> {
-    let _ = state.db_connections.seed_local_docker_connections();
     state.db_connections.list().map_err(|e| e.to_string())
 }
 

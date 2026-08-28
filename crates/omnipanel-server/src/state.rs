@@ -45,9 +45,7 @@ pub type SshSessionMap = Arc<Mutex<HashMap<String, Arc<SshSession>>>>;
 
 /// 按连接 id 解析 SSH 配置（复用 `omnipanel-store::inject_ssh_vault_into_config`，
 /// 与桌面端 `commands::connection::resolve_ssh_config` 逻辑等价）。
-pub fn resolve_ssh_config(
-    conn: &omnipanel_store::Connection,
-) -> OmniResult<SshConfig> {
+pub fn resolve_ssh_config(conn: &omnipanel_store::Connection) -> OmniResult<SshConfig> {
     let (patched, password) = omnipanel_store::inject_ssh_vault_into_config(
         &conn.config,
         &conn.id,

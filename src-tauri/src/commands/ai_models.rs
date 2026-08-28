@@ -3,9 +3,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use omnipanel_ai::{fetch_provider_models, FetchModelsError, RemoteModelInfo};
+use omnipanel_ai::{FetchModelsError, RemoteModelInfo, fetch_provider_models};
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{ai_provider_key_ref, Vault};
+use omnipanel_store::{Vault, ai_provider_key_ref};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
@@ -117,8 +117,7 @@ pub fn resolve_ai_provider_api_key(provider_id: &str, request_key: &str) -> Stri
     if !request_key.trim().is_empty() {
         return request_key.to_string();
     }
-    Vault::get(&ai_provider_key_ref(provider_id))
-        .unwrap_or_default()
+    Vault::get(&ai_provider_key_ref(provider_id)).unwrap_or_default()
 }
 
 /// 接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）。

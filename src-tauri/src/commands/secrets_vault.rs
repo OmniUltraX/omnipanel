@@ -6,17 +6,17 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use omnipanel_assistant::{
-    fetch_oss_sts, get_object_bytes_optional, upload_object_bytes, AuthContext,
+    AuthContext, fetch_oss_sts, get_object_bytes_optional, upload_object_bytes,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    db_password_ref, decode_salt_b64, decrypt_vault, derive_master_key, embedding_api_key_ref,
-    encrypt_vault_with_salt, generate_salt, http_proxy_password_ref, ssh_passphrase_ref,
-    ssh_password_ref, ssh_pem_ref, ConnectionKind, MasterKey, SecretsVaultEnvelope,
-    SecretsVaultEntry, SecretsVaultPlaintext, Vault,
+    ConnectionKind, MasterKey, SecretsVaultEntry, SecretsVaultEnvelope, SecretsVaultPlaintext,
+    Vault, db_password_ref, decode_salt_b64, decrypt_vault, derive_master_key,
+    embedding_api_key_ref, encrypt_vault_with_salt, generate_salt, http_proxy_password_ref,
+    ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -91,9 +91,8 @@ fn now_ms() -> i64 {
 }
 
 fn normalize_device_code(raw: &str) -> Result<String, OmniError> {
-    omnipanel_store::normalize_sync_master_key(raw).map_err(|_| {
-        OmniError::invalid_input("请输入 SyncMasterKey（opsk1_…）".to_string())
-    })
+    omnipanel_store::normalize_sync_master_key(raw)
+        .map_err(|_| OmniError::invalid_input("请输入 SyncMasterKey（opsk1_…）".to_string()))
 }
 
 fn vault_meta_dir() -> Result<PathBuf, OmniError> {
@@ -118,7 +117,8 @@ fn load_local_meta() -> Result<Option<LocalVaultMeta>, OmniError> {
         OmniError::new(ErrorCode::Io, "读取本地 vault meta 失败").with_cause(e.to_string())
     })?;
     let meta: LocalVaultMeta = serde_json::from_str(&text).map_err(|e| {
-        OmniError::new(ErrorCode::InvalidInput, "解析本地 vault meta 失败").with_cause(e.to_string())
+        OmniError::new(ErrorCode::InvalidInput, "解析本地 vault meta 失败")
+            .with_cause(e.to_string())
     })?;
     Ok(Some(meta))
 }
@@ -158,16 +158,13 @@ fn push_entry(entries: &mut Vec<SecretsVaultEntry>, reference: String, kind: &st
     }
 }
 
-async fn collect_secret_entries_async(state: &AppState) -> Result<Vec<SecretsVaultEntry>, OmniError> {
+async fn collect_secret_entries_async(
+    state: &AppState,
+) -> Result<Vec<SecretsVaultEntry>, OmniError> {
     let mut entries = Vec::new();
 
     for conn in state.db_connections.list()? {
-        push_entry(
-            &mut entries,
-            db_password_ref(&conn.id),
-            "db",
-            &conn.name,
-        );
+        push_entry(&mut entries, db_password_ref(&conn.id), "db", &conn.name);
     }
 
     let connections = {
@@ -179,7 +176,12 @@ async fn collect_secret_entries_async(state: &AppState) -> Result<Vec<SecretsVau
         let label = conn.name.clone();
         match conn.kind {
             ConnectionKind::Ssh => {
-                push_entry(&mut entries, ssh_password_ref(&conn.id), "ssh-password", &label);
+                push_entry(
+                    &mut entries,
+                    ssh_password_ref(&conn.id),
+                    "ssh-password",
+                    &label,
+                );
                 push_entry(&mut entries, ssh_pem_ref(&conn.id), "ssh-pem", &label);
                 push_entry(
                     &mut entries,
@@ -286,7 +288,9 @@ fn import_entries(entries: &[SecretsVaultEntry]) -> (u32, u32) {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn secrets_vault_status(state: State<'_, AppState>) -> Result<SecretsVaultStatus, OmniError> {
+pub async fn secrets_vault_status(
+    state: State<'_, AppState>,
+) -> Result<SecretsVaultStatus, OmniError> {
     let unlocked = SESSION
         .lock()
         .map_err(|_| OmniError::internal("secrets vault session lock poisoned"))?
@@ -347,7 +351,9 @@ pub async fn secrets_vault_push(
         return Err(OmniError::new(ErrorCode::Auth, "未登录，无法上传密文库"));
     }
     if request.oss_path.trim().is_empty() {
-        return Err(OmniError::invalid_input("缺少 OSS 路径，请先完成登录资料同步"));
+        return Err(OmniError::invalid_input(
+            "缺少 OSS 路径，请先完成登录资料同步",
+        ));
     }
 
     let (key, salt) = {
@@ -377,14 +383,8 @@ pub async fn secrets_vault_push(
     let auth = build_auth_context(&state, &request.token, &identity.device_id).await?;
     let sts = fetch_oss_sts(&auth).await?;
     let object_key = object_key_for(&request.oss_path);
-    let uploaded = upload_object_bytes(
-        &auth.http,
-        &sts,
-        &object_key,
-        &body,
-        "application/json",
-    )
-    .await?;
+    let uploaded =
+        upload_object_bytes(&auth.http, &sts, &object_key, &body, "application/json").await?;
 
     Ok(SecretsVaultPushResult {
         object_key: uploaded.object_key,

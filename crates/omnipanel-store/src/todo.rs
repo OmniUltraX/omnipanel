@@ -4,7 +4,7 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 
 use crate::knowledge_todo::KnowledgeTodoItem;
-use crate::storage::{map_sqlite, Storage};
+use crate::storage::{Storage, map_sqlite};
 
 /// 自定义待办列表。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -144,7 +144,8 @@ fn encode_recurrence(r: &Option<TodoRecurrence>) -> OmniResult<String> {
     match r {
         None => Ok(String::new()),
         Some(v) => serde_json::to_string(v).map_err(|e| {
-            OmniError::new(ErrorCode::InvalidInput, "recurrence 序列化失败").with_cause(e.to_string())
+            OmniError::new(ErrorCode::InvalidInput, "recurrence 序列化失败")
+                .with_cause(e.to_string())
         }),
     }
 }
@@ -156,7 +157,8 @@ fn decode_recurrence(raw: &str) -> Option<TodoRecurrence> {
     serde_json::from_str(raw).ok()
 }
 
-const TASK_SELECT: &str = "SELECT t.id, t.list_id, t.title, t.note, t.important, t.my_day_on, t.due_at, t.remind_at,
+const TASK_SELECT: &str =
+    "SELECT t.id, t.list_id, t.title, t.note, t.important, t.my_day_on, t.due_at, t.remind_at,
         t.recurrence, t.completed, t.completed_at, t.sort_order, t.created_at, t.updated_at,
         (SELECT COUNT(*) FROM todo_steps s WHERE s.task_id = t.id),
         (SELECT COUNT(*) FROM todo_steps s WHERE s.task_id = t.id AND s.done = 1)
@@ -248,9 +250,20 @@ impl Storage {
             )
             .map_err(map_sqlite)?;
             for (i, item) in list.items.iter().enumerate() {
-                let note = migrate_item_note(item, if i == 0 { list.description.as_str() } else { "" });
+                let note = migrate_item_note(
+                    item,
+                    if i == 0 {
+                        list.description.as_str()
+                    } else {
+                        ""
+                    },
+                );
                 let completed = if item.done { 1 } else { 0 };
-                let completed_at = if item.done { Some(list.updated_at) } else { None };
+                let completed_at = if item.done {
+                    Some(list.updated_at)
+                } else {
+                    None
+                };
                 tx.execute(
                     "INSERT OR IGNORE INTO todo_tasks (
                         id, list_id, title, note, important, my_day_on, due_at, remind_at,
@@ -259,7 +272,11 @@ impl Storage {
                     rusqlite::params![
                         item.id,
                         list.id,
-                        if item.name.is_empty() { "未命名任务" } else { &item.name },
+                        if item.name.is_empty() {
+                            "未命名任务"
+                        } else {
+                            &item.name
+                        },
                         note,
                         completed,
                         completed_at,

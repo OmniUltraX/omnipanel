@@ -26,12 +26,7 @@ pub async fn terminal_history_upsert_blocks(
     policy: TerminalHistoryRetainPolicy,
 ) -> Result<(), OmniError> {
     let storage = state.storage.lock().await;
-    storage.terminal_history_upsert_blocks(
-        &session_id,
-        workspace_id.as_deref(),
-        &blocks,
-        &policy,
-    )
+    storage.terminal_history_upsert_blocks(&session_id, workspace_id.as_deref(), &blocks, &policy)
 }
 
 /// 删除单个历史块。

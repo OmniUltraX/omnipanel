@@ -185,12 +185,8 @@ pub fn row_diff_page(
     let limit = limit.max(1).min(500);
     let offset = offset as usize;
 
-    let filter_kinds: Option<Vec<String>> = kinds.map(|items| {
-        items
-            .into_iter()
-            .filter(|k| !k.trim().is_empty())
-            .collect()
-    });
+    let filter_kinds: Option<Vec<String>> =
+        kinds.map(|items| items.into_iter().filter(|k| !k.trim().is_empty()).collect());
 
     let filtered: Vec<&TableRowDiffPayload> = if let Some(ref kinds) = filter_kinds {
         if kinds.is_empty() {

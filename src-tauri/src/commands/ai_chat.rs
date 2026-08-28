@@ -1,8 +1,9 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use omnipanel_ai::RenamedProvider;
 use omnipanel_ai::ir::StreamEvent;
 use omnipanel_ai::orchestrator::{
     AiContextBundle, HttpProviderSnapshot, InternalChatRequest, InternalOrchestrator,
@@ -13,15 +14,14 @@ use omnipanel_ai::providers::anthropic::AnthropicProvider;
 use omnipanel_ai::providers::openai::OpenAiProvider;
 use omnipanel_ai::routing::BackendKind;
 use omnipanel_ai::types::{ChatMessage, ToolDef};
-use omnipanel_ai::RenamedProvider;
-use omnipanel_mcp::{external, ToolRegistry};
+use omnipanel_mcp::{ToolRegistry, external};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{ipc::Channel, AppHandle, State};
-use tokio::sync::{oneshot, Mutex};
+use tauri::{AppHandle, State, ipc::Channel};
+use tokio::sync::{Mutex, oneshot};
 
-use crate::state::AppState;
 use crate::commands::knowledge_vector::{EmbeddingProviderConfig, fetch_provider_embeddings};
+use crate::state::AppState;
 
 fn apply_tool_allowlist(mut defs: Vec<ToolDef>, allowlist: Option<&[String]>) -> Vec<ToolDef> {
     let Some(names) = allowlist else {
@@ -97,8 +97,7 @@ struct RegistryToolExecutor {
 #[async_trait::async_trait]
 impl ToolExecutor for RegistryToolExecutor {
     async fn execute(&self, tool_call_id: &str, name: &str, arguments: &str) -> (String, bool) {
-        if let Err(err) =
-            ensure_tool_allowed_by_module_filter(name, self.module_filter.as_deref())
+        if let Err(err) = ensure_tool_allowed_by_module_filter(name, self.module_filter.as_deref())
         {
             return (format!("Error: {err}"), false);
         }
@@ -532,10 +531,9 @@ pub async fn ai_chat_stream(
                 .unwrap_or(true),
         };
         // 1. Skills 摘要（渐进式披露；勾选中的 Skill 只走 Active Skills）
-        if let Ok(skills_text) = omnipanel_store::build_skills_system_append_filtered(
-            load_skill_available,
-            &skill_ids,
-        ) {
+        if let Ok(skills_text) =
+            omnipanel_store::build_skills_system_append_filtered(load_skill_available, &skill_ids)
+        {
             if !skills_text.is_empty() {
                 append_parts.push(skills_text);
             }
@@ -543,9 +541,7 @@ pub async fn ai_chat_stream(
 
         // 1b. 用户在 Composer 勾选的 Skill 全文
         if !skill_ids.is_empty() {
-            if let Ok(selected) =
-                omnipanel_store::build_selected_skills_bodies_append(&skill_ids)
-            {
+            if let Ok(selected) = omnipanel_store::build_selected_skills_bodies_append(&skill_ids) {
                 if !selected.is_empty() {
                     append_parts.push(selected);
                 }
@@ -554,14 +550,8 @@ pub async fn ai_chat_stream(
 
         // 2. 知识库 RAG 自动注入：top-3 语义检索
         if let Some(provider) = embedding_provider.as_ref() {
-            if let Ok(rag_text) = build_knowledge_rag_append(
-                &state,
-                provider,
-                &user_text_for_rag,
-                3,
-                0.35,
-            )
-            .await
+            if let Ok(rag_text) =
+                build_knowledge_rag_append(&state, provider, &user_text_for_rag, 3, 0.35).await
             {
                 if !rag_text.is_empty() {
                     append_parts.push(rag_text);
@@ -717,7 +707,11 @@ pub async fn ai_chat_tool_result(
     approved: bool,
 ) -> Result<(), String> {
     let key = format!("{conversation_id}:{tool_call_id}");
-    let sender = state.pending_internal_tool_results.lock().await.remove(&key);
+    let sender = state
+        .pending_internal_tool_results
+        .lock()
+        .await
+        .remove(&key);
     match sender {
         Some(tx) => {
             let _ = tx.send((result, approved));
@@ -761,13 +755,13 @@ async fn run_acp_internal_turn(
     model_id: Option<String>,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
+    use omnipanel_ai::ToolStatus;
+    use omnipanel_ai::providers::acp::native_tools::TERMINAL_CLIENT_TOOL;
     use omnipanel_ai::providers::acp::{
         AcpRoundRunner, build_client_tools_prompt, build_incremental_client_tools_prompt,
         format_client_tool_result_prompt, parse_client_tool_calls, pick_terminal_tool_call,
         prompt_expects_tool_retry, prompt_has_tool_results,
     };
-    use omnipanel_ai::providers::acp::native_tools::TERMINAL_CLIENT_TOOL;
-    use omnipanel_ai::ToolStatus;
 
     let backend_id = internal.backend_id.clone();
 
@@ -780,12 +774,7 @@ async fn run_acp_internal_turn(
 
     let mcp_servers: Vec<serde_json::Value> = Vec::new();
     let session_id = manager
-        .ensure_session(
-            conversation_id,
-            &cwd,
-            mcp_servers,
-            model_id.as_deref(),
-        )
+        .ensure_session(conversation_id, &cwd, mcp_servers, model_id.as_deref())
         .await
         .map_err(|e| e.to_string())?;
 
@@ -886,13 +875,12 @@ async fn run_acp_internal_turn(
 
         let is_tool_continuation = client_tools && prompt_has_tool_results(&prompt_text);
         let expects_tool_retry = client_tools && prompt_expects_tool_retry(&prompt_text);
-        let content_buffer = AcpRoundRunner::maybe_content_buffer(
-            AcpRoundRunner::should_hold_content(
+        let content_buffer =
+            AcpRoundRunner::maybe_content_buffer(AcpRoundRunner::should_hold_content(
                 client_tools,
                 is_tool_continuation,
                 expects_tool_retry,
-            ),
-        );
+            ));
 
         let pending_tool: Arc<Mutex<Option<tokio::sync::oneshot::Receiver<(String, bool)>>>> =
             Arc::new(Mutex::new(None));
@@ -919,7 +907,12 @@ async fn run_acp_internal_turn(
 
         while let Some(event) = rx.recv().await {
             if client_tools {
-                if let StreamEvent::ToolCall { id, name, arguments } = &event {
+                if let StreamEvent::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                } = &event
+                {
                     if let Err(err) = ensure_tool_allowed_by_module_filter(
                         name,
                         match &internal.tools_mode {
@@ -942,15 +935,11 @@ async fn run_acp_internal_turn(
                             &update,
                         );
                         let _ = on_event.send(update);
-                        native_tool_result =
-                            Some((name.clone(), format!("Error: {err}"), false));
+                        native_tool_result = Some((name.clone(), format!("Error: {err}"), false));
                         continue;
                     }
-                    if ToolRegistry::is_native_tool(name)
-                        && name != TERMINAL_CLIENT_TOOL
-                    {
-                        let (result, success) =
-                            execute_acp_web_tool(state, name, arguments).await;
+                    if ToolRegistry::is_native_tool(name) && name != TERMINAL_CLIENT_TOOL {
+                        let (result, success) = execute_acp_web_tool(state, name, arguments).await;
                         native_tool_result = Some((name.clone(), result.clone(), success));
                         let update = StreamEvent::ToolCallUpdate {
                             id: id.clone(),
@@ -987,13 +976,7 @@ async fn run_acp_internal_turn(
             }
 
             if matches!(&event, StreamEvent::Error { .. }) {
-                record_internal_trace(
-                    state,
-                    conversation_id,
-                    &backend_id,
-                    turn_index,
-                    &event,
-                );
+                record_internal_trace(state, conversation_id, &backend_id, turn_index, &event);
                 let _ = on_event.send(event);
                 break;
             }
@@ -1236,9 +1219,7 @@ async fn run_acp_internal_turn(
             }
         }
 
-        let done = StreamEvent::Done {
-            stop_reason: stop,
-        };
+        let done = StreamEvent::Done { stop_reason: stop };
         record_internal_trace(state, conversation_id, &backend_id, turn_index, &done);
         let _ = on_event.send(done);
         return Ok(());
@@ -1247,13 +1228,7 @@ async fn run_acp_internal_turn(
     let err = StreamEvent::Error {
         message: "ACP 工具调用轮次超过上限".to_string(),
     };
-    record_internal_trace(
-        state,
-        conversation_id,
-        &backend_id,
-        turn_index,
-        &err,
-    );
+    record_internal_trace(state, conversation_id, &backend_id, turn_index, &err);
     let _ = on_event.send(err);
     Ok(())
 }
@@ -1301,7 +1276,10 @@ pub async fn ai_list_backends(state: State<'_, AppState>) -> Result<Vec<BackendI
                 id: format!("cli:{}::{}", provider.id, model),
                 label: format!("{}/{}", provider.display_name, model),
                 kind: "cli".to_string(),
-                installed: provider.binary.as_deref().is_some_and(|b| !b.trim().is_empty()),
+                installed: provider
+                    .binary
+                    .as_deref()
+                    .is_some_and(|b| !b.trim().is_empty()),
             });
         }
     }
@@ -1465,9 +1443,7 @@ pub async fn audit_log_append(
     entry: omnipanel_store::AuditEntry,
 ) -> Result<(), String> {
     let storage = state.storage.lock().await;
-    storage
-        .append_audit(&entry)
-        .map_err(|e| e.to_string())
+    storage.append_audit(&entry).map_err(|e| e.to_string())
 }
 
 /// 应用前端 Agent Router（Gateway）配置：停旧实例并按开关/端口/Key/LAN 重启。
@@ -1482,9 +1458,10 @@ pub async fn ai_gateway_configure(
     bind_lan: bool,
     mcp_external_require_approval: bool,
 ) -> Result<(), String> {
-    state
-        .mcp_external_require_approval
-        .store(mcp_external_require_approval, std::sync::atomic::Ordering::Relaxed);
+    state.mcp_external_require_approval.store(
+        mcp_external_require_approval,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     // 先停掉旧实例并等待端口释放，避免重绑同端口时 EADDRINUSE。
     let old = state.gateway_handle.lock().await.take();
     if let Some(handle) = old {
@@ -1502,13 +1479,12 @@ pub async fn ai_gateway_configure(
 
     // Build the ACP resolver so the gateway can serve CLI backends
     // (Cursor / OpenCode / Qwen / OmniAgent) via /v1/chat/completions.
-    let acp_resolver: Arc<dyn omnipanel_gateway::AcpResolver> = Arc::new(
-        crate::agent::GatewayAcpResolver::new(
+    let acp_resolver: Arc<dyn omnipanel_gateway::AcpResolver> =
+        Arc::new(crate::agent::GatewayAcpResolver::new(
             state.app_handle.clone(),
             state.agent_registry.clone(),
             state.acp_state.clone(),
-        ),
-    );
+        ));
 
     let handle = omnipanel_gateway::spawn_gateway(
         omnipanel_gateway::GatewayConfig {
@@ -1569,8 +1545,7 @@ mod tests {
     #[test]
     fn tools_mode_dto_deserializes_camel_case_module_filter() {
         let json = r#"{"directInject":{"moduleFilter":"web","toolAllowlist":null}}"#;
-        let mode: InternalToolsModeDto =
-            serde_json::from_str(json).expect("deserialize toolsMode");
+        let mode: InternalToolsModeDto = serde_json::from_str(json).expect("deserialize toolsMode");
         match mode {
             InternalToolsModeDto::DirectInject {
                 module_filter,

@@ -3,16 +3,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    get_cached_addresses, inject_ssh_vault_into_config, load_host_resolve_cache,
-    save_host_resolve_cache, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref, upsert_cache_entry,
-    Connection, ConnectionKind, DbConnectionConfig, Vault,
+    Connection, ConnectionKind, DbConnectionConfig, Vault, get_cached_addresses,
+    inject_ssh_vault_into_config, load_host_resolve_cache, save_host_resolve_cache,
+    ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref, upsert_cache_entry,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::State;
 
 use crate::state::AppState;
-use omnipanel_ssh::{ssh_config_from_json, SshConfig};
+use omnipanel_ssh::{SshConfig, ssh_config_from_json};
 
 #[derive(Debug, Deserialize)]
 struct PanelConfig {
@@ -53,20 +53,19 @@ pub(crate) fn ssh_credential_ref(connection_id: &str) -> String {
 
 /// 从 Vault 注入密钥后解析 SSH 配置（config 内明文为空时回退钥匙串）。
 pub(crate) fn resolve_ssh_config(conn: &Connection) -> Result<SshConfig, OmniError> {
-    let (patched, password) = inject_ssh_vault_into_config(
-        &conn.config,
-        &conn.id,
-        conn.credential_ref.as_deref(),
-    )?;
+    let (patched, password) =
+        inject_ssh_vault_into_config(&conn.config, &conn.id, conn.credential_ref.as_deref())?;
     ssh_config_from_json(&patched, password.as_deref())
 }
 
 fn auth_password_plaintext(auth: &Value) -> Option<String> {
     auth.get("password")
         .and_then(|p| {
-            p.as_str()
-                .map(str::to_string)
-                .or_else(|| p.get("password").and_then(|v| v.as_str()).map(str::to_string))
+            p.as_str().map(str::to_string).or_else(|| {
+                p.get("password")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
         })
         .filter(|p| !p.is_empty())
 }
@@ -225,10 +224,7 @@ fn normalize_docker_or_panel_connection(
     }
 
     // 编辑时密钥留空（保留 Vault）：仍纠正误指向 SSH 密码的 credential_ref
-    if matches!(
-        source.as_str(),
-        "btpanel" | "baota" | "panel-adapter"
-    ) {
+    if matches!(source.as_str(), "btpanel" | "baota" | "panel-adapter") {
         let expected = format!("docker-btpanel-{id}");
         let ref_ok = connection
             .credential_ref
@@ -392,8 +388,8 @@ pub async fn conn_test(
 ) -> Result<String, OmniError> {
     match connection.kind {
         ConnectionKind::Database => {
-            let mut db_config: DbConnectionConfig =
-                serde_json::from_str(&connection.config).map_err(|e| {
+            let mut db_config: DbConnectionConfig = serde_json::from_str(&connection.config)
+                .map_err(|e| {
                     OmniError::new(ErrorCode::InvalidInput, "数据库连接配置解析失败")
                         .with_cause(e.to_string())
                 })?;
@@ -462,10 +458,7 @@ pub async fn conn_test(
             )
             .await?;
             if !connection.id.is_empty() {
-                crate::commands::file_manager::mark_file_connection_online(
-                    &state,
-                    &connection.id,
-                );
+                crate::commands::file_manager::mark_file_connection_online(&state, &connection.id);
             }
             Ok(msg)
         }
@@ -496,9 +489,8 @@ pub async fn resolve_host(host: String) -> Result<Vec<String>, OmniError> {
         return Ok(vec![trimmed]);
     }
 
-    let mut cache = load_host_resolve_cache().map_err(|e| {
-        OmniError::internal(format!("加载主机解析缓存失败: {e}"))
-    })?;
+    let mut cache = load_host_resolve_cache()
+        .map_err(|e| OmniError::internal(format!("加载主机解析缓存失败: {e}")))?;
     if let Some(cached) = get_cached_addresses(&cache, &trimmed) {
         if !cached.is_empty() {
             return Ok(cached);
@@ -527,9 +519,8 @@ pub async fn resolve_host(host: String) -> Result<Vec<String>, OmniError> {
         .unwrap_or_default()
         .as_secs() as i64;
     upsert_cache_entry(&mut cache, &trimmed, addrs.clone(), now);
-    save_host_resolve_cache(&cache).map_err(|e| {
-        OmniError::internal(format!("保存主机解析缓存失败: {e}"))
-    })?;
+    save_host_resolve_cache(&cache)
+        .map_err(|e| OmniError::internal(format!("保存主机解析缓存失败: {e}")))?;
 
     Ok(addrs)
 }

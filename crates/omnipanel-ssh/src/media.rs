@@ -7,7 +7,7 @@ use base64::Engine;
 use omnipanel_error::OmniResult;
 use serde::{Deserialize, Serialize};
 
-use crate::{shell_single_quote, SshSession};
+use crate::{SshSession, shell_single_quote};
 /// 无 Range 时单次最多回传的字节（图片 / 小音频全量 GET）。
 pub const MEDIA_MAX_FULL_GET: u64 = 64 * 1024 * 1024;
 /// 单次 SFTP 读取块上限。
@@ -113,10 +113,7 @@ pub fn parse_bytes_range_header(range_header: Option<&str>, size: u64) -> Option
 }
 
 /// 无 Range 时对大文件强制返回首段，避免整文件灌入内存。
-pub fn resolve_media_byte_range(
-    range_header: Option<&str>,
-    size: u64,
-) -> (bool, ByteRange) {
+pub fn resolve_media_byte_range(range_header: Option<&str>, size: u64) -> (bool, ByteRange) {
     if let Some(r) = parse_bytes_range_header(range_header, size) {
         return (true, r);
     }
@@ -124,10 +121,13 @@ pub fn resolve_media_byte_range(
         let end = (2 * 1024 * 1024 - 1).min(size - 1);
         (true, ByteRange { start: 0, end })
     } else {
-        (false, ByteRange {
-            start: 0,
-            end: size.saturating_sub(1),
-        })
+        (
+            false,
+            ByteRange {
+                start: 0,
+                end: size.saturating_sub(1),
+            },
+        )
     }
 }
 

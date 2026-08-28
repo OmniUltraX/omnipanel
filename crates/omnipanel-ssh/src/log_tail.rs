@@ -10,9 +10,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, Mutex as AsyncMutex};
+use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
-use crate::{shell_single_quote, StreamChunk, SshSession, SshStreamHandle};
+use crate::{SshSession, SshStreamHandle, StreamChunk, shell_single_quote};
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -159,17 +159,17 @@ pub async fn sftp_log_read_lines(
             end = safe_end,
         )
     };
-    let output = match tokio::time::timeout(Duration::from_secs(30), session.exec_capture(&cmd)).await
-    {
-        Ok(Ok(o)) => o,
-        Ok(Err(e)) => return Err(e),
-        Err(_) => {
-            return Err(OmniError::new(
-                ErrorCode::Timeout,
-                "读取日志超时（文件过大或远端过慢）",
-            ));
-        }
-    };
+    let output =
+        match tokio::time::timeout(Duration::from_secs(30), session.exec_capture(&cmd)).await {
+            Ok(Ok(o)) => o,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                return Err(OmniError::new(
+                    ErrorCode::Timeout,
+                    "读取日志超时（文件过大或远端过慢）",
+                ));
+            }
+        };
     let mut lines = Vec::new();
     let mut n = start_line;
     for text in output.stdout.lines() {
@@ -227,10 +227,9 @@ impl SftpLogTailController {
         let n = lines_after.unwrap_or(0);
         let cmd = format!("tail -F -n {n} {}", shell_single_quote(&path));
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamChunk>();
-        let handle = session
-            .exec_stream(&cmd, tx)
-            .await
-            .map_err(|e| OmniError::new(ErrorCode::Ssh, "启动日志跟踪失败").with_cause(e.to_string()))?;
+        let handle = session.exec_stream(&cmd, tx).await.map_err(|e| {
+            OmniError::new(ErrorCode::Ssh, "启动日志跟踪失败").with_cause(e.to_string())
+        })?;
 
         let token = new_log_token("sftp-log");
         let event_name = format!("sftp-log-tail-{token}");

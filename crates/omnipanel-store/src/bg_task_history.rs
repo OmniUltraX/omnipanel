@@ -1,4 +1,4 @@
-use crate::storage::{map_sqlite, Storage};
+use crate::storage::{Storage, map_sqlite};
 use omnipanel_error::OmniResult;
 use serde::{Deserialize, Serialize};
 
@@ -99,9 +99,7 @@ impl Storage {
                     status: row.get(5)?,
                     index: row.get::<_, i64>(6)? as u32,
                     total: row.get::<_, i64>(7)? as u32,
-                    row_completed: row
-                        .get::<_, Option<i64>>(8)?
-                        .map(|v| v as u32),
+                    row_completed: row.get::<_, Option<i64>>(8)?.map(|v| v as u32),
                     row_total: row.get::<_, Option<i64>>(9)?.map(|v| v as u32),
                     started_at: row.get(10)?,
                     finished_at: row.get(11)?,

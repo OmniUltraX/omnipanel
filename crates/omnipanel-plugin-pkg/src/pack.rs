@@ -9,10 +9,10 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
 use ed25519_dalek::Signer;
-use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
+use zip::write::SimpleFileOptions;
 
-use crate::{PkgError, MANIFEST_ENTRY, SIGNATURE_ENTRY};
+use crate::{MANIFEST_ENTRY, PkgError, SIGNATURE_ENTRY};
 
 /// 从条目集合打包（name → bytes；路径用 `/`，禁止 `..` 与绝对路径）。
 /// `signing_key = None` 产出未签名包（仅 dev 可装载）。
@@ -56,11 +56,11 @@ pub fn pack_dir_with_entries(
         writer
             .start_file(SIGNATURE_ENTRY, SimpleFileOptions::default())
             .map_err(PkgError::from)?;
-        writer.write_all(&signature.to_bytes()).map_err(PkgError::from)?;
+        writer
+            .write_all(&signature.to_bytes())
+            .map_err(PkgError::from)?;
     }
-    writer
-        .finish()
-        .map_err(|e| PkgError::Io(e.to_string()))?;
+    writer.finish().map_err(|e| PkgError::Io(e.to_string()))?;
     Ok(())
 }
 
@@ -89,9 +89,7 @@ fn collect_files(
             let rel = path
                 .strip_prefix(root)
                 .map_err(|_| PkgError::Malformed("目录越界".into()))?;
-            let name = rel
-                .to_string_lossy()
-                .replace('\\', "/");
+            let name = rel.to_string_lossy().replace('\\', "/");
             let data = std::fs::read(&path).map_err(PkgError::from)?;
             entries.insert(name, data);
         }

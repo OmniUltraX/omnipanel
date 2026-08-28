@@ -9,7 +9,7 @@ use tauri::State;
 
 use omnipanel_store::{ai_config_dir, ai_providers_path, cli_providers_path};
 
-use crate::commands::agents::{agent_kind_key, detect_all_agents_sync, AgentKind};
+use crate::commands::agents::{AgentKind, agent_kind_key, detect_all_agents_sync};
 use crate::state::AppState;
 
 const PROVIDERS_VERSION: u32 = 1;
@@ -133,7 +133,9 @@ fn load_cli_provider_overrides() -> Result<HashMap<String, CliProviderOverride>,
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
-fn save_cli_provider_overrides(overrides: &HashMap<String, CliProviderOverride>) -> Result<(), String> {
+fn save_cli_provider_overrides(
+    overrides: &HashMap<String, CliProviderOverride>,
+) -> Result<(), String> {
     let dir = ai_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = cli_provider_overrides_path()?;
@@ -141,7 +143,10 @@ fn save_cli_provider_overrides(overrides: &HashMap<String, CliProviderOverride>)
     fs::write(path, raw).map_err(|e| e.to_string())
 }
 
-fn apply_cli_provider_override(mut provider: CliProviderRecord, ov: &CliProviderOverride) -> CliProviderRecord {
+fn apply_cli_provider_override(
+    mut provider: CliProviderRecord,
+    ov: &CliProviderOverride,
+) -> CliProviderRecord {
     if let Some(enabled) = ov.enabled {
         provider.enabled = enabled;
     }
@@ -485,9 +490,8 @@ fn spawn_model_discovery(command: &str, args: &[String]) -> Result<std::process:
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let lower = command.to_lowercase();
         if lower.ends_with(".cmd") || lower.ends_with(".bat") {
-            let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| {
-                r"C:\Windows\System32\cmd.exe".to_string()
-            });
+            let comspec = std::env::var("COMSPEC")
+                .unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_string());
             let mut cmd_args = vec!["/c".to_string(), command.to_string()];
             cmd_args.extend(args.iter().cloned());
             return Command::new(comspec)
@@ -539,7 +543,11 @@ fn parse_model_list(raw: &str) -> Vec<String> {
             return models;
         }
         if let Some(data) = obj.data {
-            let ids: Vec<String> = data.into_iter().map(|m| m.id).filter(|id| !id.is_empty()).collect();
+            let ids: Vec<String> = data
+                .into_iter()
+                .map(|m| m.id)
+                .filter(|id| !id.is_empty())
+                .collect();
             if !ids.is_empty() {
                 return ids;
             }
@@ -606,7 +614,9 @@ pub async fn provider_registry_save(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn cli_provider_list_cmd(_state: State<'_, AppState>) -> Result<Vec<CliProviderRecord>, String> {
+pub async fn cli_provider_list_cmd(
+    _state: State<'_, AppState>,
+) -> Result<Vec<CliProviderRecord>, String> {
     cli_provider_list()
 }
 

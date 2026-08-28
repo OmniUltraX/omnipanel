@@ -6,8 +6,8 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{Connection, ConnectionKind, Vault};
 
 use crate::files::{
-    ftp_connect_sync, load_file_connection, local_home, parse_file_config, protocol_of,
-    sftp_session_for, LOCAL_CONNECTION_ID,
+    LOCAL_CONNECTION_ID, ftp_connect_sync, load_file_connection, local_home, parse_file_config,
+    protocol_of, sftp_session_for,
 };
 use crate::state::ServerState;
 

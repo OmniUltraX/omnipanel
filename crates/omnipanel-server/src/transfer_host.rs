@@ -8,17 +8,17 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_s3::S3Config;
 use omnipanel_ssh::SshConfig;
 use omnipanel_transfer::{
+    TransferEventSink,
     provider::{SftpEndpointInfo, TransferDirEntry, TransferHost, TransferProtocol},
     remote_direct::remote_direct_eligible,
     types::{FileTransferJob, TRANSFER_PROGRESS_EVENT},
-    TransferEventSink,
 };
 
 use crate::bus::EventBus;
 use crate::files::{
-    self, ftp_connect_sync, ftp_remote_path, list_local_dir, load_file_connection,
-    local_home, parse_file_config, protocol_of, resolve_local_path, resolve_secret,
-    sftp_session_for, LOCAL_CONNECTION_ID,
+    self, LOCAL_CONNECTION_ID, ftp_connect_sync, ftp_remote_path, list_local_dir,
+    load_file_connection, local_home, parse_file_config, protocol_of, resolve_local_path,
+    resolve_secret, sftp_session_for,
 };
 use crate::terminal::ServerState;
 
@@ -191,12 +191,7 @@ impl TransferHost for ServerTransferHost {
         client.get_object(key).await
     }
 
-    async fn s3_put_bytes(
-        &self,
-        connection_id: &str,
-        key: &str,
-        data: &[u8],
-    ) -> OmniResult<()> {
+    async fn s3_put_bytes(&self, connection_id: &str, key: &str, data: &[u8]) -> OmniResult<()> {
         let client = s3_client_for(self.0.as_ref(), connection_id).await?;
         client.put_object(key, data).await
     }
@@ -254,9 +249,9 @@ impl TransferHost for ServerTransferHost {
         local_path: &Path,
     ) -> OmniResult<u64> {
         let key = remote_path.trim_start_matches('/');
-        let data = tokio::fs::read(local_path)
-            .await
-            .map_err(|e| OmniError::new(ErrorCode::Io, "读取临时文件失败").with_cause(e.to_string()))?;
+        let data = tokio::fs::read(local_path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "读取临时文件失败").with_cause(e.to_string())
+        })?;
         let n = data.len() as u64;
         self.s3_put_bytes(connection_id, key, &data).await?;
         Ok(n)
@@ -286,9 +281,8 @@ impl TransferHost for ServerTransferHost {
         let local_path = local_path.to_path_buf();
         tokio::task::spawn_blocking(move || {
             use std::io::Write;
-            let mut ftp = ftp_connect_sync(&cfg, &secret).map_err(|e| {
-                OmniError::new(ErrorCode::Io, "FTP 连接失败").with_cause(e)
-            })?;
+            let mut ftp = ftp_connect_sync(&cfg, &secret)
+                .map_err(|e| OmniError::new(ErrorCode::Io, "FTP 连接失败").with_cause(e))?;
             let mut reader = ftp.retr_as_stream(&remote).map_err(|e| {
                 OmniError::new(ErrorCode::Io, "FTP 下载失败").with_cause(e.to_string())
             })?;
@@ -307,7 +301,9 @@ impl TransferHost for ServerTransferHost {
             Ok(n)
         })
         .await
-        .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+        })?
     }
 
     async fn ftp_upload_from_file(
@@ -321,9 +317,8 @@ impl TransferHost for ServerTransferHost {
         let local_path = local_path.to_path_buf();
         tokio::task::spawn_blocking(move || {
             use std::io::Read;
-            let mut ftp = ftp_connect_sync(&cfg, &secret).map_err(|e| {
-                OmniError::new(ErrorCode::Io, "FTP 连接失败").with_cause(e)
-            })?;
+            let mut ftp = ftp_connect_sync(&cfg, &secret)
+                .map_err(|e| OmniError::new(ErrorCode::Io, "FTP 连接失败").with_cause(e))?;
             let mut file = std::fs::File::open(&local_path).map_err(|e| {
                 OmniError::new(ErrorCode::Io, "读取临时文件失败").with_cause(e.to_string())
             })?;
@@ -338,7 +333,9 @@ impl TransferHost for ServerTransferHost {
             Ok(data.len() as u64)
         })
         .await
-        .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+        })?
     }
 }
 

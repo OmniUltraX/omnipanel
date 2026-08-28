@@ -160,12 +160,13 @@ impl Storage {
     }
 
     /// 查询条目向量化状态；无分块时返回 None。
-    pub fn knowledge_vector_status(&self, entry_id: &str) -> OmniResult<Option<KnowledgeVectorStatus>> {
+    pub fn knowledge_vector_status(
+        &self,
+        entry_id: &str,
+    ) -> OmniResult<Option<KnowledgeVectorStatus>> {
         let conn = self.conn();
         let mut stmt = conn
-            .prepare(
-                "SELECT COUNT(*), MAX(created_at) FROM knowledge_chunks WHERE entry_id = ?1",
-            )
+            .prepare("SELECT COUNT(*), MAX(created_at) FROM knowledge_chunks WHERE entry_id = ?1")
             .map_err(map_sqlite)?;
         let (count, embedded_at): (i64, Option<i64>) = stmt
             .query_row([entry_id], |row| Ok((row.get(0)?, row.get(1)?)))
@@ -256,9 +257,7 @@ impl Storage {
         }
 
         let mut stmt = tx
-            .prepare(
-                "SELECT id FROM knowledge_chunks WHERE entry_id = ?1 ORDER BY chunk_index ASC",
-            )
+            .prepare("SELECT id FROM knowledge_chunks WHERE entry_id = ?1 ORDER BY chunk_index ASC")
             .map_err(map_sqlite)?;
         let remaining_ids: Vec<String> = stmt
             .query_map([entry_id], |row| row.get(0))

@@ -11,10 +11,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use omnipanel_error::{OmniError, OmniResult};
-use omnipanel_ssh::tmux::{commands as tmux_commands, ControllerEvent, PaneId, TmuxController, TmuxSink};
+use omnipanel_ssh::tmux::{
+    ControllerEvent, PaneId, TmuxController, TmuxSink, commands as tmux_commands,
+};
 use omnipanel_ssh::{SshConfig, SshSession};
 use serde::Serialize;
 use tokio::sync::Mutex;
@@ -221,7 +223,8 @@ impl TmuxManager {
 
     async fn drop_host(&self, cache_key: &str) {
         if let Some(host) = self.hosts.lock().await.remove(cache_key) {
-            host.controller.mark_disconnected("丢弃僵死 tmux control 连接");
+            host.controller
+                .mark_disconnected("丢弃僵死 tmux control 连接");
             host.session.disconnect().await;
         }
     }
@@ -465,8 +468,7 @@ impl TmuxManager {
         for binding in sessions.values() {
             // host_key 可能是 "user@host:port"（默认会话）或 "user@host:port:session"（指定会话），
             // 都以原始 host_identity 开头，因此用前缀匹配
-            if binding.host_key == host_key
-                || binding.host_key.starts_with(&format!("{host_key}:"))
+            if binding.host_key == host_key || binding.host_key.starts_with(&format!("{host_key}:"))
             {
                 *map.entry(binding.session_name.clone()).or_insert(0) += 1;
             }
@@ -575,5 +577,4 @@ impl TmuxManager {
             }
         });
     }
-
 }

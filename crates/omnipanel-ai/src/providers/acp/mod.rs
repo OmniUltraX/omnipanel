@@ -1,4 +1,4 @@
-﻿pub mod client;
+pub mod client;
 pub mod client_tools;
 pub mod native_tools;
 pub mod translate;
@@ -8,8 +8,8 @@ pub mod types;
 use anyhow::{Result, bail};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 use crate::ir::{StopReason, StreamEvent};
@@ -75,12 +75,7 @@ impl AcpManager {
         spawn_cwd: Option<String>,
     ) -> Self {
         Self {
-            client: Arc::new(AcpClient::new(
-                binary_path,
-                args,
-                spawn_env,
-                spawn_cwd,
-            )),
+            client: Arc::new(AcpClient::new(binary_path, args, spawn_env, spawn_cwd)),
             initialized: AtomicBool::new(false),
             agent_name: Mutex::new(None),
             conversation_sessions: Mutex::new(HashMap::new()),
@@ -116,10 +111,7 @@ impl AcpManager {
 
         let result = self
             .client
-            .request(
-                "initialize",
-                Some(serde_json::to_value(&init_params)?),
-            )
+            .request("initialize", Some(serde_json::to_value(&init_params)?))
             .await?;
 
         let init_result: InitializeResult = serde_json::from_value(result)?;
@@ -231,7 +223,9 @@ impl AcpManager {
                 // cwd 变更 → 必须重建会话（ACP cwd 在 session/new 时固定，不可热更新）
                 tracing::info!(
                     "ACP session cwd changed: {} -> {}, recreating session for conversation {}",
-                    cached.cwd, cwd, conversation_id
+                    cached.cwd,
+                    cwd,
+                    conversation_id
                 );
             }
         }
@@ -244,10 +238,7 @@ impl AcpManager {
 
         let result = self
             .client
-            .request(
-                "session/new",
-                Some(serde_json::to_value(&params)?),
-            )
+            .request("session/new", Some(serde_json::to_value(&params)?))
             .await?;
 
         let new_result: SessionNewResult = serde_json::from_value(result)?;
@@ -341,8 +332,7 @@ impl AcpManager {
                     if let Ok(notif) =
                         serde_json::from_value::<SessionUpdateNotification>(params.clone())
                     {
-                        for event in
-                            translate_session_update_from_notif(&notif, &translate_options)
+                        for event in translate_session_update_from_notif(&notif, &translate_options)
                         {
                             if content_hold {
                                 if let StreamEvent::ContentDelta { text } = &event {
@@ -665,23 +655,29 @@ fn should_skip_acp_authenticate() -> bool {
     false
 }
 
-async fn apply_session_model(
-    client: &Arc<AcpClient>,
-    session: &SessionNewResult,
-    requested: &str,
-) {
+async fn apply_session_model(client: &Arc<AcpClient>, session: &SessionNewResult, requested: &str) {
     let session_id = session.session_id.clone();
-    if try_set_config_option(client, &session_id, "model", requested, &session.config_options).await
+    if try_set_config_option(
+        client,
+        &session_id,
+        "model",
+        requested,
+        &session.config_options,
+    )
+    .await
     {
         return;
     }
     if client
         .request(
             "session/set_model",
-            Some(serde_json::to_value(&SetModelParams {
-                session_id,
-                model_id: requested.to_string(),
-            }).unwrap_or_default()),
+            Some(
+                serde_json::to_value(&SetModelParams {
+                    session_id,
+                    model_id: requested.to_string(),
+                })
+                .unwrap_or_default(),
+            ),
         )
         .await
         .is_ok()
@@ -769,9 +765,7 @@ mod tests {
         assert!(!content_starts_as_plain_text("[{"));
         assert!(!content_starts_as_plain_text("```json"));
         // 人话前缀 + 嵌入 JSON → 可开闸冲刷前缀
-        assert!(content_starts_as_plain_text(
-            "说明一下\n{\"tool_calls\":["
-        ));
+        assert!(content_starts_as_plain_text("说明一下\n{\"tool_calls\":["));
         // 空白 → 尚不能判定，保持 hold
         assert!(!content_starts_as_plain_text("   "));
     }
@@ -783,11 +777,8 @@ mod tests {
 
         let gate = AtomicBool::new(true);
         let buf = Arc::new(Mutex::new(String::new()));
-        let sent = apply_content_hold_gate(
-            "好的\n{\"tool_calls\":[{\"id\":\"c1\"}",
-            &gate,
-            Some(&buf),
-        );
+        let sent =
+            apply_content_hold_gate("好的\n{\"tool_calls\":[{\"id\":\"c1\"}", &gate, Some(&buf));
         assert_eq!(sent.as_deref(), Some("好的"));
         assert!(!gate.load(Ordering::Relaxed));
         assert!(buf.lock().unwrap().contains("\"tool_calls\""));
@@ -822,11 +813,7 @@ mod tests {
                 "{\"command\":\"a\",\"exitCode\":0}".to_string(),
                 true,
             ),
-            (
-                "omni_ssh_exec".to_string(),
-                String::new(),
-                false,
-            ),
+            ("omni_ssh_exec".to_string(), String::new(), false),
         ];
         let p = format_client_tool_results_prompt(&results);
         assert!(p.contains("用户拒绝执行"));

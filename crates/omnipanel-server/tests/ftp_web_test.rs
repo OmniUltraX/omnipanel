@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use omnipanel_server::{run_server, ServerConfig};
+use omnipanel_server::{ServerConfig, run_server};
 use omnipanel_store::{Connection, ConnectionKind};
 
 fn ftp_conn() -> Connection {
@@ -56,7 +56,10 @@ async fn ftp_list_read_via_server_state() {
     println!("ftp list result: {result:?}");
     assert!(result.is_ok(), "FTP 列目录应成功");
     let entries = result.unwrap().entries;
-    assert!(entries.iter().any(|e| e.name == "hello.txt"), "应列出 hello.txt");
+    assert!(
+        entries.iter().any(|e| e.name == "hello.txt"),
+        "应列出 hello.txt"
+    );
 
     // 1b) FTP 读取文件
     let read = omnipanel_server::files::file_read_file(
@@ -66,7 +69,11 @@ async fn ftp_list_read_via_server_state() {
         1024.0 * 1024.0,
     )
     .await;
-    println!("ftp read: {:?}", read.as_ref().map(|d| String::from_utf8_lossy(d).into_owned()));
+    println!(
+        "ftp read: {:?}",
+        read.as_ref()
+            .map(|d| String::from_utf8_lossy(d).into_owned())
+    );
     assert_eq!(
         String::from_utf8_lossy(&read.unwrap()).trim(),
         "ftp test file content",

@@ -5,10 +5,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::OmniError;
 use omnipanel_store::{
-    knowledge_entry_assets_dir, KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult,
-    KnowledgeTodoList, KnowledgeChunkListResult, ResourceObservation, ResourceProfileSummary,
-    SearchEverywhereHit, TagDto, TagMatchMode, TagSource, TaggableKind, TaggedResourceSummary,
-    TodoList, TodoStep, TodoTask, TodoTaskQuery,
+    KnowledgeChunkListResult, KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult,
+    KnowledgeTodoList, ResourceObservation, ResourceProfileSummary, SearchEverywhereHit, TagDto,
+    TagMatchMode, TagSource, TaggableKind, TaggedResourceSummary, TodoList, TodoStep, TodoTask,
+    TodoTaskQuery, knowledge_entry_assets_dir,
 };
 use serde::{Deserialize, Serialize};
 
@@ -158,9 +158,8 @@ pub async fn knowledge_save_asset(
         .unwrap_or("bin");
     let stored_name = format!("{}.{}", new_knowledge_id(), ext);
     let path = dir.join(&stored_name);
-    std::fs::write(&path, bytes).map_err(|e| {
-        OmniError::internal("写入附件失败").with_cause(e.to_string())
-    })?;
+    std::fs::write(&path, bytes)
+        .map_err(|e| OmniError::internal("写入附件失败").with_cause(e.to_string()))?;
 
     Ok(KnowledgeAssetSaved {
         entry_id: entry_id.to_string(),
@@ -169,7 +168,10 @@ pub async fn knowledge_save_asset(
     })
 }
 
-pub async fn knowledge_asset_path(entry_id: String, file_name: String) -> Result<String, OmniError> {
+pub async fn knowledge_asset_path(
+    entry_id: String,
+    file_name: String,
+) -> Result<String, OmniError> {
     let safe_name = Path::new(file_name.trim())
         .file_name()
         .and_then(|s| s.to_str())
@@ -484,10 +486,7 @@ pub async fn todo_task_list(
     storage.list_todo_tasks(&query)
 }
 
-pub async fn todo_task_get(
-    state: &ServerState,
-    id: String,
-) -> Result<Option<TodoTask>, OmniError> {
+pub async fn todo_task_get(state: &ServerState, id: String) -> Result<Option<TodoTask>, OmniError> {
     let storage = state.storage.lock().await;
     storage.get_todo_task(&id)
 }
@@ -540,11 +539,7 @@ pub async fn resource_find_similar(
     limit: Option<f64>,
 ) -> Result<Vec<ResourceProfileSummary>, OmniError> {
     let storage = state.storage.lock().await;
-    storage.find_similar_resources(
-        &resource_type,
-        &resource_id,
-        limit.unwrap_or(5.0) as usize,
-    )
+    storage.find_similar_resources(&resource_type, &resource_id, limit.unwrap_or(5.0) as usize)
 }
 
 pub async fn resource_delete_observations(

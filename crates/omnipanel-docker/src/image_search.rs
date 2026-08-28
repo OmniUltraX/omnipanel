@@ -139,11 +139,10 @@ pub async fn search_via_registry_mirrors(
         }
     }
 
-    Err(OmniError::new(
-        ErrorCode::Connection,
-        "通过 registry-mirrors 搜索镜像失败",
+    Err(
+        OmniError::new(ErrorCode::Connection, "通过 registry-mirrors 搜索镜像失败")
+            .with_cause(errors.join(" | ")),
     )
-    .with_cause(errors.join(" | ")))
 }
 
 async fn search_one_mirror(
@@ -154,10 +153,7 @@ async fn search_one_mirror(
 ) -> OmniResult<Vec<DockerImageSearchResult>> {
     let base = mirror.trim_end_matches('/');
     // 1) Hub Index v1（多数公共加速器会代理）
-    let v1_url = format!(
-        "{base}/v1/search?q={}&n={limit}",
-        urlencoding_encode(term)
-    );
+    let v1_url = format!("{base}/v1/search?q={}&n={limit}", urlencoding_encode(term));
     match fetch_text(client, &v1_url).await {
         Ok(body) => {
             if let Ok(rows) = parse_hub_v1_search_body(&body, limit) {
@@ -212,8 +208,7 @@ async fn enrich_pull_counts_from_hub_v2(
         "https://hub.docker.com/v2/search/repositories/?query={}&page_size={limit}",
         urlencoding_encode(term)
     );
-    let Ok(Ok(body)) =
-        tokio::time::timeout(Duration::from_secs(6), fetch_text(client, &url)).await
+    let Ok(Ok(body)) = tokio::time::timeout(Duration::from_secs(6), fetch_text(client, &url)).await
     else {
         return;
     };

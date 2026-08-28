@@ -356,8 +356,14 @@ fn apply_client_identity_headers_with_app(
         .header("X-App-Role", CLIENT_APP_ROLE)
         .header("X-Device-Id", &identity.device_id)
         // HeaderValue 仅允许可见 ASCII；中文主机名等需降级，避免请求构建失败
-        .header("X-Device-Name", ascii_header_value(&identity.device_name, "OmniPanel"))
-        .header("X-Device-OS", ascii_header_value(&identity.os_type, "unknown"))
+        .header(
+            "X-Device-Name",
+            ascii_header_value(&identity.device_name, "OmniPanel"),
+        )
+        .header(
+            "X-Device-OS",
+            ascii_header_value(&identity.os_type, "unknown"),
+        )
 }
 
 /// 绑定出码时「按 app_id 找不到本机设备」类错误（服务端文案不完全统一）。
@@ -452,7 +458,13 @@ fn ascii_header_value(raw: &str, fallback: &str) -> String {
     }
     let filtered: String = trimmed
         .chars()
-        .map(|c| if c.is_ascii() && !c.is_control() { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii() && !c.is_control() {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let filtered = filtered.trim_matches('_').trim();
     if filtered.is_empty() {
@@ -610,9 +622,7 @@ fn take_cancel(login_id: &str) -> Option<oneshot::Sender<()>> {
 
 fn register_cancel(login_id: &str) -> oneshot::Receiver<()> {
     let (tx, rx) = oneshot::channel();
-    let mut map = LOGIN_WAIT_CANCELS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut map = LOGIN_WAIT_CANCELS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(prev) = map.insert(login_id.to_string(), tx) {
         let _ = prev.send(());
     }
@@ -640,9 +650,7 @@ pub async fn auth_device_identity() -> Result<AuthDeviceIdentity, OmniError> {
 }
 
 /// 获取当前用户设备列表。
-pub async fn auth_list_devices(
-    token: String,
-) -> Result<Vec<AuthDevice>, OmniError> {
+pub async fn auth_list_devices(token: String) -> Result<Vec<AuthDevice>, OmniError> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
@@ -651,9 +659,8 @@ pub async fn auth_list_devices(
     let proxy_config = proxy_config();
     let identity = load_or_create_device_identity()?;
     let url = auth_url("/api/devices");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = apply_client_identity_headers(
         client
@@ -686,11 +693,7 @@ pub async fn auth_list_devices(
     if let Some(error) = parsed.error.filter(|s| !s.is_empty()) {
         // 偶发与绑定同一文案；给设备列表页可读提示
         if is_binding_device_lookup_miss(&error) {
-            return Err(OmniError::new(
-                ErrorCode::Auth,
-                "登录已失效，请重新登录",
-            )
-            .with_cause(error));
+            return Err(OmniError::new(ErrorCode::Auth, "登录已失效，请重新登录").with_cause(error));
         }
         return Err(OmniError::new(ErrorCode::Internal, error));
     }
@@ -722,7 +725,10 @@ pub async fn auth_delete_device(
         return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
     }
     if device_id.is_empty() {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "device_id 不能为空"));
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "device_id 不能为空",
+        ));
     }
 
     let app_id = app_id
@@ -737,9 +743,8 @@ pub async fn auth_delete_device(
         urlencoding_encode(&device_id),
         urlencoding_encode(&app_id)
     ));
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = apply_client_identity_headers(
         client
@@ -750,8 +755,7 @@ pub async fn auth_delete_device(
     .send()
     .await
     .map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "删除设备失败")
-            .with_cause(format_reqwest_error(&e))
+        OmniError::new(ErrorCode::Connection, "删除设备失败").with_cause(format_reqwest_error(&e))
     })?;
 
     let status = resp.status();
@@ -775,7 +779,10 @@ pub async fn auth_delete_device(
     // 成功体形如 { "status": "deleted", "device_id": "xxx", "app_id": "..." }；兼容空响应
     if !body.trim().is_empty() {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
-            if let Some(error) = value.get("error").and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+            if let Some(error) = value
+                .get("error")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
             {
                 return Err(OmniError::new(ErrorCode::Internal, error.to_string()));
             }
@@ -837,12 +844,10 @@ pub(crate) fn resolve_sync_team<'a>(
         Some(id) if id > 0 => id,
         _ => require_personal_team_id(me)?,
     };
-    me.teams.iter().find(|t| t.id == id).ok_or_else(|| {
-        OmniError::new(
-            ErrorCode::Auth,
-            "无权访问该团队同步数据：你不是该团队成员",
-        )
-    })
+    me.teams
+        .iter()
+        .find(|t| t.id == id)
+        .ok_or_else(|| OmniError::new(ErrorCode::Auth, "无权访问该团队同步数据：你不是该团队成员"))
 }
 
 /// 同步 blob 端到端密钥材料（内存派生 AES 密钥；不落盘、不上传）。
@@ -931,9 +936,7 @@ fn parse_auth_error(body: &str, fallback: &str) -> OmniError {
 }
 
 /// 获取当前用户信息（GET /api/me）。
-pub async fn auth_get_me(
-    token: String,
-) -> Result<AuthUserProfile, OmniError> {
+pub async fn auth_get_me(token: String) -> Result<AuthUserProfile, OmniError> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
@@ -942,9 +945,8 @@ pub async fn auth_get_me(
     let proxy_config = proxy_config();
     let url = auth_url("/api/me");
     // /api/me 是轻量接口，8s 足够；启动期后台调用，避免网络不通时卡满 30s
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(8)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(8))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = client
         .get(&url)
@@ -1010,9 +1012,8 @@ pub async fn auth_update_profile(
 
     let proxy_config = proxy_config();
     let url = auth_url("/api/me");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = client
         .patch(&url)
@@ -1054,14 +1055,12 @@ pub async fn auth_update_profile(
 }
 
 /// 获取微信扫码登录二维码。
-pub async fn auth_login_qrcode(
-) -> Result<AuthLoginQrcode, OmniError> {
+pub async fn auth_login_qrcode() -> Result<AuthLoginQrcode, OmniError> {
     let identity = load_or_create_device_identity()?;
     let proxy_config = proxy_config();
     let url = auth_url("/api/login/qrcode");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = apply_client_identity_headers(client.get(&url), &identity)
         .send()
@@ -1072,10 +1071,9 @@ pub async fn auth_login_qrcode(
         })?;
 
     let status = resp.status();
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Io, "读取二维码响应失败").with_cause(e.to_string()))?;
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取二维码响应失败").with_cause(e.to_string())
+    })?;
 
     let parsed: ApiQrcodeResponse = serde_json::from_str(&body).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析二维码响应失败")
@@ -1113,13 +1111,11 @@ pub async fn auth_login_qrcode(
 }
 
 /// 获取侧栏小程序 / H5 公开二维码图片地址。
-pub async fn auth_public_qrcodes(
-) -> Result<AuthPublicQrcodes, OmniError> {
+pub async fn auth_public_qrcodes() -> Result<AuthPublicQrcodes, OmniError> {
     let proxy_config = proxy_config();
     let url = auth_url("/api/public/qrcodes");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = client.get(&url).send().await.map_err(|e| {
         OmniError::new(ErrorCode::Connection, "获取公开二维码失败")
@@ -1127,10 +1123,9 @@ pub async fn auth_public_qrcodes(
     })?;
 
     let status = resp.status();
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Io, "读取公开二维码响应失败").with_cause(e.to_string()))?;
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取公开二维码响应失败").with_cause(e.to_string())
+    })?;
 
     let parsed: ApiPublicQrcodesResponse = serde_json::from_str(&body).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析公开二维码响应失败")
@@ -1171,9 +1166,7 @@ pub async fn auth_public_qrcodes(
 }
 
 /// 刷新设备在线 presence（POST /api/presence）。
-pub async fn auth_presence(
-    token: String,
-) -> Result<AuthPresenceResult, OmniError> {
+pub async fn auth_presence(token: String) -> Result<AuthPresenceResult, OmniError> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
@@ -1182,9 +1175,8 @@ pub async fn auth_presence(
     let proxy_config = proxy_config();
     let identity = load_or_create_device_identity()?;
     let url = auth_url("/api/presence");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(20)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(20))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = apply_client_identity_headers(
         client
@@ -1238,9 +1230,7 @@ pub async fn auth_presence(
 }
 
 /// 登出当前会话（POST /api/logout），服务端会立刻清除 presence。
-pub async fn auth_logout(
-    token: String,
-) -> Result<(), OmniError> {
+pub async fn auth_logout(token: String) -> Result<(), OmniError> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Ok(());
@@ -1249,9 +1239,8 @@ pub async fn auth_logout(
     let proxy_config = proxy_config();
     let identity = load_or_create_device_identity()?;
     let url = auth_url("/api/logout");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(15)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(15))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = apply_client_identity_headers(
         client
@@ -1262,8 +1251,7 @@ pub async fn auth_logout(
     .send()
     .await
     .map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "登出失败")
-            .with_cause(format_reqwest_error(&e))
+        OmniError::new(ErrorCode::Connection, "登出失败").with_cause(format_reqwest_error(&e))
     })?;
 
     let status = resp.status();
@@ -1272,11 +1260,7 @@ pub async fn auth_logout(
         return Ok(());
     }
     let body = resp.text().await.unwrap_or_default();
-    Err(OmniError::new(
-        ErrorCode::Connection,
-        format!("登出失败 (HTTP {status})"),
-    )
-    .with_cause(body))
+    Err(OmniError::new(ErrorCode::Connection, format!("登出失败 (HTTP {status})")).with_cause(body))
 }
 
 /// 通过后端代理 SSE，等待扫码登录成功。
@@ -1295,9 +1279,7 @@ pub async fn auth_login_wait(
     ));
     let timeout_secs = u64::from(expire_in_sec.unwrap_or(300).saturating_add(30).max(60));
     let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(timeout_secs))
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
-        })?;
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let cancel_rx = register_cancel(&login_id);
 
@@ -1322,9 +1304,7 @@ pub async fn auth_login_cancel_wait(login_id: String) -> Result<(), OmniError> {
 }
 
 /// 发送邮箱登录验证码（POST /api/login/email/send）。
-pub async fn auth_login_email_send(
-    email: String,
-) -> Result<AuthEmailCodeSent, OmniError> {
+pub async fn auth_login_email_send(email: String) -> Result<AuthEmailCodeSent, OmniError> {
     let email = email.trim().to_string();
     if email.is_empty() || !email.contains('@') {
         return Err(OmniError::new(ErrorCode::InvalidInput, "请输入有效邮箱"));
@@ -1332,9 +1312,8 @@ pub async fn auth_login_email_send(
 
     let proxy_config = proxy_config();
     let url = auth_url("/api/login/email/send");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = client
         .post(&url)
@@ -1347,10 +1326,9 @@ pub async fn auth_login_email_send(
         })?;
 
     let status = resp.status();
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Io, "读取验证码响应失败").with_cause(e.to_string()))?;
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取验证码响应失败").with_cause(e.to_string())
+    })?;
 
     let parsed: ApiEmailSendResponse = serde_json::from_str(&body).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析验证码响应失败")
@@ -1376,10 +1354,7 @@ pub async fn auth_login_email_send(
 }
 
 /// 邮箱验证码登录（POST /api/login/email）。
-pub async fn auth_login_email(
-    email: String,
-    code: String,
-) -> Result<AuthLoginSuccess, OmniError> {
+pub async fn auth_login_email(email: String, code: String) -> Result<AuthLoginSuccess, OmniError> {
     let email = email.trim().to_string();
     let code = code.trim().to_string();
     if email.is_empty() || !email.contains('@') {
@@ -1392,9 +1367,8 @@ pub async fn auth_login_email(
     let identity = load_or_create_device_identity()?;
     let proxy_config = proxy_config();
     let url = auth_url("/api/login/email");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let resp = apply_client_identity_headers(client.post(&url), &identity)
         .json(&serde_json::json!({ "email": email, "code": code }))
@@ -1415,8 +1389,7 @@ pub async fn auth_login_email(
 }
 
 /// GitHub OAuth 登录：系统浏览器授权，本机回环接收 `?token=`。
-pub async fn auth_login_github(
-) -> Result<AuthLoginSuccess, OmniError> {
+pub async fn auth_login_github() -> Result<AuthLoginSuccess, OmniError> {
     let identity = load_or_create_device_identity()?;
     let proxy_config = proxy_config();
     let url = auth_url("/api/login/github");
@@ -1452,14 +1425,12 @@ pub async fn auth_login_github(
         ));
     }
 
-    let authorize_url = location
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| {
-            parse_auth_error(
-                &body,
-                "GitHub 登录未返回授权地址（请确认服务端已配置 OAuth）",
-            )
-        })?;
+    let authorize_url = location.filter(|s| !s.trim().is_empty()).ok_or_else(|| {
+        parse_auth_error(
+            &body,
+            "GitHub 登录未返回授权地址（请确认服务端已配置 OAuth）",
+        )
+    })?;
 
     let authorize_url = Url::parse(&authorize_url).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "GitHub 授权地址无效").with_cause(e.to_string())
@@ -1607,8 +1578,9 @@ async fn poll_github_link_bound(
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             if status.as_u16() == 401 {
-                return Err(OmniError::new(ErrorCode::Auth, "登录已失效，请重新登录")
-                    .with_cause(body));
+                return Err(
+                    OmniError::new(ErrorCode::Auth, "登录已失效，请重新登录").with_cause(body)
+                );
             }
             if status.is_success() {
                 if let Ok(parsed) = serde_json::from_str::<ApiAccountLinksResponse>(&body) {
@@ -1665,28 +1637,26 @@ fn parse_account_link_error(body: &str, status: reqwest::StatusCode, fallback: &
         .and_then(|b| b.error)
         .filter(|s| !s.is_empty());
     match (status.as_u16(), code.as_deref()) {
-        (401, _) => OmniError::new(ErrorCode::Auth, "登录已失效，请重新登录")
-            .with_cause(body.to_string()),
+        (401, _) => {
+            OmniError::new(ErrorCode::Auth, "登录已失效，请重新登录").with_cause(body.to_string())
+        }
         (409, Some("already_bound")) => OmniError::new(
             ErrorCode::InvalidInput,
             "该身份已绑定其他账号，无法重复绑定",
         )
         .with_cause(body.to_string()),
-        (409, Some("already_linked")) => OmniError::new(
-            ErrorCode::InvalidInput,
-            "当前账号已绑定此登录方式",
-        )
-        .with_cause(body.to_string()),
-        (409, Some("not_linked")) => OmniError::new(
-            ErrorCode::InvalidInput,
-            "当前账号未绑定此登录方式",
-        )
-        .with_cause(body.to_string()),
-        (409, Some("last_identity")) => OmniError::new(
-            ErrorCode::InvalidInput,
-            "至少保留一种登录方式，无法解绑",
-        )
-        .with_cause(body.to_string()),
+        (409, Some("already_linked")) => {
+            OmniError::new(ErrorCode::InvalidInput, "当前账号已绑定此登录方式")
+                .with_cause(body.to_string())
+        }
+        (409, Some("not_linked")) => {
+            OmniError::new(ErrorCode::InvalidInput, "当前账号未绑定此登录方式")
+                .with_cause(body.to_string())
+        }
+        (409, Some("last_identity")) => {
+            OmniError::new(ErrorCode::InvalidInput, "至少保留一种登录方式，无法解绑")
+                .with_cause(body.to_string())
+        }
         (409, Some(msg)) => {
             OmniError::new(ErrorCode::InvalidInput, msg.to_string()).with_cause(body.to_string())
         }
@@ -1694,28 +1664,24 @@ fn parse_account_link_error(body: &str, status: reqwest::StatusCode, fallback: &
             // 业务失败（含绑定冲突文案）不要标成 Auth，避免前端误判为会话失效
             OmniError::new(ErrorCode::InvalidInput, msg.to_string()).with_cause(body.to_string())
         }
-        _ if !status.is_success() => OmniError::new(
-            ErrorCode::Connection,
-            format!("{fallback} (HTTP {status})"),
-        )
-        .with_cause(body.to_string()),
+        _ if !status.is_success() => {
+            OmniError::new(ErrorCode::Connection, format!("{fallback} (HTTP {status})"))
+                .with_cause(body.to_string())
+        }
         _ => OmniError::new(ErrorCode::Internal, fallback.to_string()).with_cause(body.to_string()),
     }
 }
 
 /// 查询账号绑定状态（GET /api/account/links）。
-pub async fn auth_account_links(
-    token: String,
-) -> Result<AuthAccountLinks, OmniError> {
+pub async fn auth_account_links(token: String) -> Result<AuthAccountLinks, OmniError> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
     }
     let proxy_config = proxy_config();
     let url = auth_url("/api/account/links");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
     let resp = client
         .get(&url)
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
@@ -1730,7 +1696,11 @@ pub async fn auth_account_links(
         OmniError::new(ErrorCode::Io, "读取绑定状态响应失败").with_cause(e.to_string())
     })?;
     if !status.is_success() {
-        return Err(parse_account_link_error(&body, status, "获取账号绑定状态失败"));
+        return Err(parse_account_link_error(
+            &body,
+            status,
+            "获取账号绑定状态失败",
+        ));
     }
     let parsed: ApiAccountLinksResponse = serde_json::from_str(&body).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析绑定状态失败")
@@ -1739,20 +1709,14 @@ pub async fn auth_account_links(
     Ok(AuthAccountLinks {
         wechat: AuthAccountLinkStatus {
             bound: parsed.wechat.as_ref().map(|x| x.bound).unwrap_or(false),
-            openid: parsed
-                .wechat
-                .and_then(|x| x.openid)
-                .unwrap_or_default(),
+            openid: parsed.wechat.and_then(|x| x.openid).unwrap_or_default(),
             github_id: String::new(),
             email: String::new(),
         },
         github: AuthAccountLinkStatus {
             bound: parsed.github.as_ref().map(|x| x.bound).unwrap_or(false),
             openid: String::new(),
-            github_id: parsed
-                .github
-                .and_then(|x| x.github_id)
-                .unwrap_or_default(),
+            github_id: parsed.github.and_then(|x| x.github_id).unwrap_or_default(),
             email: String::new(),
         },
         email: AuthAccountLinkStatus {
@@ -1765,18 +1729,15 @@ pub async fn auth_account_links(
 }
 
 /// 创建微信绑定二维码（POST /api/account/links/wechat/qrcode）。
-pub async fn auth_link_wechat_qrcode(
-    token: String,
-) -> Result<AuthLoginQrcode, OmniError> {
+pub async fn auth_link_wechat_qrcode(token: String) -> Result<AuthLoginQrcode, OmniError> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
     }
     let proxy_config = proxy_config();
     let url = auth_url("/api/account/links/wechat/qrcode");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
     let resp = client
         .post(&url)
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
@@ -1843,9 +1804,7 @@ pub async fn auth_link_wechat_wait(
     ));
     let timeout_secs = u64::from(expire_in_sec.unwrap_or(300).saturating_add(30).max(60));
     let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(timeout_secs))
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
-        })?;
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
     let cancel_rx = register_cancel(&login_id);
     let result = tokio::select! {
         biased;
@@ -1879,9 +1838,8 @@ pub async fn auth_link_email_send(
     }
     let proxy_config = proxy_config();
     let url = auth_url("/api/account/links/email/send");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
     let resp = client
         .post(&url)
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
@@ -1897,7 +1855,11 @@ pub async fn auth_link_email_send(
         OmniError::new(ErrorCode::Io, "读取验证码响应失败").with_cause(e.to_string())
     })?;
     if !status.is_success() {
-        return Err(parse_account_link_error(&body, status, "发送绑定验证码失败"));
+        return Err(parse_account_link_error(
+            &body,
+            status,
+            "发送绑定验证码失败",
+        ));
     }
     let parsed: ApiEmailSendResponse = serde_json::from_str(&body).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析验证码响应失败")
@@ -1934,9 +1896,8 @@ pub async fn auth_link_email(
     }
     let proxy_config = proxy_config();
     let url = auth_url("/api/account/links/email");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
     let resp = client
         .post(&url)
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
@@ -1965,9 +1926,7 @@ pub async fn auth_link_email(
 }
 
 /// GitHub OAuth 绑定：系统浏览器授权，轮询 `/api/account/links` 直到绑定成功。
-pub async fn auth_link_github(
-    token: String,
-) -> Result<(), OmniError> {
+pub async fn auth_link_github(token: String) -> Result<(), OmniError> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
@@ -2003,24 +1962,25 @@ pub async fn auth_link_github(
             },
         ));
     }
-    let authorize_url = location
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| {
-            parse_account_link_error(
-                &body,
-                status,
-                "GitHub 绑定未返回授权地址（请确认服务端已配置 OAuth）",
-            )
-        })?;
+    let authorize_url = location.filter(|s| !s.trim().is_empty()).ok_or_else(|| {
+        parse_account_link_error(
+            &body,
+            status,
+            "GitHub 绑定未返回授权地址（请确认服务端已配置 OAuth）",
+        )
+    })?;
     let authorize_url = Url::parse(&authorize_url).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "GitHub 授权地址无效").with_cause(e.to_string())
     })?;
 
     open_system_browser(&authorize_url)?;
 
-    let poll_client =
-        build_http_client_for_url(&auth_url("/api/account/links"), &proxy_config, Duration::from_secs(30))
-            .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
+    let poll_client = build_http_client_for_url(
+        &auth_url("/api/account/links"),
+        &proxy_config,
+        Duration::from_secs(30),
+    )
+    .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let cancel_rx = register_cancel(GITHUB_OAUTH_CANCEL_LINK);
     let result = poll_github_link_bound(&poll_client, &token, cancel_rx).await;
@@ -2047,9 +2007,8 @@ async fn auth_unlink_path(
     }
     let proxy_config = proxy_config();
     let url = auth_url(path);
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
     let resp = client
         .delete(&url)
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
@@ -2077,23 +2036,17 @@ async fn auth_unlink_path(
 }
 
 /// 解绑微信（DELETE /api/account/links/wechat）。
-pub async fn auth_unlink_wechat(
-    token: String,
-) -> Result<AuthUserProfile, OmniError> {
+pub async fn auth_unlink_wechat(token: String) -> Result<AuthUserProfile, OmniError> {
     auth_unlink_path(token, "/api/account/links/wechat", "解绑微信失败").await
 }
 
 /// 解绑 GitHub（DELETE /api/account/links/github）。
-pub async fn auth_unlink_github(
-    token: String,
-) -> Result<AuthUserProfile, OmniError> {
+pub async fn auth_unlink_github(token: String) -> Result<AuthUserProfile, OmniError> {
     auth_unlink_path(token, "/api/account/links/github", "解绑 GitHub 失败").await
 }
 
 /// 解绑邮箱（DELETE /api/account/links/email）。
-pub async fn auth_unlink_email(
-    token: String,
-) -> Result<AuthUserProfile, OmniError> {
+pub async fn auth_unlink_email(token: String) -> Result<AuthUserProfile, OmniError> {
     auth_unlink_path(token, "/api/account/links/email", "解绑邮箱失败").await
 }
 
@@ -2120,11 +2073,7 @@ async fn wait_sse_account_link(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(parse_account_link_error(
-            &body,
-            status,
-            "微信绑定等待失败",
-        ));
+        return Err(parse_account_link_error(&body, status, "微信绑定等待失败"));
     }
 
     let mut stream = resp.bytes_stream();
@@ -2214,13 +2163,15 @@ fn map_token_login_response(
         return Err(OmniError::new(ErrorCode::Auth, error));
     }
     if !status.is_success() {
-        return Err(parse_auth_error(body, &format!("{fallback} (HTTP {status})")));
+        return Err(parse_auth_error(
+            body,
+            &format!("{fallback} (HTTP {status})"),
+        ));
     }
 
-    let token = parsed
-        .token
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| OmniError::new(ErrorCode::Internal, format!("{fallback}：响应缺少 token")))?;
+    let token = parsed.token.filter(|s| !s.is_empty()).ok_or_else(|| {
+        OmniError::new(ErrorCode::Internal, format!("{fallback}：响应缺少 token"))
+    })?;
 
     let openid = parsed
         .user
@@ -2240,9 +2191,7 @@ fn map_token_login_response(
 }
 
 /// 申请绑定助手端二维码 payload（客户端本地画码，非微信小程序码）。
-pub async fn auth_bindings_qrcode(
-    token: String,
-) -> Result<AuthBindingsQrcode, OmniError> {
+pub async fn auth_bindings_qrcode(token: String) -> Result<AuthBindingsQrcode, OmniError> {
     let token = token.trim().to_string();
     if token.is_empty() {
         return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
@@ -2252,9 +2201,8 @@ pub async fn auth_bindings_qrcode(
     let (assistant_sk, assistant_pk) = omnipanel_store::generate_pairing_keypair()?;
     let proxy_config = proxy_config();
     let url = auth_url("/api/bindings/qrcode");
-    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30)).map_err(
-        |e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e),
-    )?;
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let app_ids = resolve_binding_app_id_candidates(&client, &token, &identity).await;
     let mut last_not_found: Option<String> = None;
@@ -2339,9 +2287,9 @@ pub async fn auth_bindings_qrcode(
         });
     }
 
-    Err(bindings_api_error(last_not_found.unwrap_or_else(|| {
-        "client device not found".to_string()
-    })))
+    Err(bindings_api_error(
+        last_not_found.unwrap_or_else(|| "client device not found".to_string()),
+    ))
 }
 
 /// 通过后端代理 SSE，等待小程序扫码确认绑定（事件 `bound`）。
@@ -2368,9 +2316,7 @@ pub async fn auth_bindings_wait(
     ));
     let timeout_secs = u64::from(expire_in_sec.unwrap_or(300).saturating_add(30).max(60));
     let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(timeout_secs))
-        .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
-        })?;
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
 
     let cancel_rx = register_cancel(&bind_id);
 
@@ -2404,7 +2350,10 @@ fn is_benign_sse_disconnect(cause: &str) -> bool {
         || lower.contains("error sending request")
 }
 
-async fn wait_sse_login(client: &reqwest::Client, url: &str) -> Result<AuthLoginSuccess, OmniError> {
+async fn wait_sse_login(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<AuthLoginSuccess, OmniError> {
     let resp = client
         .get(url)
         .header(reqwest::header::ACCEPT, "text/event-stream")

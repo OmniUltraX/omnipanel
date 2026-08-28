@@ -2,8 +2,8 @@
 
 use omnipanel_error::OmniError;
 use omnipanel_store::{
-    generate_pairing_keypair, load_stored_sync_master_key, unwrap_sync_master_key,
-    wrap_sync_master_key, WRAP_ALG,
+    WRAP_ALG, generate_pairing_keypair, load_stored_sync_master_key, unwrap_sync_master_key,
+    wrap_sync_master_key,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;

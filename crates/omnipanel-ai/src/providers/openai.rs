@@ -13,7 +13,9 @@ use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo, Role, Tool
 fn format_http_request_error(err: reqwest::Error, url: &str) -> anyhow::Error {
     let mut hint = String::new();
     if err.is_connect() {
-        hint.push_str("网络连接失败，请检查：① 本机网络 ② 设置中的代理是否已开启但不可用 ③ Base URL 是否正确");
+        hint.push_str(
+            "网络连接失败，请检查：① 本机网络 ② 设置中的代理是否已开启但不可用 ③ Base URL 是否正确",
+        );
     } else if err.is_timeout() {
         hint.push_str("请求超时，请稍后重试或检查网络/代理");
     } else if err.is_request() {
@@ -445,7 +447,10 @@ fn extract_plain_reasoning(val: &serde_json::Value) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-fn push_plain_text_completion(val: &serde_json::Value, events: &mut Vec<Result<StreamEvent>>) -> bool {
+fn push_plain_text_completion(
+    val: &serde_json::Value,
+    events: &mut Vec<Result<StreamEvent>>,
+) -> bool {
     let text = extract_plain_text_completion(val);
     let reasoning = extract_plain_reasoning(val);
     if text.is_none() && reasoning.is_none() {
@@ -495,9 +500,7 @@ fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
         Err(err) => {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
                 if let Some(msg) = extract_error_message(&val) {
-                    events.push(Ok(StreamEvent::Error {
-                        message: msg,
-                    }));
+                    events.push(Ok(StreamEvent::Error { message: msg }));
                     return;
                 }
                 if push_plain_text_completion(&val, events) {

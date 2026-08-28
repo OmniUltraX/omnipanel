@@ -4,15 +4,15 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::MethodRouter;
-use axum::Router;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
-use omnipanel_ssh::media::{read_media_range, MediaStreamEntry};
 use omnipanel_ssh::SshSession;
+use omnipanel_ssh::media::{MediaStreamEntry, read_media_range};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -50,9 +50,7 @@ impl MediaStreamServer {
         let app = Router::new()
             .route(
                 "/media/{token}",
-                MethodRouter::new()
-                    .get(serve_media)
-                    .head(serve_media_head),
+                MethodRouter::new().get(serve_media).head(serve_media_head),
             )
             .with_state(state.clone());
 
@@ -103,7 +101,10 @@ fn new_token() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("{nanos:x}{:08x}", (nanos.wrapping_mul(0x9e37_79b9) as u32) ^ 0xa5a5_5a5a)
+    format!(
+        "{nanos:x}{:08x}",
+        (nanos.wrapping_mul(0x9e37_79b9) as u32) ^ 0xa5a5_5a5a
+    )
 }
 
 fn apply_cors(headers: &mut HeaderMap) {
@@ -181,9 +182,7 @@ async fn serve_media(
         return res;
     };
 
-    let range = headers
-        .get(header::RANGE)
-        .and_then(|v| v.to_str().ok());
+    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
 
     let result = {
         let sessions = state.ssh_sessions.lock().await;

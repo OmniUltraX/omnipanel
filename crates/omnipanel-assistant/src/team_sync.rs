@@ -6,11 +6,11 @@ use chrono::Utc;
 use omnipanel_error::OmniResult;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::error::{map_assistant_error, map_assistant_error_with_cause, AssistantErrorKind};
+use crate::error::{AssistantErrorKind, map_assistant_error, map_assistant_error_with_cause};
 use crate::oss::{
-    get_object_bytes_optional, strip_bucket_prefix, upload_object_bytes, OssUploadResult,
+    OssUploadResult, get_object_bytes_optional, strip_bucket_prefix, upload_object_bytes,
 };
 use crate::sts::{AuthContext, OssStsCredentials};
 
@@ -34,10 +34,7 @@ struct StsApiEnvelope {
 /// `POST {api_base}/api/teams/{team_id}/oss/sts`
 pub async fn fetch_team_oss_sts(auth: &AuthContext, team_id: i64) -> OmniResult<OssStsCredentials> {
     if team_id <= 0 {
-        return Err(map_assistant_error(
-            AssistantErrorKind::Sts,
-            "团队 ID 无效",
-        ));
+        return Err(map_assistant_error(AssistantErrorKind::Sts, "团队 ID 无效"));
     }
     let url = format!(
         "{}/api/teams/{team_id}/oss/sts",
@@ -107,7 +104,10 @@ fn sts_http_error(status: u16, body: &str) -> omnipanel_error::OmniError {
     } else {
         AssistantErrorKind::Sts
     };
-    map_assistant_error(kind, format!("申请团队 OSS 凭证失败 (HTTP {status}): {body}"))
+    map_assistant_error(
+        kind,
+        format!("申请团队 OSS 凭证失败 (HTTP {status}): {body}"),
+    )
 }
 
 fn resolve_object_key(sts: &OssStsCredentials, leaf: &str) -> String {
@@ -231,10 +231,7 @@ pub fn parse_team_share_index(body: &[u8]) -> OmniResult<TeamShareIndex> {
     Ok(index)
 }
 
-pub async fn load_team_share_index(
-    auth: &AuthContext,
-    team_id: i64,
-) -> OmniResult<TeamShareIndex> {
+pub async fn load_team_share_index(auth: &AuthContext, team_id: i64) -> OmniResult<TeamShareIndex> {
     let pulled = pull_team_sync_json(auth, team_id, TEAM_SHARE_INDEX_KEY).await?;
     match pulled {
         Some((_, body)) => parse_team_share_index(&body),

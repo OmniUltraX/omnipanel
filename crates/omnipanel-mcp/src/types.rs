@@ -134,9 +134,7 @@ impl McpServiceConfig {
             enabled: true,
             builtin: true,
             transport: McpTransport::Sse {
-                config: McpSseTransport {
-                    url: String::new(),
-                },
+                config: McpSseTransport { url: String::new() },
             },
             created_at: 0,
         }

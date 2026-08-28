@@ -6,7 +6,9 @@ use tauri::{Emitter, State};
 
 use crate::output_buffer;
 use crate::state::AppState;
-use omnipanel_core::terminal::{Terminal, TerminalConfig, ShellSpec, ShellInfo, list_available_shells};
+use omnipanel_core::terminal::{
+    ShellInfo, ShellSpec, Terminal, TerminalConfig, list_available_shells,
+};
 
 static TERMINAL_COUNTER: AtomicU64 = AtomicU64::new(1);
 

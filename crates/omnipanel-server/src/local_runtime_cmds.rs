@@ -4,8 +4,8 @@
 
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use reqwest::Client;
@@ -133,7 +133,12 @@ fn find_ollama_cli() -> Option<String> {
     let candidates: Vec<PathBuf> = if cfg!(windows) {
         let mut list = Vec::new();
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            list.push(PathBuf::from(local).join("Programs").join("Ollama").join("ollama.exe"));
+            list.push(
+                PathBuf::from(local)
+                    .join("Programs")
+                    .join("Ollama")
+                    .join("ollama.exe"),
+            );
         }
         if let Ok(user) = std::env::var("USERPROFILE") {
             list.push(
@@ -471,12 +476,7 @@ pub async fn install_ollama_with_progress(
                 report(&progress, "已通过 winget 安装 Ollama", 100, 100);
                 return Ok("已通过 winget 安装 Ollama".into());
             }
-            report(
-                &progress,
-                "winget 安装未成功，改用官方安装包…",
-                35,
-                100,
-            );
+            report(&progress, "winget 安装未成功，改用官方安装包…", 35, 100);
         }
 
         if cancel.load(Ordering::Relaxed) {
@@ -563,7 +563,9 @@ pub async fn install_ollama_with_progress(
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         let _ = (cancel, progress);
-        Err(format!("当前平台暂不支持自动安装，请访问 {OLLAMA_DOWNLOAD_URL}"))
+        Err(format!(
+            "当前平台暂不支持自动安装，请访问 {OLLAMA_DOWNLOAD_URL}"
+        ))
     }
 }
 
@@ -727,9 +729,7 @@ pub async fn local_runtime_ollama_download_url() -> Result<String, String> {
 pub mod ollama_recommend {
     use serde::{Deserialize, Serialize};
 
-    use super::ollama_catalog::{
-        catalog_source_label, load_library_catalog, LibraryModelEntry,
-    };
+    use super::ollama_catalog::{LibraryModelEntry, catalog_source_label, load_library_catalog};
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -883,9 +883,9 @@ pub mod ollama_recommend {
 
     fn quant_hint_text(quant: &str, size: Option<&str>) -> String {
         match (quant, size) {
-            ("Q5_K_M", Some(sz)) => format!(
-                "建议 {quant}；可试 `{sz}-q5_K_M`，失败则用 `:{sz}`（默认多为 Q4_K_M）"
-            ),
+            ("Q5_K_M", Some(sz)) => {
+                format!("建议 {quant}；可试 `{sz}-q5_K_M`，失败则用 `:{sz}`（默认多为 Q4_K_M）")
+            }
             ("Q5_K_M", None) => format!("建议 {quant}；可试 `:q5_K_M`"),
             (_, Some(_)) => format!("{quant}（Ollama 默认尺寸 tag 常见为此量化）"),
             _ => quant.to_string(),
@@ -1140,7 +1140,9 @@ mod ollama_catalog {
         }
     }
 
-    pub async fn load_library_catalog(force_refresh: bool) -> (Vec<LibraryModelEntry>, CatalogSource) {
+    pub async fn load_library_catalog(
+        force_refresh: bool,
+    ) -> (Vec<LibraryModelEntry>, CatalogSource) {
         if !force_refresh {
             if let Some(cache) = read_cache() {
                 if cache_fresh(&cache) && !cache.models.is_empty() {
@@ -1195,7 +1197,7 @@ mod ollama_catalog {
     }
 
     mod regex_lite {
-        use super::{html_unescape_lite, parse_pull_count, LibraryModelEntry};
+        use super::{LibraryModelEntry, html_unescape_lite, parse_pull_count};
 
         pub fn parse_library_cards(html: &str) -> Vec<LibraryModelEntry> {
             let mut out = Vec::new();
@@ -1224,7 +1226,8 @@ mod ollama_catalog {
                 if let (Some(ds), Some(_pm)) = (desc_start, pulls_marker) {
                     let desc_region = &slice[ds..];
                     let description = html_unescape_lite(&extract_tag_text(desc_region, 'p'));
-                    let pulls = parse_pull_count(&extract_pulls(slice).unwrap_or_else(|| "0".into()));
+                    let pulls =
+                        parse_pull_count(&extract_pulls(slice).unwrap_or_else(|| "0".into()));
                     let mut tags = extract_tags(slice);
                     tags.sort();
                     tags.dedup();

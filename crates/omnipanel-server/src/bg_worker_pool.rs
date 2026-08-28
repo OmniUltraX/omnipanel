@@ -1,8 +1,8 @@
 //! 后台任务池（Web 端：事件经 EventBus 广播，替代 Tauri emit）。
 
 use std::future::Future;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use omnipanel_bg::{BackgroundWorkerPool as InnerPool, TaskEventSink};
 use omnipanel_error::OmniError;
@@ -61,14 +61,7 @@ impl BackgroundWorkerPool {
         Fut: Future<Output = Result<(), String>> + Send + 'static,
     {
         self.inner
-            .spawn(
-                self.sink.clone(),
-                module,
-                kind,
-                title,
-                total,
-                work,
-            )
+            .spawn(self.sink.clone(), module, kind, title, total, work)
             .await
     }
 

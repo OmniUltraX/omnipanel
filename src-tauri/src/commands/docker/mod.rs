@@ -11,21 +11,22 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use futures::StreamExt;
 use omnipanel_docker::{
-    ContainerFilter, DockerAdapter, DockerBuildContext, DockerBuildResult, DockerComposeAction,
-    DockerComposeProject, DockerComposeRequest, DockerComposeResult, DockerConnectionInfo,
-    DockerConnectionSource, DockerConnectionStatus, DockerContainerAction, DockerContainerDetail,
-    DockerContainerLogInfo, DockerContainerStats, DockerContainerSummary,
-    DockerCreateContainerRequest, DockerCreateNetworkRequest, DockerCreateServiceRequest,
-    DockerCreateVolumeRequest, DockerComposeProjectFiles, DockerComposeReadFilesRequest,
-    DockerComposeWriteFilesRequest, DockerDaemonConfigFile, DockerFileEntry, DockerImageDetail,
+    BtPanelAdapter, BtPanelClient, ContainerFilter, DockerAdapter, DockerBuildContext,
+    DockerBuildResult, DockerComposeAction, DockerComposeProject, DockerComposeProjectFiles,
+    DockerComposeReadFilesRequest, DockerComposeRequest, DockerComposeResult,
+    DockerComposeWriteFilesRequest, DockerConnectionInfo, DockerConnectionSource,
+    DockerConnectionStatus, DockerContainerAction, DockerContainerDetail, DockerContainerLogInfo,
+    DockerContainerStats, DockerContainerSummary, DockerCreateContainerRequest,
+    DockerCreateNetworkRequest, DockerCreateServiceRequest, DockerCreateVolumeRequest,
+    DockerDaemonConfigFile, DockerFileEntry, DockerHostCliResult, DockerImageDetail,
     DockerImageHistoryLayer, DockerImageProgress, DockerImageSearchPage, DockerImageSummary,
-    DockerHostCliResult, DockerLocalEngineStatus, DockerLogLine, DockerLogQuery, DockerNetworkDetail,
+    DockerLocalEngineStatus, DockerLogLine, DockerLogQuery, DockerNetworkDetail,
     DockerNetworkSummary, DockerNodeSummary, DockerOverview, DockerProbe, DockerPruneResult,
     DockerPruneVolumesResult, DockerPullResult, DockerServiceSummary, DockerStackSummary,
-    DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, BtPanelAdapter, BtPanelClient,
-    LocalDockerAdapter, OnePanelAdapter, OnePanelClient, SshDockerAdapter, bollard,
-    local_engine_status, remote_engine_daemon_config, restart_local_engine, run_local_docker_cli,
-    run_ssh_docker_cli, start_local_engine,
+    DockerSystemDiskUsage, DockerVolumeDetail, DockerVolumeSummary, LocalDockerAdapter,
+    OnePanelAdapter, OnePanelClient, SshDockerAdapter, bollard, local_engine_status,
+    remote_engine_daemon_config, restart_local_engine, run_local_docker_cli, run_ssh_docker_cli,
+    start_local_engine,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{SshConfig, SshSession};
@@ -131,7 +132,10 @@ pub(crate) enum DockerTarget {
 }
 
 /// 解析连接 id 到操作目标。SSH 目标会从复用池获取或建立会话。
-pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Result<DockerTarget, OmniError> {
+pub(crate) async fn resolve_target(
+    state: &AppState,
+    connection_id: &str,
+) -> Result<DockerTarget, OmniError> {
     if connection_id == LOCAL_CONNECTION_ID {
         return Ok(DockerTarget::Local);
     }
@@ -151,13 +155,9 @@ pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Res
 
     match cfg.source.as_deref().map(DockerConnectionSource::parse) {
         Some(DockerConnectionSource::SshEngine) => {
-            let session = ensure_docker_ssh(
-                state,
-                connection_id,
-                cfg.ssh,
-                cfg.bound_ssh_connection_id,
-            )
-            .await?;
+            let session =
+                ensure_docker_ssh(state, connection_id, cfg.ssh, cfg.bound_ssh_connection_id)
+                    .await?;
             Ok(DockerTarget::Ssh(session))
         }
         Some(DockerConnectionSource::RemoteEngine) => {
@@ -219,8 +219,7 @@ pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Res
             }
             panel.api_key = panel.api_key.trim().to_string();
             let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "1Panel")?;
-            let session =
-                ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
+            let session = ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
             let adapter = OnePanelAdapter::new(
                 OnePanelClient::new(&panel.base_url, &panel.api_key, panel.insecure),
                 connection_id.to_string(),
@@ -263,8 +262,7 @@ pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Res
             }
             panel.api_key = panel.api_key.trim().to_string();
             let bound_ssh = require_bound_ssh_id(cfg.bound_ssh_connection_id, "宝塔")?;
-            let session =
-                ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
+            let session = ensure_docker_ssh(state, connection_id, None, Some(bound_ssh)).await?;
             let client = BtPanelClient::new(&panel.base_url, &panel.api_key, panel.insecure);
             tracing::info!(
                 target: "btpanel",
@@ -282,10 +280,7 @@ pub(crate) async fn resolve_target(state: &AppState, connection_id: &str) -> Res
 }
 
 /// 面板类 Docker 连接必须绑定 SSH（无面板 API 时回退）。
-fn require_bound_ssh_id(
-    bound: Option<String>,
-    panel_label: &str,
-) -> Result<String, OmniError> {
+fn require_bound_ssh_id(bound: Option<String>, panel_label: &str) -> Result<String, OmniError> {
     bound
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -300,12 +295,16 @@ fn require_bound_ssh_id(
 /// 读取 Docker 连接绑定的 SSH 连接 id（如有）。
 async fn lookup_bound_ssh_id(state: &AppState, connection_id: &str) -> Option<String> {
     let storage = state.storage.lock().await;
-    storage.get_connection(connection_id).ok().flatten().and_then(|c| {
-        serde_json::from_str::<DockerConnectionConfig>(&c.config)
-            .ok()
-            .and_then(|cfg| cfg.bound_ssh_connection_id)
-            .filter(|id| !id.trim().is_empty())
-    })
+    storage
+        .get_connection(connection_id)
+        .ok()
+        .flatten()
+        .and_then(|c| {
+            serde_json::from_str::<DockerConnectionConfig>(&c.config)
+                .ok()
+                .and_then(|cfg| cfg.bound_ssh_connection_id)
+                .filter(|id| !id.trim().is_empty())
+        })
 }
 
 /// 清除所有绑定同一 SSH 主机的 Docker 会话缓存（释放池会话前调用）。
@@ -348,8 +347,9 @@ pub(crate) async fn ensure_docker_ssh(
 
     // 与 ssh_pool.ensure_session 类似：串行化同一 Docker 连接的建连
     let connect_lock = {
-        static LOCKS: std::sync::OnceLock<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
-            std::sync::OnceLock::new();
+        static LOCKS: std::sync::OnceLock<
+            tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+        > = std::sync::OnceLock::new();
         let locks = LOCKS.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()));
         let mut map = locks.lock().await;
         map.entry(connection_id.to_string())
@@ -372,7 +372,10 @@ pub(crate) async fn ensure_docker_ssh(
         state.ssh_pool.ensure_session(ssh_id).await?
     } else {
         let mut ssh = ssh.ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "ssh-engine 类型缺少 Docker SSH 配置")
+            OmniError::new(
+                ErrorCode::InvalidInput,
+                "ssh-engine 类型缺少 Docker SSH 配置",
+            )
         })?;
         // 内嵌 SSH：从 Vault 回填密码 / PEM
         if let omnipanel_ssh::SshAuth::Password { ref mut password } = ssh.auth {
@@ -526,30 +529,29 @@ pub(crate) async fn resolve_adapter(
     adapter_for(target)
 }
 
-
+mod compose;
 mod connection;
 mod containers;
-mod logs;
-mod images;
 mod exec;
-mod compose;
+mod images;
+mod logs;
 mod networks;
-mod volumes;
+mod sidebar_cache;
 mod ssh_detect;
 mod swarm;
-mod sidebar_cache;
+mod volumes;
 
+pub use compose::*;
 pub use connection::*;
 pub use containers::*;
-pub use logs::*;
-pub use images::*;
 pub use exec::*;
-pub use compose::*;
+pub use images::*;
+pub use logs::*;
 pub use networks::*;
-pub use volumes::*;
+pub use sidebar_cache::*;
 pub use ssh_detect::*;
 pub use swarm::*;
-pub use sidebar_cache::*;
+pub use volumes::*;
 
 #[cfg(test)]
 mod tests {
@@ -578,9 +580,8 @@ mod tests {
 
     #[test]
     fn windows_connreset_cause_is_recoverable() {
-        let err = OmniError::new(ErrorCode::Internal, "底层 IO 失败").with_cause(
-            "远程主机强迫关闭了一个现有的连接。 (os error 10054)",
-        );
+        let err = OmniError::new(ErrorCode::Internal, "底层 IO 失败")
+            .with_cause("远程主机强迫关闭了一个现有的连接。 (os error 10054)");
         assert!(is_ssh_session_recoverable(&err));
     }
 

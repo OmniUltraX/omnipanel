@@ -1350,7 +1350,9 @@ export function reanchorShellAgentCard(
       });
     };
 
-    if (needsBlankLineBeforeMarker(term)) {
+    // 思考完成贴结果卡会「粘」在一起；多空一行，只要一点点呼吸感
+    const gapAfterThinking = oldKind === "thinking" && kind === "final";
+    if (needsBlankLineBeforeMarker(term) || gapAfterThinking) {
       writeThen(term, "\r\n", afterMarker);
     } else {
       afterMarker();

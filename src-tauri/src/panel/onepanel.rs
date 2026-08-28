@@ -21,7 +21,9 @@ pub fn normalize_base_url(host: &str) -> Result<String, OmniError> {
     }
     let rest_start = normalized.find("://").map(|i| i + 3).unwrap_or(0);
     let origin = match normalized[rest_start..].find('/') {
-        Some(i) => normalized[..rest_start + i].trim_end_matches('/').to_string(),
+        Some(i) => normalized[..rest_start + i]
+            .trim_end_matches('/')
+            .to_string(),
         None => normalized.trim_end_matches('/').to_string(),
     };
     Ok(origin)
@@ -373,12 +375,10 @@ fn multipart_escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn build_multipart_body(
-    boundary: &str,
-    fields: &[(&str, Option<&str>, &[u8])],
-) -> Vec<u8> {
+fn build_multipart_body(boundary: &str, fields: &[(&str, Option<&str>, &[u8])]) -> Vec<u8> {
     // fields: (name, filename_opt, value)
-    let mut body = Vec::with_capacity(fields.iter().map(|(_, _, v)| v.len() + 128).sum::<usize>() + 64);
+    let mut body =
+        Vec::with_capacity(fields.iter().map(|(_, _, v)| v.len() + 128).sum::<usize>() + 64);
     for (name, filename, value) in fields {
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
         match filename {
@@ -452,7 +452,8 @@ async fn send_multipart(
             Ok(r) => r,
             Err(e) => {
                 last_err = Some(
-                    OmniError::new(ErrorCode::Connection, "1Panel 上传失败").with_cause(e.to_string()),
+                    OmniError::new(ErrorCode::Connection, "1Panel 上传失败")
+                        .with_cause(e.to_string()),
                 );
                 continue;
             }
@@ -472,7 +473,9 @@ async fn send_multipart(
         }
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text.into_owned()));
+            return Err(
+                OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text.into_owned())
+            );
         }
 
         if !status.is_success() {
@@ -536,11 +539,7 @@ async fn upload_file_chunked(
         let start = chunk_index * UPLOAD_CHUNK_SIZE;
         let end = (start + UPLOAD_CHUNK_SIZE).min(content.len());
         let chunk = &content[start..end];
-        let boundary = format!(
-            "----OmniPanelChunk{}{}",
-            current_timestamp(),
-            chunk_index
-        );
+        let boundary = format!("----OmniPanelChunk{}{}", current_timestamp(), chunk_index);
         let index_str = chunk_index.to_string();
         let count_str = chunk_count.to_string();
         let body = build_multipart_body(
@@ -553,15 +552,7 @@ async fn upload_file_chunked(
                 ("chunkCount", None, count_str.as_bytes()),
             ],
         );
-        send_multipart(
-            host,
-            api_key,
-            "/files/chunkupload",
-            body,
-            &boundary,
-            180,
-        )
-        .await?;
+        send_multipart(host, api_key, "/files/chunkupload", body, &boundary, 180).await?;
     }
     Ok(())
 }

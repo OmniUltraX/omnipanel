@@ -11,9 +11,9 @@ pub mod web_tools;
 
 use std::sync::Arc;
 
-pub use plugin_tools::{global_plugin_tool_hub, PluginNativeTool, PluginToolHub};
 use omnipanel_ai::types::{FunctionDef, ToolDef};
 use omnipanel_store::{HttpProxyConfig, Storage};
+pub use plugin_tools::{PluginNativeTool, PluginToolHub, global_plugin_tool_hub};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -75,13 +75,21 @@ impl ToolRegistry {
         self.storage.clone()
     }
 
-    pub async fn list_enabled(&self, module_filter: Option<&str>) -> Result<Vec<RegisteredTool>, String> {
+    pub async fn list_enabled(
+        &self,
+        module_filter: Option<&str>,
+    ) -> Result<Vec<RegisteredTool>, String> {
         let storage = self.storage.lock().await;
         let records = storage
             .builtin_tool_list()
             .map_err(|e| e.to_string())?
             .into_iter()
-            .filter(|r| r.internal_enabled && storage.builtin_tool_is_available(&r.tool_name).unwrap_or(false))
+            .filter(|r| {
+                r.internal_enabled
+                    && storage
+                        .builtin_tool_is_available(&r.tool_name)
+                        .unwrap_or(false)
+            })
             .collect::<Vec<_>>();
 
         let mut tools = Vec::new();
@@ -196,7 +204,7 @@ impl ToolRegistry {
 
 #[cfg(test)]
 mod tests {
-use super::*;
+    use super::*;
     use omnipanel_store::AppModuleStatus;
     use plugin_tools::PluginNativeTool;
 
@@ -240,9 +248,7 @@ use super::*;
             .builtin_tool_set_internal_enabled("omni_ssh_exec", false)
             .unwrap();
         let tools = registry.list_enabled(None).await.unwrap();
-        assert!(!tools
-            .iter()
-            .any(|t| t.name == "omni_ssh_exec"));
+        assert!(!tools.iter().any(|t| t.name == "omni_ssh_exec"));
     }
 
     #[tokio::test]
@@ -262,7 +268,9 @@ use super::*;
         let (registry, _s) = registry_with_storage();
         let tools = registry.list_enabled(Some("web")).await.unwrap();
         assert!(
-            tools.iter().any(|t| t.name == "omni_knowledge_save_todolist"),
+            tools
+                .iter()
+                .any(|t| t.name == "omni_knowledge_save_todolist"),
             "web 过滤应包含全局待办工具"
         );
         assert!(
@@ -274,9 +282,7 @@ use super::*;
             "web 过滤不得包含 omni_ssh_*"
         );
         assert!(
-            !tools
-                .iter()
-                .any(|t| t.name == "omni_ssh_exec"),
+            !tools.iter().any(|t| t.name == "omni_ssh_exec"),
             "web 过滤不得包含终端工具"
         );
         assert!(
@@ -291,13 +297,13 @@ use super::*;
     async fn terminal_filter_excludes_global_native_tools() {
         let (registry, _s) = registry_with_storage();
         let tools = registry.list_enabled(Some("terminal")).await.unwrap();
-        assert!(tools
-            .iter()
-            .any(|t| t.name == "omni_ssh_exec"));
-        assert!(tools
-            .iter()
-            .any(|t| t.name == "omni_terminal_exec"));
-        assert!(!tools.iter().any(|t| t.name == "omni_knowledge_save_todolist"));
+        assert!(tools.iter().any(|t| t.name == "omni_ssh_exec"));
+        assert!(tools.iter().any(|t| t.name == "omni_terminal_exec"));
+        assert!(
+            !tools
+                .iter()
+                .any(|t| t.name == "omni_knowledge_save_todolist")
+        );
         assert!(
             tools.iter().any(|t| t.name == "load_skill"),
             "终端模块应注入 load_skill"

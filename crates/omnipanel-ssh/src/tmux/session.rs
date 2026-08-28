@@ -9,12 +9,12 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use russh::ChannelMsg;
 use tokio::sync::mpsc;
 
-use crate::pty_utf8::ssh_utf8_pty_modes;
 use super::commands;
 use super::controller::{ControllerEvent, TmuxController};
 use super::line::LineAssembler;
 use super::probe::{self, TmuxCapability};
-use crate::{open_session_channel_retry, SshSession, CHANNEL_OPEN_ATTEMPTS};
+use crate::pty_utf8::ssh_utf8_pty_modes;
+use crate::{CHANNEL_OPEN_ATTEMPTS, SshSession, open_session_channel_retry};
 
 /// control 事件回调。`src-tauri` 注入「emit 到前端」的实现。
 pub type TmuxSink = Arc<dyn Fn(ControllerEvent) + Send + Sync>;
@@ -56,7 +56,10 @@ impl SshSession {
             TmuxCapability::TooOld(v) => {
                 return Err(OmniError::new(
                     ErrorCode::Ssh,
-                    format!("远端 tmux {v} 版本过低，需要 {} 及以上", probe::MIN_SUPPORTED),
+                    format!(
+                        "远端 tmux {v} 版本过低，需要 {} 及以上",
+                        probe::MIN_SUPPORTED
+                    ),
                 ));
             }
             TmuxCapability::Unavailable(reason) => {

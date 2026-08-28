@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use omnipanel_mcp::{
-    McpManager, McpServiceConfig, McpServiceView, McpServicesFile, McpTransport, McpTransportKind,
-    BUILTIN_SERVICE_ID,
+    BUILTIN_SERVICE_ID, McpManager, McpServiceConfig, McpServiceView, McpServicesFile,
+    McpTransport, McpTransportKind,
 };
 use omnipanel_store::Storage;
 use tauri::State;
@@ -73,10 +73,7 @@ pub async fn mcp_set_service_enabled(
     enabled: bool,
 ) -> Result<McpServiceView, String> {
     let mut manager = state.mcp_manager.lock().await;
-    manager
-        .set_enabled(&id, enabled)
-        .await
-        .map_err(map_err)
+    manager.set_enabled(&id, enabled).await.map_err(map_err)
 }
 
 #[tauri::command]
@@ -111,8 +108,8 @@ pub async fn mcp_call_tool(
     tool_name: String,
     tool_arguments: String,
 ) -> Result<omnipanel_mcp::ToolCallResult, String> {
-    let parsed: serde_json::Value =
-        serde_json::from_str(&tool_arguments).unwrap_or(serde_json::Value::Object(Default::default()));
+    let parsed: serde_json::Value = serde_json::from_str(&tool_arguments)
+        .unwrap_or(serde_json::Value::Object(Default::default()));
     let manager = state.mcp_manager.lock().await;
     manager
         .call_service_tool(&service_id, &tool_name, parsed)
@@ -128,11 +125,7 @@ fn build_service_config(input: UpsertMcpServiceInput) -> Result<McpServiceConfig
 
     let transport = match input.transport_kind {
         McpTransportKind::Stdio => {
-            let command = input
-                .command
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+            let command = input.command.unwrap_or_default().trim().to_string();
             if command.is_empty() {
                 return Err("stdio 命令不能为空".to_string());
             }

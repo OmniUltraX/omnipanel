@@ -48,7 +48,9 @@ fn require_working_dir(working_dir: Option<&str>) -> OmniResult<&str> {
 }
 
 async fn read_text_file(path: &Path) -> OmniResult<String> {
-    read_text_file_logged(path, "file").await.map(|(content, _)| content)
+    read_text_file_logged(path, "file")
+        .await
+        .map(|(content, _)| content)
 }
 
 async fn read_text_file_logged(path: &Path, label: &str) -> OmniResult<(String, bool)> {
@@ -109,7 +111,8 @@ async fn resolve_env_content_local(
             primary_bytes = content.len(),
             "compose 同目录 .env 为空或不存在，尝试 working_dir/.env"
         );
-        let (fallback, fallback_found) = read_text_file_logged(&working_env, "env_fallback").await?;
+        let (fallback, fallback_found) =
+            read_text_file_logged(&working_env, "env_fallback").await?;
         if fallback_found && !fallback.is_empty() {
             tracing::debug!(
                 target: "docker_compose_files",
@@ -340,7 +343,10 @@ fi
     }
     let (compose_content, rest) = take_length_prefixed_chunk(&out.stdout)?;
     let (env_path_line, after_path) = rest.split_once('\n').ok_or_else(|| {
-        OmniError::new(ErrorCode::Internal, "解析远端 Compose 响应失败：缺少 env_path")
+        OmniError::new(
+            ErrorCode::Internal,
+            "解析远端 Compose 响应失败：缺少 env_path",
+        )
     })?;
     let resolved_env_path = {
         let trimmed = env_path_line.trim();
@@ -368,10 +374,13 @@ fn take_length_prefixed_chunk(input: &str) -> OmniResult<(String, &str)> {
     let (len_line, rest) = input.split_once('\n').ok_or_else(|| {
         OmniError::new(ErrorCode::Internal, "解析远端 Compose 响应失败：缺少长度行")
     })?;
-    let len: usize = len_line.trim().parse().map_err(|error: std::num::ParseIntError| {
-        OmniError::new(ErrorCode::Internal, "解析远端 Compose 响应失败：长度非法")
-            .with_cause(error.to_string())
-    })?;
+    let len: usize = len_line
+        .trim()
+        .parse()
+        .map_err(|error: std::num::ParseIntError| {
+            OmniError::new(ErrorCode::Internal, "解析远端 Compose 响应失败：长度非法")
+                .with_cause(error.to_string())
+        })?;
     if rest.len() < len {
         return Err(OmniError::new(
             ErrorCode::Internal,

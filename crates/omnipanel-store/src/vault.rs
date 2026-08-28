@@ -70,8 +70,9 @@ impl Vault {
             }
             Err(e) if keyring_backend_unavailable(&e) => {
                 // 与 get 的降级一致：文件也不存在时生成并写入
-                let key = file_get(MASTER_KEY_ACCOUNT)
-                    .or_else(|_| generate_key().and_then(|k| file_store(MASTER_KEY_ACCOUNT, &k).map(|_| k)))?;
+                let key = file_get(MASTER_KEY_ACCOUNT).or_else(|_| {
+                    generate_key().and_then(|k| file_store(MASTER_KEY_ACCOUNT, &k).map(|_| k))
+                })?;
                 Ok(key)
             }
             Err(e) => Err(e),
@@ -104,7 +105,13 @@ fn file_path(reference: &str) -> OmniResult<std::path::PathBuf> {
     // reference 可能含特殊字符（`ai-provider-openai` 等），保险起见清洗。
     let safe: String = reference
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     Ok(file_secrets_dir()?.join(format!("{safe}.secret")))
 }

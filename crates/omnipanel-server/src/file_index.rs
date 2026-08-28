@@ -2,18 +2,18 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    default_file_index_storage_dir, FileIndexBatchItem, FileIndexProgress, FileIndexSearchResult,
-    FileIndexStatus, FileIndexStorage,
+    FileIndexBatchItem, FileIndexProgress, FileIndexSearchResult, FileIndexStatus,
+    FileIndexStorage, default_file_index_storage_dir,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::files::{local_home, resolve_local_path, LOCAL_CONNECTION_ID};
+use crate::files::{LOCAL_CONNECTION_ID, local_home, resolve_local_path};
 use crate::state::ServerState;
 
 const MAX_INDEX_ENTRIES: usize = 200_000;
@@ -62,7 +62,9 @@ fn build_storage_info(
     storage: &FileIndexStorage,
 ) -> Result<FileIndexStorageInfo, OmniError> {
     let default_dir = default_file_index_storage_dir()
-        .map_err(|e| OmniError::new(ErrorCode::Storage, "无法解析默认索引目录").with_cause(e.to_string()))?
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Storage, "无法解析默认索引目录").with_cause(e.to_string())
+        })?
         .to_string_lossy()
         .into_owned();
     let database_path = storage.database_path().to_string_lossy().into_owned();
@@ -320,10 +322,7 @@ pub async fn file_index_status(
         .map_err(|e| e.to_string())
 }
 
-pub async fn file_index_clear(
-    state: &ServerState,
-    connection_id: String,
-) -> Result<(), String> {
+pub async fn file_index_clear(state: &ServerState, connection_id: String) -> Result<(), String> {
     if let Ok(mut tasks) = state.file_index_tasks.try_lock() {
         if let Some(cancel) = tasks.remove(&connection_id) {
             cancel.store(true, Ordering::Relaxed);
@@ -335,10 +334,7 @@ pub async fn file_index_clear(
         .map_err(|e| e.to_string())
 }
 
-pub async fn file_index_cancel(
-    state: &ServerState,
-    connection_id: String,
-) -> Result<(), String> {
+pub async fn file_index_cancel(state: &ServerState, connection_id: String) -> Result<(), String> {
     if let Ok(tasks) = state.file_index_tasks.try_lock() {
         if let Some(cancel) = tasks.get(&connection_id) {
             cancel.store(true, Ordering::Relaxed);
@@ -390,7 +386,7 @@ pub fn open_file_index_storage(
 ) -> Result<Arc<tokio::sync::Mutex<FileIndexStorage>>, String> {
     let _ = FileIndexStorage::import_from_meta_storage_if_empty(meta_storage)
         .map_err(|e| e.to_string())?;
-    let storage = FileIndexStorage::open_at_dir("")
-        .map_err(|e| format!("打开文件索引存储失败: {e}"))?;
+    let storage =
+        FileIndexStorage::open_at_dir("").map_err(|e| format!("打开文件索引存储失败: {e}"))?;
     Ok(Arc::new(tokio::sync::Mutex::new(storage)))
 }

@@ -23,8 +23,14 @@ async fn live_s3_crud() {
     let client = S3Client::new(cfg(), "minioadmin".to_string()).expect("client");
 
     // put
-    client.put_object("live/hello.txt", b"hello live s3").await.expect("put");
-    client.put_object("live/dir/nested.txt", b"nested").await.expect("put nested");
+    client
+        .put_object("live/hello.txt", b"hello live s3")
+        .await
+        .expect("put");
+    client
+        .put_object("live/dir/nested.txt", b"nested")
+        .await
+        .expect("put nested");
 
     // list（Delimiter=/ 应返回 dir/ 与 hello.txt）
     let page = client
@@ -32,24 +38,43 @@ async fn live_s3_crud() {
         .await
         .expect("list");
     let names: Vec<String> = page.contents.iter().map(|o| o.key.clone()).collect();
-    assert!(names.contains(&"live/hello.txt".to_string()), "contents: {names:?}");
-    assert!(page.common_prefixes.contains(&"live/dir/".to_string()), "prefixes: {:?}", page.common_prefixes);
+    assert!(
+        names.contains(&"live/hello.txt".to_string()),
+        "contents: {names:?}"
+    );
+    assert!(
+        page.common_prefixes.contains(&"live/dir/".to_string()),
+        "prefixes: {:?}",
+        page.common_prefixes
+    );
 
     // get
     let data = client.get_object("live/hello.txt").await.expect("get");
     assert_eq!(data, b"hello live s3");
 
     // delete
-    client.delete_object("live/dir/nested.txt").await.expect("delete nested");
-    client.delete_object("live/hello.txt").await.expect("delete");
-    client.delete_object("live/dir/").await.expect("delete dir marker");
+    client
+        .delete_object("live/dir/nested.txt")
+        .await
+        .expect("delete nested");
+    client
+        .delete_object("live/hello.txt")
+        .await
+        .expect("delete");
+    client
+        .delete_object("live/dir/")
+        .await
+        .expect("delete dir marker");
 
     // 删除后 list 应为空
     let page = client
         .list_objects_v2("live/".to_string(), Some("/".to_string()), None, Some(100))
         .await
         .expect("list after delete");
-    assert!(page.contents.is_empty() && page.common_prefixes.is_empty(), "not empty: {page:?}");
+    assert!(
+        page.contents.is_empty() && page.common_prefixes.is_empty(),
+        "not empty: {page:?}"
+    );
 }
 
 #[tokio::test]
@@ -58,9 +83,7 @@ async fn live_multipart_upload() {
     let client = S3Client::new(cfg(), "minioadmin".to_string()).expect("client");
 
     // 6MB 随机内容，分 1MB 片 → 6 片
-    let payload: Vec<u8> = (0..6 * 1024 * 1024)
-        .map(|i| (i % 251) as u8)
-        .collect();
+    let payload: Vec<u8> = (0..6 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
     let chunk = 1024 * 1024;
 
     // 分块上传
@@ -71,7 +94,10 @@ async fn live_multipart_upload() {
     assert_eq!(bytes as usize, payload.len());
 
     // 读回完整内容
-    let data = client.get_object("live-mp/big.bin").await.expect("get full");
+    let data = client
+        .get_object("live-mp/big.bin")
+        .await
+        .expect("get full");
     assert_eq!(data.len(), payload.len());
     assert_eq!(data, payload);
 
@@ -88,7 +114,10 @@ async fn live_multipart_upload() {
     assert_eq!(tail, &payload[payload.len() - 100..]);
 
     // 清理
-    client.delete_object("live-mp/big.bin").await.expect("cleanup");
+    client
+        .delete_object("live-mp/big.bin")
+        .await
+        .expect("cleanup");
 }
 
 #[tokio::test]
@@ -97,9 +126,7 @@ async fn live_multipart_copy() {
     let client = S3Client::new(cfg(), "minioadmin".to_string()).expect("client");
 
     // 准备源对象（8MB，分 2 片 5MB 复制）
-    let payload: Vec<u8> = (0..8 * 1024 * 1024)
-        .map(|i| (i % 249) as u8)
-        .collect();
+    let payload: Vec<u8> = (0..8 * 1024 * 1024).map(|i| (i % 249) as u8).collect();
     client
         .upload_object_multipart("live-copy/src.bin", &payload, 1024 * 1024)
         .await
@@ -107,18 +134,32 @@ async fn live_multipart_copy() {
 
     // 服务端分片复制：8MB 对象，part_size 5MB → 2 片
     let copied = client
-        .copy_object_multipart("live-copy/src.bin", "live-copy/dst.bin", payload.len() as u64, 5 * 1024 * 1024)
+        .copy_object_multipart(
+            "live-copy/src.bin",
+            "live-copy/dst.bin",
+            payload.len() as u64,
+            5 * 1024 * 1024,
+        )
         .await
         .expect("multipart copy");
     assert_eq!(copied as usize, payload.len());
 
     // 读回校验内容一致
-    let data = client.get_object("live-copy/dst.bin").await.expect("get dst");
+    let data = client
+        .get_object("live-copy/dst.bin")
+        .await
+        .expect("get dst");
     assert_eq!(data, payload);
 
     // 清理
-    client.delete_object("live-copy/src.bin").await.expect("cleanup src");
-    client.delete_object("live-copy/dst.bin").await.expect("cleanup dst");
+    client
+        .delete_object("live-copy/src.bin")
+        .await
+        .expect("cleanup src");
+    client
+        .delete_object("live-copy/dst.bin")
+        .await
+        .expect("cleanup dst");
 }
 
 #[tokio::test]

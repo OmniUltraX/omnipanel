@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use omnipanel_store::{builtin_tool_omnimcp_backend, load_http_proxy_config, Storage};
+use omnipanel_store::{Storage, builtin_tool_omnimcp_backend, load_http_proxy_config};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -79,6 +79,10 @@ pub async fn execute_omnimcp_tool(
         "omni_database_show_processlist" => database_tools::show_processlist(arguments).await,
         "omni_database_kill_query" => database_tools::kill_query(arguments).await,
         "omni_database_slow_log_summary" => database_tools::slow_log_summary(arguments).await,
+        "omni_database_create_database" => database_tools::create_database(arguments).await,
+        "omni_database_list_users" => database_tools::list_users(arguments).await,
+        "omni_database_preview_table" => database_tools::preview_table(arguments).await,
+        "omni_database_list_character_sets" => database_tools::list_character_sets(arguments).await,
         "omni_ssh_exec" => ssh_tools::exec_command(arguments, storage).await,
         "omni_ssh_create_run_script" => ssh_tools::create_run_script(arguments, storage).await,
         "omni_ssh_get_stats" => ssh_tools::get_stats(arguments, storage).await,
@@ -97,9 +101,7 @@ pub async fn execute_omnimcp_tool(
         "omni_docker_inspect_container" => {
             docker_tools::inspect_container(arguments, storage).await
         }
-        "omni_docker_container_action" => {
-            docker_tools::container_action(arguments, storage).await
-        }
+        "omni_docker_container_action" => docker_tools::container_action(arguments, storage).await,
         "omni_docker_exec" => docker_tools::exec(arguments, storage).await,
         "omni_files_list" => files_tools::list(arguments, storage).await,
         "omni_files_read" => files_tools::read(arguments, storage).await,

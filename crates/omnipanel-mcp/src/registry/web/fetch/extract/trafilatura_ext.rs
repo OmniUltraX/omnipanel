@@ -1,6 +1,6 @@
 //! rs-trafilatura 正文抽取（L2），带质量门控。
 
-use rs_trafilatura::{extract_with_options, Options};
+use rs_trafilatura::{Options, extract_with_options};
 use tracing::debug;
 
 use super::format::{html_to_markdown, meaningful_text_len};
@@ -36,10 +36,7 @@ pub fn extract_by_trafilatura(html: &str, url: &str, format: &str) -> Option<Ext
     })
 }
 
-fn pick_content(
-    result: &rs_trafilatura::ExtractResult,
-    format: &str,
-) -> String {
+fn pick_content(result: &rs_trafilatura::ExtractResult, format: &str) -> String {
     match format.trim().to_ascii_lowercase().as_str() {
         "html" => result
             .content_html
@@ -69,7 +66,8 @@ mod tests {
     #[test]
     fn trafilatura_extracts_article() {
         let para = "This is a long article paragraph with enough content to pass the minimum text length threshold for extraction quality checks. ";
-        let html = format!(r#"<html><head><title>Article</title></head><body>
+        let html = format!(
+            r#"<html><head><title>Article</title></head><body>
             <nav>menu nav links sidebar advertisement footer links</nav>
             <article>
                 <h1>Main Title</h1>
@@ -78,7 +76,8 @@ mod tests {
                 <p>{para}</p>
             </article>
             <footer>copyright footer noise</footer>
-        </body></html>"#);
+        </body></html>"#
+        );
         let out = extract_by_trafilatura(&html, "https://example.com/article", "markdown")
             .expect("should extract");
         assert!(out.content.contains("Main Title"));

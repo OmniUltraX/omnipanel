@@ -81,7 +81,10 @@ mod tests {
     fn missing_or_ok_when_everything_absent() {
         match search("omnipanel_everything_unlikely_zzz_query", 5) {
             Ok(hits) => assert!(
-                hits.is_empty() || hits.iter().all(|h| crate::ipc::looks_like_win_path(&h.path)),
+                hits.is_empty()
+                    || hits
+                        .iter()
+                        .all(|h| crate::ipc::looks_like_win_path(&h.path)),
                 "unexpected garbage hits: {hits:?}"
             ),
             Err(EverythingError::NotRunning) => {}

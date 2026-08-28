@@ -1,11 +1,11 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::OmniError;
 use omnipanel_store::{
-    chunk_text, load_embedding_provider, save_embedding_provider, KnowledgeChunkListResult,
-    KnowledgeChunkRecord, KnowledgeRecallHit, KnowledgeVectorStatus, Storage,
+    KnowledgeChunkListResult, KnowledgeChunkRecord, KnowledgeRecallHit, KnowledgeVectorStatus,
+    Storage, chunk_text, load_embedding_provider, save_embedding_provider,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -177,7 +177,10 @@ async fn fetch_ollama_embeddings(
 
     let resp = client
         .post(&url)
-        .json(&Body { model, input: inputs })
+        .json(&Body {
+            model,
+            input: inputs,
+        })
         .send()
         .await
         .map_err(|e| format!("请求 Ollama embedding 接口失败 ({url}): {e}"))?;
@@ -229,7 +232,7 @@ pub(crate) async fn fetch_provider_embeddings(
 
 #[cfg(test)]
 mod embedding_tests {
-    use super::{is_ollama_embedding_provider, ollama_root_url, EmbeddingProviderConfig};
+    use super::{EmbeddingProviderConfig, is_ollama_embedding_provider, ollama_root_url};
 
     #[test]
     fn ollama_root_strips_v1_and_normalizes_localhost() {
@@ -237,7 +240,10 @@ mod embedding_tests {
             ollama_root_url("http://localhost:11434/v1"),
             "http://127.0.0.1:11434"
         );
-        assert_eq!(ollama_root_url("http://127.0.0.1:11434"), "http://127.0.0.1:11434");
+        assert_eq!(
+            ollama_root_url("http://127.0.0.1:11434"),
+            "http://127.0.0.1:11434"
+        );
     }
 
     #[test]
@@ -325,9 +331,7 @@ pub async fn execute_knowledge_vectorize(
         }
         let batch_index = (batch_idx + 1) as u32;
         progress(
-            format!(
-                "正在嵌入 ({batch_index}/{batch_total})：{entry_title}"
-            ),
+            format!("正在嵌入 ({batch_index}/{batch_total})：{entry_title}"),
             batch_index,
             batch_total,
             Some(embeddings.len() as u32),
@@ -360,9 +364,7 @@ pub async fn execute_knowledge_vectorize(
         })?;
         embeddings.extend(batch_vectors);
         progress(
-            format!(
-                "正在嵌入 ({batch_index}/{batch_total})：{entry_title}"
-            ),
+            format!("正在嵌入 ({batch_index}/{batch_total})：{entry_title}"),
             batch_index,
             batch_total,
             Some(embeddings.len() as u32),
@@ -521,12 +523,7 @@ pub async fn knowledge_recall_test(
     let min_score = args.min_score.unwrap_or(0.5).clamp(0.0, 1.0);
 
     let storage = state.storage.lock().await;
-    storage.recall_knowledge_entry_vectors(
-        &args.entry_id,
-        &query_embedding,
-        top_k,
-        min_score,
-    )
+    storage.recall_knowledge_entry_vectors(&args.entry_id, &query_embedding, top_k, min_score)
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]

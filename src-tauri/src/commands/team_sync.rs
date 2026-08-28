@@ -4,15 +4,15 @@ use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::Utc;
-use omnipanel_assistant::{
-    load_team_share_index, notify_team_share_created, pull_team_sync_json, push_team_sync_json,
-    save_team_share_index, team_share_item_key, validate_team_share_bundle_json, TeamShareIndexItem,
-    TEAM_MODULES_LATEST_LEAF, TEAM_SYNC_SCHEMA_VERSION,
-};
 use omnipanel_assistant::validate_modules_bundle_json;
+use omnipanel_assistant::{
+    TEAM_MODULES_LATEST_LEAF, TEAM_SYNC_SCHEMA_VERSION, TeamShareIndexItem, load_team_share_index,
+    notify_team_share_created, pull_team_sync_json, push_team_sync_json, save_team_share_index,
+    team_share_item_key, validate_team_share_bundle_json,
+};
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use specta::Type;
 use tauri::State;
 
@@ -22,14 +22,12 @@ use crate::commands::auth::{
     resolve_sync_team,
 };
 use crate::commands::client_sync_modules::{
+    ClientSyncModulesBundle, ClientSyncPeekItem, ClientSyncPushModulesRequest,
     build_peek_from_bundle, collect_local_bundle, dismissed_ssh_folder_names_from_bundle,
     filter_dismissed_ssh_layout_folders, finalize_modules_bundle_for_upload,
-    ClientSyncModulesBundle, ClientSyncPeekItem, ClientSyncPushModulesRequest,
 };
 use crate::state::AppState;
-use omnipanel_store::{
-    SYNC_KIND_MODULES,
-};
+use omnipanel_store::SYNC_KIND_MODULES;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -869,13 +867,7 @@ fn build_team_peek_modules(
             key: "http".to_string(),
             items: nest_items_under_module(
                 "http",
-                merge_peek_items(
-                    "http",
-                    local_http,
-                    remote_http,
-                    ex,
-                    &knowledge_excluded,
-                ),
+                merge_peek_items("http", local_http, remote_http, ex, &knowledge_excluded),
             ),
         },
         TeamSyncPeekModule {
@@ -1207,5 +1199,9 @@ pub async fn team_sync_peek_modules(
         None
     };
 
-    Ok(build_team_peek_modules(&local, remote.as_ref(), &exclusions))
+    Ok(build_team_peek_modules(
+        &local,
+        remote.as_ref(),
+        &exclusions,
+    ))
 }

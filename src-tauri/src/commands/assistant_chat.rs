@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use omnipanel_assistant::{
-    chat_index_from_notify_json, fetch_chat_latest, fetch_oss_sts, get_object_bytes,
-    parse_inbound_chat_message, set_model_from_notify_json, AuthContext, ChatLatestIndex,
-    ChatSetModelNotify,
+    AuthContext, ChatLatestIndex, ChatSetModelNotify, chat_index_from_notify_json,
+    fetch_chat_latest, fetch_oss_sts, get_object_bytes, parse_inbound_chat_message,
+    set_model_from_notify_json,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::Serialize;
@@ -120,7 +120,10 @@ pub async fn assistant_chat_fetch_object(
         return Err(OmniError::new(ErrorCode::Auth, "未登录"));
     }
     if object_key.trim().is_empty() {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "object_key 不能为空"));
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "object_key 不能为空",
+        ));
     }
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
@@ -167,11 +170,7 @@ pub async fn assistant_chat_inbox_start(
     });
     tauri::async_runtime::spawn(async move {
         crate::commands::assistant_remote_cmd::run_remote_cmd_loop(
-            app_cmd,
-            proxy_cmd,
-            token_cmd,
-            device_cmd,
-            stop_cmd,
+            app_cmd, proxy_cmd, token_cmd, device_cmd, stop_cmd,
         )
         .await;
     });
@@ -196,9 +195,8 @@ pub(crate) async fn build_auth_long(
     token: &str,
     device_id: &str,
 ) -> Result<AuthContext, OmniError> {
-    let http = build_http_client_for_url(AUTH_API_BASE, proxy, SSE_HTTP_TIMEOUT).map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
-    })?;
+    let http = build_http_client_for_url(AUTH_API_BASE, proxy, SSE_HTTP_TIMEOUT)
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
     Ok(AuthContext {
         api_base: AUTH_API_BASE.to_string(),
         access_token: token.to_string(),

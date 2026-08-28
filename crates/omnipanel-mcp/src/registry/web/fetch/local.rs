@@ -6,15 +6,14 @@ use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, USER_AGENT};
 use tracing::info;
 
 use super::super::common::{
-    build_http_client, classify_reqwest_error, map_http_status, BackendError, FetchRequest,
-    FetchResult, RequestCtx, WebSecrets,
+    BackendError, FetchRequest, FetchResult, RequestCtx, WebSecrets, build_http_client,
+    classify_reqwest_error, map_http_status,
 };
 use super::FetchProvider;
 use super::extract::convert_body;
 
 const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
-const BROWSER_UA: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 pub struct LocalFetch;
 
@@ -35,14 +34,20 @@ impl FetchProvider for LocalFetch {
     }
 }
 
-pub async fn fetch_local(req: &FetchRequest, ctx: &RequestCtx<'_>) -> Result<FetchResult, BackendError> {
+pub async fn fetch_local(
+    req: &FetchRequest,
+    ctx: &RequestCtx<'_>,
+) -> Result<FetchResult, BackendError> {
     let target = validate_fetch_url(&req.url)?;
     let client = build_http_client(target.as_str(), ctx.proxy, ctx.timeout)?;
 
     let resp = client
         .get(target.as_str())
         .header(USER_AGENT, BROWSER_UA)
-        .header(ACCEPT, "text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.8")
+        .header(
+            ACCEPT,
+            "text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.8",
+        )
         .header(ACCEPT_LANGUAGE, "zh-CN,zh;q=0.9,en;q=0.8")
         .send()
         .await
@@ -89,8 +94,8 @@ pub async fn fetch_local(req: &FetchRequest, ctx: &RequestCtx<'_>) -> Result<Fet
 }
 
 pub fn validate_fetch_url(url: &str) -> Result<url::Url, BackendError> {
-    let parsed = url::Url::parse(url.trim())
-        .map_err(|e| BackendError::Config(format!("无效 URL: {e}")))?;
+    let parsed =
+        url::Url::parse(url.trim()).map_err(|e| BackendError::Config(format!("无效 URL: {e}")))?;
     match parsed.scheme() {
         "http" | "https" => {}
         _ => return Err(BackendError::Config("仅支持 http/https URL".into())),
@@ -116,9 +121,7 @@ fn is_blocked_host(host: &str) -> bool {
 
 fn is_private_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_private() || v4.is_link_local() || v4.is_unspecified()
-        }
+        std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_unspecified(),
         std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
     }
 }

@@ -1,13 +1,13 @@
 //! 知识库向量化 / 召回 / 跨文档检索（Web 端，对齐桌面 `knowledge_vector.rs`）。
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::OmniError;
 use omnipanel_store::{
-    chunk_text, EmbeddingProviderConfig, KnowledgeChunkRecord, KnowledgeRecallHit,
-    KnowledgeVectorStatus, Storage,
+    EmbeddingProviderConfig, KnowledgeChunkRecord, KnowledgeRecallHit, KnowledgeVectorStatus,
+    Storage, chunk_text,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;

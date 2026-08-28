@@ -95,10 +95,7 @@ pub async fn db_list_connections(state: &ServerState) -> Result<Vec<DbConnection
 }
 
 /// 从 Vault 取回连接明文密码（编辑表单用）。
-pub async fn db_get_connection_secret(
-    state: &ServerState,
-    id: String,
-) -> Result<String, String> {
+pub async fn db_get_connection_secret(state: &ServerState, id: String) -> Result<String, String> {
     let id = id.trim();
     if id.is_empty() {
         return Err("连接 id 为空".to_string());
@@ -124,10 +121,7 @@ pub async fn db_save_connection(
 
 /// 删除 DB 连接。
 pub async fn db_delete_connection(state: &ServerState, id: String) -> Result<(), String> {
-    state
-        .db_connections
-        .delete(&id)
-        .map_err(|e| e.to_string())
+    state.db_connections.delete(&id).map_err(|e| e.to_string())
 }
 
 /// 测试连接（返回版本字符串）。
@@ -349,10 +343,7 @@ pub async fn db_execute_query(
 }
 
 /// 中断正在执行的 SQL 查询。
-pub async fn db_cancel_query(
-    state: &ServerState,
-    run_id: String,
-) -> Result<(), String> {
+pub async fn db_cancel_query(state: &ServerState, run_id: String) -> Result<(), String> {
     let abort_handle = state.running_db_queries.lock().await.remove(&run_id);
     match abort_handle {
         Some(handle) => {
@@ -520,7 +511,10 @@ pub async fn db_redis_set_key(
     .map_err(err_msg)
 }
 
-pub async fn db_redis_delete_key(connection: DbConnectionConfig, key: String) -> Result<f64, String> {
+pub async fn db_redis_delete_key(
+    connection: DbConnectionConfig,
+    key: String,
+) -> Result<f64, String> {
     ensure_redis(&connection)?;
     omnipanel_db::redis_delete_key(&to_params(&connection), &key)
         .await
@@ -555,9 +549,7 @@ pub async fn db_qdrant_delete_points(args: QdrantDeletePointsArgs) -> Result<f64
     .map_err(err_msg)
 }
 
-pub fn db_save_schema_cache(
-    snapshot: omnipanel_store::SchemaCacheSnapshot,
-) -> Result<(), String> {
+pub fn db_save_schema_cache(snapshot: omnipanel_store::SchemaCacheSnapshot) -> Result<(), String> {
     omnipanel_store::save_schema_cache(&snapshot).map_err(|e| e.user_message())
 }
 
@@ -579,8 +571,8 @@ pub fn db_save_schema_filters(
     omnipanel_store::save_schema_filters(&snapshot).map_err(|e| e.user_message())
 }
 
-pub fn db_load_schema_tree_expanded(
-) -> Result<omnipanel_store::SchemaTreeExpandedSnapshot, String> {
+pub fn db_load_schema_tree_expanded() -> Result<omnipanel_store::SchemaTreeExpandedSnapshot, String>
+{
     omnipanel_store::load_schema_tree_expanded().map_err(|e| e.user_message())
 }
 

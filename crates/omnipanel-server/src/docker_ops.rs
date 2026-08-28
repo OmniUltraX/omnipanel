@@ -5,8 +5,8 @@
 //! 流式能力（日志 / stats / 镜像 pull/push/build / CLI 逐行）经 [`EventBus`] 广播，
 //! 等价桌面端 `app.emit("docker-log", ...)` / `app.emit(progress_channel, ...)`。
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -15,9 +15,8 @@ use omnipanel_docker::{
     DockerBuildContext, DockerComposeAction, DockerComposeProjectFiles,
     DockerComposeReadFilesRequest, DockerComposeRequest, DockerComposeWriteFilesRequest,
     DockerContainerAction, DockerCreateContainerRequest, DockerCreateNetworkRequest,
-    DockerCreateVolumeRequest, DockerDaemonConfigFile,
-    DockerHostCliResult, DockerImageProgress, LocalDockerAdapter, run_local_docker_cli,
-    run_ssh_docker_cli,
+    DockerCreateVolumeRequest, DockerDaemonConfigFile, DockerHostCliResult, DockerImageProgress,
+    LocalDockerAdapter, run_local_docker_cli, run_ssh_docker_cli,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 
@@ -67,8 +66,8 @@ pub async fn docker_container_action(
     container_id: String,
     action: String,
 ) -> Result<(), String> {
-    let parsed = DockerContainerAction::parse(&action)
-        .ok_or_else(|| format!("未知容器操作: {action}"))?;
+    let parsed =
+        DockerContainerAction::parse(&action).ok_or_else(|| format!("未知容器操作: {action}"))?;
     resolve_adapter(state, &connection_id)
         .await
         .map_err(|e| e.to_string())?
@@ -264,7 +263,9 @@ pub async fn docker_pull_image(
     image: String,
     progress_channel: String,
 ) -> Result<omnipanel_docker::DockerPullResult, String> {
-    let adapter = resolve_adapter(state, &connection_id).await.map_err(|e| e.to_string())?;
+    let adapter = resolve_adapter(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let cb = progress_to_channel(state.bus.clone(), progress_channel);
     adapter
         .pull_image(&image, Some(cb as _))
@@ -278,7 +279,9 @@ pub async fn docker_push_image(
     image: String,
     progress_channel: String,
 ) -> Result<omnipanel_docker::DockerPullResult, String> {
-    let adapter = resolve_adapter(state, &connection_id).await.map_err(|e| e.to_string())?;
+    let adapter = resolve_adapter(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let cb = progress_to_channel(state.bus.clone(), progress_channel);
     adapter
         .push_image(&image, Some(cb as _))
@@ -292,7 +295,9 @@ pub async fn docker_build_image(
     context: DockerBuildContext,
     progress_channel: String,
 ) -> Result<omnipanel_docker::DockerBuildResult, String> {
-    let adapter = resolve_adapter(state, &connection_id).await.map_err(|e| e.to_string())?;
+    let adapter = resolve_adapter(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let cb = progress_to_channel(state.bus.clone(), progress_channel);
     adapter
         .build_image(&context, Some(cb as _))
@@ -307,14 +312,18 @@ pub async fn docker_host_run_cli(
     command: String,
     progress_channel: String,
 ) -> Result<DockerHostCliResult, String> {
-    let target = resolve_target(state, &connection_id).await.map_err(|e| e.to_string())?;
+    let target = resolve_target(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let bus = state.bus.clone();
     let channel = progress_channel.clone();
     let on_line = move |line: String| {
         bus.emit_channel(&channel, serde_json::json!(line));
     };
     match target {
-        DockerTarget::Local => run_local_docker_cli(&command, on_line).await.map_err(|e| e.to_string()),
+        DockerTarget::Local => run_local_docker_cli(&command, on_line)
+            .await
+            .map_err(|e| e.to_string()),
         DockerTarget::Ssh(session) => run_ssh_docker_cli(&session, &command, on_line)
             .await
             .map_err(|e| e.to_string()),
@@ -322,10 +331,13 @@ pub async fn docker_host_run_cli(
             "远程 Engine 连接不支持在宿主机执行 docker CLI，请改用 SSH / 本地连接",
         ))
         .map_err(|e| e.to_string()),
-        DockerTarget::OnePanel(_) => Err(not_supported("1Panel 连接暂不支持在宿主机执行 docker CLI"))
-            .map_err(|e| e.to_string()),
-        DockerTarget::BtPanel(_) => Err(not_supported("宝塔连接暂不支持在宿主机执行 docker CLI"))
-            .map_err(|e| e.to_string()),
+        DockerTarget::OnePanel(_) => {
+            Err(not_supported("1Panel 连接暂不支持在宿主机执行 docker CLI"))
+                .map_err(|e| e.to_string())
+        }
+        DockerTarget::BtPanel(_) => {
+            Err(not_supported("宝塔连接暂不支持在宿主机执行 docker CLI")).map_err(|e| e.to_string())
+        }
     }
 }
 
@@ -618,7 +630,9 @@ async fn connection_is_remote_engine(
     }
     let conn = {
         let storage = state.storage.lock().await;
-        storage.get_connection(connection_id).map_err(|e| e.to_string())?
+        storage
+            .get_connection(connection_id)
+            .map_err(|e| e.to_string())?
     }
     .ok_or_else(|| format!("Docker 连接 {connection_id} 不存在"))?;
     let cfg: crate::docker::DockerConnectionConfig =
@@ -715,7 +729,10 @@ pub async fn docker_stream_container_logs(
     since: Option<String>,
     follow: bool,
 ) -> Result<String, String> {
-    let stream_id = format!("docker-log-{}", LOG_STREAM_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let stream_id = format!(
+        "docker-log-{}",
+        LOG_STREAM_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     let stop = Arc::new(AtomicBool::new(false));
     state
         .docker_log_streams
@@ -723,7 +740,9 @@ pub async fn docker_stream_container_logs(
         .await
         .insert(stream_id.clone(), stop.clone());
 
-    let target = resolve_target(state, &connection_id).await.map_err(|e| e.to_string())?;
+    let target = resolve_target(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let query = omnipanel_docker::DockerLogQuery {
         tail: tail as i64,
         since,
@@ -801,10 +820,7 @@ pub async fn docker_stream_container_logs(
     Ok(stream_id)
 }
 
-pub async fn docker_stop_log_stream(
-    state: &ServerState,
-    stream_id: String,
-) -> Result<(), String> {
+pub async fn docker_stop_log_stream(state: &ServerState, stream_id: String) -> Result<(), String> {
     if let Some(stop) = state.docker_log_streams.lock().await.remove(&stream_id) {
         stop.store(true, Ordering::Relaxed);
     }
@@ -816,7 +832,10 @@ pub async fn docker_stream_stats(
     connection_id: String,
     container_id: String,
 ) -> Result<String, String> {
-    let stream_id = format!("docker-stats-{}", STATS_STREAM_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let stream_id = format!(
+        "docker-stats-{}",
+        STATS_STREAM_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     let stop = Arc::new(AtomicBool::new(false));
     state
         .docker_stats_streams
@@ -824,7 +843,9 @@ pub async fn docker_stream_stats(
         .await
         .insert(stream_id.clone(), stop.clone());
 
-    let target = resolve_target(state, &connection_id).await.map_err(|e| e.to_string())?;
+    let target = resolve_target(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let bus = state.bus.clone();
     let sid = stream_id.clone();
     let stats_streams = state.docker_stats_streams.clone();
@@ -957,26 +978,25 @@ async fn create_exec_with_shell_probe(
     ),
     OmniError,
 > {
-    let (session, mut output) = create_exec_for_target(target, container_id, shell, cols, rows).await?;
+    let (session, mut output) =
+        create_exec_for_target(target, container_id, shell, cols, rows).await?;
 
     let peek = tokio::time::timeout(std::time::Duration::from_millis(1200), output.next()).await;
 
     match peek {
         Ok(Some(Ok(bytes))) if is_exec_shell_missing_text(&String::from_utf8_lossy(&bytes)) => {
             let _ = session.close().await;
-            Err(OmniError::new(
-                ErrorCode::Internal,
-                format!("容器内不存在 shell：{shell}"),
+            Err(
+                OmniError::new(ErrorCode::Internal, format!("容器内不存在 shell：{shell}"))
+                    .with_cause(String::from_utf8_lossy(&bytes).into_owned()),
             )
-            .with_cause(String::from_utf8_lossy(&bytes).into_owned()))
         }
         Ok(Some(Ok(bytes))) => {
             // 首包回灌到流头部（保留原始输出顺序）
             let first = Ok(bytes);
             let rest = output;
-            let combined: omnipanel_docker::DockerExecOutput = Box::pin(
-                futures::stream::once(async move { first }).chain(rest),
-            );
+            let combined: omnipanel_docker::DockerExecOutput =
+                Box::pin(futures::stream::once(async move { first }).chain(rest));
             Ok((session, combined))
         }
         Ok(Some(Err(err))) => {
@@ -1045,18 +1065,26 @@ pub async fn docker_exec_command(
         );
     }
 
-    let target = resolve_target(state, &connection_id).await.map_err(|e| e.to_string())?;
+    let target = resolve_target(state, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?;
     match target {
         DockerTarget::Local => {
             let local = LocalDockerAdapter::connect().map_err(|e| e.to_string())?;
             let cmd = vec!["sh".to_string(), "-c".to_string(), trimmed.to_string()];
-            let out = local.exec_one_shot(&container_id, cmd).await.map_err(|e| e.to_string())?;
+            let out = local
+                .exec_one_shot(&container_id, cmd)
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(out)
         }
         DockerTarget::Remote(docker) => {
             let local = LocalDockerAdapter::with_docker(docker);
             let cmd = vec!["sh".to_string(), "-c".to_string(), trimmed.to_string()];
-            let out = local.exec_one_shot(&container_id, cmd).await.map_err(|e| e.to_string())?;
+            let out = local
+                .exec_one_shot(&container_id, cmd)
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(out)
         }
         DockerTarget::Ssh(session) => {
@@ -1064,19 +1092,22 @@ pub async fn docker_exec_command(
                 "docker exec --tty=false {container_id} sh -c {cmd:?}",
                 cmd = trimmed
             );
-            let output = session.exec_capture(&docker_cmd).await.map_err(|e| e.to_string())?;
+            let output = session
+                .exec_capture(&docker_cmd)
+                .await
+                .map_err(|e| e.to_string())?;
             Ok(omnipanel_docker::DockerOneShotExecOutput {
                 stdout: output.stdout,
                 stderr: output.stderr,
                 exit_code: output.exit_code as i64,
             })
         }
-        DockerTarget::OnePanel(_) => Err(
-            "1Panel 连接暂不支持一次性 exec；请在宿主机 SSH 终端执行".to_string(),
-        ),
-        DockerTarget::BtPanel(_) => Err(
-            "宝塔连接暂不支持一次性 exec；请在宿主机 SSH 终端执行".to_string(),
-        ),
+        DockerTarget::OnePanel(_) => {
+            Err("1Panel 连接暂不支持一次性 exec；请在宿主机 SSH 终端执行".to_string())
+        }
+        DockerTarget::BtPanel(_) => {
+            Err("宝塔连接暂不支持一次性 exec；请在宿主机 SSH 终端执行".to_string())
+        }
     }
 }
 
@@ -1158,7 +1189,10 @@ pub async fn docker_create_exec_session(
             .unwrap_or_else(|| "无法在容器内启动交互 shell，请尝试 bash/sh".to_string())
     })?;
 
-    let session_id = format!("docker-exec-{}", EXEC_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let session_id = format!(
+        "docker-exec-{}",
+        EXEC_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     state.docker_exec_sessions.lock().await.insert(
         session_id.clone(),
         DockerExecSessionEntry {
@@ -1175,10 +1209,7 @@ pub async fn docker_create_exec_session(
         while let Some(item) = output.next().await {
             match item {
                 Ok(bytes) => {
-                    bus.emit_terminal_output(
-                        &sid,
-                        STANDARD.encode(&bytes),
-                    );
+                    bus.emit_terminal_output(&sid, STANDARD.encode(&bytes));
                 }
                 Err(_) => break,
             }
@@ -1260,7 +1291,10 @@ pub async fn docker_create_host_shell_session(
             .unwrap_or_else(|| "无法打开宿主机交互 shell".to_string())
     })?;
 
-    let session_id = format!("docker-host-{}", EXEC_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let session_id = format!(
+        "docker-host-{}",
+        EXEC_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
     state.docker_exec_sessions.lock().await.insert(
         session_id.clone(),
         DockerExecSessionEntry {
@@ -1311,15 +1345,16 @@ pub async fn docker_exec_resize(
 ) -> Result<(), String> {
     let sessions = state.docker_exec_sessions.lock().await;
     if let Some(entry) = sessions.get(&session_id) {
-        entry.session.resize(cols, rows).await.map_err(|e| e.to_string())?;
+        entry
+            .session
+            .resize(cols, rows)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
-pub async fn docker_exec_close(
-    state: &ServerState,
-    session_id: String,
-) -> Result<(), String> {
+pub async fn docker_exec_close(state: &ServerState, session_id: String) -> Result<(), String> {
     if let Some(entry) = state.docker_exec_sessions.lock().await.remove(&session_id) {
         drop(entry);
     }

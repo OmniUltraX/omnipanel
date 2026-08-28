@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use futures::stream::{self, StreamExt};
 use omnipanel_store::DbConnectionConfig;
@@ -13,7 +13,7 @@ use crate::event::{
     SchemaIndexDiffPayload, SyncExecResultEvent, TableCountEvent, TableRowCompareEvent,
 };
 use crate::row_diff_cache::{
-    build_row_diff_cache_id, load_row_diff_cache_all, save_row_diff_cache, TableRowDiffPayload,
+    TableRowDiffPayload, build_row_diff_cache_id, load_row_diff_cache_all, save_row_diff_cache,
 };
 use crate::util::default_worker_count;
 use omnipanel_db::{DbColumnMeta, DbIndexMeta};
@@ -122,12 +122,7 @@ fn format_row_display_key(
         pk_columns.to_vec()
     };
     keys.iter()
-        .map(|col| {
-            format!(
-                "{col}={}",
-                normalize_value(&row_value(row, col))
-            )
-        })
+        .map(|col| format!("{col}={}", normalize_value(&row_value(row, col))))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -151,7 +146,11 @@ fn build_ignored_field_set(fields: &[String]) -> HashSet<String> {
 }
 
 fn is_ignored_compare_field(table: &str, column: &str, ignored: &HashSet<String>) -> bool {
-    let key = format!("{}.{}", table.to_ascii_lowercase(), column.to_ascii_lowercase());
+    let key = format!(
+        "{}.{}",
+        table.to_ascii_lowercase(),
+        column.to_ascii_lowercase()
+    );
     if ignored.contains(&key) {
         return true;
     }
@@ -182,18 +181,8 @@ async fn compare_table_rows(
     let target_order = build_pk_order_clause(&target.db_type, &pk_columns);
 
     let (source_count, target_count) = tokio::join!(
-        db_ops::db_count_table(
-            source.clone(),
-            None,
-            table_name.to_string(),
-            None,
-        ),
-        db_ops::db_count_table(
-            target.clone(),
-            None,
-            table_name.to_string(),
-            None,
-        ),
+        db_ops::db_count_table(source.clone(), None, table_name.to_string(), None,),
+        db_ops::db_count_table(target.clone(), None, table_name.to_string(), None,),
     );
     let source_total = source_count.map(|n| clamp_row_count(n as i64)).unwrap_or(0);
     let target_total = target_count.map(|n| clamp_row_count(n as i64)).unwrap_or(0);
@@ -656,15 +645,11 @@ pub async fn run_db_data_sync_analysis(
 
                 let mut target_for_count = target.clone();
                 target_for_count.database = target_db.clone();
-                let target_count = db_ops::db_count_table(
-                    target_for_count,
-                    None,
-                    table.clone(),
-                    None,
-                )
-                .await
-                .ok()
-                .map(|n| n as i64);
+                let target_count =
+                    db_ops::db_count_table(target_for_count, None, table.clone(), None)
+                        .await
+                        .ok()
+                        .map(|n| n as i64);
 
                 emit_db_event(
                     &app,
@@ -808,8 +793,7 @@ pub async fn run_db_schema_sync_analysis(
                 }
 
                 let table = spec.name.clone();
-                let schema_result =
-                    compare_schema_for_table(target, target_schema, spec).await;
+                let schema_result = compare_schema_for_table(target, target_schema, spec).await;
 
                 if cancel.load(Ordering::Relaxed) {
                     return;
@@ -862,10 +846,7 @@ fn is_mysql_engine(db_type: &str) -> bool {
 }
 
 fn is_postgres_engine(db_type: &str) -> bool {
-    matches!(
-        db_type.to_lowercase().as_str(),
-        "postgresql" | "postgres"
-    )
+    matches!(db_type.to_lowercase().as_str(), "postgresql" | "postgres")
 }
 
 fn quote_ident(db_type: &str, name: &str) -> String {
@@ -897,10 +878,7 @@ fn build_fetch_columns(
 }
 
 fn is_mysql_bit_column_type(column_type: &str) -> bool {
-    column_type
-        .trim()
-        .to_ascii_lowercase()
-        .starts_with("bit")
+    column_type.trim().to_ascii_lowercase().starts_with("bit")
 }
 
 /// 同步读行时的 SELECT 表达式。MySQL BIT 直读易被解码成 NULL（尤其值为 0），
@@ -1055,10 +1033,9 @@ fn sql_literal(value: &serde_json::Value, db_type: &str) -> String {
             }
         }
         serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => format!(
-            "'{}'",
-            s.replace('\\', "\\\\").replace('\'', "''")
-        ),
+        serde_json::Value::String(s) => {
+            format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
+        }
         other => format!(
             "'{}'",
             other.to_string().replace('\\', "\\\\").replace('\'', "''")
@@ -1104,11 +1081,7 @@ fn rewrite_create_table_ddl_name(
     ddl.to_string()
 }
 
-async fn target_table_exists(
-    target: &DbConnectionConfig,
-    target_db: &str,
-    table: &str,
-) -> bool {
+async fn target_table_exists(target: &DbConnectionConfig, target_db: &str, table: &str) -> bool {
     db_ops::db_list_tables(target.clone(), Some(target_db.to_string()))
         .await
         .ok()
@@ -1141,7 +1114,6 @@ async fn ensure_table_from_source(
     db_ops::db_run_sql(target.clone(), Some(target_db.to_string()), sql).await?;
     Ok(())
 }
-
 
 fn resolve_data_sync_modes(spec: &DbSyncExecTableSpec) -> DataSyncModes {
     if let Some(modes) = spec.sync_modes.clone() {
@@ -1255,13 +1227,8 @@ async fn fetch_table_row_keys(
     let select_exprs = build_fetch_select_exprs(&connection.db_type, columns, &pk_columns);
     let order_by = build_pk_order_clause(&connection.db_type, &pk_columns);
 
-    let total = db_ops::db_count_table(
-        connection.clone(),
-        None,
-        table_name.to_string(),
-        None,
-    )
-    .await? as i64;
+    let total = db_ops::db_count_table(connection.clone(), None, table_name.to_string(), None)
+        .await? as i64;
     if total <= 0 {
         return Ok(HashSet::new());
     }
@@ -1314,13 +1281,8 @@ async fn fetch_table_rows_map(
     let select_exprs = build_fetch_select_exprs(&connection.db_type, columns, &pk_columns);
     let order_by = build_pk_order_clause(&connection.db_type, &pk_columns);
 
-    let total = db_ops::db_count_table(
-        connection.clone(),
-        None,
-        table_name.to_string(),
-        None,
-    )
-    .await? as i64;
+    let total = db_ops::db_count_table(connection.clone(), None, table_name.to_string(), None)
+        .await? as i64;
     if total <= 0 {
         return Ok(HashMap::new());
     }
@@ -1400,25 +1362,19 @@ async fn copy_table_data_with_modes(
 
     let needs_target_keys = modes.insert || modes.merge;
     let target_keys = if needs_target_keys {
-        Some(
-            fetch_table_row_keys(&target_conn, table, &spec.columns, cancel).await?,
-        )
+        Some(fetch_table_row_keys(&target_conn, table, &spec.columns, cancel).await?)
     } else {
         None
     };
 
     let target_rows = if modes.merge {
-        Some(
-            fetch_table_rows_map(&target_conn, table, &spec.columns, cancel).await?,
-        )
+        Some(fetch_table_rows_map(&target_conn, table, &spec.columns, cancel).await?)
     } else {
         None
     };
 
     let source_keys = if modes.delete {
-        Some(
-            fetch_table_row_keys(&source_conn, table, &spec.columns, cancel).await?,
-        )
+        Some(fetch_table_row_keys(&source_conn, table, &spec.columns, cancel).await?)
     } else {
         None
     };
@@ -1478,9 +1434,13 @@ async fn copy_table_data_with_modes(
                                 &pk_columns,
                                 &row,
                             )? {
-                                let affected =
-                                    execute_insert_statements(&target_conn, vec![sql], cancel, table)
-                                        .await?;
+                                let affected = execute_insert_statements(
+                                    &target_conn,
+                                    vec![sql],
+                                    cancel,
+                                    table,
+                                )
+                                .await?;
                                 if affected > 0 {
                                     stats.updated += 1;
                                 }
@@ -1499,9 +1459,7 @@ async fn copy_table_data_with_modes(
                     continue;
                 }
                 execute_insert_statements(&target_conn, statements, cancel, table).await?;
-                stats.inserted = stats
-                    .inserted
-                    .saturating_add(chunk.len() as u64);
+                stats.inserted = stats.inserted.saturating_add(chunk.len() as u64);
             }
             report_rows(stats.total() as u32, source_total.max(1));
             offset += PAGE_SIZE;
@@ -1752,7 +1710,9 @@ fn collect_table_sync_sql_from_diffs(
         match diff.kind.as_str() {
             "sourceOnly" if modes.insert => {
                 if let Some(row) = &diff.source_row {
-                    for sql in build_insert_statement(db_type, table, columns, std::slice::from_ref(row))? {
+                    for sql in
+                        build_insert_statement(db_type, table, columns, std::slice::from_ref(row))?
+                    {
                         statements.push(format_sql_statement(&sql));
                     }
                     stats.inserted += 1;
@@ -1792,10 +1752,7 @@ pub struct DbDataSyncSqlGenerateResult {
     pub statement_count: u32,
 }
 
-
-
 pub use crate::paths::{read_sync_sql_file, save_sync_sql_file};
-
 
 pub async fn generate_data_sync_sql_script(
     source: DbConnectionConfig,
@@ -2076,7 +2033,6 @@ async fn flush_sql_file_batch(
     Ok(())
 }
 
-
 fn format_sync_modes_message(modes: &DataSyncModes, stats: &SyncWriteStats) -> String {
     if !modes.any_enabled() {
         return "未启用任何同步方式，已跳过".to_string();
@@ -2112,7 +2068,10 @@ fn normalize_data_sync_strategy(strategy: Option<&str>) -> &'static str {
     }
 }
 
-fn should_include_insert_column(row: &HashMap<String, serde_json::Value>, col: &DbColumnMeta) -> bool {
+fn should_include_insert_column(
+    row: &HashMap<String, serde_json::Value>,
+    col: &DbColumnMeta,
+) -> bool {
     if !row_has_column(row, &col.name) {
         return false;
     }
@@ -2234,11 +2193,7 @@ fn build_update_statement(
             continue;
         }
         if let Some(expr) = insert_field_expr(row, col, db_type) {
-            set_parts.push(format!(
-                "{} = {}",
-                quote_ident(db_type, &col.name),
-                expr
-            ));
+            set_parts.push(format!("{} = {}", quote_ident(db_type, &col.name), expr));
         }
     }
     if set_parts.is_empty() {
@@ -2361,7 +2316,8 @@ fn parse_mysql_foreign_key_violation(error: &str) -> Option<ForeignKeyViolation>
 
 fn parse_postgres_foreign_key_violation(error: &str) -> Option<ForeignKeyViolation> {
     let lower = error.to_ascii_lowercase();
-    if !lower.contains("violates foreign key constraint") && !lower.contains("is not present in table")
+    if !lower.contains("violates foreign key constraint")
+        && !lower.contains("is not present in table")
     {
         return None;
     }
@@ -2398,7 +2354,10 @@ fn parse_foreign_key_violation(error: &str) -> Option<ForeignKeyViolation> {
 
 fn format_sync_foreign_key_error(syncing_table: &str, error: &str) -> String {
     let Some(fk) = parse_foreign_key_violation(error) else {
-        if error.to_ascii_lowercase().contains("foreign key constraint") {
+        if error
+            .to_ascii_lowercase()
+            .contains("foreign key constraint")
+        {
             return format!(
                 "表 `{syncing_table}` 写入失败：外键约束不满足，请先同步被引用的父表后再重试。\n原始错误：{}",
                 error.trim()
@@ -2408,10 +2367,7 @@ fn format_sync_foreign_key_error(syncing_table: &str, error: &str) -> String {
     };
 
     if fk.is_parent_row_violation {
-        let child = fk
-            .child_table
-            .as_deref()
-            .unwrap_or("子表");
+        let child = fk.child_table.as_deref().unwrap_or("子表");
         return format!(
             "表 `{syncing_table}` 操作失败：仍有子表 `{child}` 引用本表数据。请先处理子表 `{child}` 的数据同步。"
         );
@@ -2419,7 +2375,10 @@ fn format_sync_foreign_key_error(syncing_table: &str, error: &str) -> String {
 
     let link = match (&fk.child_column, &fk.parent_column) {
         (Some(child_col), Some(parent_col)) => {
-            format!("本表字段 `{child_col}` → `{}`.`{parent_col}`", fk.parent_table)
+            format!(
+                "本表字段 `{child_col}` → `{}`.`{parent_col}`",
+                fk.parent_table
+            )
         }
         (Some(child_col), None) => format!("本表字段 `{child_col}` → `{}`", fk.parent_table),
         _ => format!("引用表 `{}`", fk.parent_table),
@@ -2491,9 +2450,7 @@ async fn execute_insert_statements(
 
 #[cfg(test)]
 mod fk_error_tests {
-    use super::{
-        format_sync_foreign_key_error, parse_mysql_foreign_key_violation,
-    };
+    use super::{format_sync_foreign_key_error, parse_mysql_foreign_key_violation};
 
     #[test]
     fn parse_mysql_child_insert_fk_error() {
@@ -2785,12 +2742,8 @@ async fn collect_schema_diff_sql(
         )
         .await?;
         let sql = normalize_create_table_ddl(&ddl, &target.db_type);
-        let sql = rewrite_create_table_ddl_name(
-            &sql,
-            &spec.name,
-            target_table_name,
-            &target.db_type,
-        );
+        let sql =
+            rewrite_create_table_ddl_name(&sql, &spec.name, target_table_name, &target.db_type);
         return Ok(format!("{sql};"));
     }
 
@@ -2939,10 +2892,7 @@ pub async fn batch_table_ddl(
     let mut out = Vec::with_capacity(tables.len());
     for table in tables {
         match db_ops::db_table_ddl_op(connection.clone(), schema.clone(), table.clone()).await {
-            Ok(ddl) => out.push(DbSyncSqlPreviewTable {
-                table,
-                sql: ddl,
-            }),
+            Ok(ddl) => out.push(DbSyncSqlPreviewTable { table, sql: ddl }),
             Err(err) => out.push(DbSyncSqlPreviewTable {
                 table,
                 sql: format!("-- 无法获取建表语句: {err}"),
@@ -3018,8 +2968,7 @@ async fn apply_schema_diff(
             "added" => {
                 if let Some(idx) = spec.indexes.iter().find(|i| i.name == diff.name) {
                     let sql = build_create_index_sql(&target.db_type, target_table_name, idx);
-                    db_ops::db_run_sql(target.clone(), Some(target_db.to_string()), sql)
-                        .await?;
+                    db_ops::db_run_sql(target.clone(), Some(target_db.to_string()), sql).await?;
                     applied += 1;
                 }
             }
@@ -3027,20 +2976,13 @@ async fn apply_schema_diff(
                 if let Some(idx) = spec.indexes.iter().find(|i| i.name == diff.name) {
                     let drop_sql = build_drop_index_sql(&target.db_type, target_table_name, idx);
                     if !drop_sql.is_empty() {
-                        db_ops::db_run_sql(
-                            target.clone(),
-                            Some(target_db.to_string()),
-                            drop_sql,
-                        )
-                        .await?;
+                        db_ops::db_run_sql(target.clone(), Some(target_db.to_string()), drop_sql)
+                            .await?;
                     }
-                    let create_sql = build_create_index_sql(&target.db_type, target_table_name, idx);
-                    db_ops::db_run_sql(
-                        target.clone(),
-                        Some(target_db.to_string()),
-                        create_sql,
-                    )
-                    .await?;
+                    let create_sql =
+                        build_create_index_sql(&target.db_type, target_table_name, idx);
+                    db_ops::db_run_sql(target.clone(), Some(target_db.to_string()), create_sql)
+                        .await?;
                     applied += 1;
                 }
             }
@@ -3048,7 +2990,8 @@ async fn apply_schema_diff(
         }
     }
 
-    if applied == 0 && col_diffs.iter().all(|d| d.kind == "removed")
+    if applied == 0
+        && col_diffs.iter().all(|d| d.kind == "removed")
         && idx_diffs.iter().all(|d| d.kind == "removed")
     {
         return Ok("结构已一致".to_string());
@@ -3129,7 +3072,11 @@ async fn execute_schema_sync_table(
     }
 }
 
-async fn emit_exec_event(sink: &Arc<dyn DbSyncEventSink>, task_id: &str, result: SyncExecResultEvent) {
+async fn emit_exec_event(
+    sink: &Arc<dyn DbSyncEventSink>,
+    task_id: &str,
+    result: SyncExecResultEvent,
+) {
     emit_db_event(
         sink,
         BgTaskDbEvent {
@@ -3228,8 +3175,7 @@ pub async fn run_db_data_sync_execute(
                         .unwrap_or_else(|| "未知错误".to_string());
                     failed.lock().await.push(format!("{table}: {detail}"));
                 } else {
-                    let written =
-                        result.rows_written.unwrap_or(0).min(u64::from(u32::MAX)) as u32;
+                    let written = result.rows_written.unwrap_or(0).min(u64::from(u32::MAX)) as u32;
                     rows_written_total.fetch_add(written, Ordering::Relaxed);
                 }
                 completed.fetch_add(1, Ordering::Relaxed);
@@ -3264,7 +3210,6 @@ pub async fn run_db_data_sync_execute(
     Ok(())
 }
 
-
 pub async fn run_db_schema_sync_execute(
     app: Arc<dyn DbSyncEventSink>,
     task_id: String,
@@ -3291,7 +3236,8 @@ pub async fn run_db_schema_sync_execute(
             None,
             None,
         );
-        let result = execute_schema_sync_table(&source, &source_db, &target, &target_db, spec).await;
+        let result =
+            execute_schema_sync_table(&source, &source_db, &target, &target_db, spec).await;
         emit_exec_event(&app, &task_id, result).await;
     }
 
@@ -3307,9 +3253,7 @@ pub async fn run_db_schema_sync_execute(
 
 #[cfg(test)]
 mod add_column_position_tests {
-    use super::{
-        build_add_column_sql, resolve_mysql_add_column_position, MysqlAddColumnPosition,
-    };
+    use super::{MysqlAddColumnPosition, build_add_column_sql, resolve_mysql_add_column_position};
     use omnipanel_db::DbColumnMeta;
     use std::collections::HashSet;
 
@@ -3329,10 +3273,14 @@ mod add_column_position_tests {
 
     #[test]
     fn mysql_add_column_uses_after_previous_existing() {
-        let source = vec![col("id"), col("update_time"), col("chapter_json"), col("name")];
+        let source = vec![
+            col("id"),
+            col("update_time"),
+            col("chapter_json"),
+            col("name"),
+        ];
         let existing: HashSet<&str> = ["id", "update_time", "name"].into_iter().collect();
-        let position =
-            resolve_mysql_add_column_position(&source, "chapter_json", &existing);
+        let position = resolve_mysql_add_column_position(&source, "chapter_json", &existing);
         assert!(matches!(
             position,
             MysqlAddColumnPosition::After("update_time")

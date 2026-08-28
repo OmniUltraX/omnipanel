@@ -112,31 +112,29 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
     let app_hide = app.clone();
     let key_hide = key_destroy.clone();
     let label_hide = label_destroy.clone();
-    window.on_window_event(move |event| {
-        match event {
-            tauri::WindowEvent::CloseRequested { api, .. } => {
-                api.prevent_close();
-                let _ = win_hide.set_skip_taskbar(true);
-                let _ = win_hide.hide();
-                let _ = app_hide.emit(
-                    "omnipanel:module-window-hidden",
-                    serde_json::json!({
-                        "moduleKey": key_hide,
-                        "label": label_hide,
-                    }),
-                );
-            }
-            tauri::WindowEvent::Destroyed => {
-                let _ = app_destroy.emit(
-                    "omnipanel:module-window-destroyed",
-                    serde_json::json!({
-                        "moduleKey": key_destroy,
-                        "label": label_destroy,
-                    }),
-                );
-            }
-            _ => {}
+    window.on_window_event(move |event| match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            let _ = win_hide.set_skip_taskbar(true);
+            let _ = win_hide.hide();
+            let _ = app_hide.emit(
+                "omnipanel:module-window-hidden",
+                serde_json::json!({
+                    "moduleKey": key_hide,
+                    "label": label_hide,
+                }),
+            );
         }
+        tauri::WindowEvent::Destroyed => {
+            let _ = app_destroy.emit(
+                "omnipanel:module-window-destroyed",
+                serde_json::json!({
+                    "moduleKey": key_destroy,
+                    "label": label_destroy,
+                }),
+            );
+        }
+        _ => {}
     });
 
     Ok(label)

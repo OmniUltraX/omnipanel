@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
-use omnipanel_ssh::{
-    is_private_key_pem_content, ssh_public_key_meta,
-};
+use omnipanel_ssh::{is_private_key_pem_content, ssh_public_key_meta};
 
 use crate::store_bridge::SshKeyInfo;
 
@@ -149,13 +147,15 @@ pub async fn ssh_generate_key(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(OmniError::new(ErrorCode::Ssh, "ssh-keygen 执行失败").with_cause(
-            if stderr.is_empty() {
-                format!("exit code {:?}", output.status.code())
-            } else {
-                stderr
-            },
-        ));
+        return Err(
+            OmniError::new(ErrorCode::Ssh, "ssh-keygen 执行失败").with_cause(
+                if stderr.is_empty() {
+                    format!("exit code {:?}", output.status.code())
+                } else {
+                    stderr
+                },
+            ),
+        );
     }
 
     ssh_key_info_from_path(&key_path).ok_or_else(|| {
@@ -190,9 +190,8 @@ pub async fn ssh_import_key(name: String, private_key: String) -> OmniResult<Ssh
         ));
     }
 
-    std::fs::write(&key_path, format!("{trimmed_key}\n")).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "写入密钥文件失败").with_cause(e.to_string())
-    })?;
+    std::fs::write(&key_path, format!("{trimmed_key}\n"))
+        .map_err(|e| OmniError::new(ErrorCode::Io, "写入密钥文件失败").with_cause(e.to_string()))?;
 
     #[cfg(unix)]
     {
@@ -200,12 +199,8 @@ pub async fn ssh_import_key(name: String, private_key: String) -> OmniResult<Ssh
         let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
     }
 
-    ssh_key_info_from_path(&key_path).ok_or_else(|| {
-        OmniError::new(
-            ErrorCode::Internal,
-            format!("密钥已写入但无法解析: {name}"),
-        )
-    })
+    ssh_key_info_from_path(&key_path)
+        .ok_or_else(|| OmniError::new(ErrorCode::Internal, format!("密钥已写入但无法解析: {name}")))
 }
 
 pub async fn ssh_delete_key(name: String) -> OmniResult<()> {

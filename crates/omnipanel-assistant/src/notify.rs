@@ -1,8 +1,8 @@
 use omnipanel_error::OmniResult;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::error::{map_assistant_error, map_assistant_error_with_cause, AssistantErrorKind};
+use crate::error::{AssistantErrorKind, map_assistant_error, map_assistant_error_with_cause};
 use crate::sts::AuthContext;
 
 /// 上传完成后的业务字段（放入通用 notify 的 payload）。
@@ -120,10 +120,7 @@ mod tests {
         assert_eq!(overview_key_from_notify_payload(&camel), "a/b.json");
         let snake = serde_json::json!({ "overview_key": "x/y.json" });
         assert_eq!(overview_key_from_notify_payload(&snake), "x/y.json");
-        assert_eq!(
-            overview_key_from_notify_payload(&serde_json::json!({})),
-            ""
-        );
+        assert_eq!(overview_key_from_notify_payload(&serde_json::json!({})), "");
     }
 
     #[test]

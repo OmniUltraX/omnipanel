@@ -7,19 +7,18 @@ use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::SshConfig;
 use omnipanel_transfer::{
+    TransferEventSink,
     provider::{SftpEndpointInfo, TransferDirEntry, TransferHost, TransferProtocol},
     remote_direct::remote_direct_eligible,
     types::{FileTransferJob, TRANSFER_PROGRESS_EVENT},
-    TransferEventSink,
 };
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands::file_manager::{
-    self, ftp_connect_sync, ftp_remote_path, load_file_connection, parse_file_config,
-    protocol_of, resolve_local_path, resolve_secret, s3_copy_object_from_bucket,
-    s3_copy_object_internal, s3_delete_object, s3_get_object_bytes, s3_put_object_bytes,
-    sftp_session_for, ssh_config_from_file_conn, FileConnConfig, FileProtocol,
-    LOCAL_CONNECTION_ID,
+    self, FileConnConfig, FileProtocol, LOCAL_CONNECTION_ID, ftp_connect_sync, ftp_remote_path,
+    load_file_connection, parse_file_config, protocol_of, resolve_local_path, resolve_secret,
+    s3_copy_object_from_bucket, s3_copy_object_internal, s3_delete_object, s3_get_object_bytes,
+    s3_put_object_bytes, sftp_session_for, ssh_config_from_file_conn,
 };
 use crate::state::AppState;
 
@@ -172,12 +171,7 @@ impl TransferHost for TauriTransferHost {
         s3_get_object_bytes(&cfg, &secret, key).await
     }
 
-    async fn s3_put_bytes(
-        &self,
-        connection_id: &str,
-        key: &str,
-        data: &[u8],
-    ) -> OmniResult<()> {
+    async fn s3_put_bytes(&self, connection_id: &str, key: &str, data: &[u8]) -> OmniResult<()> {
         let state = app_state(&self.0);
         let (_, cfg, secret) = load_cfg(state.inner(), connection_id).await?;
         s3_put_object_bytes(&cfg, &secret, key, data).await
@@ -204,14 +198,7 @@ impl TransferHost for TauriTransferHost {
         let state = app_state(&self.0);
         let (_, src_cfg, _) = load_cfg(state.inner(), source_id).await?;
         let (_, dest_cfg, dest_secret) = load_cfg(state.inner(), dest_id).await?;
-        s3_copy_object_from_bucket(
-            &dest_cfg,
-            &dest_secret,
-            &src_cfg.bucket,
-            src_key,
-            dst_key,
-        )
-        .await
+        s3_copy_object_from_bucket(&dest_cfg, &dest_secret, &src_cfg.bucket, src_key, dst_key).await
     }
 
     async fn s3_bucket_name(&self, connection_id: &str) -> OmniResult<String> {
@@ -231,9 +218,9 @@ impl TransferHost for TauriTransferHost {
         if let Some(parent) = local_path.parent() {
             tokio::fs::create_dir_all(parent).await.ok();
         }
-        tokio::fs::write(local_path, &data)
-            .await
-            .map_err(|e| OmniError::new(ErrorCode::Io, "写入临时文件失败").with_cause(e.to_string()))?;
+        tokio::fs::write(local_path, &data).await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "写入临时文件失败").with_cause(e.to_string())
+        })?;
         Ok(data.len() as u64)
     }
 
@@ -244,9 +231,9 @@ impl TransferHost for TauriTransferHost {
         local_path: &Path,
     ) -> OmniResult<u64> {
         let key = remote_path.trim_start_matches('/');
-        let data = tokio::fs::read(local_path)
-            .await
-            .map_err(|e| OmniError::new(ErrorCode::Io, "读取临时文件失败").with_cause(e.to_string()))?;
+        let data = tokio::fs::read(local_path).await.map_err(|e| {
+            OmniError::new(ErrorCode::Io, "读取临时文件失败").with_cause(e.to_string())
+        })?;
         let n = data.len() as u64;
         self.s3_put_bytes(connection_id, key, &data).await?;
         Ok(n)
@@ -298,7 +285,9 @@ impl TransferHost for TauriTransferHost {
             Ok(n)
         })
         .await
-        .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+        })?
     }
 
     async fn ftp_upload_from_file(
@@ -335,7 +324,9 @@ impl TransferHost for TauriTransferHost {
             Ok(data.len() as u64)
         })
         .await
-        .map_err(|e| OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string()))?
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "FTP 任务失败").with_cause(e.to_string())
+        })?
     }
 }
 

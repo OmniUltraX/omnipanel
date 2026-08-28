@@ -1,7 +1,7 @@
 //! OmniMCP 模块感知：从 HTTP 请求头 `X-Omni-Module` 解析当前模块，并按模块过滤工具。
 
 use http::request::Parts;
-use rmcp::{model::Tool, service::RequestContext, RoleServer};
+use rmcp::{RoleServer, model::Tool, service::RequestContext};
 
 use crate::types::{OMNI_MODULE_MASTER, X_OMNI_MODULE_HEADER};
 
@@ -83,9 +83,9 @@ pub fn ensure_tool_allowed_for_module(
     scope: &OmniModuleScope,
 ) -> Result<(), String> {
     match scope {
-        OmniModuleScope::Unspecified => Err(
-            "缺少 X-Omni-Module 请求头或值为空，无法调用 MCP 工具".to_string(),
-        ),
+        OmniModuleScope::Unspecified => {
+            Err("缺少 X-Omni-Module 请求头或值为空，无法调用 MCP 工具".to_string())
+        }
         OmniModuleScope::All => Ok(()),
         OmniModuleScope::Module(module) => {
             if omnipanel_store::builtin_tool_is_cross_module(tool_name) {
@@ -120,14 +120,8 @@ mod tests {
             omni_tool_module_key("omni_database_execute_sql"),
             Some("database")
         );
-        assert_eq!(
-            omni_tool_module_key("omni_ssh_exec"),
-            Some("ssh")
-        );
-        assert_eq!(
-            omni_tool_module_key("omni_terminal_exec"),
-            Some("terminal")
-        );
+        assert_eq!(omni_tool_module_key("omni_ssh_exec"), Some("ssh"));
+        assert_eq!(omni_tool_module_key("omni_terminal_exec"), Some("terminal"));
         assert_eq!(omni_tool_module_key("other_tool"), None);
     }
 
@@ -196,11 +190,8 @@ mod tests {
             Tool::new("load_skill", "skill", schema.clone()),
             Tool::new("omni_database_list_connections", "db", schema),
         ];
-        let filtered = filter_tools_for_request(
-            tools,
-            &OmniModuleScope::Module("web".to_string()),
-            |_| true,
-        );
+        let filtered =
+            filter_tools_for_request(tools, &OmniModuleScope::Module("web".to_string()), |_| true);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name.as_ref(), "load_skill");
     }
@@ -224,34 +215,33 @@ mod tests {
     #[test]
     fn missing_or_empty_header_returns_no_tools() {
         let schema = std::sync::Arc::new(serde_json::Map::new());
-        let tools = vec![Tool::new("omni_knowledge_create_document", "k", schema.clone())];
+        let tools = vec![Tool::new(
+            "omni_knowledge_create_document",
+            "k",
+            schema.clone(),
+        )];
 
-        assert!(filter_tools_for_request(
-            tools.clone(),
-            &parse_omni_module_header(None),
-            |_| true,
-        )
-        .is_empty());
-        assert!(filter_tools_for_request(
-            tools.clone(),
-            &parse_omni_module_header(Some("")),
-            |_| true,
-        )
-        .is_empty());
-        assert!(filter_tools_for_request(
-            tools.clone(),
-            &parse_omni_module_header(Some("   ")),
-            |_| true,
-        )
-        .is_empty());
+        assert!(
+            filter_tools_for_request(tools.clone(), &parse_omni_module_header(None), |_| true,)
+                .is_empty()
+        );
+        assert!(
+            filter_tools_for_request(tools.clone(), &parse_omni_module_header(Some("")), |_| true,)
+                .is_empty()
+        );
+        assert!(
+            filter_tools_for_request(
+                tools.clone(),
+                &parse_omni_module_header(Some("   ")),
+                |_| true,
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn master_header_means_all_tools() {
-        assert_eq!(
-            parse_omni_module_header(None),
-            OmniModuleScope::Unspecified
-        );
+        assert_eq!(parse_omni_module_header(None), OmniModuleScope::Unspecified);
         assert_eq!(
             parse_omni_module_header(Some("")),
             OmniModuleScope::Unspecified

@@ -247,10 +247,7 @@ pub fn parse_disk_line(line: &str) -> Option<DiskDeviceStats> {
 }
 
 pub fn parse_disk_lines(raw: &str) -> DiskStats {
-    let mut disks: Vec<DiskDeviceStats> = raw
-        .lines()
-        .filter_map(parse_disk_line)
-        .collect();
+    let mut disks: Vec<DiskDeviceStats> = raw.lines().filter_map(parse_disk_line).collect();
     disks.sort_by(|a, b| {
         b.total
             .cmp(&a.total)
@@ -307,7 +304,13 @@ fn cpu_usage_from_delta(total1: u64, idle1: u64, total2: u64, idle2: u64) -> f64
     (busy as f64 / dt as f64 * 100.0).clamp(0.0, 100.0)
 }
 
-pub fn compute_cpu_stats(sample1: &str, sample2: &str, load1: f64, load5: f64, load15: f64) -> CpuStats {
+pub fn compute_cpu_stats(
+    sample1: &str,
+    sample2: &str,
+    load1: f64,
+    load5: f64,
+    load15: f64,
+) -> CpuStats {
     let (gt1, gi1, cores1) = parse_proc_stat_sample(sample1);
     let (gt2, gi2, cores2) = parse_proc_stat_sample(sample2);
     let usage = cpu_usage_from_delta(gt1, gi1, gt2, gi2);
@@ -390,7 +393,8 @@ pub fn parse_remote_stats_output(
 
     // 新版分段格式
     if sections.contains_key("load") || sections.contains_key("cpu_stat1") {
-        let (load1, load5, load15) = parse_load_triplet(sections.get("load").map(String::as_str).unwrap_or(""));
+        let (load1, load5, load15) =
+            parse_load_triplet(sections.get("load").map(String::as_str).unwrap_or(""));
         let cpu = compute_cpu_stats(
             sections.get("cpu_stat1").map(String::as_str).unwrap_or(""),
             sections.get("cpu_stat2").map(String::as_str).unwrap_or(""),
@@ -398,9 +402,7 @@ pub fn parse_remote_stats_output(
             load5,
             load15,
         );
-        let cores_override: Option<u32> = sections
-            .get("cores")
-            .and_then(|s| s.trim().parse().ok());
+        let cores_override: Option<u32> = sections.get("cores").and_then(|s| s.trim().parse().ok());
         let cpu_cores = cores_override.unwrap_or(cpu.cores);
         let mut cpu = cpu;
         cpu.cores = cpu_cores;
@@ -408,9 +410,7 @@ pub fn parse_remote_stats_output(
             let t = s.trim();
             if t.is_empty() { None } else { t.parse().ok() }
         });
-        cpu.temperature = sections
-            .get("cpu_temp")
-            .and_then(|s| s.trim().parse().ok());
+        cpu.temperature = sections.get("cpu_temp").and_then(|s| s.trim().parse().ok());
 
         let memory = build_memory_stats(
             sections.get("mem").map(String::as_str).unwrap_or(""),
@@ -437,9 +437,7 @@ pub fn parse_remote_stats_output(
             .and_then(|s| s.trim().parse().ok());
         let os_info = sections.get("os").cloned().unwrap_or_default();
         let load = format_load(load1, load5, load15);
-        let uptime_secs = sections
-            .get("uptime")
-            .and_then(|s| s.trim().parse().ok());
+        let uptime_secs = sections.get("uptime").and_then(|s| s.trim().parse().ok());
 
         let mut gpu = GpuStats {
             devices: gpu_devices.to_vec(),

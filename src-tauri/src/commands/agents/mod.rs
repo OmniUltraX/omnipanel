@@ -1,10 +1,10 @@
 mod detect_common;
 
+#[cfg(windows)]
+use detect_common::where_all;
 use detect_common::{
     command_output, detect_from_candidates, home_dir, push_candidate, resolve_in_path,
 };
-#[cfg(windows)]
-use detect_common::where_all;
 use omnipanel_error::OmniError;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -32,7 +32,13 @@ pub struct AgentInstallStatus {
 }
 
 impl AgentInstallStatus {
-    fn from_detection(kind: AgentKind, launch_args: Vec<&str>, installed: bool, path: Option<String>, version: Option<String>) -> Self {
+    fn from_detection(
+        kind: AgentKind,
+        launch_args: Vec<&str>,
+        installed: bool,
+        path: Option<String>,
+        version: Option<String>,
+    ) -> Self {
         Self {
             kind,
             installed,
@@ -115,13 +121,16 @@ fn collect_cursor_candidates() -> Vec<PathBuf> {
 
     if let Some(home) = home_dir() {
         push_candidate(&mut candidates, &mut seen, home.join(".local/bin/agent"));
-        push_candidate(&mut candidates, &mut seen, home.join(".local/bin/agent.exe"));
+        push_candidate(
+            &mut candidates,
+            &mut seen,
+            home.join(".local/bin/agent.exe"),
+        );
     }
 
     #[cfg(windows)]
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-        let cursor_bin = PathBuf::from(local_app_data)
-            .join("Programs/cursor/resources/app/bin");
+        let cursor_bin = PathBuf::from(local_app_data).join("Programs/cursor/resources/app/bin");
         push_candidate(&mut candidates, &mut seen, cursor_bin.join("agent.cmd"));
         push_candidate(&mut candidates, &mut seen, cursor_bin.join("agent.exe"));
     }
@@ -195,9 +204,8 @@ fn detect_node_version() -> Option<String> {
 fn detect_omniagent_sync(bundled_resource_dir: Option<&PathBuf>) -> AgentInstallStatus {
     let node = resolve_in_path("node");
     // 开发态：repo agent 子目录；发布态：Tauri resource 目录下的 agent/
-    let agent_dir = resolve_repo_agent_dir().or_else(|| {
-        bundled_resource_dir.and_then(|rd| resolve_bundled_agent_dir(rd))
-    });
+    let agent_dir = resolve_repo_agent_dir()
+        .or_else(|| bundled_resource_dir.and_then(|rd| resolve_bundled_agent_dir(rd)));
     let installed = node.is_some() && agent_dir.is_some();
     let version = if installed {
         detect_node_version()

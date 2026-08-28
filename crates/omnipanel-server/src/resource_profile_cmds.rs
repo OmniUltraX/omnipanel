@@ -3,14 +3,12 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use omnipanel_db::{connect as db_connect, DbDriver, DbParams};
+use omnipanel_db::{DbDriver, DbParams, connect as db_connect};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::SshSession;
-use omnipanel_store::{
-    fill_db_password_from_vault, DbConnectionConfig, ResourceObservation,
-};
+use omnipanel_store::{DbConnectionConfig, ResourceObservation, fill_db_password_from_vault};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::monitoring::ensure_ssh_session;
 use crate::state::ServerState;
@@ -101,7 +99,10 @@ pub async fn resource_collect_ssh_snapshot(
         Err(e) => errors.push(format!("topology: {}", e.user_message())),
     }
 
-    Ok(ResourceSnapshotResult { saved_kinds, errors })
+    Ok(ResourceSnapshotResult {
+        saved_kinds,
+        errors,
+    })
 }
 
 /// 采集数据库快照：overview + schema_summary + users + table_relations。
@@ -153,8 +154,14 @@ pub async fn resource_collect_database_snapshot(
 
     match collect_db_schema_summary(&driver, &conn.db_type, &conn.database).await {
         Ok(payload) => {
-            if save_observation(state, "database", &connection_name, "schema_summary", payload)
-                .await?
+            if save_observation(
+                state,
+                "database",
+                &connection_name,
+                "schema_summary",
+                payload,
+            )
+            .await?
             {
                 saved_kinds.push("schema_summary".to_string());
             }
@@ -173,8 +180,14 @@ pub async fn resource_collect_database_snapshot(
 
     match collect_db_table_relations(&driver, &conn.db_type).await {
         Ok(payload) => {
-            if save_observation(state, "database", &connection_name, "table_relations", payload)
-                .await?
+            if save_observation(
+                state,
+                "database",
+                &connection_name,
+                "table_relations",
+                payload,
+            )
+            .await?
             {
                 saved_kinds.push("table_relations".to_string());
             }
@@ -182,7 +195,10 @@ pub async fn resource_collect_database_snapshot(
         Err(e) => errors.push(format!("table_relations: {}", e.user_message())),
     }
 
-    Ok(ResourceSnapshotResult { saved_kinds, errors })
+    Ok(ResourceSnapshotResult {
+        saved_kinds,
+        errors,
+    })
 }
 
 async fn save_observation(
@@ -245,9 +261,7 @@ async fn collect_ssh_topology(session: &Arc<SshSession>) -> OmniResult<Value> {
         .exec_capture("ip -brief addr 2>/dev/null || ifconfig 2>/dev/null")
         .await?;
     let listening = session
-        .exec_capture(
-            "ss -tlnp 2>/dev/null | head -30 || netstat -tlnp 2>/dev/null | head -30",
-        )
+        .exec_capture("ss -tlnp 2>/dev/null | head -30 || netstat -tlnp 2>/dev/null | head -30")
         .await?;
 
     Ok(json!({
@@ -311,13 +325,11 @@ async fn collect_db_schema_summary(
              GROUP BY table_schema",
             database.replace('\'', "\\'")
         ),
-        "postgres" | "postgresql" | "pg" => {
-            "SELECT current_database() AS table_schema, \
+        "postgres" | "postgresql" | "pg" => "SELECT current_database() AS table_schema, \
                     COUNT(*) AS table_count, \
                     ROUND(pg_database_size(current_database()) / 1024 / 1024, 2) AS size_mb \
              FROM information_schema.tables WHERE table_schema = 'public'"
-                .to_string()
-        }
+            .to_string(),
         _ => String::new(),
     };
 

@@ -479,6 +479,80 @@ describe("terminalInlineAiHistory", () => {
     expect(parsed.length).toBeLessThanOrEqual(24);
     expect(parsed.some((item) => item.content === `msg-${messages.length - 1}`)).toBe(true);
   });
+
+  it("新开卡片时带上同会话更早的 AI 历史和工具结果", () => {
+    useBlocksStore.setState({
+      blocks: {
+        "sess-1": [
+          {
+            id: "blk-old",
+            sessionId: "sess-1",
+            kind: "ai",
+            command: "# 现在的时间",
+            output: "",
+            exitCode: 1,
+            startLine: -1,
+            endLine: -1,
+            marker: null,
+            cwd: "~",
+            timestamp: 1,
+            status: "failed",
+            aiThread: [
+              {
+                kind: "message",
+                id: "u1",
+                role: "user",
+                content: "现在的时间",
+                timestamp: 1,
+              },
+              {
+                kind: "tool_call",
+                id: "t-date",
+                toolName: "omni_terminal_exec",
+                args: "{}",
+                command: "date",
+                status: "completed",
+                result: "2026-08-28 09:07:50 CST",
+                timestamp: 2,
+              },
+            ],
+          },
+          {
+            id: "blk-new",
+            sessionId: "sess-1",
+            kind: "ai",
+            command: "# 继续",
+            output: "",
+            exitCode: null,
+            startLine: -1,
+            endLine: -1,
+            marker: null,
+            cwd: "~",
+            timestamp: 3,
+            status: "running",
+            aiThread: [
+              {
+                kind: "message",
+                id: "u2",
+                role: "user",
+                content: "继续",
+                timestamp: 3,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const json = buildInlineAiHistoryJsonSync("blk-new", {
+      excludeLatestUser: true,
+      sessionId: "sess-1",
+    });
+    expect(json).toBeTruthy();
+    const parsed = JSON.parse(json!) as Array<{ role: string; content: string }>;
+    expect(parsed.some((item) => item.content === "现在的时间")).toBe(true);
+    expect(parsed.some((item) => item.content.includes("2026-08-28 09:07:50 CST"))).toBe(true);
+  });
 });
 
 describe("inlineAiStreamBuffer", () => {

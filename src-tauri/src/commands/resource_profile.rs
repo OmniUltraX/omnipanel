@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use omnipanel_db::{connect as db_connect, DbDriver, DbParams};
+use omnipanel_db::{DbDriver, DbParams, connect as db_connect};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::SshSession;
 use omnipanel_store::{
@@ -17,7 +17,7 @@ use omnipanel_store::{
     load_database_connections,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use specta::Type;
 use tauri::State;
 
@@ -121,11 +121,7 @@ pub async fn resource_find_similar(
 ) -> Result<Vec<ResourceProfileSummary>, OmniError> {
     let storage = state.storage.lock().await;
     storage
-        .find_similar_resources(
-            &resource_type,
-            &resource_id,
-            limit.unwrap_or(5.0) as usize,
-        )
+        .find_similar_resources(&resource_type, &resource_id, limit.unwrap_or(5.0) as usize)
         .map_err(Into::into)
 }
 
@@ -185,7 +181,10 @@ pub async fn resource_save_observation(
     payload: JsonValue,
     observer: Option<String>,
 ) -> Result<String, OmniError> {
-    if !matches!(resource_type.as_str(), "ssh" | "database" | "docker" | "files") {
+    if !matches!(
+        resource_type.as_str(),
+        "ssh" | "database" | "docker" | "files"
+    ) {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,
             format!("resource_type 非法：{resource_type}"),
@@ -208,7 +207,9 @@ pub async fn resource_save_observation(
     };
     let id = obs.id.clone();
     let storage = state.storage.lock().await;
-    storage.save_resource_observation(&obs).map_err(OmniError::from)?;
+    storage
+        .save_resource_observation(&obs)
+        .map_err(OmniError::from)?;
     Ok(id)
 }
 
@@ -258,7 +259,10 @@ pub async fn resource_collect_ssh_snapshot(
         Err(e) => errors.push(format!("topology: {}", e.user_message())),
     }
 
-    Ok(ResourceSnapshotResult { saved_kinds, errors })
+    Ok(ResourceSnapshotResult {
+        saved_kinds,
+        errors,
+    })
 }
 
 /// 采集数据库快照：overview + schema_summary + users 三类观测。
@@ -275,7 +279,12 @@ pub async fn resource_collect_database_snapshot(
     let conn = connections
         .iter()
         .find(|c| c.name == connection_name)
-        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, format!("数据库连接不存在：{connection_name}")))?
+        .ok_or_else(|| {
+            OmniError::new(
+                ErrorCode::NotFound,
+                format!("数据库连接不存在：{connection_name}"),
+            )
+        })?
         .clone();
     if !conn.enabled {
         return Err(OmniError::new(
@@ -303,8 +312,14 @@ pub async fn resource_collect_database_snapshot(
     // schema_summary: 表数量 + 总大小 + 前 50 张表名
     match collect_db_schema_summary(&driver, &conn.db_type, &conn.database).await {
         Ok(payload) => {
-            if save_observation(&state, "database", &connection_name, "schema_summary", payload)
-                .await?
+            if save_observation(
+                &state,
+                "database",
+                &connection_name,
+                "schema_summary",
+                payload,
+            )
+            .await?
             {
                 saved_kinds.push("schema_summary".to_string());
             }
@@ -327,8 +342,14 @@ pub async fn resource_collect_database_snapshot(
     // 这是 Phase 5 子任务 1：表关系推断采集器。
     match collect_db_table_relations(&driver, &conn.db_type).await {
         Ok(payload) => {
-            if save_observation(&state, "database", &connection_name, "table_relations", payload)
-                .await?
+            if save_observation(
+                &state,
+                "database",
+                &connection_name,
+                "table_relations",
+                payload,
+            )
+            .await?
             {
                 saved_kinds.push("table_relations".to_string());
             }
@@ -336,7 +357,10 @@ pub async fn resource_collect_database_snapshot(
         Err(e) => errors.push(format!("table_relations: {}", e.user_message())),
     }
 
-    Ok(ResourceSnapshotResult { saved_kinds, errors })
+    Ok(ResourceSnapshotResult {
+        saved_kinds,
+        errors,
+    })
 }
 
 /// 保存观测记录的内部辅助：返回 true 表示保存成功。
@@ -371,11 +395,7 @@ async fn collect_ssh_hardware(session: &Arc<SshSession>) -> OmniResult<Value> {
     let meminfo = session.exec_capture("free -b").await?;
     let disk = session.exec_capture("df -B1").await?;
 
-    let cpu_cores: u32 = nproc
-        .stdout
-        .trim()
-        .parse::<u32>()
-        .unwrap_or(0);
+    let cpu_cores: u32 = nproc.stdout.trim().parse::<u32>().unwrap_or(0);
 
     Ok(json!({
         "os": os_info.stdout.trim(),
@@ -409,9 +429,7 @@ async fn collect_ssh_topology(session: &Arc<SshSession>) -> OmniResult<Value> {
         .exec_capture("ip -brief addr 2>/dev/null || ifconfig 2>/dev/null")
         .await?;
     let listening = session
-        .exec_capture(
-            "ss -tlnp 2>/dev/null | head -30 || netstat -tlnp 2>/dev/null | head -30",
-        )
+        .exec_capture("ss -tlnp 2>/dev/null | head -30 || netstat -tlnp 2>/dev/null | head -30")
         .await?;
 
     Ok(json!({
@@ -477,13 +495,11 @@ async fn collect_db_schema_summary(
              GROUP BY table_schema",
             database.replace('\'', "\\'")
         ),
-        "postgres" | "postgresql" | "pg" => {
-            "SELECT current_database() AS table_schema, \
+        "postgres" | "postgresql" | "pg" => "SELECT current_database() AS table_schema, \
                     COUNT(*) AS table_count, \
                     ROUND(pg_database_size(current_database()) / 1024 / 1024, 2) AS size_mb \
              FROM information_schema.tables WHERE table_schema = 'public'"
-                .to_string()
-        }
+            .to_string(),
         _ => String::new(),
     };
 
@@ -584,7 +600,8 @@ async fn collect_db_table_relations(
     let res = driver.execute(query).await?;
     let mut pairs: Vec<[String; 2]> = Vec::new();
     let mut join_types: Vec<String> = Vec::new();
-    let mut table_hit_counts: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    let mut table_hit_counts: std::collections::BTreeMap<String, u32> =
+        std::collections::BTreeMap::new();
     let mut sql_sample_count: u32 = 0;
 
     for row in &res.rows {
@@ -661,14 +678,31 @@ fn extract_table_names(sql: &str) -> Vec<String> {
         if let Ok(re) = regex::Regex::new(pat) {
             for cap in re.captures_iter(sql) {
                 if let Some(m) = cap.get(1) {
-                    let name = m.as_str().trim_matches(|c| c == '`' || c == '"' || c == ']');
+                    let name = m
+                        .as_str()
+                        .trim_matches(|c| c == '`' || c == '"' || c == ']');
                     // 过滤掉 SQL 关键字误匹配（如子查询里的 SELECT/JOIN 等）
                     let upper = name.to_uppercase();
                     if !matches!(
                         upper.as_str(),
-                        "SELECT" | "WHERE" | "GROUP" | "ORDER" | "LIMIT" | "SET" | "VALUES"
-                            | "ON" | "AS" | "JOIN" | "LEFT" | "RIGHT" | "INNER" | "OUTER"
-                            | "FROM" | "UPDATE" | "INTO" | "DUAL"
+                        "SELECT"
+                            | "WHERE"
+                            | "GROUP"
+                            | "ORDER"
+                            | "LIMIT"
+                            | "SET"
+                            | "VALUES"
+                            | "ON"
+                            | "AS"
+                            | "JOIN"
+                            | "LEFT"
+                            | "RIGHT"
+                            | "INNER"
+                            | "OUTER"
+                            | "FROM"
+                            | "UPDATE"
+                            | "INTO"
+                            | "DUAL"
                     ) && !name.is_empty()
                     {
                         if !tables.contains(&name.to_string()) {
@@ -697,14 +731,25 @@ fn extract_join_clauses(sql: &str) -> Vec<JoinClause> {
     );
     if let Ok(re) = re {
         for cap in re.captures_iter(sql) {
-            let join_kw = cap.get(1).map(|m| m.as_str().trim().to_uppercase()).unwrap_or_default();
+            let join_kw = cap
+                .get(1)
+                .map(|m| m.as_str().trim().to_uppercase())
+                .unwrap_or_default();
             let right_table = cap
                 .get(2)
-                .map(|m| m.as_str().trim_matches(|c| c == '`' || c == '"' || c == ']').to_string())
+                .map(|m| {
+                    m.as_str()
+                        .trim_matches(|c| c == '`' || c == '"' || c == ']')
+                        .to_string()
+                })
                 .unwrap_or_default();
             let left_table = cap
                 .get(3)
-                .map(|m| m.as_str().trim_matches(|c| c == '`' || c == '"' || c == ']').to_string())
+                .map(|m| {
+                    m.as_str()
+                        .trim_matches(|c| c == '`' || c == '"' || c == ']')
+                        .to_string()
+                })
                 .unwrap_or_default();
             if !left_table.is_empty() && !right_table.is_empty() {
                 result.push(JoinClause {

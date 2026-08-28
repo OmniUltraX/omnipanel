@@ -82,9 +82,11 @@ impl PluginLogicInstance for WasmInstance {
         let args_json = args_json.to_string();
         let bridge = std::sync::Arc::clone(&self.bridge);
         Box::pin(async move {
-            tokio::task::spawn_blocking(move || run_call(&engine, &module, bridge.as_ref(), &method, &args_json))
-                .await
-                .map_err(|e| PluginError::Invoke(e.to_string()))?
+            tokio::task::spawn_blocking(move || {
+                run_call(&engine, &module, bridge.as_ref(), &method, &args_json)
+            })
+            .await
+            .map_err(|e| PluginError::Invoke(e.to_string()))?
         })
     }
 
@@ -108,16 +110,22 @@ fn return_to_guest(mut caller: Caller<'_, BridgeCtx<'_>>, payload: Result<Vec<u8
     let Some(memory) = caller.get_export("memory").and_then(|e| e.into_memory()) else {
         return ERR_PACKED;
     };
-    let alloc: TypedFunc<i32, i32> =
-        match caller.get_export("omni_alloc").and_then(|f| f.into_func()).and_then(|f| f.typed::<i32, i32>(&caller).ok()) {
-            Some(f) => f,
-            None => return ERR_PACKED,
-        };
+    let alloc: TypedFunc<i32, i32> = match caller
+        .get_export("omni_alloc")
+        .and_then(|f| f.into_func())
+        .and_then(|f| f.typed::<i32, i32>(&caller).ok())
+    {
+        Some(f) => f,
+        None => return ERR_PACKED,
+    };
     let ptr = match alloc.call(&mut caller, bytes.len() as i32) {
         Ok(p) => p,
         Err(_) => return ERR_PACKED,
     };
-    if memory.write(&mut caller, ptr.max(0) as usize, &bytes).is_err() {
+    if memory
+        .write(&mut caller, ptr.max(0) as usize, &bytes)
+        .is_err()
+    {
         return ERR_PACKED;
     }
     pack(ptr.max(0) as usize, bytes.len(), error)
@@ -213,7 +221,11 @@ fn wire_imports(linker: &mut Linker<BridgeCtx<'_>>) -> Result<(), PluginError> {
             "connection_upsert",
             |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
                 let candidate = read_guest_str(&mut caller, ptr, len);
-                let payload = caller.data().bridge.connection_upsert(&candidate).map(|_| Vec::new());
+                let payload = caller
+                    .data()
+                    .bridge
+                    .connection_upsert(&candidate)
+                    .map(|_| Vec::new());
                 return_to_guest(caller, payload)
             },
         )
@@ -231,7 +243,11 @@ fn wire_imports(linker: &mut Linker<BridgeCtx<'_>>) -> Result<(), PluginError> {
              -> i64 {
                 let method = read_guest_str(&mut caller, m_ptr, m_len);
                 let args = read_guest_str(&mut caller, a_ptr, a_len);
-                let payload = caller.data().bridge.invoke(&method, &args).map(String::into_bytes);
+                let payload = caller
+                    .data()
+                    .bridge
+                    .invoke(&method, &args)
+                    .map(String::into_bytes);
                 return_to_guest(caller, payload)
             },
         )
@@ -243,4 +259,3 @@ fn wire_imports(linker: &mut Linker<BridgeCtx<'_>>) -> Result<(), PluginError> {
 fn wasmtime_err(e: wasmtime::Error) -> PluginError {
     PluginError::Invoke(e.to_string())
 }
-

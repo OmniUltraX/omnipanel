@@ -1,14 +1,14 @@
 //! SFTP↔SFTP 远程直传：数据面不经本机；探测失败或执行失败回落 StreamRelay。
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use tokio::sync::Mutex;
 
-use crate::event::{emit_job, TransferEventSink};
+use crate::event::{TransferEventSink, emit_job};
 use crate::provider::{TransferHost, TransferProtocol};
 use crate::types::{FileTransferJob, FileTransferState};
 use crate::util::{check_cancel, open_sftp};
@@ -106,11 +106,13 @@ fn generate_ephemeral_keypair(work_dir: &Path) -> Result<(PathBuf, PathBuf, Stri
             .with_cause(e.to_string())
         })?;
     if !status.success() {
-        return Err(OmniError::new(ErrorCode::Internal, "ssh-keygen 生成密钥失败"));
+        return Err(OmniError::new(
+            ErrorCode::Internal,
+            "ssh-keygen 生成密钥失败",
+        ));
     }
-    let pub_text = std::fs::read_to_string(&pub_path).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "读取公钥失败").with_cause(e.to_string())
-    })?;
+    let pub_text = std::fs::read_to_string(&pub_path)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取公钥失败").with_cause(e.to_string()))?;
     Ok((priv_path, pub_path, pub_text.trim().to_string()))
 }
 
@@ -303,5 +305,7 @@ pub async fn remote_direct_eligible(
     if src != TransferProtocol::Sftp || dst != TransferProtocol::Sftp {
         return false;
     }
-    resolve_sftp_endpoint(host, dest_connection_id).await.is_ok()
+    resolve_sftp_endpoint(host, dest_connection_id)
+        .await
+        .is_ok()
 }

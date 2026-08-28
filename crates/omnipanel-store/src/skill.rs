@@ -112,8 +112,8 @@ pub fn parse_skill_md(raw: &str) -> Result<ParsedSkill, String> {
     let body = rest[end + 4..]
         .trim_start_matches('\n')
         .trim_start_matches('\r');
-    let frontmatter: SkillFrontmatter = serde_yaml::from_str(yaml)
-        .map_err(|e| format!("解析 SKILL.md frontmatter 失败: {e}"))?;
+    let frontmatter: SkillFrontmatter =
+        serde_yaml::from_str(yaml).map_err(|e| format!("解析 SKILL.md frontmatter 失败: {e}"))?;
     if frontmatter.name.trim().is_empty() {
         return Err("SKILL.md frontmatter 缺少 name".to_string());
     }
@@ -272,7 +272,11 @@ pub fn build_skills_system_append_filtered(
     exclude_ids: &[String],
 ) -> Result<String, String> {
     let skills = list_enabled_skill_summaries()?;
-    Ok(render_skills_catalog(&skills, load_skill_available, exclude_ids))
+    Ok(render_skills_catalog(
+        &skills,
+        load_skill_available,
+        exclude_ids,
+    ))
 }
 
 fn render_skills_catalog(

@@ -67,8 +67,11 @@ fn default_version() -> u32 {
 }
 
 fn map_io(err: std::io::Error, path: &Path) -> OmniError {
-    OmniError::new(ErrorCode::Io, "读写 Docker 侧栏缓存失败")
-        .with_cause(format!("{} ({})", err, path.display()))
+    OmniError::new(ErrorCode::Io, "读写 Docker 侧栏缓存失败").with_cause(format!(
+        "{} ({})",
+        err,
+        path.display()
+    ))
 }
 
 fn map_json(err: serde_json::Error) -> OmniError {

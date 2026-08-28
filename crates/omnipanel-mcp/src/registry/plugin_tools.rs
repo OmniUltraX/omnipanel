@@ -10,8 +10,7 @@ use super::{RegisteredTool, ToolExecutionKind};
 pub type PluginNativeExecFuture =
     Pin<Box<dyn Future<Output = Result<(String, bool), String>> + Send>>;
 
-pub type PluginNativeExecutor =
-    Arc<dyn Fn(String, Value) -> PluginNativeExecFuture + Send + Sync>;
+pub type PluginNativeExecutor = Arc<dyn Fn(String, Value) -> PluginNativeExecFuture + Send + Sync>;
 
 #[derive(Clone)]
 pub struct PluginNativeTool {
@@ -87,7 +86,10 @@ impl PluginToolHub {
     }
 
     pub fn clear(&self) {
-        self.inner.write().expect("plugin tool hub poisoned").clear();
+        self.inner
+            .write()
+            .expect("plugin tool hub poisoned")
+            .clear();
     }
 }
 

@@ -10,8 +10,8 @@ use futures_util::StreamExt;
 use omnipanel_assistant::AuthContext;
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::Deserialize;
-use serde_json::{json, Value};
 use serde::Serialize;
+use serde_json::{Value, json};
 use specta::Type;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
@@ -96,17 +96,16 @@ pub async fn assistant_terminal_cmd_reply(
     let payload = if req.ok {
         let parsed = match req.result_json.as_deref() {
             None | Some("") => Ok(json!({})),
-            Some(text) => serde_json::from_str::<Value>(text)
-                .map_err(|e| OmniError::new(ErrorCode::InvalidInput, format!("resultJson 非法: {e}"))),
+            Some(text) => serde_json::from_str::<Value>(text).map_err(|e| {
+                OmniError::new(ErrorCode::InvalidInput, format!("resultJson 非法: {e}"))
+            }),
         };
         match parsed {
             Ok(value) => Ok(value),
             Err(err) => return Err(err),
         }
     } else {
-        Err(req
-            .error
-            .unwrap_or_else(|| "前端打开终端失败".to_string()))
+        Err(req.error.unwrap_or_else(|| "前端打开终端失败".to_string()))
     };
     let _ = tx.send(payload);
     Ok(())
@@ -121,7 +120,8 @@ pub async fn run_remote_cmd_loop(
     stop: Arc<AtomicBool>,
 ) {
     let mut backoff_ms: u64 = 1_000;
-    let mut seen: std::collections::VecDeque<String> = std::collections::VecDeque::with_capacity(64);
+    let mut seen: std::collections::VecDeque<String> =
+        std::collections::VecDeque::with_capacity(64);
     let started_at = Utc::now().timestamp();
 
     while !stop.load(Ordering::SeqCst) {
@@ -344,8 +344,7 @@ async fn handle_remote_envelope(
             .map(|v| v as u64)
             .unwrap_or(EXEC_DEFAULT_TIMEOUT_MS)
             .clamp(EXEC_MIN_TIMEOUT_MS, EXEC_MAX_TIMEOUT_MS);
-        match execute_terminal_op(app, &op, &connection_id, &request_id, &command, timeout_ms)
-            .await
+        match execute_terminal_op(app, &op, &connection_id, &request_id, &command, timeout_ms).await
         {
             Ok(v) => (true, Some(v), None),
             Err(e) => (false, None, Some(e)),
@@ -489,13 +488,10 @@ async fn execute_terminal_op(
     let session = pool_session(&*state, connection_id.trim())
         .await
         .map_err(|e| e.to_string())?;
-    let output = tokio::time::timeout(
-        Duration::from_millis(timeout_ms),
-        session.exec_capture(cmd),
-    )
-    .await
-    .map_err(|_| format!("命令执行超时（{}ms）", timeout_ms))?
-    .map_err(|e| e.to_string())?;
+    let output = tokio::time::timeout(Duration::from_millis(timeout_ms), session.exec_capture(cmd))
+        .await
+        .map_err(|_| format!("命令执行超时（{}ms）", timeout_ms))?
+        .map_err(|e| e.to_string())?;
 
     let (stdout, stdout_cut) = truncate_exec_stream(&output.stdout);
     let (stderr, stderr_cut) = truncate_exec_stream(&output.stderr);

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::stats::GpuDeviceStats;
 use crate::SshProcessInfo;
+use crate::stats::GpuDeviceStats;
 
 /// NVIDIA `nvidia-smi --query-gpu=...` CSV 行。
 pub fn parse_nvidia_gpu_line(line: &str) -> Option<GpuDeviceStats> {
@@ -16,12 +16,8 @@ pub fn parse_nvidia_gpu_line(line: &str) -> Option<GpuDeviceStats> {
     let index: u32 = parts[0].parse().ok()?;
     let name = parts[1].to_string();
     let utilization = parts.get(2).and_then(|s| parse_optional_f64(s));
-    let memory_total = parts
-        .get(3)
-        .and_then(|s| parse_mib_to_bytes(s));
-    let memory_used = parts
-        .get(4)
-        .and_then(|s| parse_mib_to_bytes(s));
+    let memory_total = parts.get(3).and_then(|s| parse_mib_to_bytes(s));
+    let memory_used = parts.get(4).and_then(|s| parse_mib_to_bytes(s));
     let temperature = parts.get(5).and_then(|s| parse_optional_f64(s));
     let power = parts.get(6).and_then(|s| parse_optional_f64(s));
     let power_limit = parts.get(7).and_then(|s| parse_optional_f64(s));
@@ -43,10 +39,7 @@ pub fn parse_nvidia_gpu_line(line: &str) -> Option<GpuDeviceStats> {
 }
 
 pub fn parse_nvidia_gpu_output(output: &str) -> Vec<GpuDeviceStats> {
-    output
-        .lines()
-        .filter_map(parse_nvidia_gpu_line)
-        .collect()
+    output.lines().filter_map(parse_nvidia_gpu_line).collect()
 }
 
 /// `pid, util` CSV from nvidia-smi compute apps.
@@ -229,8 +222,7 @@ pub fn attach_process_gpu(processes: &mut [SshProcessInfo], gpu_by_pid: &HashMap
     }
 }
 
-pub const NVIDIA_GPU_QUERY: &str =
-    "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,power.limit,fan.speed --format=csv,noheader,nounits 2>/dev/null";
+pub const NVIDIA_GPU_QUERY: &str = "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.total,memory.used,temperature.gpu,power.draw,power.limit,fan.speed --format=csv,noheader,nounits 2>/dev/null";
 
 pub const NVIDIA_PROCESS_GPU_QUERY: &str =
     "nvidia-smi --query-compute-apps=pid,utilization.gpu --format=csv,noheader,nounits 2>/dev/null";

@@ -7,33 +7,33 @@
 //!   写操作与 exec/日志流等仍走远端 `docker` CLI（[`ssh`] 模块）。
 //! - 所有错误统一为 [`OmniError`]，命令层零散字符串错误就此收敛。
 
+mod bollard_error;
+pub mod btpanel;
 mod compose;
 mod compose_files;
 mod container_dir_ls;
 mod daemon_config;
 mod host_cli;
 mod image_search;
-mod log_util;
-mod bollard_error;
-mod stats;
-mod volume_files;
-pub mod btpanel;
 pub mod local;
 pub mod local_engine;
+mod log_util;
 pub mod model;
 pub mod onepanel;
 pub mod onepanel_terminal;
 pub mod ssh;
 mod ssh_docker_api;
+mod stats;
+mod volume_files;
 
 use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use std::sync::Arc;
 
+pub use btpanel::{BtPanelAdapter, BtPanelClient, is_bt_auth_or_lockout_message};
 pub use compose::aggregate_compose;
 pub use daemon_config::remote_engine_daemon_config;
 pub use host_cli::{run_local_docker_cli, run_ssh_docker_cli, validate_docker_cli_command};
-pub use btpanel::{is_bt_auth_or_lockout_message, BtPanelAdapter, BtPanelClient};
 pub use local::{DockerExecOutput, DockerExecSession, DockerOneShotExecOutput, LocalDockerAdapter};
 pub use local_engine::{local_engine_status, restart_local_engine, start_local_engine};
 pub use model::*;
@@ -94,7 +94,11 @@ pub trait DockerAdapter: Send + Sync {
     /// 创建容器。
     async fn create_container(&self, req: &DockerCreateContainerRequest) -> OmniResult<String>;
     /// 拉取容器日志（一次性）。流式由命令层另行处理。
-    async fn container_logs(&self, id: &str, query: &DockerLogQuery) -> OmniResult<Vec<DockerLogLine>>;
+    async fn container_logs(
+        &self,
+        id: &str,
+        query: &DockerLogQuery,
+    ) -> OmniResult<Vec<DockerLogLine>>;
     /// 清空容器日志文件（1Panel / SSH / 本地 CLI 路径）。
     async fn clear_container_logs(&self, id: &str) -> OmniResult<()>;
     /// 列出全部容器（含停止）的日志路径与文件大小。
@@ -110,11 +114,7 @@ pub trait DockerAdapter: Send + Sync {
     /// 清理悬空镜像。
     async fn prune_images(&self) -> OmniResult<DockerPruneResult>;
     /// Hub / 仓库镜像搜索（`docker search`）。
-    async fn search_images(
-        &self,
-        term: &str,
-        limit: u32,
-    ) -> OmniResult<DockerImageSearchPage>;
+    async fn search_images(&self, term: &str, limit: u32) -> OmniResult<DockerImageSearchPage>;
     /// Compose 项目识别。
     async fn list_compose_projects(&self) -> OmniResult<Vec<DockerComposeProject>>;
     /// 拉取镜像。`progress` 回调（可选）逐条上报拉取阶段。

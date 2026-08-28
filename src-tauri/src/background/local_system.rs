@@ -2,8 +2,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::{
-    aggregate_disk_stats, attach_ports, format_load, is_pseudo_filesystem, CpuStats, DiskDeviceStats,
-    DiskStats, HostSystemStats, MemoryStats, NetworkStats, SshProcessDetail, SshProcessInfo,
+    CpuStats, DiskDeviceStats, DiskStats, HostSystemStats, MemoryStats, NetworkStats,
+    SshProcessDetail, SshProcessInfo, aggregate_disk_stats, attach_ports, format_load,
+    is_pseudo_filesystem,
 };
 use sysinfo::{Disks, Networks, Pid, ProcessesToUpdate, System, Users};
 
@@ -42,10 +43,7 @@ pub fn fetch_stats() -> OmniResult<HostSystemStats> {
         load1,
         load5,
         load15,
-        frequency_mhz: system
-            .cpus()
-            .first()
-            .map(|cpu| cpu.frequency() as f64),
+        frequency_mhz: system.cpus().first().map(|cpu| cpu.frequency() as f64),
         temperature: read_cpu_temperature(),
     };
 

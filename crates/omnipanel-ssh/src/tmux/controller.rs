@@ -5,15 +5,15 @@
 //! SSH 完整测试。
 
 use std::collections::{HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use tokio::sync::{mpsc, oneshot};
 
-use super::commands::{self, parse_session_line, TmuxSessionInfo};
-use super::parser::{parse_line, ControlEvent, PaneId, WindowId};
+use super::commands::{self, TmuxSessionInfo, parse_session_line};
+use super::parser::{ControlEvent, PaneId, WindowId, parse_line};
 use super::registry::{PaneEntry, PaneRegistry};
 
 /// 单条 tmux 命令的等待上限。控制连接正常时响应在毫秒级，超时即视为链路异常。
@@ -37,7 +37,10 @@ pub enum ControllerEvent {
 #[derive(Default)]
 struct CommandQueue {
     pending: VecDeque<oneshot::Sender<OmniResult<CommandResponse>>>,
-    active: Option<(oneshot::Sender<OmniResult<CommandResponse>>, CommandResponse)>,
+    active: Option<(
+        oneshot::Sender<OmniResult<CommandResponse>>,
+        CommandResponse,
+    )>,
 }
 
 impl CommandQueue {
@@ -285,7 +288,9 @@ impl TmuxController {
         rows: u16,
         shell_command: Option<&str>,
     ) -> OmniResult<PaneEntry> {
-        let response = self.run_command(&commands::new_window(shell_command)).await?;
+        let response = self
+            .run_command(&commands::new_window(shell_command))
+            .await?;
         let (window, pane) = parse_window_pane(&response)?;
 
         // 顺序不可颠倒：先固定为手动尺寸，再 resize，否则会被自动布局覆盖。
@@ -322,7 +327,8 @@ impl TmuxController {
     pub async fn close_window(&self, session_id: &str) -> OmniResult<()> {
         let entry = self.entry_of(session_id)?;
         self.state().registry.unregister(session_id);
-        self.run_command(&commands::kill_window(entry.window)).await?;
+        self.run_command(&commands::kill_window(entry.window))
+            .await?;
         Ok(())
     }
 
@@ -346,7 +352,9 @@ impl TmuxController {
         session_name: &str,
         pane_id: PaneId,
     ) -> OmniResult<Option<PaneEntry>> {
-        let lines = self.run_command(&commands::list_windows(session_name)).await?;
+        let lines = self
+            .run_command(&commands::list_windows(session_name))
+            .await?;
         for line in lines {
             if let Some((window, pane, _name)) = parse_pane_line(&line) {
                 if pane == pane_id {
@@ -406,7 +414,8 @@ impl TmuxController {
     }
 
     pub async fn set_history_limit(&self, limit: u32) -> OmniResult<()> {
-        self.run_command(&commands::set_history_limit(limit)).await?;
+        self.run_command(&commands::set_history_limit(limit))
+            .await?;
         Ok(())
     }
 
@@ -423,8 +432,13 @@ impl TmuxController {
     }
 
     /// 列出会话内的 window/pane，用于重连后重建映射。
-    pub async fn list_panes(&self, session_name: &str) -> OmniResult<Vec<(WindowId, PaneId, String)>> {
-        let lines = self.run_command(&commands::list_windows(session_name)).await?;
+    pub async fn list_panes(
+        &self,
+        session_name: &str,
+    ) -> OmniResult<Vec<(WindowId, PaneId, String)>> {
+        let lines = self
+            .run_command(&commands::list_windows(session_name))
+            .await?;
         Ok(lines.iter().filter_map(|l| parse_pane_line(l)).collect())
     }
 }
@@ -449,8 +463,10 @@ fn parse_window_pane(response: &[Vec<u8>]) -> OmniResult<(WindowId, PaneId)> {
         .map(PaneId);
     match (window, pane) {
         (Some(w), Some(p)) => Ok((w, p)),
-        _ => Err(OmniError::new(ErrorCode::Ssh, "无法解析 tmux window/pane 标识")
-            .with_cause(text.into_owned())),
+        _ => Err(
+            OmniError::new(ErrorCode::Ssh, "无法解析 tmux window/pane 标识")
+                .with_cause(text.into_owned()),
+        ),
     }
 }
 

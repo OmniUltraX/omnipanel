@@ -2,13 +2,13 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use omnipanel_ssh::{SshSession, StreamChunk};
-use omnipanel_store::{fill_db_password_from_vault, DbConnectionConfig};
+use omnipanel_store::{DbConnectionConfig, fill_db_password_from_vault};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -63,7 +63,8 @@ fn now_millis() -> i64 {
 
 fn write_record(base_dir: &Path, record: &MysqlExportRecord) -> Result<(), String> {
     let meta_path = meta_path_for(base_dir, &record.id);
-    let json = serde_json::to_string_pretty(record).map_err(|e| format!("序列化导出记录失败: {e}"))?;
+    let json =
+        serde_json::to_string_pretty(record).map_err(|e| format!("序列化导出记录失败: {e}"))?;
     fs::write(meta_path, json).map_err(|e| format!("写入导出记录失败: {e}"))
 }
 
@@ -83,9 +84,7 @@ fn refresh_record_size(base_dir: &Path, record: &mut MysqlExportRecord) {
     }
 }
 
-pub fn list_mysql_exports(
-    connection_id: &str,
-) -> Result<Vec<MysqlExportRecord>, String> {
+pub fn list_mysql_exports(connection_id: &str) -> Result<Vec<MysqlExportRecord>, String> {
     let base_dir = connection_exports_dir(connection_id)?;
     if !base_dir.is_dir() {
         return Ok(Vec::new());
@@ -120,10 +119,7 @@ pub fn resolve_export_record(
 }
 
 /// 删除导出记录及其 SQL / 临时配置文件（若存在）。
-pub fn delete_mysql_export(
-    connection_id: &str,
-    export_id: &str,
-) -> Result<(), String> {
+pub fn delete_mysql_export(connection_id: &str, export_id: &str) -> Result<(), String> {
     let base_dir = connection_exports_dir(connection_id)?;
     let record = read_record(&base_dir, export_id)?;
     if record.status == "running" {
@@ -214,7 +210,11 @@ fn cnf_quote(value: &str) -> String {
 }
 
 fn sanitize_db_name(name: &str) -> Result<String, String> {
-    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err("数据库名称无效".to_string());
     }
     Ok(name.to_string())
@@ -314,7 +314,10 @@ impl MysqldumpProgressTracker {
             let done = self.seen_tables.len() as u32;
             let total = self.table_total.unwrap_or(done).max(done).max(1);
             progress(
-                format!("正在导出 `{db}`.`{table}`（{done}/{total}）", db = self.database_name),
+                format!(
+                    "正在导出 `{db}`.`{table}`（{done}/{total}）",
+                    db = self.database_name
+                ),
                 done,
                 total,
                 Some(done),
@@ -336,7 +339,12 @@ impl MysqldumpProgressTracker {
     }
 }
 
-fn feed_stderr_chunk(buf: &mut String, chunk: &str, tracker: &mut MysqldumpProgressTracker, progress: &ProgressCb) {
+fn feed_stderr_chunk(
+    buf: &mut String,
+    chunk: &str,
+    tracker: &mut MysqldumpProgressTracker,
+    progress: &ProgressCb,
+) {
     buf.push_str(chunk);
     while let Some(pos) = buf.find('\n') {
         let mut line = buf[..pos].to_string();
@@ -359,8 +367,7 @@ async fn count_base_tables_local(
             .map(|d| d.as_millis())
             .unwrap_or(0)
     ));
-    let defaults =
-        build_defaults_file_content(connection, &connection.host, connection.port);
+    let defaults = build_defaults_file_content(connection, &connection.host, connection.port);
     fs::write(&defaults_path, defaults).ok()?;
     let sql = format!(
         "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{database_name}' AND table_type='BASE TABLE'"
@@ -427,7 +434,8 @@ async fn run_local_mysqldump(
     let defaults_path = output_path.with_extension("cnf");
     let defaults_content =
         build_defaults_file_content(connection, &connection.host, connection.port);
-    fs::write(&defaults_path, defaults_content).map_err(|e| format!("写入 mysqldump 配置失败: {e}"))?;
+    fs::write(&defaults_path, defaults_content)
+        .map_err(|e| format!("写入 mysqldump 配置失败: {e}"))?;
 
     let stdout_file =
         fs::File::create(output_path).map_err(|e| format!("创建导出文件失败: {e}"))?;
@@ -930,13 +938,7 @@ pub async fn run_mysql_export(
     )
     .await;
 
-    progress(
-        format!("正在导出数据库 {database_name}…"),
-        0,
-        1,
-        None,
-        None,
-    );
+    progress(format!("正在导出数据库 {database_name}…"), 0, 1, None, None);
 
     // 用 async 块承接部署侧前置错误，避免 `?` 提前返回导致 running 记录无法落成 failed
     let dump_result = async {
@@ -991,7 +993,9 @@ pub async fn run_mysql_export(
             .await;
             Ok(())
         }
-        Err(error) => mark_export_failed(sink.as_ref(), &base_dir, &mut record, task_id, error).await,
+        Err(error) => {
+            mark_export_failed(sink.as_ref(), &base_dir, &mut record, task_id, error).await
+        }
     }
 }
 
@@ -1295,6 +1299,7 @@ mod tests {
             enabled: true,
             has_password: !password.is_empty(),
             tags: Vec::new(),
+            group: String::new(),
         }
     }
 

@@ -3,8 +3,8 @@ use omnipanel_store::WebSearchBackend;
 use serde_json::Value;
 
 use super::super::common::{
-    build_http_client, classify_reqwest_error, map_http_status, BackendError, RequestCtx,
-    SearchHit, SearchRequest, WebSecrets,
+    BackendError, RequestCtx, SearchHit, SearchRequest, WebSecrets, build_http_client,
+    classify_reqwest_error, map_http_status,
 };
 use super::SearchProvider;
 
@@ -67,7 +67,8 @@ pub async fn search_exa(
         return Err(map_http_status(status, &text));
     }
 
-    let json: Value = serde_json::from_str(&text).map_err(|e| BackendError::Parse(e.to_string()))?;
+    let json: Value =
+        serde_json::from_str(&text).map_err(|e| BackendError::Parse(e.to_string()))?;
     let mut hits = Vec::new();
     if let Some(results) = json.get("results").and_then(|v| v.as_array()) {
         for item in results.iter().take(max_results) {

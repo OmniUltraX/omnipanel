@@ -5,7 +5,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 
-use crate::storage::{map_sqlite, Storage};
+use crate::storage::{Storage, map_sqlite};
 
 /// 可打标资源种类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, specta::Type)]
@@ -263,12 +263,7 @@ impl Storage {
             for tag in tags {
                 if let Some(path) = normalize_tag_path(&tag) {
                     let tag_id = self.ensure_tag_path_with_kind(&path, "user", now_millis())?;
-                    self.link_resource_tag(
-                        &tag_id,
-                        TaggableKind::Knowledge,
-                        &id,
-                        TagSource::User,
-                    )?;
+                    self.link_resource_tag(&tag_id, TaggableKind::Knowledge, &id, TagSource::User)?;
                 }
             }
             self.sync_knowledge_tags_projection(&id)?;
@@ -296,12 +291,7 @@ impl Storage {
                         "user"
                     };
                     let tag_id = self.ensure_tag_path_with_kind(&path, kind, now_millis())?;
-                    self.link_resource_tag(
-                        &tag_id,
-                        TaggableKind::Connection,
-                        &id,
-                        source,
-                    )?;
+                    self.link_resource_tag(&tag_id, TaggableKind::Connection, &id, source)?;
                 }
             }
             self.sync_connection_tags_projection(&id)?;
@@ -311,18 +301,12 @@ impl Storage {
 
     /// 确保路径存在，返回叶子 tag id。
     pub fn ensure_tag_path(&self, path: &str) -> OmniResult<String> {
-        let path = normalize_tag_path(path).ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "无效标签路径")
-        })?;
+        let path = normalize_tag_path(path)
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "无效标签路径"))?;
         self.ensure_tag_path_with_kind(&path, "user", now_millis())
     }
 
-    fn ensure_tag_path_with_kind(
-        &self,
-        path: &str,
-        kind: &str,
-        now: i64,
-    ) -> OmniResult<String> {
+    fn ensure_tag_path_with_kind(&self, path: &str, kind: &str, now: i64) -> OmniResult<String> {
         if let Some(existing) = self.get_tag_by_path(path)? {
             return Ok(existing.id);
         }
@@ -390,11 +374,7 @@ impl Storage {
         Ok(rows.next().transpose().map_err(map_sqlite)?)
     }
 
-    fn map_tag_row(
-        &self,
-        row: &rusqlite::Row<'_>,
-        count: i64,
-    ) -> rusqlite::Result<TagDto> {
+    fn map_tag_row(&self, row: &rusqlite::Row<'_>, count: i64) -> rusqlite::Result<TagDto> {
         let parent_id: Option<String> = row.get(2)?;
         Ok(TagDto {
             id: row.get(0)?,
@@ -427,12 +407,12 @@ impl Storage {
         if include_counts {
             let mut count_stmt = self
                 .conn()
-                .prepare(
-                    "SELECT tag_id, COUNT(*) FROM resource_tag_links GROUP BY tag_id",
-                )
+                .prepare("SELECT tag_id, COUNT(*) FROM resource_tag_links GROUP BY tag_id")
                 .map_err(map_sqlite)?;
             let counts: HashMap<String, i64> = count_stmt
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
                 .map_err(map_sqlite)?
                 .filter_map(|r| r.ok())
                 .collect();
@@ -493,11 +473,7 @@ impl Storage {
                 }
             }
             if !extras.is_empty() {
-                let placeholders = extras
-                    .iter()
-                    .map(|_| "?")
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let placeholders = extras.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
                 clauses.push(format!("l.resource_id IN ({placeholders})"));
                 for id in extras {
                     params.push(Box::new(id.clone()));
@@ -577,10 +553,7 @@ impl Storage {
                 let mut cur = by_id.get(id);
                 while let Some(tag) = cur {
                     keep.insert(tag.id.clone());
-                    cur = tag
-                        .parent_id
-                        .as_ref()
-                        .and_then(|pid| by_id.get(pid));
+                    cur = tag.parent_id.as_ref().and_then(|pid| by_id.get(pid));
                 }
             }
         }
@@ -605,16 +578,13 @@ impl Storage {
         parent_id: Option<&str>,
         color: Option<&str>,
     ) -> OmniResult<TagDto> {
-        let name = normalize_tag_segment(name).ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "无效标签名")
-        })?;
+        let name = normalize_tag_segment(name)
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "无效标签名"))?;
         let parent_path = if let Some(pid) = parent_id {
             let parent = self
                 .get_tag(pid)?
                 .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "父标签不存在"))?;
-            if parent.kind == "system" && parent.path == "sys"
-                || parent.path.starts_with("sys/")
-            {
+            if parent.kind == "system" && parent.path == "sys" || parent.path.starts_with("sys/") {
                 // 允许在 sys 下由系统创建；用户一般不该在此建
             }
             Some(parent.path)
@@ -651,13 +621,10 @@ impl Storage {
                 "系统标签不可重命名",
             ));
         }
-        let name = normalize_tag_segment(name).ok_or_else(|| {
-            OmniError::new(ErrorCode::InvalidInput, "无效标签名")
-        })?;
+        let name = normalize_tag_segment(name)
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "无效标签名"))?;
         let old_path = tag.path.clone();
-        let parent_path = old_path
-            .rsplit_once('/')
-            .map(|(p, _)| p.to_string());
+        let parent_path = old_path.rsplit_once('/').map(|(p, _)| p.to_string());
         let new_path = match parent_path {
             Some(p) => format!("{p}/{name}"),
             None => name.clone(),
@@ -856,9 +823,7 @@ impl Storage {
                 let tag = TagDto {
                     id: row.get(0)?,
                     name: row.get(1)?,
-                    parent_id: row
-                        .get::<_, Option<String>>(2)?
-                        .filter(|s| !s.is_empty()),
+                    parent_id: row.get::<_, Option<String>>(2)?.filter(|s| !s.is_empty()),
                     path: row.get(3)?,
                     color: row.get(4)?,
                     kind: row.get(5)?,
@@ -1084,17 +1049,18 @@ impl Storage {
         let mut resource_tags: HashMap<(String, String), HashSet<String>> = HashMap::new();
         for row in rows {
             let (rk, rid, tid) = row.map_err(map_sqlite)?;
-            resource_tags
-                .entry((rk, rid))
-                .or_default()
-                .insert(tid);
+            resource_tags.entry((rk, rid)).or_default().insert(tid);
         }
 
         let mut matched: Vec<(String, String)> = Vec::new();
         for ((rk, rid), tags) in &resource_tags {
             let ok = match mode {
-                TagMatchMode::And => expanded.iter().all(|group| group.iter().any(|t| tags.contains(t))),
-                TagMatchMode::Or => expanded.iter().any(|group| group.iter().any(|t| tags.contains(t))),
+                TagMatchMode::And => expanded
+                    .iter()
+                    .all(|group| group.iter().any(|t| tags.contains(t))),
+                TagMatchMode::Or => expanded
+                    .iter()
+                    .any(|group| group.iter().any(|t| tags.contains(t))),
             };
             if ok {
                 matched.push((rk.clone(), rid.clone()));
@@ -1147,18 +1113,17 @@ impl Storage {
                     })
                 },
             ),
-            "workflow" => self.conn().query_row(
-                "SELECT name FROM workflows WHERE id = ?1",
-                [id],
-                |row| {
-                    Ok(TaggedResourceSummary {
-                        resource_kind: kind.to_string(),
-                        resource_id: id.to_string(),
-                        title: row.get(0)?,
-                        subtitle: None,
+            "workflow" => {
+                self.conn()
+                    .query_row("SELECT name FROM workflows WHERE id = ?1", [id], |row| {
+                        Ok(TaggedResourceSummary {
+                            resource_kind: kind.to_string(),
+                            resource_id: id.to_string(),
+                            title: row.get(0)?,
+                            subtitle: None,
+                        })
                     })
-                },
-            ),
+            }
             "http_request" => self.conn().query_row(
                 "SELECT name, method FROM http_requests WHERE id = ?1",
                 [id],
@@ -1197,18 +1162,17 @@ impl Storage {
                     })
                 },
             ),
-            "skill" => self.conn().query_row(
-                "SELECT name FROM skills WHERE id = ?1",
-                [id],
-                |row| {
-                    Ok(TaggedResourceSummary {
-                        resource_kind: kind.to_string(),
-                        resource_id: id.to_string(),
-                        title: row.get(0)?,
-                        subtitle: None,
+            "skill" => {
+                self.conn()
+                    .query_row("SELECT name FROM skills WHERE id = ?1", [id], |row| {
+                        Ok(TaggedResourceSummary {
+                            resource_kind: kind.to_string(),
+                            resource_id: id.to_string(),
+                            title: row.get(0)?,
+                            subtitle: None,
+                        })
                     })
-                },
-            ),
+            }
             "third_party_account" => self.conn().query_row(
                 "SELECT name FROM third_party_accounts WHERE id = ?1",
                 [id],
@@ -1221,18 +1185,16 @@ impl Storage {
                     })
                 },
             ),
-            "task" => self.conn().query_row(
-                "SELECT title FROM tasks WHERE id = ?1",
-                [id],
-                |row| {
+            "task" => self
+                .conn()
+                .query_row("SELECT title FROM tasks WHERE id = ?1", [id], |row| {
                     Ok(TaggedResourceSummary {
                         resource_kind: kind.to_string(),
                         resource_id: id.to_string(),
                         title: row.get(0)?,
                         subtitle: None,
                     })
-                },
-            ),
+                }),
             _ => return Ok(None),
         };
         match summary {
@@ -1430,11 +1392,7 @@ impl Storage {
         Ok(hits)
     }
 
-    fn sync_resource_projection(
-        &self,
-        kind: TaggableKind,
-        resource_id: &str,
-    ) -> OmniResult<()> {
+    fn sync_resource_projection(&self, kind: TaggableKind, resource_id: &str) -> OmniResult<()> {
         match kind {
             TaggableKind::Knowledge => self.sync_knowledge_tags_projection(resource_id),
             TaggableKind::Connection => self.sync_connection_tags_projection(resource_id),
@@ -1627,7 +1585,11 @@ mod tests {
         assert!(tree.iter().any(|t| t.path == "sys"));
 
         let frontend = storage
-            .tag_create("React", Some(&tree.iter().find(|t| t.path == "项目/前端").unwrap().id), None)
+            .tag_create(
+                "React",
+                Some(&tree.iter().find(|t| t.path == "项目/前端").unwrap().id),
+                None,
+            )
             .unwrap();
         assert_eq!(frontend.path, "项目/前端/React");
 
@@ -1646,15 +1608,24 @@ mod tests {
             .map(|t| t.id.clone())
             .collect();
         let found = storage
-            .tag_query_resources(&ids, TagMatchMode::And, Some(&[TaggableKind::Knowledge]), true)
+            .tag_query_resources(
+                &ids,
+                TagMatchMode::And,
+                Some(&[TaggableKind::Knowledge]),
+                true,
+            )
             .unwrap();
         assert!(found.iter().any(|r| r.resource_id == "k1"));
 
-        storage.clear_resource_tags(TaggableKind::Connection, "c1").unwrap();
-        assert!(storage
-            .resource_list_tags(TaggableKind::Connection, "c1")
-            .unwrap()
-            .is_empty());
+        storage
+            .clear_resource_tags(TaggableKind::Connection, "c1")
+            .unwrap();
+        assert!(
+            storage
+                .resource_list_tags(TaggableKind::Connection, "c1")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

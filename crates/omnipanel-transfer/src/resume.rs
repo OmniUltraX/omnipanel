@@ -38,6 +38,13 @@ pub fn load_jobs() -> Vec<FileTransferJob> {
         .unwrap_or_default()
 }
 
+/// 迁移到 SQLite 或用户清除已结束后删除旧 JSON，避免空库时被重新灌回。
+pub fn delete_legacy_jobs_file() {
+    if let Ok(path) = store_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// 启动时规整：Running → Error（中断），Probing → Queued。
 pub fn normalize_after_load(mut jobs: Vec<FileTransferJob>) -> Vec<FileTransferJob> {
     for j in &mut jobs {
@@ -117,9 +124,8 @@ pub async fn copy_local_resume(
     if let Some(parent) = dest_final.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    let mut reader = std::fs::File::open(src).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "打开源文件失败").with_cause(e.to_string())
-    })?;
+    let mut reader = std::fs::File::open(src)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "打开源文件失败").with_cause(e.to_string()))?;
     if start_offset > 0 {
         reader.seek(SeekFrom::Start(start_offset)).map_err(|e| {
             OmniError::new(ErrorCode::Io, "定位源文件失败").with_cause(e.to_string())
@@ -131,7 +137,9 @@ pub async fn copy_local_resume(
         .write(true)
         .truncate(start_offset == 0)
         .open(partial)
-        .map_err(|e| OmniError::new(ErrorCode::Io, "打开 partial 失败").with_cause(e.to_string()))?;
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Io, "打开 partial 失败").with_cause(e.to_string())
+        })?;
 
     let mut buf = vec![0u8; 256 * 1024];
     let mut done = start_offset;
@@ -153,9 +161,8 @@ pub async fn copy_local_resume(
     }
     writer.flush().ok();
     drop(writer);
-    std::fs::rename(partial, dest_final).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "提交目标文件失败").with_cause(e.to_string())
-    })?;
+    std::fs::rename(partial, dest_final)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "提交目标文件失败").with_cause(e.to_string()))?;
     let _ = host;
     Ok(done)
 }

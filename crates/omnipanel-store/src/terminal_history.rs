@@ -2,11 +2,11 @@
 //!
 //! 与 `ai_traces` 职责分离：本模块恢复用户可见时间线；ai_traces 为审计事件流。
 
-use crate::storage::{map_sqlite, Storage};
+use crate::storage::{Storage, map_sqlite};
 use omnipanel_error::OmniResult;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const DEFAULT_MAX_SESSIONS: u32 = 24;
 const DEFAULT_MAX_BLOCKS: u32 = 200;
@@ -324,7 +324,11 @@ impl Storage {
         Ok(out)
     }
 
-    pub fn terminal_history_remove_block(&self, session_id: &str, block_id: &str) -> OmniResult<()> {
+    pub fn terminal_history_remove_block(
+        &self,
+        session_id: &str,
+        block_id: &str,
+    ) -> OmniResult<()> {
         self.conn()
             .execute(
                 "DELETE FROM terminal_history_blocks WHERE id = ?1 AND session_id = ?2",
@@ -367,11 +371,9 @@ impl Storage {
             .map_err(map_sqlite)?;
         let blocks: i64 = self
             .conn()
-            .query_row(
-                "SELECT COUNT(*) FROM terminal_history_blocks",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM terminal_history_blocks", [], |row| {
+                row.get(0)
+            })
             .map_err(map_sqlite)?;
         Ok((sessions.max(0) as u32, blocks.max(0) as u32))
     }
@@ -399,9 +401,7 @@ impl Storage {
             let mut stmt = tx
                 .prepare("SELECT session_id FROM terminal_history_sessions")
                 .map_err(map_sqlite)?;
-            let rows = stmt
-                .query_map([], |row| row.get(0))
-                .map_err(map_sqlite)?;
+            let rows = stmt.query_map([], |row| row.get(0)).map_err(map_sqlite)?;
             let mut ids = Vec::new();
             for row in rows {
                 ids.push(row.map_err(map_sqlite)?);
@@ -495,13 +495,19 @@ mod tests {
 
         let (sessions, _) = storage.terminal_history_counts().unwrap();
         assert_eq!(sessions, 2);
-        assert!(storage.terminal_history_load_session("s1").unwrap().is_empty());
+        assert!(
+            storage
+                .terminal_history_load_session("s1")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn sanitize_truncates_long_output() {
         let long = "a".repeat(20_000);
-        let raw = json!({ "output": long, "liveOutput": { "x": 1 }, "attachedListing": [] }).to_string();
+        let raw =
+            json!({ "output": long, "liveOutput": { "x": 1 }, "attachedListing": [] }).to_string();
         let cleaned = sanitize_payload_json(&raw);
         let v: Value = serde_json::from_str(&cleaned).unwrap();
         let out = v["output"].as_str().unwrap();
@@ -527,8 +533,16 @@ mod tests {
             )
             .unwrap();
         storage.terminal_history_remove_block("s1", "b1").unwrap();
-        assert_eq!(storage.terminal_history_load_session("s1").unwrap().len(), 1);
+        assert_eq!(
+            storage.terminal_history_load_session("s1").unwrap().len(),
+            1
+        );
         storage.terminal_history_clear_session("s1").unwrap();
-        assert!(storage.terminal_history_load_session("s1").unwrap().is_empty());
+        assert!(
+            storage
+                .terminal_history_load_session("s1")
+                .unwrap()
+                .is_empty()
+        );
     }
 }

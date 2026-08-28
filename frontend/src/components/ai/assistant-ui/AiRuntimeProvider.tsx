@@ -873,7 +873,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             httpProvider: backend.kind === "http" ? backend.httpProvider : null,
             context: aiContext,
             historyJson: inline
-              ? await buildInlineAiHistoryJson(inline.blockId, { excludeLatestUser: true })
+              ? await buildInlineAiHistoryJson(inline.blockId, {
+                  excludeLatestUser: true,
+                  sessionId: inline.sessionId,
+                })
               : buildHistoryJson(convId),
             toolsMode: agentRuntime.toolsMode,
             agentId: agentRuntime.agentId,

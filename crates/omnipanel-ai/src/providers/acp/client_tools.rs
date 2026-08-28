@@ -1,4 +1,4 @@
-﻿//! Client-tools prompt 构建与 tool_calls JSON 解析（对齐 cursor-gateway translator/client_tools.go）。
+//! Client-tools prompt 构建与 tool_calls JSON 解析（对齐 cursor-gateway translator/client_tools.go）。
 //!
 //! 提示词正文从 `~/.omnipd/prompts/` 读取（见 omnipanel_store::agent_prompt）。
 
@@ -415,7 +415,9 @@ mod tests {
         assert!(p.contains("omni_terminal_exec"));
         assert!(p.contains("tool_calls"));
         let routing = omnipanel_store::routing_policy();
-        assert!(p.contains("do not pass resource_id") || routing.contains("do not pass resource_id"));
+        assert!(
+            p.contains("do not pass resource_id") || routing.contains("do not pass resource_id")
+        );
         assert!(p.contains(routing.trim()) || p.contains("omni_ssh_exec"));
     }
 
@@ -515,9 +517,8 @@ mod tests {
 
     #[test]
     fn split_plain_prefix_separates_embedded_json() {
-        let (plain, json) = split_plain_prefix_and_tool_json(
-            "好的，我来查一下\n{\"tool_calls\":[{\"id\":\"c1\"}",
-        );
+        let (plain, json) =
+            split_plain_prefix_and_tool_json("好的，我来查一下\n{\"tool_calls\":[{\"id\":\"c1\"}");
         assert_eq!(plain, "好的，我来查一下");
         assert!(json.unwrap().starts_with("{\"tool_calls\""));
 

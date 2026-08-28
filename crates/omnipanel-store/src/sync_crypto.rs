@@ -7,8 +7,8 @@
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use hmac::{Hmac, Mac};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
@@ -197,9 +197,9 @@ pub fn decrypt_sync_blob(
         OmniError::new(ErrorCode::Internal, "初始化同步 AES-GCM 失败").with_cause(e.to_string())
     })?;
     let nonce = Nonce::from_slice(&nonce_bytes);
-    cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| {
-        OmniError::new(ErrorCode::Auth, "解密同步快照失败：密钥不匹配或数据已损坏")
-    })
+    cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| OmniError::new(ErrorCode::Auth, "解密同步快照失败：密钥不匹配或数据已损坏"))
 }
 
 /// 若为信封则解密，否则按历史明文原样返回（便于迁移）。
@@ -253,11 +253,19 @@ mod tests {
     #[test]
     fn roundtrip_encrypt_decrypt() {
         let plain = br#"{"schemaVersion":1,"kind":"omnipanel.client-sync.modules"}"#;
-        let body = encrypt_sync_blob("omnipanel.sync.v1.personal:openid-1", SYNC_KIND_MODULES, plain)
-            .unwrap();
+        let body = encrypt_sync_blob(
+            "omnipanel.sync.v1.personal:openid-1",
+            SYNC_KIND_MODULES,
+            plain,
+        )
+        .unwrap();
         assert!(looks_like_sync_blob_envelope(&body));
-        let out = decrypt_sync_blob("omnipanel.sync.v1.personal:openid-1", SYNC_KIND_MODULES, &body)
-            .unwrap();
+        let out = decrypt_sync_blob(
+            "omnipanel.sync.v1.personal:openid-1",
+            SYNC_KIND_MODULES,
+            &body,
+        )
+        .unwrap();
         assert_eq!(out, plain);
     }
 
@@ -279,11 +287,11 @@ mod tests {
         let team_key = [9u8; SYNC_TEAM_KEY_BYTES];
         let team_id = 1001_i64;
         let plain = br#"{"schemaVersion":1}"#;
-        let body =
-            encrypt_sync_team_blob(&team_key, team_id, SYNC_KIND_MODULES, plain).unwrap();
+        let body = encrypt_sync_team_blob(&team_key, team_id, SYNC_KIND_MODULES, plain).unwrap();
         let scheme = envelope_scheme(&body).unwrap();
         assert_eq!(scheme, SYNC_BLOB_SCHEME_V2);
-        let material = derive_sync_blob_key_material_v2(&team_key, team_id, SYNC_KIND_MODULES).unwrap();
+        let material =
+            derive_sync_blob_key_material_v2(&team_key, team_id, SYNC_KIND_MODULES).unwrap();
         let out = decrypt_sync_blob(&material, SYNC_KIND_MODULES, &body).unwrap();
         assert_eq!(out, plain);
     }

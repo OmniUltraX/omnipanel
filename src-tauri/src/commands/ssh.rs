@@ -9,13 +9,13 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{
-    SftpEntry, StreamChunk, SshAuth, SshConfig, SshConfigEntry, SshEvent, SshProcessDetail,
-    SshProcessInfo, SshSession, SshSink, default_ssh_dir, discover_ssh_identity_file,
+    SftpEntry, SshAuth, SshConfig, SshConfigEntry, SshEvent, SshProcessDetail, SshProcessInfo,
+    SshSession, SshSink, StreamChunk, default_ssh_dir, discover_ssh_identity_file,
     find_ssh_config_entry, is_private_key_pem_content, list_ssh_private_key_paths_in,
     load_ssh_config_hosts, ssh_config_from_json, ssh_config_to_connect_config, ssh_public_key_meta,
 };
 use omnipanel_store::{
-    inject_ssh_vault_into_config, AuditEntry, Connection, ConnectionKind, SshKeyRecord, Vault,
+    AuditEntry, Connection, ConnectionKind, SshKeyRecord, Vault, inject_ssh_vault_into_config,
 };
 use serde::Serialize;
 use specta::Type;
@@ -23,7 +23,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::background::{HostSystemStats, PoolStatusEvent, SshHostOverview};
 use crate::output_buffer;
-use crate::ssh_tmux::{host_identity, AttachOutcome, SshTerminalInfo, TmuxTabStat};
+use crate::ssh_tmux::{AttachOutcome, SshTerminalInfo, TmuxTabStat, host_identity};
 use crate::state::AppState;
 use omnipanel_ssh::tmux::{self, TmuxSessionInfo, TmuxWindowInfo};
 
@@ -51,7 +51,15 @@ pub async fn ssh_connect(
 
     if tmux_mode == "never" {
         // 用户明确要求直连，跳过 tmux
-        return connect_direct(&state, config, cols, rows, id, Some("disabled_by_user".to_string())).await;
+        return connect_direct(
+            &state,
+            config,
+            cols,
+            rows,
+            id,
+            Some("disabled_by_user".to_string()),
+        )
+        .await;
     }
 
     // 优先走 tmux：同主机复用一条连接，且会话可跨应用重启存活。
@@ -269,9 +277,10 @@ pub async fn ssh_terminal_set_direct_mode(
     cols: u16,
     rows: u16,
 ) -> Result<(), OmniError> {
-    let config = state.tmux.config_of(&id).await.ok_or_else(|| {
-        OmniError::new(ErrorCode::NotFound, format!("会话 {id} 不在 tmux 模式"))
-    })?;
+    let config =
+        state.tmux.config_of(&id).await.ok_or_else(|| {
+            OmniError::new(ErrorCode::NotFound, format!("会话 {id} 不在 tmux 模式"))
+        })?;
     state.tmux.detach(&id).await;
     connect_direct(
         &state,
@@ -1204,10 +1213,7 @@ fn parse_7z_list(stdout: &str) -> Vec<ArchiveEntry> {
         let trimmed = line.trim_end();
         if !in_table {
             // 表头：包含 Date Time Attr Size Name
-            if trimmed.contains("Date")
-                && trimmed.contains("Attr")
-                && trimmed.contains("Name")
-            {
+            if trimmed.contains("Date") && trimmed.contains("Attr") && trimmed.contains("Name") {
                 in_table = true;
             }
             continue;
@@ -1431,15 +1437,9 @@ pub async fn ssh_pool_list_archive_entries(
     if output.exit_code != 0 {
         let stderr = output.stderr.trim();
         let stdout = output.stdout.trim();
-        let detail = if !stderr.is_empty() {
-            stderr
-        } else {
-            stdout
-        };
+        let detail = if !stderr.is_empty() { stderr } else { stdout };
         // 检测加密标志
-        if detail.contains("password")
-            || detail.contains("encrypted")
-            || detail.contains("密码")
+        if detail.contains("password") || detail.contains("encrypted") || detail.contains("密码")
         {
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
@@ -1555,22 +1555,20 @@ echo UNKNOWN)))))"#;
 
     // 构造安装命令：sudo -n 优先（非交互），失败回退无 sudo
     let install_cmd = match pm.as_str() {
-        "apt" => format!(
-            "sudo -n apt-get install -y {pkg} 2>/dev/null || apt-get install -y {pkg} 2>&1"
-        ),
-        "dnf" => format!(
-            "sudo -n dnf install -y {pkg} 2>/dev/null || dnf install -y {pkg} 2>&1"
-        ),
-        "yum" => format!(
-            "sudo -n yum install -y {pkg} 2>/dev/null || yum install -y {pkg} 2>&1"
-        ),
-        "apk" => format!("apk add --no-progress {pkg} 2>&1 || sudo -n apk add --no-progress {pkg} 2>&1"),
+        "apt" => {
+            format!("sudo -n apt-get install -y {pkg} 2>/dev/null || apt-get install -y {pkg} 2>&1")
+        }
+        "dnf" => format!("sudo -n dnf install -y {pkg} 2>/dev/null || dnf install -y {pkg} 2>&1"),
+        "yum" => format!("sudo -n yum install -y {pkg} 2>/dev/null || yum install -y {pkg} 2>&1"),
+        "apk" => {
+            format!("apk add --no-progress {pkg} 2>&1 || sudo -n apk add --no-progress {pkg} 2>&1")
+        }
         "pacman" => format!(
             "sudo -n pacman -S --noconfirm --needed {pkg} 2>/dev/null || pacman -S --noconfirm --needed {pkg} 2>&1"
         ),
-        "zypper" => format!(
-            "sudo -n zypper -n install {pkg} 2>/dev/null || zypper -n install {pkg} 2>&1"
-        ),
+        "zypper" => {
+            format!("sudo -n zypper -n install {pkg} 2>/dev/null || zypper -n install {pkg} 2>&1")
+        }
         _ => {
             return Ok(ArchiveToolInstallResult {
                 tool: tool.clone(),
@@ -1611,7 +1609,10 @@ echo UNKNOWN)))))"#;
         if combined.is_empty() {
             format!("已安装 {pkg}（{pm}）")
         } else {
-            format!("已安装 {pkg}（{pm}）\n{}", combined.chars().take(500).collect::<String>())
+            format!(
+                "已安装 {pkg}（{pm}）\n{}",
+                combined.chars().take(500).collect::<String>()
+            )
         }
     } else if combined.is_empty() {
         format!("安装失败（{pm} install {pkg}）")
@@ -1715,16 +1716,15 @@ pub async fn ssh_sync_config_hosts(
                     &existing_conn.id,
                     existing_conn.credential_ref.as_deref(),
                 ) {
-                    if let Ok(existing_cfg) =
-                        ssh_config_from_json(&patched, secret.as_deref())
-                    {
+                    if let Ok(existing_cfg) = ssh_config_from_json(&patched, secret.as_deref()) {
                         if matches!(existing_cfg.auth, SshAuth::Password { .. }) {
                             merged_config.auth = existing_cfg.auth;
                         }
                     }
                 }
                 let config_json = serde_json::to_string(&merged_config).map_err(|e| {
-                    OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败").with_cause(e.to_string())
+                    OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败")
+                        .with_cause(e.to_string())
                 })?;
                 conn.config = config_json;
                 conn.group = SSH_CONFIG_SYNC_GROUP.to_string();
@@ -1734,7 +1734,8 @@ pub async fn ssh_sync_config_hosts(
                 updated += 1;
             } else {
                 let config_json = serde_json::to_string(&ssh_config).map_err(|e| {
-                    OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败").with_cause(e.to_string())
+                    OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败")
+                        .with_cause(e.to_string())
                 })?;
                 let conn = Connection {
                     id: conn_gen_id(),
@@ -2038,10 +2039,7 @@ fn bind_ssh_identity_to_key_store(
         return Ok(());
     }
     if !is_private_key_pem_content(&private_pem) {
-        return Err(OmniError::new(
-            ErrorCode::InvalidInput,
-            "SSH 私钥内容无效",
-        ));
+        return Err(OmniError::new(ErrorCode::InvalidInput, "SSH 私钥内容无效"));
     }
     let name = source_path
         .as_ref()
@@ -2076,7 +2074,9 @@ fn bind_ssh_identity_to_key_store(
                 .as_str(),
             passphrase.as_deref(),
         )
-        .map_err(|e| OmniError::new(ErrorCode::Storage, "写入 SSH 密钥库失败").with_cause(e.to_string()))?;
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Storage, "写入 SSH 密钥库失败").with_cause(e.to_string())
+        })?;
     *key_id = Some(record.id);
     *key_path = None;
     *pem = None;
@@ -2308,13 +2308,9 @@ pub async fn ssh_generate_key(
     let filename = allocate_ssh_key_name(&storage, algo, name.as_deref())?;
     drop(storage);
 
-    let temp_dir = std::env::temp_dir().join(format!(
-        "omnipanel-ssh-gen-{}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&temp_dir).map_err(|e| {
-        OmniError::new(ErrorCode::Io, "创建临时目录失败").with_cause(e.to_string())
-    })?;
+    let temp_dir = std::env::temp_dir().join(format!("omnipanel-ssh-gen-{}", std::process::id()));
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| OmniError::new(ErrorCode::Io, "创建临时目录失败").with_cause(e.to_string()))?;
     let key_path = temp_dir.join(&filename);
 
     let mut cmd = ssh_keygen_command();
@@ -2339,12 +2335,15 @@ pub async fn ssh_generate_key(
     if !output.status.success() {
         let _ = std::fs::remove_dir_all(&temp_dir);
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(OmniError::new(ErrorCode::Ssh, "ssh-keygen 执行失败")
-            .with_cause(if stderr.is_empty() {
-                format!("exit code {:?}", output.status.code())
-            } else {
-                stderr
-            }));
+        return Err(
+            OmniError::new(ErrorCode::Ssh, "ssh-keygen 执行失败").with_cause(
+                if stderr.is_empty() {
+                    format!("exit code {:?}", output.status.code())
+                } else {
+                    stderr
+                },
+            ),
+        );
     }
 
     let private_pem = std::fs::read_to_string(&key_path).map_err(|e| {
@@ -2536,10 +2535,7 @@ async fn estimate_line_count(session: &SshSession, path: &str, size: u64) -> Opt
     }
     const SAMPLE_BYTES: u64 = 512 * 1024;
     let sample = SAMPLE_BYTES.min(size);
-    let cmd = format!(
-        "head -c {sample} {} | wc -cl",
-        shell_quote_single(path)
-    );
+    let cmd = format!("head -c {sample} {} | wc -cl", shell_quote_single(path));
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         session.exec_capture(&cmd),
@@ -2577,16 +2573,18 @@ pub async fn sftp_log_open(
 
     // 精确行数：wc -l，3s 超时；失败则采样估算，避免 GB 级文件卡死首屏
     let wc_cmd = format!("wc -l < {}", shell_quote_single(&path));
-    let (total_lines, lines_estimated) =
-        match tokio::time::timeout(std::time::Duration::from_secs(3), session.exec_command(&wc_cmd))
-            .await
-        {
-            Ok(Ok(s)) => match s.trim().parse::<u64>() {
-                Ok(n) => (Some(n), false),
-                Err(_) => (estimate_line_count(&session, &path, size).await, true),
-            },
-            _ => (estimate_line_count(&session, &path, size).await, true),
-        };
+    let (total_lines, lines_estimated) = match tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        session.exec_command(&wc_cmd),
+    )
+    .await
+    {
+        Ok(Ok(s)) => match s.trim().parse::<u64>() {
+            Ok(n) => (Some(n), false),
+            Err(_) => (estimate_line_count(&session, &path, size).await, true),
+        },
+        _ => (estimate_line_count(&session, &path, size).await, true),
+    };
 
     // 采样也失败时 lines_estimated=false 且 total_lines=None，前端按纯窗口模式兜底
     let lines_estimated = lines_estimated && total_lines.is_some();
@@ -2615,7 +2613,10 @@ pub async fn sftp_log_read_lines(
         return Err(OmniError::new(ErrorCode::InvalidInput, "起始行号必须 ≥ 1"));
     }
     if end_line < start_line {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "结束行号不能小于起始行号"));
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "结束行号不能小于起始行号",
+        ));
     }
     // 限制单次拉取行数，防止误传巨大范围
     const MAX_LINES_PER_CALL: u64 = 5_000;
@@ -2624,11 +2625,7 @@ pub async fn sftp_log_read_lines(
     // 末尾加 `{safe_end}q`：打印完目标区间后立即退出，避免继续扫到 EOF（21GB 文件上可差几个数量级）
     let cmd = if start_line == 1 {
         // 文件头用 head 更快更稳
-        format!(
-            "head -n {} {}",
-            safe_end,
-            shell_quote_single(&path)
-        )
+        format!("head -n {} {}", safe_end, shell_quote_single(&path))
     } else {
         format!(
             "sed -n '{start},{end}p;{end}q' {}",
@@ -2715,11 +2712,18 @@ pub async fn sftp_log_tail_initial(
 
     let stdout = output.stdout.replace("\r\n", "\n");
     let trimmed = stdout.strip_suffix('\n').unwrap_or(&stdout);
-    let lines: Vec<&str> = if trimmed.is_empty() { Vec::new() } else { trimmed.split('\n').collect() };
+    let lines: Vec<&str> = if trimmed.is_empty() {
+        Vec::new()
+    } else {
+        trimmed.split('\n').collect()
+    };
 
     // 推算起始行号
     let start_line: u64 = match total_lines_hint {
-        Some(hint) => hint.saturating_sub(lines.len() as u64).saturating_add(1).max(1),
+        Some(hint) => hint
+            .saturating_sub(lines.len() as u64)
+            .saturating_add(1)
+            .max(1),
         None => 1,
     };
 
@@ -2939,10 +2943,9 @@ pub async fn sftp_log_tail_start(
     let (tx, mut rx) = mpsc::unbounded_channel::<StreamChunk>();
 
     let session = resolve_log_session(&state, &id).await?;
-    let handle = session
-        .exec_stream(&cmd, tx)
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Ssh, "启动日志跟踪失败").with_cause(e.to_string()))?;
+    let handle = session.exec_stream(&cmd, tx).await.map_err(|e| {
+        OmniError::new(ErrorCode::Ssh, "启动日志跟踪失败").with_cause(e.to_string())
+    })?;
 
     let token = new_log_token();
     let event_name = format!("sftp-log-tail-{token}");

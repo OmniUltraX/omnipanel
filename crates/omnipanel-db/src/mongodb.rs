@@ -7,7 +7,7 @@ use mongodb::{Client, Collection};
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::{Map, Value};
 
-use crate::{DbDriver, DbParams, QueryResult, is_query, safe_int_to_value};
+use crate::{DbDriver, DbParams, QueryResult, safe_int_to_value};
 
 const DEFAULT_MONGO_PORT: u16 = 27017;
 const DEFAULT_SAMPLE_LIMIT: i64 = 200;
@@ -99,14 +99,37 @@ impl DbDriver for MongoDriver {
         if trimmed.is_empty() {
             return Err(OmniError::invalid_input("SQL 不能为空"));
         }
-        if is_query(trimmed) {
-            return Err(OmniError::invalid_input(
-                "MongoDB 暂不支持 SQL 查询，请使用集合预览浏览数据",
-            ));
+        match parse_mongo_shell(trimmed) {
+            MongoShell::ShowCollections => {
+                let tables = self.list_tables().await?;
+                Ok(QueryResult {
+                    columns: vec!["collection".to_string()],
+                    rows: tables
+                        .into_iter()
+                        .map(|name| vec![Value::String(name)])
+                        .collect(),
+                    rows_affected: 0,
+                })
+            }
+            MongoShell::ShowDatabases => {
+                let names = self.list_database_names().await?;
+                Ok(QueryResult {
+                    columns: vec!["database".to_string()],
+                    rows: names
+                        .into_iter()
+                        .map(|name| vec![Value::String(name)])
+                        .collect(),
+                    rows_affected: 0,
+                })
+            }
+            MongoShell::Find { collection } => {
+                self.preview(&collection, DEFAULT_SAMPLE_LIMIT, 0, None, None)
+                    .await
+            }
+            MongoShell::Unknown => Err(OmniError::invalid_input(
+                "MongoDB 不支持通用 SQL。可用 `show collections`、`show dbs` 或 `db.<集合>.find()`",
+            )),
         }
-        Err(OmniError::invalid_input(
-            "MongoDB 暂不支持通过 SQL 执行写入，请使用专用 API",
-        ))
     }
 
     async fn preview(
@@ -281,4 +304,63 @@ fn bson_to_json(value: &Bson) -> Value {
 
 fn map_mongo_err(err: mongodb::error::Error) -> OmniError {
     OmniError::database("MongoDB 操作失败").with_cause(err.to_string())
+}
+
+#[derive(Debug)]
+enum MongoShell {
+    ShowCollections,
+    ShowDatabases,
+    Find { collection: String },
+    Unknown,
+}
+
+fn parse_mongo_shell(sql: &str) -> MongoShell {
+    let trimmed = sql.trim().trim_end_matches(';').trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if matches!(lower.as_str(), "show collections" | "show tables") {
+        return MongoShell::ShowCollections;
+    }
+    if matches!(lower.as_str(), "show dbs" | "show databases") {
+        return MongoShell::ShowDatabases;
+    }
+    if let Some(rest) = trimmed
+        .strip_prefix("db.")
+        .or_else(|| trimmed.strip_prefix("DB."))
+        && let Some(idx) = rest.to_ascii_lowercase().find(".find")
+    {
+        let collection = rest[..idx].trim();
+        if !collection.is_empty()
+            && collection
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        {
+            return MongoShell::Find {
+                collection: collection.to_string(),
+            };
+        }
+    }
+    MongoShell::Unknown
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_mongo_shell;
+    use super::MongoShell;
+
+    #[test]
+    fn parses_show_and_find() {
+        assert!(matches!(
+            parse_mongo_shell("show collections"),
+            MongoShell::ShowCollections
+        ));
+        assert!(matches!(
+            parse_mongo_shell("SHOW DBS;"),
+            MongoShell::ShowDatabases
+        ));
+        match parse_mongo_shell("db.users.find({})") {
+            MongoShell::Find { collection } => assert_eq!(collection, "users"),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(parse_mongo_shell("SELECT 1"), MongoShell::Unknown));
+    }
 }

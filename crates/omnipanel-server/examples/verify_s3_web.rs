@@ -12,7 +12,10 @@
 
 use std::sync::Arc;
 
-use omnipanel_server::files::{file_delete, file_list_dir, file_mkdir, file_read_file, file_rename, file_s3_search, file_upload_file};
+use omnipanel_server::files::{
+    file_delete, file_list_dir, file_mkdir, file_read_file, file_rename, file_s3_search,
+    file_upload_file,
+};
 use omnipanel_server::state::ServerState;
 use omnipanel_store::{Connection, ConnectionKind};
 
@@ -65,8 +68,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let list = file_list_dir(&state, cid.clone(), "dir".to_string(), None, None)
         .await
         .map_err(|e| format!("list: {e}"))?;
-    assert!(list.entries.iter().any(|e| e.name == "hello.txt"), "entries: {:?}", list.entries);
-    println!("OK list dir: {:?}", list.entries.iter().map(|e| (&e.name, &e.kind)).collect::<Vec<_>>());
+    assert!(
+        list.entries.iter().any(|e| e.name == "hello.txt"),
+        "entries: {:?}",
+        list.entries
+    );
+    println!(
+        "OK list dir: {:?}",
+        list.entries
+            .iter()
+            .map(|e| (&e.name, &e.kind))
+            .collect::<Vec<_>>()
+    );
 
     // 3. 读回
     let data = file_read_file(&state, cid.clone(), "dir/hello.txt".to_string(), 1024.0)
@@ -80,16 +93,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|e| format!("search: {e}"))?;
     assert!(!found.entries.is_empty());
-    println!("OK search prefix: {:?}", found.entries.iter().map(|e| &e.name).collect::<Vec<_>>());
+    println!(
+        "OK search prefix: {:?}",
+        found.entries.iter().map(|e| &e.name).collect::<Vec<_>>()
+    );
 
     // 5. mkdir
-    file_mkdir(&state, cid.clone(), "newdir".to_string()).await.map_err(|e| format!("mkdir: {e}"))?;
+    file_mkdir(&state, cid.clone(), "newdir".to_string())
+        .await
+        .map_err(|e| format!("mkdir: {e}"))?;
     println!("OK mkdir");
 
     // 6. rename
-    file_rename(&state, cid.clone(), "dir/hello.txt".to_string(), "dir/renamed.txt".to_string())
-        .await
-        .map_err(|e| format!("rename: {e}"))?;
+    file_rename(
+        &state,
+        cid.clone(),
+        "dir/hello.txt".to_string(),
+        "dir/renamed.txt".to_string(),
+    )
+    .await
+    .map_err(|e| format!("rename: {e}"))?;
     let list2 = file_list_dir(&state, cid.clone(), "dir".to_string(), None, None)
         .await
         .map_err(|e| format!("list2: {e}"))?;
@@ -97,9 +120,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("OK rename");
 
     // 7. delete 文件
-    file_delete(&state, cid.clone(), "dir/renamed.txt".to_string(), Some("file".to_string()))
-        .await
-        .map_err(|e| format!("delete: {e}"))?;
+    file_delete(
+        &state,
+        cid.clone(),
+        "dir/renamed.txt".to_string(),
+        Some("file".to_string()),
+    )
+    .await
+    .map_err(|e| format!("delete: {e}"))?;
     let list3 = file_list_dir(&state, cid.clone(), "dir".to_string(), None, None)
         .await
         .map_err(|e| format!("list3: {e}"))?;
@@ -107,9 +135,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("OK delete");
 
     // 8. delete 目录
-    file_delete(&state, cid.clone(), "newdir".to_string(), Some("dir".to_string()))
-        .await
-        .map_err(|e| format!("delete dir: {e}"))?;
+    file_delete(
+        &state,
+        cid.clone(),
+        "newdir".to_string(),
+        Some("dir".to_string()),
+    )
+    .await
+    .map_err(|e| format!("delete dir: {e}"))?;
     println!("OK delete dir");
 
     println!("\nALL S3 WEB VERIFY PASSED ✅");

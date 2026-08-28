@@ -68,7 +68,9 @@ pub(crate) fn cloud_secret_ref(connection_id: &str) -> String {
 }
 
 /// 将 AccessKeySecret 写入 Vault，并从 config 清除明文。
-pub(crate) fn normalize_cloud_connection(mut connection: Connection) -> Result<Connection, OmniError> {
+pub(crate) fn normalize_cloud_connection(
+    mut connection: Connection,
+) -> Result<Connection, OmniError> {
     if connection.kind != ConnectionKind::Cloud {
         return Ok(connection);
     }
@@ -164,9 +166,8 @@ async fn load_connection(state: &AppState, connection_id: &str) -> Result<Connec
 
 async fn http_for_aliyun(state: &AppState, endpoint: &str) -> Result<reqwest::Client, OmniError> {
     let proxy = state.proxy_config.lock().await.clone();
-    build_http_client_for_url(endpoint, &proxy, std::time::Duration::from_secs(30)).map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
-    })
+    build_http_client_for_url(endpoint, &proxy, std::time::Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))
 }
 
 /// 测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。

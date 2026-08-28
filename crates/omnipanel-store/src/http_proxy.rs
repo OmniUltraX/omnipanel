@@ -37,7 +37,8 @@ pub fn load_http_proxy_config() -> OmniResult<HttpProxyConfig> {
     if !path.exists() {
         return Ok(HttpProxyConfig::default());
     }
-    let raw = fs::read_to_string(&path).map_err(|e| OmniError::new(ErrorCode::Io, e.to_string()))?;
+    let raw =
+        fs::read_to_string(&path).map_err(|e| OmniError::new(ErrorCode::Io, e.to_string()))?;
     let mut cfg: HttpProxyConfig = serde_json::from_str(&raw)
         .map_err(|e| OmniError::new(ErrorCode::InvalidInput, e.to_string()))?;
     if !cfg.password.trim().is_empty() {
@@ -106,10 +107,8 @@ mod tests {
         };
         let raw = serde_json::to_string(&cfg).unwrap();
         fs::write(&file, raw).unwrap();
-        let loaded: HttpProxyConfig = serde_json::from_str(
-            &fs::read_to_string(&file).unwrap(),
-        )
-        .unwrap();
+        let loaded: HttpProxyConfig =
+            serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
         assert!(loaded.enabled);
         assert_eq!(loaded.port, 7890);
         let _ = fs::remove_dir_all(dir);

@@ -36,9 +36,8 @@ impl<'a> SshDockerApi<'a> {
                 Err(err) => last_err = Some(err),
             }
         }
-        Err(last_err.unwrap_or_else(|| {
-            OmniError::new(ErrorCode::Internal, "Docker Engine API 请求失败")
-        }))
+        Err(last_err
+            .unwrap_or_else(|| OmniError::new(ErrorCode::Internal, "Docker Engine API 请求失败")))
     }
 
     async fn curl_on_socket(
@@ -68,17 +67,17 @@ impl<'a> SshDockerApi<'a> {
         let Some(status) = status else {
             // 兼容不支持 -w 的旧 curl：退回整段 stdout
             if body.trim().is_empty() {
-                return Err(OmniError::new(
-                    ErrorCode::Internal,
-                    "Docker Engine API 返回空响应",
-                )
-                .with_cause(format!(
-                    "socket={sock}；请确认远端 Docker 已运行且当前用户可访问该 unix socket"
-                )));
+                return Err(
+                    OmniError::new(ErrorCode::Internal, "Docker Engine API 返回空响应").with_cause(
+                        format!(
+                            "socket={sock}；请确认远端 Docker 已运行且当前用户可访问该 unix socket"
+                        ),
+                    ),
+                );
             }
             if let Some(err) = docker_api_error_message(body.trim()) {
                 return Err(
-                    OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err)
+                    OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err),
                 );
             }
             return Ok(body);
@@ -87,7 +86,7 @@ impl<'a> SshDockerApi<'a> {
         if !(200..300).contains(&status) {
             if let Some(err) = docker_api_error_message(body.trim()) {
                 return Err(
-                    OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err)
+                    OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err),
                 );
             }
             let detail = if body.trim().is_empty() {
@@ -96,7 +95,8 @@ impl<'a> SshDockerApi<'a> {
                 format!("HTTP {status}: {}", body.trim())
             };
             return Err(
-                OmniError::new(ErrorCode::Internal, "Docker Engine API 请求失败").with_cause(detail)
+                OmniError::new(ErrorCode::Internal, "Docker Engine API 请求失败")
+                    .with_cause(detail),
             );
         }
 
@@ -112,7 +112,9 @@ impl<'a> SshDockerApi<'a> {
         }
 
         if let Some(err) = docker_api_error_message(body.trim()) {
-            return Err(OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err));
+            return Err(
+                OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err),
+            );
         }
         Ok(body)
     }
@@ -135,11 +137,10 @@ pub fn url_path_segment(value: &str) -> String {
 pub fn parse_docker_api_json<T: DeserializeOwned>(body: &str) -> OmniResult<T> {
     let trimmed = body.trim();
     if trimmed.is_empty() {
-        return Err(OmniError::new(
-            ErrorCode::Internal,
-            "Docker Engine API 返回空响应",
-        )
-        .with_cause("响应体为空，请确认远端 Docker 守护进程可用"));
+        return Err(
+            OmniError::new(ErrorCode::Internal, "Docker Engine API 返回空响应")
+                .with_cause("响应体为空，请确认远端 Docker 守护进程可用"),
+        );
     }
     if let Some(err) = docker_api_error_message(trimmed) {
         return Err(OmniError::new(ErrorCode::Internal, "Docker Engine API 错误").with_cause(err));
@@ -254,7 +255,8 @@ mod tests {
 
     #[test]
     fn splits_http_status_trailer() {
-        let (body, code) = split_curl_http_status("{\"Version\":\"27.0\"}\n__OMNI_HTTP_STATUS__:200");
+        let (body, code) =
+            split_curl_http_status("{\"Version\":\"27.0\"}\n__OMNI_HTTP_STATUS__:200");
         assert_eq!(body, "{\"Version\":\"27.0\"}");
         assert_eq!(code, Some(200));
     }

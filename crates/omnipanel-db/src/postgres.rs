@@ -3,11 +3,12 @@ use omnipanel_error::{OmniError, OmniResult};
 use serde_json::Value;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgSslMode};
 use sqlx::types::Json;
+use sqlx::types::chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use sqlx::{Column, Executor, Row, Statement, TypeInfo, ValueRef};
 
 use crate::{
-    DbDriver, DbParams, QueryResult, encode_blob_value, is_query, map_sqlx_err, safe_int_to_value,
-    sanitize_json_value_for_js, split_statements,
+    DbDriver, DbParams, QueryResult, encode_blob_value, is_query, map_sqlx_err,
+    numeric_string_to_value, safe_int_to_value, sanitize_json_value_for_js, split_statements,
 };
 
 const DEFAULT_PG_PORT: u16 = 5432;
@@ -195,18 +196,18 @@ fn extract(row: &PgRow, index: usize) -> Value {
             .try_get::<bool, _>(index)
             .map(|v| serde_json::json!(v))
             .unwrap_or(Value::Null),
-        "int2" | "int4" | "int8" => row
-            .try_get::<i64, _>(index)
-            .map(|v| safe_int_to_value(v as i128))
-            .unwrap_or(Value::Null),
-        "float4" | "float8" | "numeric" => row
-            .try_get::<f64, _>(index)
-            .map(|v| serde_json::json!(v))
-            .unwrap_or_else(|_| {
-                row.try_get::<String, _>(index)
-                    .map(Value::String)
-                    .unwrap_or(Value::Null)
-            }),
+        "int2" | "int4" | "int8" | "oid" | "xid" | "cid" => decode_pg_int(row, index),
+        "float4" | "float8" => decode_pg_float(row, index),
+        "numeric" => decode_pg_numeric(row, index),
+        "uuid" => decode_pg_uuid(row, index),
+        "timestamp" | "timestamptz" | "date" | "time" | "timetz" => decode_pg_temporal(row, index),
+        "_int2" | "int2[]" | "_int4" | "int4[]" | "_int8" | "int8[]" | "_oid" | "oid[]" => {
+            decode_pg_int_array(row, index)
+        }
+        "_float4" | "float4[]" | "_float8" | "float8[]" => decode_pg_float_array(row, index),
+        "_bool" | "bool[]" => decode_pg_bool_array(row, index),
+        "_text" | "text[]" | "_varchar" | "varchar[]" | "_bpchar" | "bpchar[]" | "_name"
+        | "name[]" | "_uuid" | "uuid[]" => decode_pg_text_array(row, index),
         "bytea" => row
             .try_get::<Vec<u8>, _>(index)
             .map(|bytes| encode_blob_value(&bytes))
@@ -223,5 +224,246 @@ fn extract(row: &PgRow, index: usize) -> Value {
                     .map(|Json(v)| sanitize_json_value_for_js(v))
             })
             .unwrap_or(Value::Null),
+    }
+}
+
+/// sqlx 对整型按宽度严格兼容：`INT4` 不能 `try_get::<i64>`，否则整列变 NULL。
+fn decode_pg_uuid(row: &PgRow, index: usize) -> Value {
+    if let Ok(s) = row.try_get::<String, _>(index) {
+        return Value::String(s);
+    }
+    if let Ok(bytes) = row.try_get::<[u8; 16], _>(index) {
+        return Value::String(format_uuid_bytes(&bytes));
+    }
+    if let Ok(raw) = row.try_get_raw(index) {
+        if let Ok(bytes) = raw.as_bytes() {
+            if let Ok(arr) = <[u8; 16]>::try_from(bytes) {
+                return Value::String(format_uuid_bytes(&arr));
+            }
+        }
+    }
+    Value::Null
+}
+
+fn format_uuid_bytes(b: &[u8; 16]) -> String {
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13],
+        b[14], b[15]
+    )
+}
+
+fn decode_pg_int(row: &PgRow, index: usize) -> Value {
+    if let Ok(v) = row.try_get::<i64, _>(index) {
+        return safe_int_to_value(i128::from(v));
+    }
+    if let Ok(v) = row.try_get::<i32, _>(index) {
+        return safe_int_to_value(i128::from(v));
+    }
+    if let Ok(v) = row.try_get::<i16, _>(index) {
+        return safe_int_to_value(i128::from(v));
+    }
+    Value::Null
+}
+
+fn decode_pg_float(row: &PgRow, index: usize) -> Value {
+    if let Ok(v) = row.try_get::<f64, _>(index) {
+        return serde_json::json!(v);
+    }
+    if let Ok(v) = row.try_get::<f32, _>(index) {
+        return serde_json::json!(v);
+    }
+    row.try_get::<String, _>(index)
+        .map(Value::String)
+        .unwrap_or(Value::Null)
+}
+
+/// sqlx 默认不解码 `NUMERIC`（需 rust_decimal）。从协议二进制组十进制字符串，保精度。
+fn decode_pg_numeric(row: &PgRow, index: usize) -> Value {
+    if let Ok(raw) = row.try_get_raw(index) {
+        if let Ok(bytes) = raw.as_bytes() {
+            if let Some(s) = pg_numeric_bytes_to_string(bytes) {
+                return numeric_string_to_value(&s);
+            }
+        }
+    }
+    decode_pg_float(row, index)
+}
+
+const PG_NUMERIC_NEG: u16 = 0x4000;
+const PG_NUMERIC_NAN: u16 = 0xC000;
+const PG_NUMERIC_PINF: u16 = 0xD000;
+const PG_NUMERIC_NINF: u16 = 0xF000;
+
+fn pg_numeric_bytes_to_string(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 8 {
+        return None;
+    }
+    let ndigits = i16::from_be_bytes(bytes[0..2].try_into().ok()?) as usize;
+    let weight = i16::from_be_bytes(bytes[2..4].try_into().ok()?);
+    let sign = u16::from_be_bytes(bytes[4..6].try_into().ok()?);
+    let dscale = u16::from_be_bytes(bytes[6..8].try_into().ok()?) as i32;
+    match sign {
+        PG_NUMERIC_NAN => return Some("NaN".to_string()),
+        PG_NUMERIC_PINF => return Some("Infinity".to_string()),
+        PG_NUMERIC_NINF => return Some("-Infinity".to_string()),
+        0 | PG_NUMERIC_NEG => {}
+        _ => return None,
+    }
+    let needed = 8usize.checked_add(ndigits.checked_mul(2)?)?;
+    if bytes.len() < needed {
+        return None;
+    }
+    let mut digits = Vec::with_capacity(ndigits);
+    for i in 0..ndigits {
+        let off = 8 + i * 2;
+        digits.push(i16::from_be_bytes(bytes[off..off + 2].try_into().ok()?));
+    }
+
+    let mut out = String::new();
+    if sign == PG_NUMERIC_NEG {
+        out.push('-');
+    }
+    if ndigits == 0 || weight < 0 {
+        out.push('0');
+    } else {
+        for i in 0..=weight {
+            let d = digits.get(i as usize).copied().unwrap_or(0);
+            if i == 0 {
+                out.push_str(&d.to_string());
+            } else {
+                out.push_str(&format!("{d:04}"));
+            }
+        }
+    }
+    if dscale > 0 {
+        out.push('.');
+        let mut remaining = dscale;
+        let mut i = i32::from(weight) + 1;
+        while remaining > 0 {
+            let d = if i >= 0 {
+                digits.get(i as usize).copied().unwrap_or(0)
+            } else {
+                0
+            };
+            let chunk = format!("{d:04}");
+            let take = remaining.min(4);
+            out.push_str(&chunk[..take as usize]);
+            remaining -= take;
+            i += 1;
+        }
+    }
+    Some(out)
+}
+
+fn decode_pg_int_array(row: &PgRow, index: usize) -> Value {
+    if let Ok(v) = row.try_get::<Vec<i64>, _>(index) {
+        return serde_json::json!(v);
+    }
+    if let Ok(v) = row.try_get::<Vec<i32>, _>(index) {
+        return serde_json::json!(v);
+    }
+    if let Ok(v) = row.try_get::<Vec<i16>, _>(index) {
+        return serde_json::json!(v);
+    }
+    Value::Null
+}
+
+fn decode_pg_float_array(row: &PgRow, index: usize) -> Value {
+    if let Ok(v) = row.try_get::<Vec<f64>, _>(index) {
+        return serde_json::json!(v);
+    }
+    if let Ok(v) = row.try_get::<Vec<f32>, _>(index) {
+        return serde_json::json!(v);
+    }
+    Value::Null
+}
+
+fn decode_pg_bool_array(row: &PgRow, index: usize) -> Value {
+    row.try_get::<Vec<bool>, _>(index)
+        .map(|v| serde_json::json!(v))
+        .unwrap_or(Value::Null)
+}
+
+fn decode_pg_text_array(row: &PgRow, index: usize) -> Value {
+    row.try_get::<Vec<String>, _>(index)
+        .map(|v| serde_json::json!(v))
+        .unwrap_or(Value::Null)
+}
+
+fn decode_pg_temporal(row: &PgRow, index: usize) -> Value {
+    if let Ok(v) = row.try_get::<DateTime<Utc>, _>(index) {
+        return Value::String(v.to_rfc3339());
+    }
+    if let Ok(v) = row.try_get::<NaiveDateTime, _>(index) {
+        return Value::String(v.format("%Y-%m-%d %H:%M:%S%.f").to_string());
+    }
+    if let Ok(v) = row.try_get::<NaiveDate, _>(index) {
+        return Value::String(v.format("%Y-%m-%d").to_string());
+    }
+    if let Ok(v) = row.try_get::<NaiveTime, _>(index) {
+        return Value::String(v.format("%H:%M:%S%.f").to_string());
+    }
+    row.try_get::<String, _>(index)
+        .map(Value::String)
+        .unwrap_or(Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pg_numeric_bytes_to_string;
+    use crate::numeric_string_to_value;
+    use serde_json::json;
+
+    fn pack(ndigits: i16, weight: i16, sign: u16, dscale: u16, digits: &[i16]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(8 + digits.len() * 2);
+        out.extend_from_slice(&ndigits.to_be_bytes());
+        out.extend_from_slice(&weight.to_be_bytes());
+        out.extend_from_slice(&sign.to_be_bytes());
+        out.extend_from_slice(&dscale.to_be_bytes());
+        for d in digits {
+            out.extend_from_slice(&d.to_be_bytes());
+        }
+        out
+    }
+
+    #[test]
+    fn pg_numeric_1_25() {
+        let bytes = pack(2, 0, 0, 2, &[1, 2500]);
+        assert_eq!(
+            pg_numeric_bytes_to_string(&bytes).as_deref(),
+            Some("1.25")
+        );
+        assert_eq!(numeric_string_to_value("1.25"), json!(1.25));
+    }
+
+    #[test]
+    fn pg_numeric_zero_point_one() {
+        let bytes = pack(1, -1, 0, 1, &[1000]);
+        assert_eq!(pg_numeric_bytes_to_string(&bytes).as_deref(), Some("0.1"));
+    }
+
+    #[test]
+    fn pg_numeric_negative() {
+        let bytes = pack(2, 0, 0x4000, 1, &[12, 5000]);
+        assert_eq!(pg_numeric_bytes_to_string(&bytes).as_deref(), Some("-12.5"));
+    }
+
+    #[test]
+    fn pg_numeric_nan() {
+        let bytes = pack(0, 0, 0xC000, 0, &[]);
+        assert_eq!(pg_numeric_bytes_to_string(&bytes).as_deref(), Some("NaN"));
+    }
+
+    #[test]
+    fn uuid_bytes_format() {
+        let b = [
+            0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4, 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44,
+            0x00, 0x00,
+        ];
+        assert_eq!(
+            super::format_uuid_bytes(&b),
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
     }
 }

@@ -3,8 +3,8 @@ use omnipanel_store::{JinaDomainMode, WebSearchBackend};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
 use super::super::common::{
-    build_http_client, classify_reqwest_error, map_http_status, BackendError,
-    RequestCtx, SearchHit, SearchRequest, WebSecrets,
+    BackendError, RequestCtx, SearchHit, SearchRequest, WebSecrets, build_http_client,
+    classify_reqwest_error, map_http_status,
 };
 use super::SearchProvider;
 
@@ -62,11 +62,9 @@ pub async fn search_jina_with_domain(
             Err(err) => return Err(err),
         }
     }
-    Err(last_err.unwrap_or_else(|| {
-        BackendError::Network {
-            kind: super::super::common::NetKind::Other,
-            source: "Jina 搜索全部镜像失败".into(),
-        }
+    Err(last_err.unwrap_or_else(|| BackendError::Network {
+        kind: super::super::common::NetKind::Other,
+        source: "Jina 搜索全部镜像失败".into(),
     }))
 }
 
@@ -90,10 +88,7 @@ async fn search_jina_on_host(
         req_builder = req_builder.headers(headers);
     }
 
-    let resp = req_builder
-        .send()
-        .await
-        .map_err(classify_reqwest_error)?;
+    let resp = req_builder.send().await.map_err(classify_reqwest_error)?;
     let status = resp.status();
     let text = resp.text().await.map_err(classify_reqwest_error)?;
     if !status.is_success() {

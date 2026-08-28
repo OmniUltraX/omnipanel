@@ -457,11 +457,7 @@ pub struct S3Client {
 
 impl S3Client {
     pub fn new(cfg: S3Config, secret: String) -> Result<Self, OmniError> {
-        validate_s3_credentials_for_provider(
-            s3_provider_of(&cfg),
-            &cfg.access_key,
-            &secret,
-        )?;
+        validate_s3_credentials_for_provider(s3_provider_of(&cfg), &cfg.access_key, &secret)?;
         if cfg.bucket.trim().is_empty() {
             return Err(OmniError::invalid_input("请填写 Bucket"));
         }
@@ -493,9 +489,10 @@ impl S3Client {
             return client.get_object(key).await;
         }
         let bucket = self.rust_s3_bucket()?;
-        let response = bucket.get_object(key).await.map_err(|e| {
-            OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string())
-        })?;
+        let response = bucket
+            .get_object(key)
+            .await
+            .map_err(|e| OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string()))?;
         Ok(response.bytes().to_vec())
     }
 
@@ -517,7 +514,9 @@ impl S3Client {
         let response = bucket
             .get_object_range(key, start, end.map(|e| e.saturating_sub(1)))
             .await
-            .map_err(|e| OmniError::new(ErrorCode::Io, "S3 分片下载失败").with_cause(e.to_string()))?;
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 分片下载失败").with_cause(e.to_string())
+            })?;
         let status = response.status_code();
         // 416 = 请求范围超出对象末尾 → 视为已读完，返回空（调用方据此结束分块下载）
         if status == 416 {
@@ -559,7 +558,8 @@ impl S3Client {
                 offset = end;
                 part_number += 1;
             }
-            self.complete_multipart_upload(key, &upload_id, &parts).await?;
+            self.complete_multipart_upload(key, &upload_id, &parts)
+                .await?;
             Ok(data.len() as u64)
         }
         .await;
@@ -576,9 +576,10 @@ impl S3Client {
             return client.put_object(key, data).await;
         }
         let bucket = self.rust_s3_bucket()?;
-        bucket.put_object(key, data).await.map_err(|e| {
-            OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string())
-        })?;
+        bucket
+            .put_object(key, data)
+            .await
+            .map_err(|e| OmniError::new(ErrorCode::Io, "S3 上传失败").with_cause(e.to_string()))?;
         Ok(())
     }
 
@@ -625,10 +626,17 @@ impl S3Client {
         }
         let bucket = self.rust_s3_bucket()?;
         let part = bucket
-            .put_multipart_chunk(data.to_vec(), key, part_number, upload_id, "application/octet-stream")
+            .put_multipart_chunk(
+                data.to_vec(),
+                key,
+                part_number,
+                upload_id,
+                "application/octet-stream",
+            )
             .await
             .map_err(|e| {
-                OmniError::new(ErrorCode::Io, format!("S3 分片 {part_number} 上传失败")).with_cause(e.to_string())
+                OmniError::new(ErrorCode::Io, format!("S3 分片 {part_number} 上传失败"))
+                    .with_cause(e.to_string())
             })?;
         Ok(part.etag)
     }
@@ -642,7 +650,9 @@ impl S3Client {
     ) -> Result<(), OmniError> {
         if uses_sigv4_compat_client(&self.cfg) {
             let client = self.sigv4_client()?;
-            return client.complete_multipart_upload(key, upload_id, parts).await;
+            return client
+                .complete_multipart_upload(key, upload_id, parts)
+                .await;
         }
         let bucket = self.rust_s3_bucket()?;
         let s3_parts = parts
@@ -705,7 +715,8 @@ impl S3Client {
             )
             .await
             .map_err(|e| {
-                OmniError::new(ErrorCode::Io, format!("S3 分片 {part_number} 复制失败")).with_cause(e.to_string())
+                OmniError::new(ErrorCode::Io, format!("S3 分片 {part_number} 复制失败"))
+                    .with_cause(e.to_string())
             })?;
         Ok(part.etag)
     }
@@ -729,7 +740,11 @@ impl S3Client {
         let part_size = part_size.max(5 * 1024 * 1024) as u64; // S3 单分片最小 5MB
         let part_count = ((object_size + part_size - 1) / part_size).max(1) as u32;
         let upload_id = self.initiate_multipart_upload(to_key).await?;
-        let copy_source = format!("/{}/{}", self.cfg.bucket.trim_matches('/'), from_key.trim_start_matches('/'));
+        let copy_source = format!(
+            "/{}/{}",
+            self.cfg.bucket.trim_matches('/'),
+            from_key.trim_start_matches('/')
+        );
         let mut parts: Vec<(u32, String)> = Vec::new();
         let result = async {
             for part_number in 1..=part_count {
@@ -746,7 +761,8 @@ impl S3Client {
                     .await?;
                 parts.push((part_number, etag));
             }
-            self.complete_multipart_upload(to_key, &upload_id, &parts).await?;
+            self.complete_multipart_upload(to_key, &upload_id, &parts)
+                .await?;
             Ok(object_size)
         }
         .await;
@@ -757,7 +773,11 @@ impl S3Client {
     }
 
     /// 中止分块上传。
-    pub async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<(), OmniError> {
+    pub async fn abort_multipart_upload(
+        &self,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<(), OmniError> {
         if uses_sigv4_compat_client(&self.cfg) {
             let client = self.sigv4_client()?;
             return client.abort_multipart_upload(key, upload_id).await;
@@ -801,7 +821,11 @@ impl S3Client {
     }
 
     /// 同桶服务端拷贝（不经本机；阿里云/七牛自签路径不支持则报错）。
-    pub async fn copy_object_internal(&self, from_key: &str, to_key: &str) -> Result<(), OmniError> {
+    pub async fn copy_object_internal(
+        &self,
+        from_key: &str,
+        to_key: &str,
+    ) -> Result<(), OmniError> {
         if uses_sigv4_compat_client(&self.cfg) {
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
@@ -838,8 +862,8 @@ impl S3Client {
             ));
         }
         use s3::command::Command;
-        use s3::request::tokio_backend::HyperRequest;
         use s3::request::Request;
+        use s3::request::tokio_backend::HyperRequest;
 
         let bucket = self.rust_s3_bucket()?;
         let from = format!(
@@ -847,10 +871,14 @@ impl S3Client {
             source_bucket.trim_matches('/'),
             source_key.trim_start_matches('/')
         );
-        let command = Command::CopyObject { from: from.as_str() };
-        let request = HyperRequest::new(bucket.as_ref(), dest_key, command).await.map_err(|e| {
-            OmniError::new(ErrorCode::Io, "S3 跨桶拷贝请求失败").with_cause(e.to_string())
-        })?;
+        let command = Command::CopyObject {
+            from: from.as_str(),
+        };
+        let request = HyperRequest::new(bucket.as_ref(), dest_key, command)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Io, "S3 跨桶拷贝请求失败").with_cause(e.to_string())
+            })?;
         let response = request.response_data(false).await.map_err(|e| {
             OmniError::new(ErrorCode::Io, "S3 跨桶拷贝失败").with_cause(e.to_string())
         })?;
@@ -884,8 +912,14 @@ impl S3Client {
             region: ep.signing_region,
             endpoint: ep.api_endpoint,
         };
-        let creds = Credentials::new(Some(&self.cfg.access_key), Some(&self.secret), None, None, None)
-            .map_err(|e| OmniError::new(ErrorCode::Auth, "S3 凭据无效").with_cause(e.to_string()))?;
+        let creds = Credentials::new(
+            Some(&self.cfg.access_key),
+            Some(&self.secret),
+            None,
+            None,
+            None,
+        )
+        .map_err(|e| OmniError::new(ErrorCode::Auth, "S3 凭据无效").with_cause(e.to_string()))?;
         let mut bucket = s3::bucket::Bucket::new(&self.cfg.bucket, region, creds).map_err(|e| {
             OmniError::new(ErrorCode::Connection, "创建 S3 客户端失败").with_cause(e.to_string())
         })?;
@@ -925,11 +959,10 @@ pub async fn s3_list_page(
     let body = response.as_slice();
     if !(200..300).contains(&status) {
         let text = String::from_utf8_lossy(body);
-        return Err(OmniError::new(
-            ErrorCode::Io,
-            format!("列出 S3 对象失败（HTTP {status}）"),
-        )
-        .with_cause(text.chars().take(500).collect::<String>()));
+        return Err(
+            OmniError::new(ErrorCode::Io, format!("列出 S3 对象失败（HTTP {status}）"))
+                .with_cause(text.chars().take(500).collect::<String>()),
+        );
     }
     parse_list_bucket_xml(body)
 }
@@ -971,7 +1004,10 @@ mod tests {
     #[test]
     fn normalize_s3_api_endpoint_strips_bucket() {
         assert_eq!(
-            normalize_s3_api_endpoint("https://old-bucket.oss-cn-beijing.aliyuncs.com", "new-bucket"),
+            normalize_s3_api_endpoint(
+                "https://old-bucket.oss-cn-beijing.aliyuncs.com",
+                "new-bucket"
+            ),
             "https://oss-cn-beijing.aliyuncs.com"
         );
         assert_eq!(

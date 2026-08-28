@@ -3,8 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::OmniError;
 use omnipanel_store::{
-    knowledge_entry_assets_dir, KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult,
-    KnowledgeTodoList,
+    KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult, KnowledgeTodoList,
+    knowledge_entry_assets_dir,
 };
 use tauri::State;
 
@@ -185,9 +185,8 @@ pub async fn knowledge_import_pdf(
         return Err(OmniError::invalid_input("仅支持 PDF 格式文件"));
     }
 
-    let content = pdf_extract::extract_text(path).map_err(|e| {
-        OmniError::internal("PDF 文本提取失败").with_cause(e.to_string())
-    })?;
+    let content = pdf_extract::extract_text(path)
+        .map_err(|e| OmniError::internal("PDF 文本提取失败").with_cause(e.to_string()))?;
     if content.trim().is_empty() {
         return Err(OmniError::invalid_input("PDF 中未提取到文本内容"));
     }
@@ -286,9 +285,8 @@ pub async fn knowledge_save_asset(
         .unwrap_or("bin");
     let stored_name = format!("{}.{}", new_knowledge_id(), ext);
     let path = dir.join(&stored_name);
-    std::fs::write(&path, bytes).map_err(|e| {
-        OmniError::internal("写入附件失败").with_cause(e.to_string())
-    })?;
+    std::fs::write(&path, bytes)
+        .map_err(|e| OmniError::internal("写入附件失败").with_cause(e.to_string()))?;
 
     Ok(KnowledgeAssetSaved {
         entry_id: entry_id.to_string(),

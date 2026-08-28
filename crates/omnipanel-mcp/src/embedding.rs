@@ -161,7 +161,12 @@ pub async fn embed_skill_chunks(
 ) -> Result<Vec<(String, String, Vec<f32>)>, String> {
     use omnipanel_store::{chunk_text, resolve_embedding_provider_for_backend};
 
-    let source = format!("{}\n\n{}\n\n{}", title.trim(), description.trim(), body.trim());
+    let source = format!(
+        "{}\n\n{}\n\n{}",
+        title.trim(),
+        description.trim(),
+        body.trim()
+    );
     let pieces = chunk_text(&source, 800, 120);
     if pieces.is_empty() {
         return Err("Skill 内容为空，无法向量化".to_string());

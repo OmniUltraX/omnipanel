@@ -16,10 +16,10 @@ pub mod pack;
 pub use pack::{extract_to, pack_dir, pack_dir_with_entries};
 
 use std::fs::File;
-use std::io::{read_to_string, BufReader, Read};
+use std::io::{BufReader, Read, read_to_string};
 use std::path::Path;
 
-use ed25519_dalek::{Signature, VerifyingKey, SIGNATURE_LENGTH};
+use ed25519_dalek::{SIGNATURE_LENGTH, Signature, VerifyingKey};
 use omnipanel_plugin::PluginManifest;
 use thiserror::Error;
 use zip::ZipArchive;
@@ -116,9 +116,9 @@ fn read_signature<R: Read + std::io::Seek>(
             if read != SIGNATURE_LENGTH {
                 return Err(PkgError::Malformed("签名长度非法".into()));
             }
-            Ok(Some(
-                Signature::from_bytes(&buf.try_into().expect("64 bytes")),
-            ))
+            Ok(Some(Signature::from_bytes(
+                &buf.try_into().expect("64 bytes"),
+            )))
         }
         Err(zip::result::ZipError::FileNotFound) => Ok(None),
         Err(err) => Err(err.into()),
@@ -224,7 +224,10 @@ mod tests {
         let tampered = temp.path().join("tampered.omni-plugin");
         pack_dir_with_entries(entries, &tampered, None).unwrap();
 
-        assert!(matches!(verify_file(&tampered), Err(PkgError::BadSignature)));
+        assert!(matches!(
+            verify_file(&tampered),
+            Err(PkgError::BadSignature)
+        ));
     }
 
     #[test]
@@ -266,9 +269,7 @@ mod tests {
     fn manifest_entry_must_parse() {
         let temp = tempfile::tempdir().unwrap();
         let out = temp.path().join("bad.omni-plugin");
-        let entries = BTreeMap::from([
-            (MANIFEST_ENTRY.to_string(), br#"{"id":"x"}"#.to_vec()),
-        ]);
+        let entries = BTreeMap::from([(MANIFEST_ENTRY.to_string(), br#"{"id":"x"}"#.to_vec())]);
         pack_dir_with_entries(entries, &out, Some(&dev_signing_key())).unwrap();
         assert!(matches!(
             verify_file(&out),

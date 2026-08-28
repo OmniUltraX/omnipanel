@@ -57,7 +57,9 @@ pub(crate) use json_value::sanitize_json_value_for_js;
     feature = "sqlite",
     feature = "sqlserver"
 ))]
-pub(crate) use json_value::{decode_text_as_json_or_string, safe_int_to_value};
+pub(crate) use json_value::{
+    decode_text_as_json_or_string, numeric_string_to_value, safe_int_to_value,
+};
 
 pub use blob_value::encode_blob_value;
 pub use engine_contract::{FirstPartyEngine, FirstPartyRuntime};
@@ -264,6 +266,10 @@ pub(crate) fn is_query(sql: &str) -> bool {
     let s = sql.trim_start().to_lowercase();
     [
         "select", "show", "with", "explain", "describe", "desc", "pragma", "values", "table",
+        // Cypher 读路径（写语句仍以 CREATE/MERGE/DELETE 开头，走 DML）
+        "return", "match", "call", "unwind",
+        // CQL
+        "list",
     ]
     .iter()
     .any(|kw| s.starts_with(kw))
@@ -478,7 +484,7 @@ pub fn wrap_editor_query(db_type: &str, sql: &str, limit: i64, offset: i64) -> S
         return sql.to_string();
     }
     match db_type.to_ascii_lowercase().as_str() {
-        "neo4j" => sql.to_string(),
+        "neo4j" | "redis" | "mongodb" | "mongo" | "qdrant" => sql.to_string(),
         "cassandra" => wrap_cql_limit(sql, limit),
         "hive" | "spark" => wrap_append_limit(sql, limit, None),
         "firebird" => wrap_firebird_rows(sql, limit, offset),
@@ -721,6 +727,11 @@ mod tests {
         let mysql = wrap_editor_query("mysql", "SELECT * FROM t", 10, 0);
         assert!(mysql.contains("__omnipanel_wrap__"));
         assert!(mysql.contains("LIMIT 10 OFFSET 0"));
+        assert_eq!(wrap_editor_query("redis", "GET foo", 50, 0), "GET foo");
+        assert_eq!(
+            wrap_editor_query("mongodb", "db.users.find()", 50, 0),
+            "db.users.find()"
+        );
     }
 
     #[test]

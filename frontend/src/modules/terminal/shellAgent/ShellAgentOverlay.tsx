@@ -230,11 +230,20 @@ function syncShellAgentThemeVars(el: HTMLElement): void {
 
 function ensurePortalHost(
   decoEl: HTMLElement,
-  opts?: { grow?: boolean; scrollable?: boolean },
+  opts?: { grow?: boolean; scrollable?: boolean; reuse?: HTMLElement | null },
 ): HTMLElement {
   let host = decoEl.querySelector(
     `:scope > .${SHELL_AGENT_PORTAL_HOST_CLASS}`,
   ) as HTMLElement | null;
+  const reuse = opts?.reuse;
+  if (!host && reuse?.parentElement === decoEl) {
+    host = reuse;
+  }
+  if (!host && reuse?.classList.contains(SHELL_AGENT_PORTAL_HOST_CLASS)) {
+    // xterm 刷新有时会清掉 decoration 子节点；把同一 host 挂回去，禁止新建触发 setState 环
+    host = reuse;
+    decoEl.appendChild(host);
+  }
   if (!host) {
     host = document.createElement("div");
     host.className = SHELL_AGENT_PORTAL_HOST_CLASS;
@@ -388,6 +397,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const blocks = useBlocksStore((s) => s.blocks[sessionId] ?? EMPTY_TERMINAL_BLOCKS);
   const [geoVersion, setGeoVersion] = useState(0);
   const [decoEl, setDecoEl] = useState<HTMLElement | null>(null);
+  const portalHostRef = useRef<HTMLElement | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [detail, setDetail] = useState<DetailFloat>(null);
@@ -423,7 +433,8 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     const scrollable = isAsk;
 
     if (!inline || !deco) {
-      setDecoEl(null);
+      portalHostRef.current = null;
+      setDecoEl((prev) => (prev === null ? prev : null));
       return;
     }
 
@@ -445,24 +456,29 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       el.style.minHeight = "0";
       el.style.overflow = "hidden";
       shieldShellAgentDecorationPointer(el, getXterm(sessionId));
-      setDecoEl(ensurePortalHost(el, { grow: false, scrollable }));
+      const host = ensurePortalHost(el, {
+        grow: false,
+        scrollable,
+        reuse: portalHostRef.current,
+      });
+      portalHostRef.current = host;
+      // xterm 每次视口刷新都会 onRender；同一 host 禁止 setState，否则 portal 改 DOM 再触发刷新死循环
+      setDecoEl((prev) => (prev === host ? prev : host));
     };
 
     const frame = requestAnimationFrame(() => {
       if (cancelled) return;
-      if (deco.element) {
-        attach(deco.element);
-        return;
-      }
-      renderDisposable = deco.onRender(attach);
+      if (deco.element) attach(deco.element);
     });
+    // 元素未就绪时等第一次 onRender；之后只补样式 / 重挂 host，不再为同一 decoration 反复 setState
+    renderDisposable = deco.onRender(attach);
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
       renderDisposable?.dispose();
     };
-  }, [geometry?.decoration, geometry?.version, geometry?.mode, geometry?.cardKind, sessionId]);
+  }, [geometry?.decoration, geometry?.mode, geometry?.cardKind, sessionId]);
 
   // 历史冻结卡也可能没有 pointer shield（热更新 / 旧快照）；按会话扫一遍补上
   useEffect(() => {
@@ -517,9 +533,10 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     [scopedThread],
   );
 
+  const archivedToolIdsKey = [...getArchivedDisplayToolIds(sessionId)].sort().join(",");
   const stripTools = useMemo(
     () => resolveStripTools(displayTools, getArchivedDisplayToolIds(sessionId)),
-    [displayTools, sessionId, geoVersion],
+    [displayTools, sessionId, archivedToolIdsKey],
   );
 
   const phase = agent?.phase ?? "idle";
@@ -563,6 +580,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     ? mergeThinkingText(latchedInterpret, interpretRaw)
     : interpretRaw;
 
+  const turnPending = isPendingTurnThread(turnThread);
   const pendingTool = execTools.find((tc) => tc.status === "pending") ?? null;
   const pendingDesc = useMemo(() => {
     if (toolHasPriorInTurn(turnThread, pendingTool?.id ?? null)) return "";
@@ -624,7 +642,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     displayToolsBusy,
     displayToolIdsKey,
     thinkingSlotKey,
-    displayTools,
+    archivedToolIdsKey,
     thinkingFull,
     latchedThinking,
   ]);
@@ -648,7 +666,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   useEffect(() => {
     if (pendingTool) return;
     if (geometry?.cardKind === "ask") return;
-    if (isPendingTurnThread(turnThread)) return;
+    if (turnPending) return;
     const archived = getArchivedDisplayToolIds(sessionId);
     if (geometry?.cardKind !== "thinking" && geometry?.cardKind !== "final" && geometry?.cardKind !== "cmd") {
       if (!hasUnshownDisplayTool(displayTools, archived)) return;
@@ -704,10 +722,9 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     displayToolsBusy,
     displayToolIdsKey,
     stripToolIdsKey,
-    displayTools,
-    stripTools,
+    archivedToolIdsKey,
     sessionId,
-    turnThread,
+    turnPending,
     thinkingFull,
     latchedThinking,
     interpretRaw,
@@ -746,8 +763,7 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     displayToolsBusy,
     displayToolIdsKey,
     stripToolIdsKey,
-    displayTools,
-    stripTools,
+    archivedToolIdsKey,
     thinkingFull,
     interpretText,
     sessionId,

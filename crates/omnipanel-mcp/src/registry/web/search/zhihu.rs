@@ -5,8 +5,8 @@ use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::super::common::{
-    build_http_client, classify_reqwest_error, map_http_status, BackendError, RequestCtx,
-    SearchHit, SearchRequest, SearchScope, WebSecrets,
+    BackendError, RequestCtx, SearchHit, SearchRequest, SearchScope, WebSecrets, build_http_client,
+    classify_reqwest_error, map_http_status,
 };
 use super::SearchProvider;
 
@@ -40,7 +40,10 @@ impl SearchProvider for ZhihuSearch {
         let (path, max_count) = if req.scope == SearchScope::Zhihu {
             ("/api/v1/content/zhihu_search", req.max_results.clamp(1, 10))
         } else {
-            ("/api/v1/content/global_search", req.max_results.clamp(1, 20))
+            (
+                "/api/v1/content/global_search",
+                req.max_results.clamp(1, 20),
+            )
         };
 
         let url = format!(
@@ -84,8 +87,7 @@ impl SearchProvider for ZhihuSearch {
 }
 
 fn parse_zhihu_response(body: &str, max_results: usize) -> Result<Vec<SearchHit>, BackendError> {
-    let json: Value =
-        serde_json::from_str(body).map_err(|e| BackendError::Parse(e.to_string()))?;
+    let json: Value = serde_json::from_str(body).map_err(|e| BackendError::Parse(e.to_string()))?;
 
     if let Some(code) = json.get("Code").and_then(|v| v.as_i64()) {
         if code != 0 {
@@ -112,8 +114,8 @@ fn parse_zhihu_response(body: &str, max_results: usize) -> Result<Vec<SearchHit>
     for item in items.into_iter().take(max_results) {
         let title = pick_str(&item, &["Title", "title"]).unwrap_or_default();
         let url = pick_str(&item, &["Url", "URL", "url"]).unwrap_or_default();
-        let snippet = pick_str(&item, &["Summary", "Abstract", "summary", "abstract"])
-            .unwrap_or_default();
+        let snippet =
+            pick_str(&item, &["Summary", "Abstract", "summary", "abstract"]).unwrap_or_default();
         let author = pick_str(&item, &["AuthorName", "author_name", "authorName"]);
         if !url.is_empty() || !title.is_empty() {
             hits.push(SearchHit {

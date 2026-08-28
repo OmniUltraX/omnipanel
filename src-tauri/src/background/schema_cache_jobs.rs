@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use omnipanel_store::{
-    load_schema_cache, merge_schema_cache_connection, save_schema_cache, DbConnectionConfig,
-    SchemaCacheConnection, SchemaCacheSnapshot,
+    DbConnectionConfig, SchemaCacheConnection, SchemaCacheSnapshot, load_schema_cache,
+    merge_schema_cache_connection, save_schema_cache,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -41,7 +41,9 @@ pub async fn run_db_schema_cache_refresh(
     progress: Arc<dyn Fn(String, u32, u32, Option<u32>, Option<u32>) + Send + Sync>,
 ) -> Result<(), String> {
     let id_filter: Option<HashMap<String, ()>> = connection_ids.map(|ids| {
-        ids.into_iter().map(|id| (id, ())).collect::<HashMap<_, _>>()
+        ids.into_iter()
+            .map(|id| (id, ()))
+            .collect::<HashMap<_, _>>()
     });
 
     let targets: Vec<DbConnectionConfig> = connections
@@ -87,10 +89,7 @@ pub async fn run_db_schema_cache_refresh(
         );
 
         let entry = build_schema_cache_connection(&connection).await;
-        let merged = merge_schema_cache_connection(
-            snapshot.connections.get(&connection.id),
-            entry,
-        );
+        let merged = merge_schema_cache_connection(snapshot.connections.get(&connection.id), entry);
         snapshot
             .connections
             .insert(connection.id.clone(), merged.clone());

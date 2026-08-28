@@ -11,10 +11,12 @@ use omnipanel_ssh::{SshPtySession, SshSession, SshStreamHandle, StreamChunk};
 use tokio::sync::mpsc;
 
 use crate::compose::{ComposeContainerRow, aggregate_compose};
-use crate::local::{map_system_data_usage, to_container_detail, to_container_summary, to_image_summaries};
 use crate::local::{DockerExecOutput, DockerExecSession};
+use crate::local::{
+    map_system_data_usage, to_container_detail, to_container_summary, to_image_summaries,
+};
 use crate::model::*;
-use crate::ssh_docker_api::{classify_docker_api_error, url_path_segment, SshDockerApi};
+use crate::ssh_docker_api::{SshDockerApi, classify_docker_api_error, url_path_segment};
 use crate::{ContainerFilter, DockerAdapter};
 
 /// SSH 宿主机 Docker 适配器：持有一个可复用的 `SshSession`（由命令层缓存于会话池），
@@ -52,7 +54,11 @@ impl DockerAdapter for SshDockerAdapter {
     async fn create_container(&self, req: &DockerCreateContainerRequest) -> OmniResult<String> {
         create_container(&*self.session, req).await
     }
-    async fn container_logs(&self, id: &str, query: &DockerLogQuery) -> OmniResult<Vec<DockerLogLine>> {
+    async fn container_logs(
+        &self,
+        id: &str,
+        query: &DockerLogQuery,
+    ) -> OmniResult<Vec<DockerLogLine>> {
         container_logs(&*self.session, id, query).await
     }
     async fn clear_container_logs(&self, id: &str) -> OmniResult<()> {
@@ -70,11 +76,7 @@ impl DockerAdapter for SshDockerAdapter {
     async fn prune_images(&self) -> OmniResult<DockerPruneResult> {
         prune_images(&*self.session).await
     }
-    async fn search_images(
-        &self,
-        term: &str,
-        limit: u32,
-    ) -> OmniResult<DockerImageSearchPage> {
+    async fn search_images(&self, term: &str, limit: u32) -> OmniResult<DockerImageSearchPage> {
         search_images(&*self.session, term, limit).await
     }
     async fn inspect_image(&self, id: &str) -> OmniResult<DockerImageDetail> {
@@ -484,10 +486,7 @@ pub async fn container_logs(
         .since_for_docker_cli()
         .map(|s| format!(" --since {s}"))
         .unwrap_or_default();
-    let cmd = format!(
-        "docker logs --tail {tail}{since_arg} {}",
-        shell_quote(id)
-    );
+    let cmd = format!("docker logs --tail {tail}{since_arg} {}", shell_quote(id));
     let out = session.exec_capture(&cmd).await?;
     if out.exit_code != 0 {
         return Err(docker_cli_error("获取远端容器日志失败", &out.stderr));
@@ -550,16 +549,14 @@ done
         if parts.len() < 3 {
             continue;
         }
-        let size_bytes = parts
-            .get(3)
-            .and_then(|s| {
-                let s = s.trim();
-                if s.is_empty() {
-                    None
-                } else {
-                    s.parse::<i64>().ok()
-                }
-            });
+        let size_bytes = parts.get(3).and_then(|s| {
+            let s = s.trim();
+            if s.is_empty() {
+                None
+            } else {
+                s.parse::<i64>().ok()
+            }
+        });
         infos.push(DockerContainerLogInfo {
             container_id: parts[0].to_string(),
             name: parts[1].trim_start_matches('/').to_string(),
@@ -593,20 +590,23 @@ pub async fn search_images(
             limit,
             shell_quote(term)
         );
-        let out =
-            tokio::time::timeout(std::time::Duration::from_secs(20), session.exec_capture(&cmd))
-                .await
-                .map_err(|_| {
-                    OmniError::new(
-                        ErrorCode::Timeout,
-                        "远端搜索镜像超时，请在 daemon.json 配置可用的 registry-mirrors",
-                    )
-                })??;
+        let out = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            session.exec_capture(&cmd),
+        )
+        .await
+        .map_err(|_| {
+            OmniError::new(
+                ErrorCode::Timeout,
+                "远端搜索镜像超时，请在 daemon.json 配置可用的 registry-mirrors",
+            )
+        })??;
         if out.exit_code != 0 {
             return Err(docker_cli_error("远端搜索镜像失败", &out.stderr));
         }
         Ok(crate::local::parse_docker_search_json_lines(
-            &out.stdout, limit,
+            &out.stdout,
+            limit,
         ))
     })
     .await
@@ -620,14 +620,8 @@ pub async fn create_host_shell(
     rows: u16,
 ) -> OmniResult<(DockerExecSession, DockerExecOutput)> {
     let candidates = [
-        "bash -l",
-        "bash",
-        "sh -l",
-        "sh",
-        // 部分环境仅装了 zsh / ash
-        "zsh -l",
-        "zsh",
-        "ash",
+        "bash -l", "bash", "sh -l", "sh", // 部分环境仅装了 zsh / ash
+        "zsh -l", "zsh", "ash",
     ];
     let mut last_err: Option<OmniError> = None;
     for cmd in candidates {
@@ -847,7 +841,10 @@ pub async fn inspect_image(session: &SshSession, id: &str) -> OmniResult<DockerI
     map_image_inspect(raw, id)
 }
 
-fn map_image_inspect(raw: bollard::models::ImageInspect, id: &str) -> OmniResult<DockerImageDetail> {
+fn map_image_inspect(
+    raw: bollard::models::ImageInspect,
+    id: &str,
+) -> OmniResult<DockerImageDetail> {
     let cfg = raw.config.clone().unwrap_or_default();
     let env = cfg.env.clone().unwrap_or_default();
     let labels_map = cfg.labels.clone().unwrap_or_default();
@@ -934,10 +931,7 @@ pub async fn list_compose_projects(session: &SshSession) -> OmniResult<Vec<Docke
                 .get("com.docker.compose.project.config_files")
                 .cloned(),
             image: item.image.unwrap_or_default(),
-            running: item
-                .state
-                .as_ref()
-                .map(|s| format!("{s:?}").to_lowercase())
+            running: item.state.as_ref().map(|s| format!("{s:?}").to_lowercase())
                 == Some("running".to_string()),
         });
     }
@@ -1257,7 +1251,11 @@ pub async fn compose_action(
         args.push(shell_quote(svc));
     }
     let docker_cmd = format!("docker {}", args.join(" "));
-    let cmd = if let Some(wd) = req.working_dir.as_deref().filter(|value| !value.trim().is_empty()) {
+    let cmd = if let Some(wd) = req
+        .working_dir
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         format!("cd {} && {}", shell_quote(wd), docker_cmd)
     } else {
         docker_cmd
@@ -1410,8 +1408,7 @@ pub async fn list_networks(session: &SshSession) -> OmniResult<Vec<DockerNetwork
     Ok(raw
         .into_iter()
         .map(|n| {
-            let (ipv4_subnet, ipv4_gateway) =
-                crate::local::first_ipv4_from_ipam(n.ipam.as_ref());
+            let (ipv4_subnet, ipv4_gateway) = crate::local::first_ipv4_from_ipam(n.ipam.as_ref());
             DockerNetworkSummary {
                 id: n.id.unwrap_or_default(),
                 name: n.name.unwrap_or_default(),

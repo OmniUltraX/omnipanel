@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use omnipanel_server::{run_server, ServerConfig};
+use omnipanel_server::{ServerConfig, run_server};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

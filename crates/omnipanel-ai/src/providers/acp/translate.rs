@@ -1,4 +1,4 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::ir::{StreamEvent, ToolStatus};
@@ -297,11 +297,7 @@ fn try_emit_deferred_shell_tool(
         return None;
     }
     let arguments = map_native_shell_to_terminal_tool(raw_input)?;
-    options
-        .deferred_shell_ids
-        .lock()
-        .unwrap()
-        .remove(id);
+    options.deferred_shell_ids.lock().unwrap().remove(id);
     options
         .suppressed_native_ids
         .lock()
@@ -364,11 +360,7 @@ fn translate_tool_call_update(
             serde_json::to_string(v).unwrap_or_default()
         }
     });
-    vec![StreamEvent::ToolCallUpdate {
-        id,
-        status,
-        result,
-    }]
+    vec![StreamEvent::ToolCallUpdate { id, status, result }]
 }
 
 fn extract_content_text(content: Option<&serde_json::Value>) -> String {
@@ -440,7 +432,9 @@ mod tests {
         let events = translate_update_value(&update, &options);
         assert_eq!(events.len(), 2);
         match &events[0] {
-            StreamEvent::ToolCall { name, arguments, .. } => {
+            StreamEvent::ToolCall {
+                name, arguments, ..
+            } => {
                 assert_eq!(name, TERMINAL_CLIENT_TOOL);
                 assert!(arguments.contains("Get-Date"));
             }
@@ -459,9 +453,16 @@ mod tests {
             "rawInput": { "command": "date" }
         });
         let events = translate_update_value(&update, &options);
-        assert_eq!(events.len(), 2, "should map to terminal tool + pending: {:?}", events);
+        assert_eq!(
+            events.len(),
+            2,
+            "should map to terminal tool + pending: {:?}",
+            events
+        );
         match &events[0] {
-            StreamEvent::ToolCall { name, arguments, .. } => {
+            StreamEvent::ToolCall {
+                name, arguments, ..
+            } => {
                 assert_eq!(name, TERMINAL_CLIENT_TOOL);
                 assert!(arguments.contains("date"));
             }
@@ -480,12 +481,24 @@ mod tests {
             "rawInput": { "query": "*.rs", "path": "/src" }
         });
         let events = translate_update_value(&update, &options);
-        assert_eq!(events.len(), 2, "Find should map to terminal tool + pending");
+        assert_eq!(
+            events.len(),
+            2,
+            "Find should map to terminal tool + pending"
+        );
         match &events[0] {
-            StreamEvent::ToolCall { name, arguments, .. } => {
+            StreamEvent::ToolCall {
+                name, arguments, ..
+            } => {
                 assert_eq!(name, TERMINAL_CLIENT_TOOL);
-                assert!(arguments.contains("find"), "should use find command: {arguments}");
-                assert!(arguments.contains("*.rs"), "should contain query: {arguments}");
+                assert!(
+                    arguments.contains("find"),
+                    "should use find command: {arguments}"
+                );
+                assert!(
+                    arguments.contains("*.rs"),
+                    "should contain query: {arguments}"
+                );
             }
             _ => panic!("expected tool_call"),
         }
@@ -501,9 +514,15 @@ mod tests {
             "rawInput": { "query": "rust async runtime" }
         });
         let events = translate_update_value(&update, &options);
-        assert_eq!(events.len(), 2, "WebSearch should map to omni_web_search + pending");
+        assert_eq!(
+            events.len(),
+            2,
+            "WebSearch should map to omni_web_search + pending"
+        );
         match &events[0] {
-            StreamEvent::ToolCall { name, arguments, .. } => {
+            StreamEvent::ToolCall {
+                name, arguments, ..
+            } => {
                 assert_eq!(name, WEB_SEARCH_CLIENT_TOOL);
                 assert!(arguments.contains("rust async runtime"));
             }
@@ -521,9 +540,15 @@ mod tests {
             "rawInput": { "url": "https://example.com/docs" }
         });
         let events = translate_update_value(&update, &options);
-        assert_eq!(events.len(), 2, "WebFetch should map to omni_web_fetch + pending");
+        assert_eq!(
+            events.len(),
+            2,
+            "WebFetch should map to omni_web_fetch + pending"
+        );
         match &events[0] {
-            StreamEvent::ToolCall { name, arguments, .. } => {
+            StreamEvent::ToolCall {
+                name, arguments, ..
+            } => {
                 assert_eq!(name, WEB_FETCH_CLIENT_TOOL);
                 assert!(arguments.contains("https://example.com/docs"));
             }
@@ -543,7 +568,9 @@ mod tests {
         let events = translate_update_value(&update, &options);
         assert_eq!(events.len(), 2, "Read should map to terminal cat command");
         match &events[0] {
-            StreamEvent::ToolCall { name, arguments, .. } => {
+            StreamEvent::ToolCall {
+                name, arguments, ..
+            } => {
                 assert_eq!(name, TERMINAL_CLIENT_TOOL);
                 assert!(arguments.contains("cat"), "should use cat: {arguments}");
                 assert!(arguments.contains("/tmp/test.txt"));
@@ -563,7 +590,10 @@ mod tests {
             "rawInput": { "action": "index" }
         });
         let events = translate_update_value(&update, &options);
-        assert!(events.is_empty(), "unknown native tool should be suppressed");
+        assert!(
+            events.is_empty(),
+            "unknown native tool should be suppressed"
+        );
     }
 
     #[test]
@@ -578,7 +608,9 @@ mod tests {
         let events = translate_update_value(&initial, &options);
         assert_eq!(events.len(), 1);
         match &events[0] {
-            StreamEvent::ToolCall { name, arguments, .. } => {
+            StreamEvent::ToolCall {
+                name, arguments, ..
+            } => {
                 assert_eq!(name, TERMINAL_CLIENT_TOOL);
                 assert_eq!(arguments, "{}");
             }

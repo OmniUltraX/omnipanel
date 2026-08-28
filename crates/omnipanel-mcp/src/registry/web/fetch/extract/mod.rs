@@ -21,9 +21,17 @@ pub struct ExtractAttempt {
 }
 
 /// 对 HTML 正文执行三级抽取，全部不达标则返回 Parse 错误以触发 Jina 降级。
-pub fn extract_html_content(html: &str, url: &str, format: &str) -> Result<ExtractAttempt, BackendError> {
+pub fn extract_html_content(
+    html: &str,
+    url: &str,
+    format: &str,
+) -> Result<ExtractAttempt, BackendError> {
     if let Some(attempt) = site_rules::extract_by_site_rule(html, url, format) {
-        debug!(method = attempt.method, text_len = attempt.text_len, "extract: ok");
+        debug!(
+            method = attempt.method,
+            text_len = attempt.text_len,
+            "extract: ok"
+        );
         return Ok(attempt);
     }
 
@@ -58,7 +66,12 @@ pub fn extract_html_content(html: &str, url: &str, format: &str) -> Result<Extra
     )))
 }
 
-pub fn convert_body(body: &str, content_type: &str, format: &str, url: &str) -> Result<String, BackendError> {
+pub fn convert_body(
+    body: &str,
+    content_type: &str,
+    format: &str,
+    url: &str,
+) -> Result<String, BackendError> {
     let fmt = format.trim().to_ascii_lowercase();
     let is_html = content_type.contains("text/html")
         || content_type.contains("application/xhtml")
@@ -95,17 +108,20 @@ mod tests {
     #[test]
     fn convert_json_to_pretty() {
         let body = r#"{"a":1}"#;
-        let out = convert_body(body, "application/json", "markdown", "https://example.com").unwrap();
+        let out =
+            convert_body(body, "application/json", "markdown", "https://example.com").unwrap();
         assert!(out.contains("\"a\""));
     }
 
     #[test]
     fn waterfall_prefers_site_rule_over_html2md() {
         let body = "站点规则优先：这段知乎正文足够长，应当由 L1 站点选择器命中而不是走整页 html2md 兜底逻辑。".repeat(5);
-        let html = format!(r#"<html><body>
+        let html = format!(
+            r#"<html><body>
             <div class="RichContent"><p>{body}</p></div>
             <div class="noise">nav noise sidebar advertisement</div>
-        </body></html>"#);
+        </body></html>"#
+        );
         let attempt =
             extract_html_content(&html, "https://www.zhihu.com/question/1", "markdown").unwrap();
         assert_eq!(attempt.method, "site_rule");

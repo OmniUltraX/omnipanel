@@ -1,9 +1,9 @@
 //! 跨连接文件传输：Tauri IPC 薄适配层（引擎在 `omnipanel-transfer`）。
 
 pub use omnipanel_transfer::{
-    rate_limit, FileTransferConflictPolicy, FileTransferEnqueueRequest, FileTransferEngine,
+    FileTransferConflictPolicy, FileTransferEngine, FileTransferEnqueueRequest,
     FileTransferItemSpec, FileTransferListResult, FileTransferOp, FileTransferPlanRequest,
-    FileTransferPlanResult, FileTransferState,
+    FileTransferPlanResult, FileTransferState, rate_limit,
 };
 
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use omnipanel_error::{ErrorCode, OmniError};
 use tauri::{AppHandle, Manager, State};
 
-use crate::commands::file_manager::{local_temp_dir, LOCAL_CONNECTION_ID};
+use crate::commands::file_manager::{LOCAL_CONNECTION_ID, local_temp_dir};
 use crate::state::AppState;
 use crate::transfer_bridge::{transfer_host, transfer_sink};
 
@@ -22,10 +22,7 @@ pub async fn file_transfer_plan(
     request: FileTransferPlanRequest,
 ) -> Result<FileTransferPlanResult, OmniError> {
     let host = transfer_host(state.app_handle.clone());
-    Ok(state
-        .file_transfers
-        .plan(host.as_ref(), &request)
-        .await)
+    Ok(state.file_transfers.plan(host.as_ref(), &request).await)
 }
 
 /// 上传浏览器拖拽/粘贴的本地文件字节到目标连接。
@@ -41,22 +38,21 @@ pub async fn file_transfer_upload_local_bytes(
     conflict_policy: FileTransferConflictPolicy,
 ) -> Result<String, OmniError> {
     // 允许空文件（0 字节）上传；内容经临时文件入队。
-    let temp_dir = local_temp_dir().map_err(|e| {
-        OmniError::new(ErrorCode::Io, "获取临时目录失败").with_cause(e.to_string())
-    })?;
+    let temp_dir = local_temp_dir()
+        .map_err(|e| OmniError::new(ErrorCode::Io, "获取临时目录失败").with_cause(e.to_string()))?;
     let temp_dir = PathBuf::from(temp_dir);
-    tokio::fs::create_dir_all(&temp_dir).await.map_err(|e| {
-        OmniError::new(ErrorCode::Io, "创建临时目录失败").with_cause(e.to_string())
-    })?;
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "创建临时目录失败").with_cause(e.to_string()))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let safe_name = file_name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
     let temp_path = temp_dir.join(format!("omnipanel-upload-{stamp}-{safe_name}"));
-    tokio::fs::write(&temp_path, &data).await.map_err(|e| {
-        OmniError::new(ErrorCode::Io, "写入临时文件失败").with_cause(e.to_string())
-    })?;
+    tokio::fs::write(&temp_path, &data)
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "写入临时文件失败").with_cause(e.to_string()))?;
 
     let size = data.len() as f64;
     let temp_path_str = temp_path.to_string_lossy().into_owned();
@@ -78,10 +74,7 @@ pub async fn file_transfer_upload_local_bytes(
     };
     let host = transfer_host(app.clone());
     let sink = transfer_sink(app.clone());
-    let result = state
-        .file_transfers
-        .enqueue(host, sink, request)
-        .await;
+    let result = state.file_transfers.enqueue(host, sink, request).await;
 
     match result {
         Ok(batch_id) => {
@@ -174,10 +167,7 @@ pub async fn file_transfer_retry(
 ) -> Result<(), OmniError> {
     let host = transfer_host(app.clone());
     let sink = transfer_sink(app);
-    state
-        .file_transfers
-        .retry(host, sink, &job_id)
-        .await
+    state.file_transfers.retry(host, sink, &job_id).await
 }
 
 #[tauri::command]
@@ -185,6 +175,15 @@ pub async fn file_transfer_retry(
 pub async fn file_transfer_clear_finished(state: State<'_, AppState>) -> Result<(), OmniError> {
     state.file_transfers.clear_finished().await;
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn file_transfer_dismiss(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<(), OmniError> {
+    state.file_transfers.dismiss_finished(&job_id).await
 }
 
 #[tauri::command]

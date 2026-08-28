@@ -6,8 +6,8 @@
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -130,7 +130,10 @@ pub fn encrypt_vault_with_salt(
     })
 }
 
-pub fn decrypt_vault(password: &str, envelope: &SecretsVaultEnvelope) -> OmniResult<SecretsVaultPlaintext> {
+pub fn decrypt_vault(
+    password: &str,
+    envelope: &SecretsVaultEnvelope,
+) -> OmniResult<SecretsVaultPlaintext> {
     let salt = B64.decode(envelope.salt_b64.trim()).map_err(|e| {
         OmniError::new(ErrorCode::InvalidInput, "解析 Master Salt 失败").with_cause(e.to_string())
     })?;
@@ -148,9 +151,9 @@ pub fn decrypt_vault(password: &str, envelope: &SecretsVaultEnvelope) -> OmniRes
         OmniError::new(ErrorCode::Internal, "初始化 AES-GCM 失败").with_cause(e.to_string())
     })?;
     let nonce = Nonce::from_slice(&nonce_bytes);
-    let plain = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| {
-        OmniError::new(ErrorCode::Auth, "解密失败：主密码不正确或数据已损坏")
-    })?;
+    let plain = cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| OmniError::new(ErrorCode::Auth, "解密失败：主密码不正确或数据已损坏"))?;
     serde_json::from_slice(&plain).map_err(|e| {
         OmniError::new(ErrorCode::InvalidInput, "凭据库明文解析失败").with_cause(e.to_string())
     })
@@ -176,10 +179,7 @@ pub fn encrypt_bind_token_wrap(
     let ciphertext = cipher.encrypt(nonce, plaintext).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "绑定密钥包装失败").with_cause(e.to_string())
     })?;
-    Ok((
-        B64.encode(nonce_bytes),
-        B64.encode(ciphertext),
-    ))
+    Ok((B64.encode(nonce_bytes), B64.encode(ciphertext)))
 }
 
 pub fn decrypt_bind_token_wrap(
@@ -201,9 +201,9 @@ pub fn decrypt_bind_token_wrap(
         OmniError::new(ErrorCode::Internal, "初始化 AES-GCM 失败").with_cause(e.to_string())
     })?;
     let nonce = Nonce::from_slice(&nonce_bytes);
-    cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| {
-        OmniError::new(ErrorCode::Auth, "绑定密钥解包失败")
-    })
+    cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| OmniError::new(ErrorCode::Auth, "绑定密钥解包失败"))
 }
 
 fn decode_wrap_token_key(wrap_token_hex: &str) -> OmniResult<[u8; KEY_LEN]> {
@@ -258,9 +258,9 @@ pub fn decrypt_with_passphrase(
         OmniError::new(ErrorCode::Internal, "初始化 AES-GCM 失败").with_cause(e.to_string())
     })?;
     let nonce = Nonce::from_slice(&nonce_bytes);
-    cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| {
-        OmniError::new(ErrorCode::Auth, "解密失败：口令不正确或数据已损坏")
-    })
+    cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| OmniError::new(ErrorCode::Auth, "解密失败：口令不正确或数据已损坏"))
 }
 
 #[cfg(test)]

@@ -24,7 +24,7 @@ sqlite = ["dep:rusqlite"]
 qdrant = ["dep:reqwest"]
 redis = ["dep:redis"]
 mongodb = ["dep:mongodb"]
-sqlserver = ["dep:tiberius", "dep:tokio-util", "dep:rustls"]
+sqlserver = ["dep:tiberius", "dep:tokio-util", "dep:rustls", "dep:chrono"]
 clickhouse-http = ["dep:reqwest"]
 engine-clickhouse = ["sidecar-serve", "clickhouse-http"]
 engine-mongodb = ["sidecar-serve", "mongodb"]
@@ -50,4 +50,5 @@ rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 tiberius = { version = "0.12", default-features = false, features = ["chrono", "tds73", "rustls", "tokio"], optional = true }
 tokio-util = { version = "0.7", features = ["compat"], optional = true }
 rustls = { workspace = true, optional = true }
+chrono = { version = "0.4", default-features = false, optional = true }
 encoding_rs = "0.8"

@@ -7,9 +7,7 @@ pub fn deferred_error(cmd: &str) -> String {
         | "sniffer_start_capture"
         | "sniffer_stop_capture"
         | "sniffer_get_packets"
-        | "sniffer_get_stats" => {
-            "Web 端暂不支持网络抓包（sniffer），请使用桌面端".to_string()
-        }
+        | "sniffer_get_stats" => "Web 端暂不支持网络抓包（sniffer），请使用桌面端".to_string(),
         "check_update" | "install_update" => {
             "Web 端不支持应用内更新，请从发布渠道获取新版本".to_string()
         }

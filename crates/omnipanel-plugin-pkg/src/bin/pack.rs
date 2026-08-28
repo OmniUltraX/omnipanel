@@ -13,8 +13,11 @@ fn main() {
     }
     let dir = PathBuf::from(&args[1]);
     let out = PathBuf::from(&args[2]);
-    if let Err(err) = omnipanel_plugin_pkg::pack_dir(&dir, &out, Some(&omnipanel_plugin_pkg::devkey::dev_signing_key()))
-    {
+    if let Err(err) = omnipanel_plugin_pkg::pack_dir(
+        &dir,
+        &out,
+        Some(&omnipanel_plugin_pkg::devkey::dev_signing_key()),
+    ) {
         eprintln!("打包失败: {err}");
         std::process::exit(1);
     }

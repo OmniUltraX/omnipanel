@@ -169,17 +169,19 @@ pub async fn ssh_pool_download_install_binary(
     url: String,
     remote_path: String,
 ) -> OmniResult<String> {
-    crate::ssh_capabilities::download_install_binary_public(
-        state,
-        &resource_id,
-        &url,
-        &remote_path,
-    )
-    .await
+    crate::ssh_capabilities::download_install_binary_public(state, &resource_id, &url, &remote_path)
+        .await
 }
 
-pub async fn sftp_list(state: &ServerState, id: String, path: String) -> OmniResult<Vec<SftpEntry>> {
-    resolve_sftp_session(state, &id).await?.sftp_list(&path).await
+pub async fn sftp_list(
+    state: &ServerState,
+    id: String,
+    path: String,
+) -> OmniResult<Vec<SftpEntry>> {
+    resolve_sftp_session(state, &id)
+        .await?
+        .sftp_list(&path)
+        .await
 }
 
 pub async fn sftp_download(state: &ServerState, id: String, path: String) -> OmniResult<Vec<u8>> {
@@ -202,11 +204,17 @@ pub async fn sftp_upload(
 }
 
 pub async fn sftp_mkdir(state: &ServerState, id: String, path: String) -> OmniResult<()> {
-    resolve_sftp_session(state, &id).await?.sftp_mkdir(&path).await
+    resolve_sftp_session(state, &id)
+        .await?
+        .sftp_mkdir(&path)
+        .await
 }
 
 pub async fn sftp_remove(state: &ServerState, id: String, path: String) -> OmniResult<()> {
-    resolve_sftp_session(state, &id).await?.sftp_remove(&path).await
+    resolve_sftp_session(state, &id)
+        .await?
+        .sftp_remove(&path)
+        .await
 }
 
 pub async fn sftp_rename(

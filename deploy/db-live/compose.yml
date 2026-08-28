@@ -26,3 +26,12 @@ services:
       INSTANCE_NAME: dm8db
     ports:
       - "15236:5236"
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_USER: omni
+      CLICKHOUSE_PASSWORD: omni_test
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"
+      - "19000:9000"

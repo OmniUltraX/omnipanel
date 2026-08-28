@@ -23,9 +23,9 @@ pub struct ArchiveEntry {
     /// 条目相对路径（含目录层级）
     pub name: String,
     /// 解压后字节数（无法解析时为 0）
-        pub size: u64,
+    pub size: u64,
     /// 修改时间 Unix 秒（无法解析时为 null）
-        pub modified: Option<i64>,
+    pub modified: Option<i64>,
     /// 是否为目录
     pub is_dir: bool,
 }
@@ -38,7 +38,7 @@ pub struct ArchiveListResult {
     /// 检测到的格式：zip / tar / tar.gz / tar.bz2 / tar.xz / tar.zst / 7z / rar
     pub format: String,
     /// 解压后总字节数
-        pub total_uncompressed: u64,
+    pub total_uncompressed: u64,
     /// 远端工具缺失时返回提示（如 "unzip"），前端可调 ssh_pool_install_archive_tool
     pub tool_missing: Option<String>,
 }
@@ -237,10 +237,7 @@ fn parse_7z_list(stdout: &str) -> Vec<ArchiveEntry> {
         let trimmed = line.trim_end();
         if !in_table {
             // 表头：包含 Date Time Attr Size Name
-            if trimmed.contains("Date")
-                && trimmed.contains("Attr")
-                && trimmed.contains("Name")
-            {
+            if trimmed.contains("Date") && trimmed.contains("Attr") && trimmed.contains("Name") {
                 in_table = true;
             }
             continue;
@@ -462,15 +459,9 @@ pub async fn ssh_pool_list_archive_entries(
     if output.exit_code != 0 {
         let stderr = output.stderr.trim();
         let stdout = output.stdout.trim();
-        let detail = if !stderr.is_empty() {
-            stderr
-        } else {
-            stdout
-        };
+        let detail = if !stderr.is_empty() { stderr } else { stdout };
         // 检测加密标志
-        if detail.contains("password")
-            || detail.contains("encrypted")
-            || detail.contains("密码")
+        if detail.contains("password") || detail.contains("encrypted") || detail.contains("密码")
         {
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
@@ -584,22 +575,20 @@ echo UNKNOWN)))))"#;
 
     // 构造安装命令：sudo -n 优先（非交互），失败回退无 sudo
     let install_cmd = match pm.as_str() {
-        "apt" => format!(
-            "sudo -n apt-get install -y {pkg} 2>/dev/null || apt-get install -y {pkg} 2>&1"
-        ),
-        "dnf" => format!(
-            "sudo -n dnf install -y {pkg} 2>/dev/null || dnf install -y {pkg} 2>&1"
-        ),
-        "yum" => format!(
-            "sudo -n yum install -y {pkg} 2>/dev/null || yum install -y {pkg} 2>&1"
-        ),
-        "apk" => format!("apk add --no-progress {pkg} 2>&1 || sudo -n apk add --no-progress {pkg} 2>&1"),
+        "apt" => {
+            format!("sudo -n apt-get install -y {pkg} 2>/dev/null || apt-get install -y {pkg} 2>&1")
+        }
+        "dnf" => format!("sudo -n dnf install -y {pkg} 2>/dev/null || dnf install -y {pkg} 2>&1"),
+        "yum" => format!("sudo -n yum install -y {pkg} 2>/dev/null || yum install -y {pkg} 2>&1"),
+        "apk" => {
+            format!("apk add --no-progress {pkg} 2>&1 || sudo -n apk add --no-progress {pkg} 2>&1")
+        }
         "pacman" => format!(
             "sudo -n pacman -S --noconfirm --needed {pkg} 2>/dev/null || pacman -S --noconfirm --needed {pkg} 2>&1"
         ),
-        "zypper" => format!(
-            "sudo -n zypper -n install {pkg} 2>/dev/null || zypper -n install {pkg} 2>&1"
-        ),
+        "zypper" => {
+            format!("sudo -n zypper -n install {pkg} 2>/dev/null || zypper -n install {pkg} 2>&1")
+        }
         _ => {
             return Ok(ArchiveToolInstallResult {
                 tool: tool.clone(),
@@ -640,7 +629,10 @@ echo UNKNOWN)))))"#;
         if combined.is_empty() {
             format!("已安装 {pkg}（{pm}）")
         } else {
-            format!("已安装 {pkg}（{pm}）\n{}", combined.chars().take(500).collect::<String>())
+            format!(
+                "已安装 {pkg}（{pm}）\n{}",
+                combined.chars().take(500).collect::<String>()
+            )
         }
     } else if combined.is_empty() {
         format!("安装失败（{pm} install {pkg}）")

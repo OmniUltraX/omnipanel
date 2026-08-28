@@ -211,22 +211,27 @@ pub fn set_quick_launcher_height(app: AppHandle, height: f64) -> Result<(), Stri
 
 /// 注册 Ctrl+Space；失败仅打日志（常见于被系统/输入法占用）。
 pub fn register_global_shortcut(app: &AppHandle) {
-    use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+    use tauri_plugin_global_shortcut::{
+        Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+    };
 
     let shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
     let app_handle = app.clone();
-    if let Err(e) = app.global_shortcut().on_shortcut(shortcut, move |app, _s, event| {
-        if event.state() != ShortcutState::Pressed {
-            return;
-        }
-        let app = app.clone();
-        // 避免在快捷键回调里同步阻塞 UI
-        tauri::async_runtime::spawn(async move {
-            // 极短延迟，降低与输入法抢焦点的竞态
-            tokio::time::sleep(Duration::from_millis(16)).await;
-            let _ = toggle_quick_launcher_inner(app, true);
-        });
-    }) {
+    if let Err(e) = app
+        .global_shortcut()
+        .on_shortcut(shortcut, move |app, _s, event| {
+            if event.state() != ShortcutState::Pressed {
+                return;
+            }
+            let app = app.clone();
+            // 避免在快捷键回调里同步阻塞 UI
+            tauri::async_runtime::spawn(async move {
+                // 极短延迟，降低与输入法抢焦点的竞态
+                tokio::time::sleep(Duration::from_millis(16)).await;
+                let _ = toggle_quick_launcher_inner(app, true);
+            });
+        })
+    {
         tracing::warn!("注册快捷启动快捷键处理器失败: {e}");
         return;
     }

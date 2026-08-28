@@ -167,11 +167,7 @@ pub fn detect_from_candidates(candidates: Vec<PathBuf>) -> (bool, Option<String>
     }
 
     if let Some(path) = fallback {
-        return (
-            true,
-            Some(path.to_string_lossy().to_string()),
-            None,
-        );
+        return (true, Some(path.to_string_lossy().to_string()), None);
     }
 
     (false, None, None)

@@ -305,7 +305,8 @@ pub fn restart_local_engine() -> OmniResult<()> {
             .args(["restart", "docker"])
             .status()
             .map_err(|e| {
-                OmniError::new(ErrorCode::Internal, "重启 Docker 服务失败").with_cause(e.to_string())
+                OmniError::new(ErrorCode::Internal, "重启 Docker 服务失败")
+                    .with_cause(e.to_string())
             })?;
         if status.success() {
             return Ok(());

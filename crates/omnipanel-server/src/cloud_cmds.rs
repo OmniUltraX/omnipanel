@@ -63,7 +63,9 @@ pub(crate) fn cloud_secret_ref(connection_id: &str) -> String {
 
 #[allow(dead_code)]
 /// 桌面端保存已内联同类逻辑；保留供服务端统一规范化云连接（Secret 入 Vault、config 脱敏）复用。
-pub(crate) fn normalize_cloud_connection(mut connection: Connection) -> Result<Connection, OmniError> {
+pub(crate) fn normalize_cloud_connection(
+    mut connection: Connection,
+) -> Result<Connection, OmniError> {
     if connection.kind != ConnectionKind::Cloud {
         return Ok(connection);
     }
@@ -149,7 +151,10 @@ fn resolve_credentials(
     })
 }
 
-async fn load_connection(state: &ServerState, connection_id: &str) -> Result<Connection, OmniError> {
+async fn load_connection(
+    state: &ServerState,
+    connection_id: &str,
+) -> Result<Connection, OmniError> {
     let storage = state.storage.lock().await;
     storage
         .get_connection(connection_id)?
@@ -158,9 +163,8 @@ async fn load_connection(state: &ServerState, connection_id: &str) -> Result<Con
 
 async fn http_for_aliyun(endpoint: &str) -> Result<reqwest::Client, OmniError> {
     let proxy = proxy_config();
-    build_http_client_for_url(endpoint, &proxy, std::time::Duration::from_secs(30)).map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e)
-    })
+    build_http_client_for_url(endpoint, &proxy, std::time::Duration::from_secs(30))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))
 }
 
 pub async fn cloud_test(

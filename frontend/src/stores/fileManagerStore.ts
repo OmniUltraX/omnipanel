@@ -5,8 +5,10 @@ import { FILES_TRANSFER_PROGRESS } from "../ipc/events";
 import { unwrapCommand } from "../ipc/result";
 import { useSettingsStore } from "./settingsStore";
 import {
+  isBackgroundTaskTerminal,
   registerLocalBackgroundTaskCancel,
   upsertLocalBackgroundTask,
+  useBackgroundTaskStore,
   type BackgroundTaskInfo,
   type BackgroundTaskStatus,
 } from "./backgroundTaskStore";
@@ -33,6 +35,7 @@ type FileManagerState = {
   upsertTransfer: (job: FileTransferJobView) => void;
   hydrateTransfers: () => Promise<void>;
   clearDoneTransfers: () => Promise<void>;
+  dismissTransfer: (jobId: string) => Promise<void>;
   cancelTransfer: (jobId: string) => Promise<void>;
   retryTransfer: (jobId: string) => Promise<void>;
 };
@@ -205,6 +208,21 @@ export const useFileManagerStore = create<FileManagerState>((set) => ({
         t.state === "queued" || t.state === "probing" || t.state === "running",
       ),
     }));
+    const bg = useBackgroundTaskStore.getState();
+    for (const task of Object.values(bg.tasks)) {
+      if (task.kind === "file-transfer" && isBackgroundTaskTerminal(task.status)) {
+        bg.removeTask(task.id);
+      }
+    }
+  },
+  dismissTransfer: async (jobId) => {
+    try {
+      await unwrapCommand(commands.fileTransferDismiss(jobId));
+    } catch {
+      /* ignore */
+    }
+    set((s) => ({ transfers: s.transfers.filter((t) => t.id !== jobId) }));
+    useBackgroundTaskStore.getState().removeTask(jobId);
   },
   cancelTransfer: async (jobId) => {
     await unwrapCommand(commands.fileTransferCancel(jobId));

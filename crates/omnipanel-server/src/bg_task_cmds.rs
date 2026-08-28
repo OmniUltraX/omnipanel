@@ -83,7 +83,8 @@ pub async fn bg_task_submit_db_data_sync(
                 progress,
             )
         },
-    )    .await
+    )
+    .await
 }
 
 /// 提交数据库数据同步执行后台任务。
@@ -110,7 +111,8 @@ pub async fn bg_task_submit_db_data_sync_execute(
                 bus, task_id, source, target, tables, cancel, progress,
             )
         },
-    )    .await
+    )
+    .await
 }
 
 /// 提交数据同步 SQL 文件执行后台任务。
@@ -148,7 +150,8 @@ pub async fn bg_task_submit_db_data_sync_sql_execute(
                 progress,
             )
         },
-    )    .await
+    )
+    .await
 }
 
 /// 提交 MySQL 数据库导出后台任务。
@@ -157,7 +160,8 @@ pub async fn bg_task_submit_db_mysql_export(
     connection: DbConnectionConfig,
     database_name: String,
     deployment: MysqlExportDeployment,
-) -> Result<String, OmniError> {    ensure_db_enabled(&connection)?;
+) -> Result<String, OmniError> {
+    ensure_db_enabled(&connection)?;
     let db_type = connection.db_type.to_lowercase();
     if db_type != "mysql" && db_type != "mariadb" {
         return Err(OmniError::invalid_input("当前仅支持 MySQL / MariaDB 导出"));
@@ -185,7 +189,8 @@ pub async fn bg_task_submit_db_mysql_export(
                 progress,
             )
         },
-    )    .await
+    )
+    .await
 }
 
 /// 提交 MySQL SQL 导入后台任务。
@@ -195,7 +200,8 @@ pub async fn bg_task_submit_db_mysql_import(
     database_name: String,
     deployment: MysqlExportDeployment,
     source: MysqlImportSource,
-) -> Result<String, OmniError> {    ensure_db_enabled(&connection)?;
+) -> Result<String, OmniError> {
+    ensure_db_enabled(&connection)?;
     let db_type = connection.db_type.to_lowercase();
     if db_type != "mysql" && db_type != "mariadb" {
         return Err(OmniError::invalid_input("当前仅支持 MySQL / MariaDB 导入"));
@@ -224,7 +230,8 @@ pub async fn bg_task_submit_db_mysql_import(
                 progress,
             )
         },
-    )    .await
+    )
+    .await
 }
 
 /// 提交数据库结构同步对比分析后台任务。
@@ -256,7 +263,8 @@ pub async fn bg_task_submit_db_schema_sync(
                 progress,
             )
         },
-    )    .await
+    )
+    .await
 }
 
 /// 提交数据库结构同步执行后台任务。
@@ -283,7 +291,8 @@ pub async fn bg_task_submit_db_schema_sync_execute(
                 bus, task_id, source, target, tables, cancel, progress,
             )
         },
-    )    .await
+    )
+    .await
 }
 
 /// 提交 Schema 缓存刷新后台任务。
@@ -324,9 +333,7 @@ pub async fn bg_task_submit_db_schema_cache_refresh(
         title,
         total,
         move |task_id, cancel, progress| {
-            crate::db_sync::run_db_schema_cache_refresh(
-                bus, task_id, filtered, cancel, progress,
-            )
+            crate::db_sync::run_db_schema_cache_refresh(bus, task_id, filtered, cancel, progress)
         },
     )
     .await

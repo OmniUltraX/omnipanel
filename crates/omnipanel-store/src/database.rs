@@ -15,6 +15,18 @@ use crate::vault::Vault;
 pub const BUILTIN_META_DB_CONN_ID: &str = "builtin-omnipanel-meta";
 /// 内置演示连接：文件索引库（`~/.omnipd/files/index/file-index.db`）。
 pub const BUILTIN_FILE_INDEX_CONN_ID: &str = "builtin-file-index";
+/// 历史上启动时写入的本机 Docker 测试栈 id；不再自动注入，启动时清掉。
+const LOCAL_DOCKER_SEED_IDS: &[&str] = &[
+    "docker-mysql-test",
+    "docker-postgres-test",
+    "docker-redis-test",
+    "docker-sqlserver-test",
+    "docker-mongo-test",
+    "docker-clickhouse-test",
+    "docker-dameng-test",
+    "docker-neo4j-test",
+    "docker-cassandra-test",
+];
 
 /// 数据库连接配置（与前端 `DbConnectionConfig` / Tauri IPC 一致）。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -49,6 +61,9 @@ pub struct DbConnectionConfig {
     /// 资源标签列表；快照上传时若为空会自动补当前设备名。
     #[serde(default)]
     pub tags: Vec<String>,
+    /// 侧栏分组名；空 / `default` 视为「默认」。
+    #[serde(default)]
+    pub group: String,
 }
 
 fn default_enabled() -> bool {
@@ -253,40 +268,23 @@ impl DatabaseConnectionStore {
         Ok(connection)
     }
 
-    /// 幂等写入本机 Docker 测试库连接：相同 `db_type + host + port` 则跳过。
-    pub fn seed_local_docker_connections(&self) -> OmniResult<usize> {
-        let existing = self.list()?;
-        let mut added = 0;
-        for spec in local_docker_seed_specs() {
-            let dup = existing.iter().any(|conn| {
-                conn.db_type.eq_ignore_ascii_case(spec.db_type)
-                    && conn.host == spec.host
-                    && conn.port == spec.port
-            });
-            if dup {
-                continue;
+    /// 清掉历史上自动写入的本机 Docker 测试栈连接（含钥匙串密码）。
+    pub fn purge_local_docker_seed_connections(&self) -> OmniResult<usize> {
+        let mut store = self.inner.lock().map_err(|_| lock_err())?;
+        let mut removed = 0;
+        for id in LOCAL_DOCKER_SEED_IDS {
+            if store.remove(*id).is_some() {
+                removed += 1;
+                let _ = Vault::delete(&db_password_ref(id));
             }
-            let conn = DbConnectionConfig {
-                id: spec.id.into(),
-                name: spec.name.into(),
-                db_type: spec.db_type.into(),
-                host: spec.host.into(),
-                port: spec.port,
-                user: spec.user.into(),
-                password: spec.password.into(),
-                database: spec.database.into(),
-                ssl: spec.ssl,
-                sid: String::new(),
-                sysdba: spec.sysdba,
-                status: "unknown".into(),
-                enabled: true,
-                has_password: false,
-                tags: vec!["docker".into()],
-            };
-            self.save(conn)?;
-            added += 1;
         }
-        Ok(added)
+        if removed == 0 {
+            return Ok(0);
+        }
+        let snapshot: Vec<_> = store.values().cloned().collect();
+        drop(store);
+        save_database_connections_to(&self.storage_path()?, &snapshot)?;
+        Ok(removed)
     }
 
     pub fn delete(&self, id: &str) -> OmniResult<()> {
@@ -296,9 +294,9 @@ impl DatabaseConnectionStore {
         drop(store);
         save_database_connections_to(&self.storage_path()?, &snapshot)?;
         let _ = Vault::delete(&db_password_ref(id));
-        // 内置演示连接：删除后写 tombstone，避免下次启动再次注入
+        // 内置演示：删除后写 tombstone，避免下次启动再次注入
         if let Some(dir) = self.storage_path()?.parent() {
-            let _ = mark_builtin_demo_removed(dir, id);
+            let _ = mark_seed_connection_removed(dir, id);
         }
         Ok(())
     }
@@ -338,133 +336,8 @@ fn sqlite_demo_connection(id: &str, name: &str, db_path: PathBuf) -> DbConnectio
         enabled: true,
         has_password: false,
         tags: Vec::new(),
+        group: String::new(),
     }
-}
-
-struct LocalDockerSeed {
-    id: &'static str,
-    name: &'static str,
-    db_type: &'static str,
-    host: &'static str,
-    port: u16,
-    user: &'static str,
-    password: &'static str,
-    database: &'static str,
-    ssl: bool,
-    sysdba: bool,
-}
-
-fn local_docker_seed_specs() -> [LocalDockerSeed; 9] {
-    [
-        LocalDockerSeed {
-            id: "docker-mysql-test",
-            name: "docker-mysql-test",
-            db_type: "mysql",
-            host: "127.0.0.1",
-            port: 13306,
-            user: "root",
-            password: "omni_test",
-            database: "omni",
-            ssl: false,
-            sysdba: false,
-        },
-        LocalDockerSeed {
-            id: "docker-postgres-test",
-            name: "docker-postgres-test",
-            db_type: "postgres",
-            host: "127.0.0.1",
-            port: 15432,
-            user: "omni",
-            password: "omni_test",
-            database: "omni",
-            ssl: false,
-            sysdba: false,
-        },
-        LocalDockerSeed {
-            id: "docker-redis-test",
-            name: "docker-redis-test",
-            db_type: "redis",
-            host: "127.0.0.1",
-            port: 16379,
-            user: "",
-            password: "",
-            database: "0",
-            ssl: false,
-            sysdba: false,
-        },
-        LocalDockerSeed {
-            id: "docker-sqlserver-test",
-            name: "docker-sqlserver-test",
-            db_type: "sqlserver",
-            host: "127.0.0.1",
-            port: 11433,
-            user: "sa",
-            password: "Omni_Test_123",
-            database: "master",
-            ssl: true,
-            sysdba: false,
-        },
-        LocalDockerSeed {
-            id: "docker-mongo-test",
-            name: "docker-mongo-test",
-            db_type: "mongodb",
-            host: "127.0.0.1",
-            port: 27018,
-            user: "",
-            password: "",
-            database: "omni_e2e",
-            ssl: false,
-            sysdba: false,
-        },
-        LocalDockerSeed {
-            id: "docker-clickhouse-test",
-            name: "docker-clickhouse-test",
-            db_type: "clickhouse",
-            host: "127.0.0.1",
-            port: 8123,
-            user: "omni",
-            password: "omni_test",
-            database: "default",
-            ssl: false,
-            sysdba: false,
-        },
-        LocalDockerSeed {
-            id: "docker-dameng-test",
-            name: "docker-dameng-test",
-            db_type: "dameng",
-            host: "127.0.0.1",
-            port: 15236,
-            user: "SYSDBA",
-            password: "SYSDBA_dm001",
-            database: "SYSDBA",
-            ssl: false,
-            sysdba: true,
-        },
-        LocalDockerSeed {
-            id: "docker-neo4j-test",
-            name: "docker-neo4j-test",
-            db_type: "neo4j",
-            host: "127.0.0.1",
-            port: 17687,
-            user: "neo4j",
-            password: "omni_test",
-            database: "neo4j",
-            ssl: false,
-            sysdba: false,
-        },
-        LocalDockerSeed {
-            id: "docker-cassandra-test",
-            name: "docker-cassandra-test",
-            db_type: "cassandra",
-            host: "127.0.0.1",
-            port: 19042,
-            user: "",
-            password: "",
-            database: "",
-            ssl: false,
-            sysdba: false,
-        },
-    ]
 }
 
 /// 确保内置演示 SQLite 连接存在（按稳定 id；已存在则同步路径，用户删除后不再自动恢复）。
@@ -531,9 +404,13 @@ fn builtin_demo_tombstone_exists(dir: &Path, id: &str) -> bool {
     builtin_demo_tombstone_path(dir, id).is_file()
 }
 
-/// 删除内置演示连接时写入 tombstone，避免下次启动再次注入。
-pub fn mark_builtin_demo_removed(connections_dir: &Path, id: &str) -> OmniResult<()> {
-    if id != BUILTIN_META_DB_CONN_ID && id != BUILTIN_FILE_INDEX_CONN_ID {
+fn is_seed_connection_id(id: &str) -> bool {
+    id == BUILTIN_META_DB_CONN_ID || id == BUILTIN_FILE_INDEX_CONN_ID
+}
+
+/// 删除内置演示连接时写入 tombstone，避免再次注入。
+pub fn mark_seed_connection_removed(connections_dir: &Path, id: &str) -> OmniResult<()> {
+    if !is_seed_connection_id(id) {
         return Ok(());
     }
     let path = builtin_demo_tombstone_path(connections_dir, id);
@@ -542,6 +419,11 @@ pub fn mark_builtin_demo_removed(connections_dir: &Path, id: &str) -> OmniResult
     }
     std::fs::write(&path, b"removed").map_err(map_io)?;
     Ok(())
+}
+
+/// @deprecated 用 `mark_seed_connection_removed`
+pub fn mark_builtin_demo_removed(connections_dir: &Path, id: &str) -> OmniResult<()> {
+    mark_seed_connection_removed(connections_dir, id)
 }
 
 fn new_connection_id() -> String {
@@ -580,6 +462,7 @@ mod tests {
             enabled: true,
             has_password: false,
             tags: Vec::new(),
+            group: String::new(),
         }
     }
 
@@ -650,24 +533,16 @@ mod tests {
     }
 
     #[test]
-    fn seed_local_docker_connections_is_idempotent() {
+    fn purge_local_docker_seed_connections_removes_known_ids() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("connections.json");
         let store = DatabaseConnectionStore::open_at(&path).unwrap();
-        assert_eq!(store.seed_local_docker_connections().unwrap(), 9);
-        assert_eq!(store.seed_local_docker_connections().unwrap(), 0);
+        store.save(sample("docker-mysql-test")).unwrap();
+        store.save(sample("keep-me")).unwrap();
+        assert_eq!(store.purge_local_docker_seed_connections().unwrap(), 1);
+        assert_eq!(store.purge_local_docker_seed_connections().unwrap(), 0);
         let list = store.list().unwrap();
-        assert!(
-            list.iter()
-                .any(|c| c.name == "docker-mysql-test" && c.port == 13306)
-        );
-        assert!(
-            list.iter()
-                .any(|c| c.name == "docker-dameng-test" && c.port == 15236)
-        );
-        let json = std::fs::read_to_string(&path).unwrap();
-        assert!(!json.contains("omni_test"), "{json}");
-        assert!(!json.contains("Omni_Test_123"), "{json}");
-        assert!(!json.contains("SYSDBA_dm001"), "{json}");
+        assert!(!list.iter().any(|c| c.id == "docker-mysql-test"));
+        assert!(list.iter().any(|c| c.id == "keep-me"));
     }
 }

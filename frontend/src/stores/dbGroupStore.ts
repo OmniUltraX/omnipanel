@@ -14,6 +14,14 @@ export const BUILTIN_DB_GROUPS: DbConnectionGroup[] = [
   { id: "production", name: "生产", builtin: true },
 ];
 
+/** persist 覆盖 groups 时补上新增内置组，避免老用户看不到新分组。 */
+export function mergeBuiltinDbGroups(persisted: DbConnectionGroup[] | undefined): DbConnectionGroup[] {
+  const extras = (persisted ?? []).filter(
+    (group) => !BUILTIN_DB_GROUPS.some((builtin) => builtin.id === group.id || builtin.name === group.name),
+  );
+  return [...BUILTIN_DB_GROUPS, ...extras];
+}
+
 interface DbGroupState {
   groups: DbConnectionGroup[];
   activeGroupId: string;
@@ -61,6 +69,20 @@ export const useDbGroupStore = create<DbGroupState>()(
         groups: state.groups,
         activeGroupId: state.activeGroupId,
       }),
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<DbGroupState>;
+        const groups = mergeBuiltinDbGroups(saved.groups);
+        const activeGroupId =
+          saved.activeGroupId && groups.some((group) => group.id === saved.activeGroupId)
+            ? saved.activeGroupId
+            : current.activeGroupId;
+        return {
+          ...current,
+          ...saved,
+          groups,
+          activeGroupId,
+        };
+      },
     },
   ),
 );

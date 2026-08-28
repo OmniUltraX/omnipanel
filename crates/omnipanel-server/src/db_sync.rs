@@ -1,7 +1,7 @@
 //! DB 结构/数据同步：薄适配层，核心逻辑在 `omnipanel-db-sync`。
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use omnipanel_db_sync::{
     batch_table_ddl as shared_batch_table_ddl,
@@ -19,8 +19,8 @@ use crate::bus::EventBus;
 use crate::db_sync_bridge::db_sync_sink;
 
 pub use omnipanel_db_sync::{
-    paths::{read_sync_sql_file, row_diff_cache_dir, save_sync_sql_file, sync_sql_dir},
     DbDataSyncSqlGenerateResult, DbSyncExecTableSpec, DbSyncSqlPreviewTable, DbSyncTableSpec,
+    paths::{read_sync_sql_file, row_diff_cache_dir, save_sync_sql_file, sync_sql_dir},
 };
 
 type ProgressCb = Arc<dyn Fn(String, u32, u32, Option<u32>, Option<u32>) + Send + Sync>;
@@ -181,12 +181,12 @@ pub async fn run_db_schema_cache_refresh(
     use std::sync::atomic::Ordering;
 
     use omnipanel_db::{
-        refresh_connection_payload, SchemaCacheDatabasePayload, SchemaConnectionRefreshPayload,
+        SchemaCacheDatabasePayload, SchemaConnectionRefreshPayload, refresh_connection_payload,
     };
     use omnipanel_store::{
-        load_schema_cache, merge_schema_cache_connection, save_schema_cache, SchemaCacheColumn,
-        SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex, SchemaCacheRoutine,
-        SchemaCacheTable, SchemaCacheUser, SchemaCacheSnapshot,
+        SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,
+        SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser,
+        load_schema_cache, merge_schema_cache_connection, save_schema_cache,
     };
     use serde::{Deserialize, Serialize};
 
@@ -264,7 +264,11 @@ pub async fn run_db_schema_cache_refresh(
         error: Option<String>,
     ) -> SchemaCacheConnection {
         SchemaCacheConnection {
-            databases: payload.databases.into_iter().map(db_payload_to_cache).collect(),
+            databases: payload
+                .databases
+                .into_iter()
+                .map(db_payload_to_cache)
+                .collect(),
             users: payload
                 .users
                 .into_iter()
@@ -332,9 +336,7 @@ pub async fn run_db_schema_cache_refresh(
             },
         };
         let merged = merge_schema_cache_connection(snapshot.connections.get(&conn.id), entry);
-        snapshot
-            .connections
-            .insert(conn.id.clone(), merged.clone());
+        snapshot.connections.insert(conn.id.clone(), merged.clone());
 
         emit(BgTaskSchemaCacheEvent {
             task_id: task_id.clone(),

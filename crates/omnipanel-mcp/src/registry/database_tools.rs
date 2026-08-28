@@ -1,10 +1,12 @@
 //! 数据库 MCP 工具 — OmniMCP / 内部 Native 路径共用。
 
-use omnipanel_db::{connect, mysql_connect_options, DbParams, QueryResult};
-use omnipanel_store::{load_database_connections, DbConnectionConfig};
+use omnipanel_db::{
+    CreateDatabaseArgs, DbParams, QueryResult, connect, db_create_database, db_introspect_table,
+    db_list_character_sets, db_list_connection_users, db_list_databases, mysql_connect_options,
+};
+use omnipanel_store::{DbConnectionConfig, load_database_connections};
 use serde_json::Value;
-use sqlx::mysql::{MySqlPool, MySqlPoolOptions, MySqlRow};
-use sqlx::Row;
+use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 
 fn require_str(args: &Value, key: &str) -> Result<String, String> {
     args.get(key)
@@ -66,19 +68,6 @@ fn with_database(c: &DbConnectionConfig, database_name: &str) -> DbParams {
     params
 }
 
-fn mysql_row_string(row: &MySqlRow, index: usize) -> String {
-    if let Ok(v) = row.try_get::<String, _>(index) {
-        return v;
-    }
-    if let Ok(Some(v)) = row.try_get::<Option<String>, _>(index) {
-        return v;
-    }
-    if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
-        return String::from_utf8_lossy(&v).into_owned();
-    }
-    String::new()
-}
-
 async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String> {
     let opts = mysql_connect_options(&to_params(connection));
     MySqlPoolOptions::new()
@@ -88,21 +77,11 @@ async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String
         .map_err(|e| format!("MySQL 连接失败: {e}"))
 }
 
-async fn resolve_connection(connection_name: &str) -> Result<DbConnectionConfig, String> {
-    let conn = resolve_connection_any(connection_name).await?;
-    let db_type = conn.db_type.to_ascii_lowercase();
-    if db_type == "redis" {
-        return Err(format!("连接 {connection_name} 为 Redis，请使用 Redis 专用工具"));
-    }
-    Ok(conn)
-}
-
-/// 与 `resolve_connection` 相同，但不拒绝 Redis（processlist / kill / slow_log 支持 Redis）。
 async fn resolve_connection_any(connection_name: &str) -> Result<DbConnectionConfig, String> {
     let connections = load_database_connections().map_err(|e| e.to_string())?;
     let mut conn = connections
         .into_iter()
-        .find(|c| c.name == connection_name)
+        .find(|c| c.name == connection_name || c.id == connection_name)
         .ok_or_else(|| format!("连接不存在：{connection_name}"))?;
     if !conn.enabled {
         return Err(format!("连接已禁用：{connection_name}"));
@@ -124,36 +103,48 @@ fn format_query_result(result: &QueryResult) -> String {
     serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())
 }
 
+fn optional_u32(args: &Value, key: &str, default: u32) -> u32 {
+    args.get(key)
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_i64().and_then(|n| u64::try_from(n).ok()))
+                .or_else(|| v.as_str()?.trim().parse::<u64>().ok())
+        })
+        .map(|n| n.min(u64::from(u32::MAX)) as u32)
+        .unwrap_or(default)
+}
+
+fn require_database_name(args: &Value) -> Result<String, String> {
+    optional_str(args, "database_name")
+        .or_else(|| optional_str(args, "name"))
+        .ok_or_else(|| "缺少必填参数: database_name".to_string())
+}
+
+/// 工作台预览同形：行是列名 → 值的对象，而不是列数组。
+fn format_table_preview(name: &str, result: &QueryResult) -> Value {
+    let rows: Vec<Value> = result
+        .rows
+        .iter()
+        .map(|record| {
+            let mut obj = serde_json::Map::new();
+            for (col, val) in result.columns.iter().zip(record.iter()) {
+                obj.insert(col.clone(), val.clone());
+            }
+            Value::Object(obj)
+        })
+        .collect();
+    serde_json::json!({
+        "name": name,
+        "columns": result.columns,
+        "rows": rows,
+    })
+}
+
 pub async fn get_databases_from_connection(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;
     let keyword = optional_str(&args, "keyword");
-    let conn = resolve_connection(&connection_name).await?;
-
-    let databases = match conn.db_type.to_ascii_lowercase().as_str() {
-        "mysql" | "mariadb" => {
-            let pool = mysql_pool(&conn).await?;
-            let rows = sqlx::query(
-                "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA ORDER BY SCHEMA_NAME",
-            )
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| format!("Query failed: {e}"))?;
-            let list: Vec<String> = rows.iter().map(|r| mysql_row_string(r, 0)).collect();
-            pool.close().await;
-            list
-        }
-        "redis" => {
-            let preset = conn.database.trim();
-            if preset.is_empty() {
-                (0..16).map(|n| n.to_string()).collect()
-            } else {
-                vec![preset.to_string()]
-            }
-        }
-        _ if !conn.database.trim().is_empty() => vec![conn.database.clone()],
-        _ => vec![],
-    };
-
+    let conn = resolve_connection_any(&connection_name).await?;
+    let databases = db_list_databases(conn).await?;
     let filtered = keyword_filter(&databases, keyword.as_deref());
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "connection": connection_name,
@@ -166,7 +157,7 @@ pub async fn get_tables_from_database(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;
     let database_name = require_str(&args, "database_name")?;
     let keyword = optional_str(&args, "keyword");
-    let conn = resolve_connection(&connection_name).await?;
+    let conn = resolve_connection_any(&connection_name).await?;
     let params = with_database(&conn, &database_name);
     if params.database.trim().is_empty() {
         return Err("未指定数据库".to_string());
@@ -186,35 +177,47 @@ pub async fn get_table_info(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;
     let database_name = require_str(&args, "database_name")?;
     let table_name = assert_sql_identifier(&require_str(&args, "table_name")?, "表名")?;
-    let conn = resolve_connection(&connection_name).await?;
-    let params = with_database(&conn, &database_name);
-    let engine = conn.db_type.to_ascii_lowercase();
-
-    let driver = connect(&params).await.map_err(|e| e.user_message())?;
-    let sql = match engine.as_str() {
-        "mysql" | "mariadb" => format!("DESC `{table_name}`"),
-        "sqlite" | "sqlite3" => format!("PRAGMA table_info('{table_name}')"),
-        "postgres" | "postgresql" | "pg" => format!(
-            "SELECT column_name, data_type, is_nullable, column_default \
-             FROM information_schema.columns \
-             WHERE table_schema = current_schema() AND table_name = '{table_name}' \
-             ORDER BY ordinal_position"
-        ),
-        other => return Err(format!("暂不支持 {other} 的表结构 introspect")),
-    };
-    let result = driver.execute(&sql).await.map_err(|e| e.user_message())?;
-    Ok(format_query_result(&result))
+    let conn = resolve_connection_any(&connection_name).await?;
+    let schema = db_introspect_table(conn, Some(database_name.clone()), table_name.clone()).await?;
+    let columns = vec![
+        "name".to_string(),
+        "type".to_string(),
+        "nullable".to_string(),
+        "pk".to_string(),
+        "default".to_string(),
+    ];
+    let rows: Vec<Vec<Value>> = schema
+        .columns
+        .into_iter()
+        .map(|col| {
+            vec![
+                Value::String(col.name),
+                Value::String(col.column_type),
+                Value::Bool(col.nullable),
+                Value::Bool(col.is_pk),
+                col.default_value.map(Value::String).unwrap_or(Value::Null),
+            ]
+        })
+        .collect();
+    Ok(format_query_result(&QueryResult {
+        columns,
+        rows,
+        rows_affected: 0,
+    }))
 }
 
 pub async fn execute_sql(args: Value) -> Result<String, String> {
     let connection_name = require_str(&args, "connection_name")?;
     let database_name = require_str(&args, "database_name")?;
     let sql = require_str(&args, "sql")?;
-    let conn = resolve_connection(&connection_name).await?;
+    let conn = resolve_connection_any(&connection_name).await?;
     let params = with_database(&conn, &database_name);
     let wrapped = omnipanel_db::wrap_editor_query(&conn.db_type, &sql, 500, 0);
     let driver = connect(&params).await.map_err(|e| e.user_message())?;
-    let result = driver.execute(&wrapped).await.map_err(|e| e.user_message())?;
+    let result = driver
+        .execute(&wrapped)
+        .await
+        .map_err(|e| e.user_message())?;
     Ok(format_query_result(&result))
 }
 
@@ -245,7 +248,7 @@ pub async fn create_run_sql(args: Value) -> Result<String, String> {
     let database_name = require_str(&args, "database_name")?;
     let name = assert_sql_script_name(&require_str(&args, "name")?)?;
     let sql = require_str(&args, "sql")?;
-    let conn = resolve_connection(&connection_name).await?;
+    let conn = resolve_connection_any(&connection_name).await?;
     let params = with_database(&conn, &database_name);
     // 复杂脚本可能含多语句；不对整段做 SELECT limit 包裹，由驱动按语句拆分执行。
     let driver = connect(&params).await.map_err(|e| e.user_message())?;
@@ -296,8 +299,18 @@ pub async fn show_processlist(args: Value) -> Result<String, String> {
             Ok(format_query_result(&result))
         }
         "redis" => {
-            let result =
-                omnipanel_db::redis_client_list(&params).await.map_err(|e| e.user_message())?;
+            let result = omnipanel_db::redis_client_list(&params)
+                .await
+                .map_err(|e| e.user_message())?;
+            Ok(format_query_result(&result))
+        }
+        "sqlserver" | "mssql" | "sql server" => {
+            let driver = connect(&params).await.map_err(|e| e.user_message())?;
+            let sql = "SELECT session_id AS Id, login_name AS [User], host_name AS Host, \
+                       DB_NAME(database_id) AS db, status AS State, \
+                       DATEDIFF(second, login_time, GETDATE()) AS Time \
+                       FROM sys.dm_exec_sessions WHERE is_user_process = 1 ORDER BY Time DESC";
+            let result = driver.execute(sql).await.map_err(|e| e.user_message())?;
             Ok(format_query_result(&result))
         }
         other => Err(format!("暂不支持 {other} 的 show_processlist")),
@@ -441,16 +454,48 @@ pub async fn slow_log_summary(args: Value) -> Result<String, String> {
                  FROM pg_stat_statements \
                  ORDER BY mean_exec_time DESC LIMIT {count}"
             );
-            let result = driver.execute(&sql).await.map_err(|e| {
-                let msg = e.user_message();
-                if msg.contains("pg_stat_statements") || msg.contains("does not exist") {
-                    format!(
-                        "pg_stat_statements 扩展未启用：{msg}。请在目标库执行 `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` 并在 postgresql.conf 添加 `shared_preload_libraries = 'pg_stat_statements'`"
-                    )
-                } else {
-                    msg
+            let result = driver.execute(&sql).await;
+            match result {
+                Ok(r) => Ok(format_query_result(&r)),
+                Err(e) => {
+                    let msg = e.user_message();
+                    if msg.contains("pg_stat_statements") || msg.contains("does not exist") {
+                        let fallback = format!(
+                            "SELECT query, state, query_start, wait_event_type, wait_event \
+                             FROM pg_stat_activity \
+                             WHERE query IS NOT NULL AND query <> '<IDLE>' \
+                             ORDER BY query_start DESC NULLS LAST LIMIT {count}"
+                        );
+                        let r2 = driver.execute(&fallback).await.map_err(|e2| {
+                            format!(
+                                "pg_stat_statements 未启用（{msg}），回退 pg_stat_activity 也失败：{}",
+                                e2.user_message()
+                            )
+                        })?;
+                        Ok(serde_json::to_string_pretty(&serde_json::json!({
+                            "connection": connection_name,
+                            "source": "pg_stat_activity",
+                            "note": "未启用 pg_stat_statements，已回退当前会话查询",
+                            "result": serde_json::from_str::<Value>(&format_query_result(&r2))
+                                .unwrap_or(Value::Null),
+                        }))
+                        .unwrap_or_else(|_| "{}".to_string()))
+                    } else {
+                        Err(msg)
+                    }
                 }
-            })?;
+            }
+        }
+        "sqlserver" | "mssql" | "sql server" => {
+            let driver = connect(&params).await.map_err(|e| e.user_message())?;
+            let sql = format!(
+                "SELECT TOP {count} qs.total_elapsed_time / 1000 AS elapsed_ms, \
+                 qs.execution_count, SUBSTRING(qt.text, 1, 4000) AS query \
+                 FROM sys.dm_exec_query_stats qs \
+                 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt \
+                 ORDER BY qs.total_elapsed_time DESC"
+            );
+            let result = driver.execute(&sql).await.map_err(|e| e.user_message())?;
             Ok(format_query_result(&result))
         }
         "redis" => {
@@ -466,6 +511,111 @@ pub async fn slow_log_summary(args: Value) -> Result<String, String> {
         }
         other => Err(format!("暂不支持 {other} 的 slow_log_summary")),
     }
+}
+
+/// 创建数据库：与工作台建库对话框走同一条 `db_create_database`。
+pub async fn create_database(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let name = require_database_name(&args)?;
+    let charset = optional_str(&args, "charset");
+    let collation = optional_str(&args, "collation");
+    let conn = resolve_connection_any(&connection_name).await?;
+    let created = db_create_database(CreateDatabaseArgs {
+        connection: conn.clone(),
+        name,
+        charset,
+        collation,
+    })
+    .await?;
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "database": created,
+        "created": true,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+/// 列出连接用户：与工作台「用户」页签走同一条 `db_list_connection_users`。
+pub async fn list_users(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let keyword = optional_str(&args, "keyword");
+    let conn = resolve_connection_any(&connection_name).await?;
+    let users = db_list_connection_users(conn.clone()).await?;
+    let filtered: Vec<_> = match keyword.as_deref() {
+        Some(kw) => {
+            let lower = kw.to_ascii_lowercase();
+            users
+                .into_iter()
+                .filter(|u| {
+                    u.name.to_ascii_lowercase().contains(&lower)
+                        || u.host
+                            .as_deref()
+                            .is_some_and(|h| h.to_ascii_lowercase().contains(&lower))
+                })
+                .collect()
+        }
+        None => users,
+    };
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "users": filtered,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+/// 预览表：与工作台表预览走同一条 `driver.preview`。
+pub async fn preview_table(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let database_name = require_str(&args, "database_name")?;
+    let table_name = assert_sql_identifier(&require_str(&args, "table_name")?, "表名")?;
+    let limit = optional_u32(&args, "limit", 200).clamp(1, 500);
+    let offset = optional_u32(&args, "offset", 0);
+    let order_by = optional_str(&args, "order_by");
+    let where_clause = optional_str(&args, "where_clause");
+    let conn = resolve_connection_any(&connection_name).await?;
+    let params = with_database(&conn, &database_name);
+    if params.database.trim().is_empty() {
+        return Err("未指定数据库".to_string());
+    }
+    let driver = connect(&params).await.map_err(|e| e.user_message())?;
+    let result = driver
+        .preview(
+            &table_name,
+            i64::from(limit),
+            i64::from(offset),
+            order_by.as_deref(),
+            where_clause.as_deref(),
+        )
+        .await
+        .map_err(|e| e.user_message())?;
+    let preview = format_table_preview(&table_name, &result);
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "database": database_name,
+        "table": table_name,
+        "limit": limit,
+        "offset": offset,
+        "name": preview.get("name"),
+        "columns": preview.get("columns"),
+        "rows": preview.get("rows"),
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
+}
+
+/// 列出字符集：与工作台建库对话框走同一条 `db_list_character_sets`。
+pub async fn list_character_sets(args: Value) -> Result<String, String> {
+    let connection_name = require_str(&args, "connection_name")?;
+    let conn = resolve_connection_any(&connection_name).await?;
+    let charsets = db_list_character_sets(conn.clone()).await?;
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "connection": connection_name,
+        "connectionId": conn.id,
+        "charsets": charsets,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
 }
 
 #[cfg(test)]
@@ -500,12 +650,19 @@ mod tests {
         assert!(optional_str(&args, "database_name").is_none());
 
         let args = json!({ "database_name": "shop" });
-        assert_eq!(optional_str(&args, "database_name").as_deref(), Some("shop"));
+        assert_eq!(
+            optional_str(&args, "database_name").as_deref(),
+            Some("shop")
+        );
     }
 
     #[test]
     fn keyword_filter_case_insensitive() {
-        let items = vec!["Users".to_string(), "orders".to_string(), "Products".to_string()];
+        let items = vec![
+            "Users".to_string(),
+            "orders".to_string(),
+            "Products".to_string(),
+        ];
         let filtered = keyword_filter(&items, Some("ORD"));
         assert_eq!(filtered, vec!["orders".to_string()]);
 
@@ -529,22 +686,38 @@ mod tests {
     fn slow_log_summary_count_clamps_to_range() {
         // count 缺失 -> 默认 10
         let args = json!({ "connection_name": "x" });
-        let count = args.get("count").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
+        let count = args
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(10)
+            .clamp(1, 100);
         assert_eq!(count, 10);
 
         // count=0 -> 1
         let args = json!({ "count": 0 });
-        let count = args.get("count").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
+        let count = args
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(10)
+            .clamp(1, 100);
         assert_eq!(count, 1);
 
         // count=999 -> 100
         let args = json!({ "count": 999 });
-        let count = args.get("count").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
+        let count = args
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(10)
+            .clamp(1, 100);
         assert_eq!(count, 100);
 
         // count=50 -> 50
         let args = json!({ "count": 50 });
-        let count = args.get("count").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
+        let count = args
+            .get("count")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(10)
+            .clamp(1, 100);
         assert_eq!(count, 50);
     }
 
@@ -562,5 +735,68 @@ mod tests {
         // query_id 缺失，应先报参数错误（而不是去查连接）
         let err = kill_query(args).await.unwrap_err();
         assert!(err.contains("缺少必填参数"));
+    }
+
+    #[test]
+    fn require_database_name_accepts_name_alias() {
+        let args = json!({ "name": "  shop  " });
+        assert_eq!(require_database_name(&args).unwrap(), "shop");
+        let args = json!({ "database_name": "omni" });
+        assert_eq!(require_database_name(&args).unwrap(), "omni");
+        let args = json!({});
+        assert!(
+            require_database_name(&args)
+                .unwrap_err()
+                .contains("database_name")
+        );
+    }
+
+    #[test]
+    fn optional_u32_defaults_and_parses_string() {
+        let args = json!({});
+        assert_eq!(optional_u32(&args, "limit", 200), 200);
+        let args = json!({ "limit": 50 });
+        assert_eq!(optional_u32(&args, "limit", 200), 50);
+        let args = json!({ "limit": "12" });
+        assert_eq!(optional_u32(&args, "limit", 200), 12);
+    }
+
+    #[test]
+    fn format_table_preview_maps_rows_to_objects() {
+        let preview = format_table_preview(
+            "users",
+            &QueryResult {
+                columns: vec!["id".into(), "name".into()],
+                rows: vec![vec![json!(1), json!("alice")]],
+                rows_affected: 0,
+            },
+        );
+        assert_eq!(preview["name"], "users");
+        assert_eq!(preview["rows"][0]["id"], 1);
+        assert_eq!(preview["rows"][0]["name"], "alice");
+    }
+
+    #[tokio::test]
+    async fn create_database_missing_name_returns_param_error() {
+        let args = json!({ "connection_name": "__nonexistent_conn__" });
+        let err = create_database(args).await.unwrap_err();
+        assert!(err.contains("缺少必填参数"));
+    }
+
+    #[tokio::test]
+    async fn preview_table_missing_table_returns_param_error() {
+        let args = json!({
+            "connection_name": "__nonexistent_conn__",
+            "database_name": "omni",
+        });
+        let err = preview_table(args).await.unwrap_err();
+        assert!(err.contains("缺少必填参数"));
+    }
+
+    #[tokio::test]
+    async fn list_users_unknown_connection_returns_friendly_error() {
+        let args = json!({ "connection_name": "__nonexistent_conn__" });
+        let err = list_users(args).await.unwrap_err();
+        assert!(err.contains("连接不存在"));
     }
 }

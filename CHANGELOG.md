@@ -13,8 +13,23 @@
 - **数据库 · SQL Server 工作台**：建库、删表、克隆、用户，以及会话 / 配置只读
 - **数据库 · sidecar 建库与会话**：PG / 达梦等按家族打开建库与连接信息；慢查询走方言视图（Binlog 仍仅 MySQL）
 - **数据库 · Neo4j / Cassandra**：树分别为 graph / keyspace，编辑器接 Cypher / CQL
-- **数据库 · 目录引擎**：可安装金仓 / Vastbase / UXDB / GaussDB / OceanBase / TiDB
+- **数据库 · 目录引擎**：可安装金仓 / Vastbase / UXDB；OceanBase 走目录实有 key（`oceanbase-oracle`）；GaussDB / TiDB 目录无包则跳过
 - **数据库 · Docker 本地种子**：幂等写入本机 9 条测试连接（密码进 Vault，列表不落明文）
+- **数据库 · MCP 工作台对齐**：建库 / 用户列表 / 表预览 / 字符集与工作台同一后端路径（`create_database` / `list_users` / `preview_table` / `list_character_sets`）
+
+### 修复
+
+- **数据库 · 可选 DBX 引擎**：先查官方目录再安装，目录无 `tidb` / `gaussdb` / `oceanbase` 时不再抛 IPC `notFound`
+- **数据库 · PostgreSQL 结果解码**：`INT2`/`INT4`/`FLOAT4`、时间戳、`NUMERIC`、常见数组与 `UUID` 按实际类型解码，不再把 `SELECT 42` / `now()` / `1.25::numeric` 变成 `null`
+- **数据库 · MySQL TEXT/DESC**：协议报成 BLOB 的文本列按 UTF-8 文本返回，不再编成 blob 结构
+- **数据库 · MySQL DECIMAL**：字面量 `1.25` 按十进制解码，不再变成 `null`
+- **数据库 · SQL Server 日期时间**：`GETDATE()` / `DateTime2` 等返回可读日期，不再输出 Debug 结构体
+- **数据库 · MCP 库列表**：按连接 id 或名称解析；走统一 `db_list_databases`（含 PG / SQL Server / ClickHouse / Mongo / Redis）
+- **数据库 · MCP 表结构**：复用 introspect（含 SQL Server / ClickHouse / Mongo / sidecar）
+- **数据库 · MCP 会话**：SQL Server 支持 processlist / 慢查询；PG 无 `pg_stat_statements` 时回退 `pg_stat_activity`
+- **数据库 · Mongo shell**：`show collections` / `show dbs` / `db.<集合>.find()` 可执行
+- **数据库 · Redis / Neo4j 查询**：编辑器不再把 Redis 命令包成 SELECT；Neo4j 数字字符串还原为 JSON number
+- **终端 · Shell Agent 浮层**：xterm 视口刷新不再反复 setState，避免思考卡/工具条死循环
 
 ## [0.8.8] - 2026-08-25
 

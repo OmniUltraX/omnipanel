@@ -10,8 +10,8 @@ use std::fs;
 use std::process::ExitCode;
 
 use omnipanel_store::{
-    meta_db_path, Connection, DatabaseConnectionStore, DbConnectionConfig, HttpCollection,
-    HttpEnvironment, KnowledgeEntry, SavedHttpRequest, Storage,
+    Connection, DatabaseConnectionStore, DbConnectionConfig, HttpCollection, HttpEnvironment,
+    KnowledgeEntry, SavedHttpRequest, Storage, meta_db_path,
 };
 use serde::Deserialize;
 
@@ -45,7 +45,9 @@ struct DatabaseItem {
 }
 
 fn main() -> ExitCode {
-    let path = env::args().nth(1).unwrap_or_else(|| "latest.json".to_string());
+    let path = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "latest.json".to_string());
     let raw = match fs::read_to_string(&path) {
         Ok(s) => s,
         Err(e) => {
@@ -143,7 +145,9 @@ fn main() -> ExitCode {
     println!(
         "导入完成（合并写入，未删除本机其它数据）:\n  连接 {n_conn}\n  数据库 {n_db}\n  知识库 {n_kn}\n  HTTP 集合 {n_col}\n  HTTP 环境 {n_env}\n  HTTP 请求 {n_req}"
     );
-    println!("请重新打开 OmniPanel 查看。工作区若需同步，侧栏切换到对应组织后再点设置「立即拉取」。");
+    println!(
+        "请重新打开 OmniPanel 查看。工作区若需同步，侧栏切换到对应组织后再点设置「立即拉取」。"
+    );
     println!("提醒：快照可能含 Token/主机信息，导入后请勿把 latest.json 提交到 git。");
     ExitCode::SUCCESS
 }

@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_store::{
+    ConnectionKind, HttpProxyConfig, KnowledgeEntry, ResourceObservation, SkillApplication,
+    SkillDbRecord, SkillFrontmatter, Storage, TagSource, TaggableKind, TodoList, TodoTask,
     list_all_skill_records, load_database_connections, load_skill_body, load_skill_record,
-    parse_skill_md, skill_file_path, write_skill, ConnectionKind, HttpProxyConfig, KnowledgeEntry,
-    ResourceObservation, SkillApplication, SkillDbRecord, SkillFrontmatter, Storage, TagSource,
-    TaggableKind, TodoList, TodoTask,
+    parse_skill_md, skill_file_path, write_skill,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -209,16 +209,15 @@ async fn list_docker_connections(
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .or_else(|| {
-                cfg.get("ssh")
-                    .and_then(|s| {
-                        let user = s.get("user").and_then(|v| v.as_str()).unwrap_or("");
-                        let host = s.get("host").and_then(|v| v.as_str()).unwrap_or("");
-                        if !user.is_empty() || !host.is_empty() {
-                            Some(format!("{user}@{host}"))
-                        } else {
-                            None
-                        }
-                    })
+                cfg.get("ssh").and_then(|s| {
+                    let user = s.get("user").and_then(|v| v.as_str()).unwrap_or("");
+                    let host = s.get("host").and_then(|v| v.as_str()).unwrap_or("");
+                    if !user.is_empty() || !host.is_empty() {
+                        Some(format!("{user}@{host}"))
+                    } else {
+                        None
+                    }
+                })
             })
             .or_else(|| {
                 cfg.get("onepanel")
@@ -336,9 +335,7 @@ async fn resource_find_similar(
     };
 
     // 自动附带相关 skill（不写 application，避免污染统计）
-    let skill_query = format!(
-        "{resource_type} {resource_id} 相似资源运维经验排障部署"
-    );
+    let skill_query = format!("{resource_type} {resource_id} 相似资源运维经验排障部署");
     let related_skills = match recall_skills_hybrid(
         storage.clone(),
         &skill_query,
@@ -574,8 +571,7 @@ async fn recall_skills_hybrid(
     top_k: usize,
     record_applications: bool,
 ) -> Result<Vec<SkillRecallHit>, String> {
-    let summaries =
-        omnipanel_store::list_enabled_skill_summaries().map_err(|e| e.to_string())?;
+    let summaries = omnipanel_store::list_enabled_skill_summaries().map_err(|e| e.to_string())?;
     let query_lower = query.to_ascii_lowercase();
     let query_terms: Vec<&str> = query_lower
         .split_whitespace()
@@ -759,16 +755,12 @@ async fn skill_recall(
         .unwrap_or(3)
         .clamp(1, 10) as usize;
 
-    let results = recall_skills_hybrid(
-        storage,
-        &query,
-        resource_type.as_deref(),
-        top_k,
-        true,
-    )
-    .await?;
+    let results =
+        recall_skills_hybrid(storage, &query, resource_type.as_deref(), top_k, true).await?;
 
-    let mode = if results.iter().any(|r| r.match_mode == "hybrid" || r.match_mode == "vector")
+    let mode = if results
+        .iter()
+        .any(|r| r.match_mode == "hybrid" || r.match_mode == "vector")
     {
         "hybrid"
     } else {
@@ -858,8 +850,7 @@ async fn try_vectorize_skill_after_write(
     description: &str,
     body: &str,
 ) -> Option<u32> {
-    match crate::embedding::vectorize_skill_text(&storage, skill_id, title, description, body)
-        .await
+    match crate::embedding::vectorize_skill_text(&storage, skill_id, title, description, body).await
     {
         Ok(n) => Some(n),
         Err(e) => {
@@ -943,7 +934,9 @@ async fn skill_extract_experience(
         let mut disabled = parent.clone();
         disabled.enabled = false;
         disabled.updated_at = now;
-        storage.save_skill_db(&disabled).map_err(|e| e.to_string())?;
+        storage
+            .save_skill_db(&disabled)
+            .map_err(|e| e.to_string())?;
         (new_id, new_version, parent.id.clone())
     } else {
         let candidate = generate_skill_id(&slug, None);
@@ -1025,14 +1018,8 @@ async fn skill_extract_experience(
         }
     };
 
-    let chunk_count = try_vectorize_skill_after_write(
-        storage,
-        &new_id,
-        &title,
-        &description,
-        &body,
-    )
-    .await;
+    let chunk_count =
+        try_vectorize_skill_after_write(storage, &new_id, &title, &description, &body).await;
 
     Ok((
         serde_json::json!({
@@ -1085,8 +1072,7 @@ async fn skill_refine(
         .map(str::to_string);
 
     // 加载父版本（文件层）
-    let parent_record =
-        load_skill_record(&skill_id).map_err(|e| e.to_string())?;
+    let parent_record = load_skill_record(&skill_id).map_err(|e| e.to_string())?;
 
     let final_body = format!("{new_body}\n\n<!-- improvements: {improvements} -->\n");
     let final_description = new_description.unwrap_or_else(|| parent_record.description.clone());
@@ -1294,9 +1280,7 @@ async fn create_document(
     };
 
     let storage = storage.lock().await;
-    storage
-        .save_knowledge(&entry)
-        .map_err(|e| e.to_string())?;
+    storage.save_knowledge(&entry).map_err(|e| e.to_string())?;
     Ok((serde_json::json!({ "id": id }).to_string(), true))
 }
 
@@ -1338,12 +1322,7 @@ async fn create_todolist(
         .ensure_todo_schema_data()
         .map_err(|e| e.to_string())?;
     let existing = storage.list_todo_lists().map_err(|e| e.to_string())?;
-    let sort_order = existing
-        .iter()
-        .map(|l| l.sort_order)
-        .max()
-        .unwrap_or(-1)
-        + 1;
+    let sort_order = existing.iter().map(|l| l.sort_order).max().unwrap_or(-1) + 1;
 
     let list_id = format!("todo_list_{now}");
     storage
@@ -1442,7 +1421,10 @@ async fn remove_document(
         .ok_or_else(|| "id 不能为空".to_string())?;
     let storage = storage.lock().await;
     storage.delete_knowledge(id).map_err(|e| e.to_string())?;
-    Ok((serde_json::json!({ "deleted": true, "id": id }).to_string(), true))
+    Ok((
+        serde_json::json!({ "deleted": true, "id": id }).to_string(),
+        true,
+    ))
 }
 
 async fn list_documents(

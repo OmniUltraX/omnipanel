@@ -59,6 +59,10 @@ export function normalizeConnectionGroup(group: string | null | undefined): stri
   return group.trim();
 }
 
+export function hydrateConnectionGroup(connection: DbConnectionConfig): DbConnectionConfig {
+  return { ...connection, group: normalizeConnectionGroup(connection.group) };
+}
+
 export function connectionMatchesGroup(connection: DbConnectionConfig, groupName: string): boolean {
   return normalizeConnectionGroup(connection.group) === groupName;
 }
@@ -129,7 +133,6 @@ export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
     ssl: Boolean(conn.ssl),
     sid: formText(conn.sid),
     sysdba: Boolean(conn.sysdba),
-    // 后端 connections.json 暂无 group 字段，编辑回显时需兜底
     group: normalizeConnectionGroup(conn.group),
   };
 }
@@ -731,7 +734,8 @@ export async function qdrantDeletePoints(
 }
 
 export async function listConnections(): Promise<DbConnectionConfig[]> {
-  return (await unwrapCommand(commands.dbListConnections())) as DbConnectionConfig[];
+  const list = (await unwrapCommand(commands.dbListConnections())) as DbConnectionConfig[];
+  return list.map(hydrateConnectionGroup);
 }
 
 export async function loadSchemaFilters(): Promise<SchemaFiltersSnapshot> {

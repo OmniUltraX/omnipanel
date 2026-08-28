@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 pub use omnipanel_transfer::{
-    relay::{
-        transfer_cancel as relay_cancel, transfer_start as relay_start, TransferJob,
-        TransferStartRequest, TransferState,
-    },
     TRANSFER_PROGRESS_EVENT,
+    relay::{
+        TransferJob, TransferStartRequest, TransferState, transfer_cancel as relay_cancel,
+        transfer_start as relay_start,
+    },
 };
 
 use crate::terminal::ServerState;

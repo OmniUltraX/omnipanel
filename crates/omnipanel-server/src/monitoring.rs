@@ -11,13 +11,13 @@ use std::time::Duration;
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::{
-    aggregate_disk_stats, format_load, is_pseudo_filesystem, parse_remote_stats_output, CpuStats,
-    DiskDeviceStats, DiskStats, GpuStats, HostSystemStats, MemoryStats, NetworkStats,
-    SshProcessInfo, SshSession,
+    CpuStats, DiskDeviceStats, DiskStats, GpuStats, HostSystemStats, MemoryStats, NetworkStats,
+    SshProcessInfo, SshSession, aggregate_disk_stats, format_load, is_pseudo_filesystem,
+    parse_remote_stats_output,
 };
 use sysinfo::{Disks, Networks, ProcessesToUpdate, System, Users};
 
-use crate::state::{resolve_ssh_config, ServerState};
+use crate::state::{ServerState, resolve_ssh_config};
 
 /// 与前端 `LOCAL_TERMINAL_RESOURCE_ID` 一致。
 pub const LOCAL_HOST_ID: &str = "local-terminal";
@@ -447,7 +447,10 @@ pub async fn ensure_ssh_session(
     let conn = {
         let storage = state.storage.lock().await;
         storage.get_connection(resource_id)?.ok_or_else(|| {
-            OmniError::new(ErrorCode::NotFound, format!("SSH 连接 {resource_id} 不存在"))
+            OmniError::new(
+                ErrorCode::NotFound,
+                format!("SSH 连接 {resource_id} 不存在"),
+            )
         })?
     };
     let host_name = conn.name.clone();

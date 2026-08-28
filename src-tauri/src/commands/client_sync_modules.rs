@@ -5,24 +5,25 @@ use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_assistant::{
-    pull_team_sync_json, push_team_sync_json, validate_modules_bundle_json, TEAM_MODULES_LATEST_LEAF,
+    TEAM_MODULES_LATEST_LEAF, pull_team_sync_json, push_team_sync_json,
+    validate_modules_bundle_json,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    db_password_ref, load_database_connections, ssh_key_passphrase_ref, ssh_key_private_ref,
-    ssh_passphrase_ref, ssh_pem_ref, ssh_password_ref, Connection, ConnectionKind, DbConnectionConfig,
-    HttpCollection, HttpEnvironment, KnowledgeEntry, SavedHttpRequest, SshKeyRecord, Vault,
-    SYNC_KIND_MODULES,
+    Connection, ConnectionKind, DbConnectionConfig, HttpCollection, HttpEnvironment,
+    KnowledgeEntry, SYNC_KIND_MODULES, SavedHttpRequest, SshKeyRecord, Vault, db_password_ref,
+    load_database_connections, ssh_key_passphrase_ref, ssh_key_private_ref, ssh_passphrase_ref,
+    ssh_password_ref, ssh_pem_ref,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use tauri::State;
 
+use crate::commands::assistant::build_auth_context;
 use crate::commands::auth::{
     auth_device_identity, auth_get_me, decode_sync_team_payload, encrypt_sync_team_payload,
     resolve_sync_team,
 };
-use crate::commands::assistant::build_auth_context;
 use crate::commands::ssh::materialize_ssh_connection_keys_for_sync;
 use crate::state::AppState;
 
@@ -337,7 +338,10 @@ fn normalize_sidebar_tree_json(tree: &mut serde_json::Value, valid_ids: &HashSet
             let Some(items) = parent_arr.as_array_mut() else {
                 continue;
             };
-            if !items.iter().any(|item| item.as_str() == Some(conn_key.as_str())) {
+            if !items
+                .iter()
+                .any(|item| item.as_str() == Some(conn_key.as_str()))
+            {
                 items.push(serde_json::Value::String(conn_key));
             }
         }
@@ -353,10 +357,16 @@ fn normalize_protocol_layout_json(
     let Some(obj) = tree.as_object_mut() else {
         return;
     };
-    if let Some(map) = obj.get_mut("collectionParents").and_then(|v| v.as_object_mut()) {
+    if let Some(map) = obj
+        .get_mut("collectionParents")
+        .and_then(|v| v.as_object_mut())
+    {
         map.retain(|id, _| valid_collection_ids.contains(id));
     }
-    if let Some(map) = obj.get_mut("requestParents").and_then(|v| v.as_object_mut()) {
+    if let Some(map) = obj
+        .get_mut("requestParents")
+        .and_then(|v| v.as_object_mut())
+    {
         map.retain(|id, _| valid_request_ids.contains(id));
     }
     if let Some(map) = obj.get_mut("entryParents").and_then(|v| v.as_object_mut()) {
@@ -383,8 +393,11 @@ pub(crate) fn normalize_modules_bundle_layouts(bundle: &mut ClientSyncModulesBun
         .iter()
         .map(|d| d.connection.id.clone())
         .collect();
-    let http_collection_ids: HashSet<String> =
-        bundle.http_collections.iter().map(|c| c.id.clone()).collect();
+    let http_collection_ids: HashSet<String> = bundle
+        .http_collections
+        .iter()
+        .map(|c| c.id.clone())
+        .collect();
     let http_request_ids: HashSet<String> =
         bundle.http_requests.iter().map(|r| r.id.clone()).collect();
 
@@ -699,7 +712,20 @@ fn tombstone_ids(list: &[ClientSyncTombstone]) -> HashSet<String> {
 pub(crate) async fn apply_modules_bundle(
     state: &AppState,
     bundle: &ClientSyncModulesBundle,
-) -> Result<(usize, usize, usize, usize, usize, Option<String>, Option<String>, Option<String>, Option<String>), OmniError> {
+) -> Result<
+    (
+        usize,
+        usize,
+        usize,
+        usize,
+        usize,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ),
+    OmniError,
+> {
     let remote_conn_ids: HashSet<String> = bundle
         .connections
         .iter()
@@ -711,7 +737,8 @@ pub(crate) async fn apply_modules_bundle(
         .map(|c| c.connection.id.clone())
         .collect();
     let remote_kn_ids: HashSet<String> = bundle.knowledge.iter().map(|k| k.id.clone()).collect();
-    let remote_req_ids: HashSet<String> = bundle.http_requests.iter().map(|r| r.id.clone()).collect();
+    let remote_req_ids: HashSet<String> =
+        bundle.http_requests.iter().map(|r| r.id.clone()).collect();
     let remote_col_ids: HashSet<String> = bundle
         .http_collections
         .iter()
@@ -1101,7 +1128,8 @@ fn parse_sidebar_tree_object(value: &serde_json::Value) -> SidebarTreePeek {
         .and_then(|v| v.as_object());
     if let Some(map) = map {
         for (conn_id, folder_id) in map {
-            let Some(folder_id) = folder_id.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+            let Some(folder_id) = folder_id.as_str().map(str::trim).filter(|s| !s.is_empty())
+            else {
                 continue;
             };
             out.connection_folder_id
@@ -1139,7 +1167,8 @@ fn parse_protocol_layout_object(value: &serde_json::Value) -> SidebarTreePeek {
             continue;
         };
         for (id, folder_id) in map {
-            let Some(folder_id) = folder_id.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+            let Some(folder_id) = folder_id.as_str().map(str::trim).filter(|s| !s.is_empty())
+            else {
                 continue;
             };
             out.connection_folder_id
@@ -1217,12 +1246,8 @@ pub(crate) fn filter_dismissed_ssh_layout_folders(
 pub(crate) fn build_peek_from_bundle(bundle: &ClientSyncModulesBundle) -> ModulesBundlePeek {
     let folder_trees = parse_folder_trees_json(bundle.folder_trees_json.as_deref());
     let ssh_tree = parse_sidebar_tree_json(bundle.ssh_sidebar_tree_json.as_deref());
-    let docker_tree = folder_trees
-        .get("docker")
-        .map(parse_sidebar_tree_object);
-    let database_tree = folder_trees
-        .get("database")
-        .map(parse_sidebar_tree_object);
+    let docker_tree = folder_trees.get("docker").map(parse_sidebar_tree_object);
+    let database_tree = folder_trees.get("database").map(parse_sidebar_tree_object);
     let protocol_tree = folder_trees
         .get("protocol")
         .map(parse_protocol_layout_object);
@@ -1319,7 +1344,8 @@ fn build_http_collection_peek_items(
     collections: &[HttpCollection],
     protocol_tree: Option<&SidebarTreePeek>,
 ) -> Vec<ClientSyncPeekItem> {
-    let mut out = Vec::with_capacity(collections.len() + protocol_tree.map(|t| t.folders.len()).unwrap_or(0));
+    let mut out =
+        Vec::with_capacity(collections.len() + protocol_tree.map(|t| t.folders.len()).unwrap_or(0));
     if let Some(tree) = protocol_tree {
         emit_tree_folders(tree, "layout-folder", &mut out);
     }
@@ -1413,7 +1439,9 @@ fn build_connection_peek_items(
             "docker" => docker_tree.and_then(|t| t.connection_folder_id.get(&c.connection.id)),
             _ => None,
         };
-        if tree_parent.is_some() || ((kind == "ssh" && ssh_tree.is_some()) || (kind == "docker" && docker_tree.is_some()))
+        if tree_parent.is_some()
+            || ((kind == "ssh" && ssh_tree.is_some())
+                || (kind == "docker" && docker_tree.is_some()))
         {
             continue;
         }
@@ -1469,4 +1497,3 @@ fn build_connection_peek_items(
     }
     out
 }
-

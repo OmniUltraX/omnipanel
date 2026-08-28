@@ -30,9 +30,9 @@ impl OnePanelExecSession {
             "type": "cmd",
             "data": BASE64.encode(data),
         });
-        self.write_tx.send(payload.to_string()).map_err(|_| {
-            OmniError::new(ErrorCode::Internal, "1Panel 终端已断开")
-        })
+        self.write_tx
+            .send(payload.to_string())
+            .map_err(|_| OmniError::new(ErrorCode::Internal, "1Panel 终端已断开"))
     }
 
     pub async fn resize(&self, cols: u16, rows: u16) -> OmniResult<()> {
@@ -41,9 +41,9 @@ impl OnePanelExecSession {
             "cols": cols,
             "rows": rows,
         });
-        self.write_tx.send(payload.to_string()).map_err(|_| {
-            OmniError::new(ErrorCode::Internal, "1Panel 终端已断开")
-        })
+        self.write_tx
+            .send(payload.to_string())
+            .map_err(|_| OmniError::new(ErrorCode::Internal, "1Panel 终端已断开"))
     }
 
     pub async fn close(self) -> OmniResult<()> {
@@ -108,7 +108,8 @@ async fn connect_terminal_ws(
         let header_name = key
             .parse::<tokio_tungstenite::tungstenite::http::HeaderName>()
             .map_err(|e| {
-                OmniError::new(ErrorCode::Internal, "无效的 1Panel 请求头").with_cause(e.to_string())
+                OmniError::new(ErrorCode::Internal, "无效的 1Panel 请求头")
+                    .with_cause(e.to_string())
             })?;
         let header_value = value
             .parse::<tokio_tungstenite::tungstenite::http::HeaderValue>()

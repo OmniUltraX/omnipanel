@@ -76,9 +76,7 @@ mod tests {
         gw.register(
             "demo",
             "ping",
-            Arc::new(|args| {
-                Box::pin(async move { Ok(serde_json::json!({ "echo": args })) })
-            }),
+            Arc::new(|args| Box::pin(async move { Ok(serde_json::json!({ "echo": args })) })),
         );
         let out = gw
             .invoke("demo", "ping", serde_json::json!({ "n": 1 }))

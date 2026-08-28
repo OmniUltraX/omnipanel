@@ -4,8 +4,8 @@
 //! wasmtime、QuickJS、sidecar 等引擎都是可插拔实现，宪法不随内阁换届。
 
 use std::future::Future;
-use std::sync::Arc;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use crate::error::PluginError;
 
@@ -208,7 +208,10 @@ mod tests {
 
     impl PluginLogicInstance for MockInstance {
         fn call(&self, method: &str, args_json: &str) -> LogicFuture {
-            self.calls.lock().unwrap().push((method.to_string(), args_json.to_string()));
+            self.calls
+                .lock()
+                .unwrap()
+                .push((method.to_string(), args_json.to_string()));
             let id = self.id.clone();
             Box::pin(async move { Ok(format!(r#"{{"instance":"{id}"}}"#)) })
         }
@@ -219,7 +222,9 @@ mod tests {
     #[test]
     fn mock_executor_roundtrip() {
         let executor = MockExecutor::default();
-        let mut inst = executor.instantiate("demo", &LogicPackage::Wasm(vec![]), Arc::new(NullHost)).unwrap();
+        let mut inst = executor
+            .instantiate("demo", &LogicPackage::Wasm(vec![]), Arc::new(NullHost))
+            .unwrap();
         let out = futures_now(inst.call("ping", "{}"));
         assert!(out.contains("demo"));
         assert_eq!(executor.calls.lock().unwrap().len(), 1);

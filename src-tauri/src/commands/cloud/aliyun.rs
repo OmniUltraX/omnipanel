@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
@@ -463,7 +463,8 @@ impl AliyunCredentials {
             .send()
             .await
             .map_err(|e| {
-                OmniError::new(ErrorCode::Connection, "OSS ListBuckets 请求失败").with_cause(e.to_string())
+                OmniError::new(ErrorCode::Connection, "OSS ListBuckets 请求失败")
+                    .with_cause(e.to_string())
             })?;
         let status = resp.status();
         let text = resp.text().await.map_err(|e| {
@@ -486,12 +487,8 @@ impl AliyunCredentials {
                 location: xml_tag(block, "Location").unwrap_or("").to_string(),
                 creation_date: xml_tag(block, "CreationDate").unwrap_or("").to_string(),
                 storage_class: xml_tag(block, "StorageClass").unwrap_or("").to_string(),
-                extranet_endpoint: xml_tag(block, "ExtranetEndpoint")
-                    .unwrap_or("")
-                    .to_string(),
-                intranet_endpoint: xml_tag(block, "IntranetEndpoint")
-                    .unwrap_or("")
-                    .to_string(),
+                extranet_endpoint: xml_tag(block, "ExtranetEndpoint").unwrap_or("").to_string(),
+                intranet_endpoint: xml_tag(block, "IntranetEndpoint").unwrap_or("").to_string(),
                 region: xml_tag(block, "Region").unwrap_or("").to_string(),
             });
         }
@@ -736,7 +733,10 @@ impl AliyunCredentials {
         params.insert("Version".into(), version.to_string());
         params.insert("AccessKeyId".into(), self.access_key_id.clone());
         params.insert("SignatureMethod".into(), "HMAC-SHA1".into());
-        params.insert("Timestamp".into(), Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        params.insert(
+            "Timestamp".into(),
+            Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        );
         params.insert("SignatureVersion".into(), "1.0".into());
         params.insert("SignatureNonce".into(), signature_nonce());
         params.insert("Action".into(), action.to_string());
@@ -754,10 +754,7 @@ impl AliyunCredentials {
             aliyun_percent_encode("/"),
             aliyun_percent_encode(&canonical)
         );
-        let signature = hmac_sha1_base64(
-            &format!("{}&", self.access_key_secret),
-            &string_to_sign,
-        )?;
+        let signature = hmac_sha1_base64(&format!("{}&", self.access_key_secret), &string_to_sign)?;
         let url = format!(
             "{}?{}&Signature={}",
             endpoint.trim_end_matches('/'),
@@ -779,9 +776,10 @@ impl AliyunCredentials {
         })?;
         let body: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
         if !status.is_success()
-            || body.get("Code").and_then(|c| c.as_str()).is_some_and(|c| {
-                !c.is_empty() && c != "OK" && !c.eq_ignore_ascii_case("success")
-            })
+            || body
+                .get("Code")
+                .and_then(|c| c.as_str())
+                .is_some_and(|c| !c.is_empty() && c != "OK" && !c.eq_ignore_ascii_case("success"))
         {
             // 部分成功响应也可能带 Code=200 / 无 Code；仅在明确错误时失败。
             let code = body
@@ -802,7 +800,14 @@ impl AliyunCredentials {
             {
                 return Err(OmniError::new(
                     ErrorCode::Connection,
-                    format!("阿里云 {action} 失败{}", if code.is_empty() { String::new() } else { format!(": {code}") }),
+                    format!(
+                        "阿里云 {action} 失败{}",
+                        if code.is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {code}")
+                        }
+                    ),
                 )
                 .with_cause(message.to_string()));
             }

@@ -61,6 +61,7 @@ fn store_conn(
         enabled: true,
         has_password: !password.is_empty(),
         tags: Vec::new(),
+        group: String::new(),
     }
 }
 
@@ -164,6 +165,16 @@ async fn sidecar_live_and_dbx() {
         test_redis_inproc().await;
     } else {
         eprintln!("skip redis inproc：127.0.0.1:16379 未监听");
+    }
+    if wait_port("127.0.0.1", 15432, 5).await {
+        test_postgres_inproc_integers().await;
+    } else {
+        eprintln!("skip postgres inproc：127.0.0.1:15432 未监听");
+    }
+    if wait_port("127.0.0.1", 13306, 5).await {
+        test_mysql_inproc_desc_type().await;
+    } else {
+        eprintln!("skip mysql inproc：127.0.0.1:13306 未监听");
     }
 
     if let Some(bin) = engine_bin("omnipanel-engine-redis") {
@@ -737,6 +748,18 @@ async fn test_sqlserver_tiberius() {
     );
     let q = driver.execute("SELECT 1 AS v").await.expect("SELECT 1");
     assert!(!q.rows.is_empty(), "{q:?}");
+    let now = driver
+        .execute("SELECT GETDATE() AS d")
+        .await
+        .expect("GETDATE");
+    assert_eq!(now.rows.len(), 1, "{now:?}");
+    let d = now.rows[0][0]
+        .as_str()
+        .expect("GETDATE 应为可读日期而不是 Debug 结构");
+    assert!(
+        d.starts_with("20") && d.contains('-') && d.contains(':'),
+        "GETDATE 格式异常：{d}"
+    );
     let dbs = omnipanel_db::SqlServerDriver::list_databases(&p)
         .await
         .expect("list databases");
@@ -832,6 +855,62 @@ async fn test_redis_inproc() {
         }
         Err(err) => eprintln!("skip redis inproc：{err}"),
     }
+}
+
+async fn test_postgres_inproc_integers() {
+    let p = params("postgres", "127.0.0.1", 15432, "omni", "omni_test", "omni");
+    let driver = connect(&p).await.expect("postgres inproc connect");
+    let q = driver
+        .execute("SELECT 42::int2 AS s, 42::int4 AS i, 42::int8 AS b")
+        .await
+        .expect("int widths");
+    assert_eq!(q.rows.len(), 1, "{q:?}");
+    assert_eq!(q.rows[0], vec![json!(42), json!(42), json!(42)], "{q:?}");
+    let ts = driver
+        .execute("SELECT now() AS ts, DATE '2026-08-27' AS d")
+        .await
+        .expect("temporal");
+    assert_eq!(ts.rows.len(), 1, "{ts:?}");
+    assert!(ts.rows[0][0].is_string(), "now() 不应为 null：{ts:?}");
+    assert_eq!(ts.rows[0][1], json!("2026-08-27"), "{ts:?}");
+    let num = driver
+        .execute("SELECT 1.25::numeric AS n, ARRAY[1,2]::int4[] AS a, true AS b")
+        .await
+        .expect("numeric/array");
+    assert_eq!(num.rows.len(), 1, "{num:?}");
+    assert_eq!(num.rows[0][0], json!(1.25), "NUMERIC 不应为 null：{num:?}");
+    assert_eq!(num.rows[0][1], json!([1, 2]), "int4[]：{num:?}");
+    assert_eq!(num.rows[0][2], json!(true), "{num:?}");
+}
+
+async fn test_mysql_inproc_desc_type() {
+    let p = params("mysql", "127.0.0.1", 13306, "root", "omni_test", "omni");
+    let driver = connect(&p).await.expect("mysql inproc connect");
+    driver
+        .execute("CREATE TABLE IF NOT EXISTS sidecar_e2e (id INT PRIMARY KEY)")
+        .await
+        .expect("CREATE TABLE");
+    let q = driver
+        .execute("DESC `sidecar_e2e`")
+        .await
+        .expect("DESC");
+    assert!(!q.rows.is_empty(), "{q:?}");
+    let type_idx = q
+        .columns
+        .iter()
+        .position(|c| c.eq_ignore_ascii_case("Type"))
+        .expect("Type column");
+    let ty = &q.rows[0][type_idx];
+    assert!(ty.is_string(), "Type 应是文本而不是 blob：{ty}");
+    assert!(
+        ty.as_str().unwrap_or("").to_ascii_lowercase().contains("int"),
+        "{ty}"
+    );
+    let dec = driver
+        .execute("SELECT 1.25 AS n")
+        .await
+        .expect("mysql decimal");
+    assert_eq!(dec.rows[0][0], json!(1.25), "DECIMAL 不应为 null：{dec:?}");
 }
 
 async fn test_redis(bin: &Path) {

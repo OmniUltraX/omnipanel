@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use omnipanel_server::state::ServerState;
-use omnipanel_server::transfer::{transfer_start, TransferStartRequest};
+use omnipanel_server::transfer::{TransferStartRequest, transfer_start};
 use omnipanel_store::{Connection, ConnectionKind};
 
 #[tokio::main]
@@ -23,7 +23,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "endpoint": "http://127.0.0.1:19000",
             "accessKey": "minioadmin",
             "prefix": "",
-        }).to_string(),
+        })
+        .to_string(),
         credential_ref: None,
         created_at: 0,
         updated_at: 0,

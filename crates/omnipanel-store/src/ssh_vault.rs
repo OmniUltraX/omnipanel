@@ -2,8 +2,8 @@
 
 use serde_json::Value;
 
-use crate::vault::Vault;
 use crate::ssh_keys::{ssh_key_passphrase_ref, ssh_key_private_ref};
+use crate::vault::Vault;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 
 pub fn ssh_password_ref(connection_id: &str) -> String {

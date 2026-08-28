@@ -5,8 +5,8 @@ use omnipanel_ai::providers::acp::AcpManager;
 use tauri::AppHandle;
 use tokio::sync::Mutex;
 
-use crate::commands::acp::{connect_agent_with_acp_state, AgentLaunchSpec};
-use crate::commands::agents::{agent_kind_key, detect_all_agents_sync, AgentInstallStatus};
+use crate::commands::acp::{AgentLaunchSpec, connect_agent_with_acp_state};
+use crate::commands::agents::{AgentInstallStatus, agent_kind_key, detect_all_agents_sync};
 use crate::state::AppState;
 
 pub struct AgentRegistry {
@@ -28,7 +28,8 @@ impl AgentRegistry {
         state: &AppState,
         agent_kind: &str,
     ) -> Result<Arc<AcpManager>, String> {
-        self.get_or_connect_inner(app, &state.acp_state, agent_kind).await
+        self.get_or_connect_inner(app, &state.acp_state, agent_kind)
+            .await
     }
 
     /// Gateway-friendly variant: takes `acp_state` directly instead of `&AppState`,
@@ -105,10 +106,7 @@ impl AgentRegistry {
                 .ok_or_else(|| "ACP 连接失败".to_string())?
         };
 
-        self.managers
-            .lock()
-            .await
-            .insert(key, manager.clone());
+        self.managers.lock().await.insert(key, manager.clone());
 
         Ok(manager)
     }

@@ -149,6 +149,9 @@ fn aliases_for(key: &str) -> Vec<String> {
         "dameng" => vec!["dameng".into(), "dm".into()],
         "kingbase" => vec!["kingbase".into(), "kingbasees".into()],
         "gaussdb" => vec!["gaussdb".into(), "opengauss".into()],
+        "oceanbase" | "oceanbase-oracle" => {
+            vec!["oceanbase".into(), "oceanbase-oracle".into()]
+        }
         other => vec![other.to_string()],
     }
 }
@@ -461,14 +464,22 @@ pub async fn plugin_dbx_install(
     })
 }
 
-const OPTIONAL_CATALOG_ENGINES: &[&str] = &[
-    "kingbase",
-    "vastbase",
-    "uxdb",
-    "gaussdb",
-    "oceanbase",
-    "tidb",
+/// 每组按官方 registry 实有 key 解析；当前无 gaussdb / tidb，OceanBase 为 oceanbase-oracle。
+const OPTIONAL_CATALOG_ENGINE_GROUPS: &[&[&str]] = &[
+    &["kingbase"],
+    &["vastbase"],
+    &["uxdb"],
+    &["gaussdb", "opengauss"],
+    &["oceanbase", "oceanbase-oracle"],
+    &["tidb"],
 ];
+
+fn resolve_optional_catalog_key(registry: &RegistryFile, aliases: &[&str]) -> Option<String> {
+    aliases
+        .iter()
+        .find(|key| registry.drivers.contains_key(**key))
+        .map(|key| (*key).to_string())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -478,36 +489,46 @@ pub struct DbxInstallAttempt {
     pub message: String,
 }
 
-/// 安装金仓 / Vastbase / UXDB / GaussDB / OceanBase / TiDB；目录无包则记原因，不阻断其余项。
+/// 安装金仓 / Vastbase / UXDB / OceanBase 等；目录无包则记原因，不阻断其余项。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_dbx_install_catalog_engines(
     state: State<'_, AppState>,
 ) -> Result<Vec<DbxInstallAttempt>, OmniError> {
+    let plugins_root = state.plugin_packages_dir.clone();
+    let catalog = registry_for_catalog(&state.plugin_http, plugins_root.as_deref()).await?;
     let mut out = Vec::new();
-    for key in OPTIONAL_CATALOG_ENGINES {
-        let plugin_id = plugin_id_for(key);
+    for aliases in OPTIONAL_CATALOG_ENGINE_GROUPS {
+        let Some(key) = resolve_optional_catalog_key(&catalog, aliases) else {
+            out.push(DbxInstallAttempt {
+                key: aliases[0].to_string(),
+                ok: false,
+                message: format!("DBX 目录没有 driver: {}", aliases.join("|")),
+            });
+            continue;
+        };
+        let plugin_id = plugin_id_for(&key);
         {
             let registry = state.plugin_registry.lock().await;
             if registry.is_installed(&plugin_id) {
                 out.push(DbxInstallAttempt {
-                    key: (*key).to_string(),
+                    key,
                     ok: true,
                     message: "already installed".into(),
                 });
                 continue;
             }
         }
-        match plugin_dbx_install(state.clone(), (*key).to_string()).await {
+        match plugin_dbx_install(state.clone(), key.clone()).await {
             Ok(item) => out.push(DbxInstallAttempt {
-                key: (*key).to_string(),
+                key,
                 ok: true,
                 message: format!("installed {}", item.version),
             }),
             Err(err) => {
                 tracing::warn!("安装 DBX {key} 失败: {err}");
                 out.push(DbxInstallAttempt {
-                    key: (*key).to_string(),
+                    key,
                     ok: false,
                     message: err.to_string(),
                 });
@@ -965,6 +986,30 @@ fn migrate_engine_manifest(plugins_root: &Path, key: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_catalog_resolves_oceanbase_oracle_and_skips_missing() {
+        let registry: RegistryFile = serde_json::from_value(json!({
+            "drivers": {
+                "kingbase": { "version": "1.0.0" },
+                "oceanbase-oracle": { "version": "1.0.0" }
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            resolve_optional_catalog_key(&registry, &["kingbase"]).as_deref(),
+            Some("kingbase")
+        );
+        assert_eq!(
+            resolve_optional_catalog_key(&registry, &["oceanbase", "oceanbase-oracle"]).as_deref(),
+            Some("oceanbase-oracle")
+        );
+        assert_eq!(
+            resolve_optional_catalog_key(&registry, &["gaussdb", "opengauss"]),
+            None
+        );
+        assert_eq!(resolve_optional_catalog_key(&registry, &["tidb"]), None);
+    }
 
     #[test]
     fn parse_skips_first_party_and_worker() {

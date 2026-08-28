@@ -41,6 +41,9 @@ const READ_ONLY_TOOL_PATTERNS = [
   /container_logs/,
   /inspect_container/,
   /list_connections/,
+  /list_users/,
+  /list_character_sets/,
+  /preview_table/,
   /get_stats/,
   /list_tunnels/,
   /files_list/,
@@ -51,6 +54,7 @@ const READ_ONLY_TOOL_PATTERNS = [
 
 const ALWAYS_APPROVE_PATTERNS = [
   /kill_query/,
+  /create_database/,
   /docker_exec/,
 ];
 

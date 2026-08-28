@@ -29,15 +29,11 @@ pub fn load_installed(plugins_root: &Path) -> Vec<InstalledPlugin> {
         }
         match std::fs::read_to_string(&manifest_path)
             .map_err(|e| e.to_string())
-            .and_then(|text| {
-                PluginManifest::from_json(&text).map_err(|e| e.to_string())
-            }) {
+            .and_then(|text| PluginManifest::from_json(&text).map_err(|e| e.to_string()))
+        {
             Ok(manifest) => out.push(InstalledPlugin { manifest, dir }),
             Err(err) => {
-                eprintln!(
-                    "[plugin-installed] 跳过非法包 {}: {err}",
-                    dir.display()
-                );
+                eprintln!("[plugin-installed] 跳过非法包 {}: {err}", dir.display());
             }
         }
     }

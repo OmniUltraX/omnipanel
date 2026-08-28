@@ -19,7 +19,7 @@ use serde::Serialize;
 use specta::Type;
 use tokio::sync::Mutex;
 
-use crate::{shell_single_quote, SshSession};
+use crate::{SshSession, shell_single_quote};
 
 fn unix_timestamp_millis() -> i64 {
     std::time::SystemTime::now()
@@ -63,14 +63,9 @@ pub enum ToolState {
     /// 待安装：二进制缺失，但 manifest 声明了可自动安装的方式。
     NeedInstall,
     /// 版本过低：已安装但低于最低要求。
-    TooOld {
-        version: String,
-        required: String,
-    },
+    TooOld { version: String, required: String },
     /// 不支持：缺失且无法自动安装（仅展示手动指引）。
-    Unsupported {
-        reason: String,
-    },
+    Unsupported { reason: String },
 }
 
 /// 安装方式声明。
@@ -86,18 +81,11 @@ pub enum InstallMethod {
         packages: HashMap<String, String>,
     },
     /// 本机下载二进制 + SFTP 上传。
-    DownloadBinary {
-        url: String,
-        remote_path: String,
-    },
+    DownloadBinary { url: String, remote_path: String },
     /// 在远端执行 shell 脚本安装（如从源码编译，绕过老系统仓库版本过低）。
-    ShellScript {
-        script: String,
-    },
+    ShellScript { script: String },
     /// 仅展示手动安装指引（无法自动安装）。
-    Manual {
-        instructions: String,
-    },
+    Manual { instructions: String },
 }
 
 /// 单个工具的声明式描述。
@@ -356,7 +344,8 @@ exit 1
 ///
 /// 注意：`batch_probe_script` 只覆盖 `min_version` 不为 None 或常见工具，
 /// 其余工具走 `lazy_probe_ids` 由前端按需单条探测。
-pub static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| vec![
+pub static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| {
+    vec![
     ToolSpec {
         id: "tmux",
         label_key: "tmux",
@@ -650,7 +639,8 @@ pub static TOOLS: LazyLock<Vec<ToolSpec>> = LazyLock::new(|| vec![
         },
         related_modules: &[],
     },
-]);
+]
+});
 
 /// 查找工具声明。
 pub fn find_tool_spec(id: &str) -> Option<&'static ToolSpec> {
@@ -852,10 +842,14 @@ fn parse_version_pair(s: &str) -> Option<(u32, u32)> {
 /// 单独探测一个工具（批量脚本未覆盖的，如 nvidia-smi）。
 async fn probe_single_tool(session: &SshSession, spec: &ToolSpec) -> ToolState {
     let cmd = match spec.id {
-        "nvidia-smi" => "command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo missing",
-        _ => return ToolState::Unsupported {
-            reason: "no_probe".to_string(),
-        },
+        "nvidia-smi" => {
+            "command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo missing"
+        }
+        _ => {
+            return ToolState::Unsupported {
+                reason: "no_probe".to_string(),
+            };
+        }
     };
     match session.exec_capture(cmd).await {
         Ok(out) => {
@@ -868,7 +862,7 @@ async fn probe_single_tool(session: &SshSession, spec: &ToolSpec) -> ToolState {
             } else {
                 ToolState::Ready {
                     version: None,
-                    path: Some(format!("nvidia-smi: {}", raw.lines().next().unwrap_or(""))) ,
+                    path: Some(format!("nvidia-smi: {}", raw.lines().next().unwrap_or(""))),
                 }
             }
         }
@@ -989,18 +983,12 @@ pub async fn install_remote_tool(
     tool_id: &str,
 ) -> Result<InstallToolResult, OmniError> {
     let spec = find_tool_spec(tool_id).ok_or_else(|| {
-        OmniError::new(
-            ErrorCode::InvalidInput,
-            format!("未知工具 id: {tool_id}"),
-        )
+        OmniError::new(ErrorCode::InvalidInput, format!("未知工具 id: {tool_id}"))
     })?;
 
     let (installed, message) = match &spec.install {
         InstallMethod::None => (false, "该工具不支持自动安装".to_string()),
-        InstallMethod::Manual { instructions } => (
-            false,
-            format!("需手动安装：\n{instructions}"),
-        ),
+        InstallMethod::Manual { instructions } => (false, format!("需手动安装：\n{instructions}")),
         InstallMethod::PackageManager { packages } => {
             install_via_package_manager(session, spec.id, packages).await?
         }
@@ -1065,27 +1053,34 @@ echo UNKNOWN)))))"#;
     })?;
 
     let install_cmd = match pm.as_str() {
-        "apt" => format!(
-            "sudo -n apt-get install -y {pkg} 2>/dev/null || apt-get install -y {pkg} 2>&1"
-        ),
+        "apt" => {
+            format!("sudo -n apt-get install -y {pkg} 2>/dev/null || apt-get install -y {pkg} 2>&1")
+        }
         "dnf" => format!("sudo -n dnf install -y {pkg} 2>/dev/null || dnf install -y {pkg} 2>&1"),
         "yum" => format!("sudo -n yum install -y {pkg} 2>/dev/null || yum install -y {pkg} 2>&1"),
-        "apk" => format!("apk add --no-progress {pkg} 2>&1 || sudo -n apk add --no-progress {pkg} 2>&1"),
+        "apk" => {
+            format!("apk add --no-progress {pkg} 2>&1 || sudo -n apk add --no-progress {pkg} 2>&1")
+        }
         "pacman" => format!(
             "sudo -n pacman -S --noconfirm --needed {pkg} 2>/dev/null || pacman -S --noconfirm --needed {pkg} 2>&1"
         ),
-        "zypper" => format!("sudo -n zypper -n install {pkg} 2>/dev/null || zypper -n install {pkg} 2>&1"),
+        "zypper" => {
+            format!("sudo -n zypper -n install {pkg} 2>/dev/null || zypper -n install {pkg} 2>&1")
+        }
         _ => {
             return Ok((false, format!("不支持的包管理器: {pm}")));
         }
     };
 
-    let output = match tokio::time::timeout(Duration::from_secs(120), session.exec_capture(&install_cmd)).await {
-        Ok(r) => r?,
-        Err(_) => {
-            return Ok((false, "安装超时（>120s）".to_string()));
-        }
-    };
+    let output =
+        match tokio::time::timeout(Duration::from_secs(120), session.exec_capture(&install_cmd))
+            .await
+        {
+            Ok(r) => r?,
+            Err(_) => {
+                return Ok((false, "安装超时（>120s）".to_string()));
+            }
+        };
 
     // 校验
     let verify_cmd = format!("command -v {tool_id} >/dev/null 2>&1 && echo OK || echo FAIL");
@@ -1101,7 +1096,10 @@ echo UNKNOWN)))))"#;
         if combined.is_empty() {
             format!("已安装 {pkg}（{pm}）")
         } else {
-            format!("已安装 {pkg}（{pm}）\n{}", combined.chars().take(500).collect::<String>())
+            format!(
+                "已安装 {pkg}（{pm}）\n{}",
+                combined.chars().take(500).collect::<String>()
+            )
         }
     } else if combined.is_empty() {
         format!("安装失败（{pm} install {pkg}）")
@@ -1642,7 +1640,10 @@ fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
         } else if let Some(kind) = line.strip_prefix("@ENDPANEL:") {
             if let Some(k) = current_kind.take() {
                 if k == kind.trim() {
-                    let installed = fields.get("installed").map(|v| v.trim() == "1").unwrap_or(false);
+                    let installed = fields
+                        .get("installed")
+                        .map(|v| v.trim() == "1")
+                        .unwrap_or(false);
                     let port: u16 = fields
                         .get("port")
                         .and_then(|v| v.trim().parse().ok())
@@ -1661,10 +1662,7 @@ fn parse_panel_probe_output(output: &str) -> Vec<PanelProbeItem> {
                         .map(|v| v.trim() == "1")
                         .unwrap_or(false);
                     // api_key 是 base64 编码的，需解码
-                    let api_key_b64 = fields
-                        .get("api_key")
-                        .map(|v| v.trim())
-                        .unwrap_or("");
+                    let api_key_b64 = fields.get("api_key").map(|v| v.trim()).unwrap_or("");
                     let api_key = if api_key_b64.is_empty() {
                         String::new()
                     } else {
@@ -2122,7 +2120,10 @@ PY
     )
 }
 
-fn parse_enable_panel_api_output(kind: &str, output: &str) -> Result<EnablePanelApiResult, OmniError> {
+fn parse_enable_panel_api_output(
+    kind: &str,
+    output: &str,
+) -> Result<EnablePanelApiResult, OmniError> {
     let mut ok: Option<bool> = None;
     let mut api_key_b64 = String::new();
     let mut message = String::new();
@@ -2147,12 +2148,15 @@ fn parse_enable_panel_api_output(kind: &str, output: &str) -> Result<EnablePanel
 
     let Some(success) = ok else {
         let snippet = scrub_probe_text(&output.chars().take(400).collect::<String>());
-        return Err(OmniError::new(ErrorCode::Ssh, "开启面板 API 未返回有效结果")
-            .with_cause(if snippet.is_empty() {
-                "远端无输出（是否缺少 python3？）".into()
-            } else {
-                snippet
-            }));
+        return Err(
+            OmniError::new(ErrorCode::Ssh, "开启面板 API 未返回有效结果").with_cause(
+                if snippet.is_empty() {
+                    "远端无输出（是否缺少 python3？）".into()
+                } else {
+                    snippet
+                },
+            ),
+        );
     };
 
     let api_key = if api_key_b64.is_empty() {
@@ -2233,9 +2237,7 @@ note:v2.2.3
     fn parse_enable_ok() {
         let key = "abc123Key";
         let key_b64 = base64::engine::general_purpose::STANDARD.encode(key);
-        let out = format!(
-            "@RESULT:ok\napi_key:{key_b64}\nmessage:ok done\nrestarted:1\n@END\n"
-        );
+        let out = format!("@RESULT:ok\napi_key:{key_b64}\nmessage:ok done\nrestarted:1\n@END\n");
         let res = parse_enable_panel_api_output("bt", &out).unwrap();
         assert!(res.enabled);
         assert_eq!(res.api_key, key);

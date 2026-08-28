@@ -68,6 +68,35 @@ describe("decideToolInvocation", () => {
       }).decision,
     ).toBe("allow");
   });
+
+  it("allows preview and list users", () => {
+    expect(
+      decideToolInvocation({
+        toolName: "omni_database_preview_table",
+        args: { connection_name: "x", database_name: "y", table_name: "t" },
+      }).decision,
+    ).toBe("allow");
+    expect(
+      decideToolInvocation({
+        toolName: "omni_database_list_users",
+        args: { connection_name: "x" },
+      }).decision,
+    ).toBe("allow");
+    expect(
+      decideToolInvocation({
+        toolName: "omni_database_list_character_sets",
+        args: { connection_name: "x" },
+      }).decision,
+    ).toBe("allow");
+  });
+
+  it("approves create_database", () => {
+    const r = decideToolInvocation({
+      toolName: "omni_database_create_database",
+      args: { connection_name: "x", database_name: "newdb" },
+    });
+    expect(r.decision).toBe("approve");
+  });
 });
 
 describe("canAutoAllowAcp", () => {

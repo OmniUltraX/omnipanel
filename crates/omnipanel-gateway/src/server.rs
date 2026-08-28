@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use axum::{
+    Json, Router,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use omnipanel_ai::provider::AiProviderRegistry;
 use omnipanel_store::Storage;
@@ -185,7 +185,13 @@ async fn chat_completions(
 
     match ctx
         .router
-        .chat_completions(body.model, body.messages, body.stream, body.tools, conversation_id)
+        .chat_completions(
+            body.model,
+            body.messages,
+            body.stream,
+            body.tools,
+            conversation_id,
+        )
         .await
     {
         Ok(resp) => (StatusCode::OK, resp).into_response(),

@@ -5,15 +5,15 @@
 //! 前端 shim 收到后按 `event` 字段分发给对应 topic 的 handler。
 
 use axum::extract::{
-    ws::{Message, WebSocket},
     Query, State, WebSocketUpgrade,
+    ws::{Message, WebSocket},
 };
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
-use crate::bus::{forward_events_to_ws, Event};
+use crate::bus::{Event, forward_events_to_ws};
 use crate::server::AppCtx;
 
 /// `GET /ipc/events?token=...` 的 query 参数（API Key 经 query 传递，

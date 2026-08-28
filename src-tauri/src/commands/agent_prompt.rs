@@ -1,7 +1,7 @@
 //! 智能体提示词读写：`~/.omnipd/prompts/`。
 
 use omnipanel_error::OmniError;
-use omnipanel_store::{list_prompt_entries, reset_prompt, save_prompt, AgentPromptEntry};
+use omnipanel_store::{AgentPromptEntry, list_prompt_entries, reset_prompt, save_prompt};
 
 fn map_err(e: OmniError) -> String {
     e.to_string()

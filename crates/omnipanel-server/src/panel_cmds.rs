@@ -12,8 +12,9 @@ use crate::terminal::ServerState;
 fn parse_optional_json_body(body: Option<String>) -> Result<Option<Value>, OmniError> {
     match body {
         Some(raw) if !raw.trim().is_empty() => {
-            let value = serde_json::from_str::<Value>(&raw)
-                .map_err(|e| OmniError::invalid_input("request body is not valid JSON").with_cause(e.to_string()))?;
+            let value = serde_json::from_str::<Value>(&raw).map_err(|e| {
+                OmniError::invalid_input("request body is not valid JSON").with_cause(e.to_string())
+            })?;
             Ok(Some(value))
         }
         _ => Ok(None),
@@ -30,13 +31,15 @@ pub async fn panel_resolve_api_key(
     }
 
     let storage = state.storage.lock().await;
-    let conn = storage
-        .get_connection(&connection_id)?
-        .ok_or_else(|| OmniError::invalid_input(format!("panel connection not found: {connection_id}")))?;
+    let conn = storage.get_connection(&connection_id)?.ok_or_else(|| {
+        OmniError::invalid_input(format!("panel connection not found: {connection_id}"))
+    })?;
     drop(storage);
 
     if conn.kind != ConnectionKind::Panel {
-        return Err(OmniError::invalid_input("target connection is not a panel connection"));
+        return Err(OmniError::invalid_input(
+            "target connection is not a panel connection",
+        ));
     }
 
     let key = conn
@@ -52,7 +55,9 @@ pub async fn panel_resolve_api_key(
         .unwrap_or_default();
 
     if key.trim().is_empty() {
-        return Err(OmniError::invalid_input("panel API key not found, please re-save the connection"));
+        return Err(OmniError::invalid_input(
+            "panel API key not found, please re-save the connection",
+        ));
     }
     Ok(key.trim().to_string())
 }
@@ -68,12 +73,16 @@ pub async fn panel_1panel_request(
 ) -> Result<String, OmniError> {
     let body_val = parse_optional_json_body(body)?;
     let result = crate::panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
-    serde_json::to_string(&result)
-        .map_err(|e| OmniError::internal("failed to serialize 1Panel response").with_cause(e.to_string()))
+    serde_json::to_string(&result).map_err(|e| {
+        OmniError::internal("failed to serialize 1Panel response").with_cause(e.to_string())
+    })
 }
 
 /// 1Panel connectivity test.
-pub async fn panel_1panel_test_connection(host: String, api_key: String) -> Result<bool, OmniError> {
+pub async fn panel_1panel_test_connection(
+    host: String,
+    api_key: String,
+) -> Result<bool, OmniError> {
     crate::panel::onepanel::test_connection(&host, &api_key).await?;
     Ok(true)
 }
@@ -146,13 +155,16 @@ pub async fn panel_bt_request(
         Some(Value::Object(map)) => Some(map),
         Some(Value::Null) | None => None,
         Some(_) => {
-            return Err(OmniError::invalid_input("BT-Panel API request body must be a JSON object"));
+            return Err(OmniError::invalid_input(
+                "BT-Panel API request body must be a JSON object",
+            ));
         }
     };
 
     let result = crate::panel::btpanel::request(&host, &api_sk, &path, body_map).await?;
-    serde_json::to_string(&result)
-        .map_err(|e| OmniError::internal("failed to serialize BT-Panel response").with_cause(e.to_string()))
+    serde_json::to_string(&result).map_err(|e| {
+        OmniError::internal("failed to serialize BT-Panel response").with_cause(e.to_string())
+    })
 }
 
 /// Generic BT-Panel GET request (query signature, for endpoints documented as GET).
@@ -167,13 +179,16 @@ pub async fn panel_bt_request_get(
         Some(Value::Object(map)) => Some(map),
         Some(Value::Null) | None => None,
         Some(_) => {
-            return Err(OmniError::invalid_input("BT-Panel API GET params must be a JSON object"));
+            return Err(OmniError::invalid_input(
+                "BT-Panel API GET params must be a JSON object",
+            ));
         }
     };
 
     let result = crate::panel::btpanel::request_get(&host, &api_sk, &path, query_map).await?;
-    serde_json::to_string(&result)
-        .map_err(|e| OmniError::internal("failed to serialize BT-Panel response").with_cause(e.to_string()))
+    serde_json::to_string(&result).map_err(|e| {
+        OmniError::internal("failed to serialize BT-Panel response").with_cause(e.to_string())
+    })
 }
 
 /// BT-Panel connectivity test.
@@ -192,5 +207,6 @@ pub async fn panel_bt_app_icon(
     app_name: String,
     icon_file: Option<String>,
 ) -> Result<String, OmniError> {
-    crate::panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name, icon_file.as_deref()).await
+    crate::panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name, icon_file.as_deref())
+        .await
 }

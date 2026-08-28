@@ -3,10 +3,10 @@ use omnipanel_store::DbConnectionConfig;
 use tauri::State;
 
 use crate::background::db_sync_jobs::{
+    DbDataSyncSqlGenerateResult, DbSyncExecTableSpec, DbSyncSqlPreviewTable, DbSyncTableSpec,
     batch_table_ddl, generate_data_sync_sql_script, preview_schema_sync_sql, read_sync_sql_file,
     run_db_data_sync_analysis, run_db_data_sync_execute, run_db_data_sync_sql_file_execute,
     run_db_schema_sync_analysis, run_db_schema_sync_execute, save_sync_sql_file,
-    DbDataSyncSqlGenerateResult, DbSyncExecTableSpec, DbSyncSqlPreviewTable, DbSyncTableSpec,
 };
 use crate::background::knowledge_vector_jobs::run_knowledge_vectorize_background;
 use crate::background::local_runtime_jobs::{
@@ -21,7 +21,9 @@ use crate::state::AppState;
 /// 列出当前正在运行的后台任务。
 #[tauri::command]
 #[specta::specta]
-pub async fn bg_task_list(state: State<'_, AppState>) -> Result<Vec<BackgroundTaskInfo>, OmniError> {
+pub async fn bg_task_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<BackgroundTaskInfo>, OmniError> {
     Ok(state.worker_pool.list_running().await)
 }
 

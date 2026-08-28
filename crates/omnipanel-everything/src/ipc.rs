@@ -97,7 +97,8 @@ pub fn parse_listw(bytes: &[u8]) -> Result<Vec<EverythingHit>, EverythingError> 
     for i in 0..numitems {
         let off = item_start + i * item_size;
         let flags = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap());
-        let filename_offset = u32::from_le_bytes(bytes[off + 4..off + 8].try_into().unwrap()) as usize;
+        let filename_offset =
+            u32::from_le_bytes(bytes[off + 4..off + 8].try_into().unwrap()) as usize;
         let path_offset = u32::from_le_bytes(bytes[off + 8..off + 12].try_into().unwrap()) as usize;
         let dir = read_wchar_z(bytes, path_offset)?;
         let name = read_wchar_z(bytes, filename_offset)?;

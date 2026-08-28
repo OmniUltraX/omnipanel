@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use reqwest::Client;
@@ -135,7 +135,12 @@ fn find_ollama_cli() -> Option<String> {
     let candidates: Vec<PathBuf> = if cfg!(windows) {
         let mut list = Vec::new();
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            list.push(PathBuf::from(local).join("Programs").join("Ollama").join("ollama.exe"));
+            list.push(
+                PathBuf::from(local)
+                    .join("Programs")
+                    .join("Ollama")
+                    .join("ollama.exe"),
+            );
         }
         if let Ok(user) = std::env::var("USERPROFILE") {
             list.push(
@@ -240,10 +245,7 @@ async fn fetch_ollama_models(client: &Client) -> Result<Vec<LocalModelInfo>, Str
             name: m.name,
             size_bytes: m.size.unwrap_or(0),
             digest: m.digest.unwrap_or_default(),
-            family: m
-                .details
-                .and_then(|d| d.family)
-                .unwrap_or_default(),
+            family: m.details.and_then(|d| d.family).unwrap_or_default(),
         })
         .collect())
 }
@@ -486,12 +488,7 @@ pub(crate) async fn install_ollama_with_progress(
                 report(&progress, "已通过 winget 安装 Ollama", 100, 100);
                 return Ok("已通过 winget 安装 Ollama".into());
             }
-            report(
-                &progress,
-                "winget 安装未成功，改用官方安装包…",
-                35,
-                100,
-            );
+            report(&progress, "winget 安装未成功，改用官方安装包…", 35, 100);
         }
 
         if cancel.load(Ordering::Relaxed) {
@@ -578,7 +575,9 @@ pub(crate) async fn install_ollama_with_progress(
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         let _ = (cancel, progress);
-        Err(format!("当前平台暂不支持自动安装，请访问 {OLLAMA_DOWNLOAD_URL}"))
+        Err(format!(
+            "当前平台暂不支持自动安装，请访问 {OLLAMA_DOWNLOAD_URL}"
+        ))
     }
 }
 

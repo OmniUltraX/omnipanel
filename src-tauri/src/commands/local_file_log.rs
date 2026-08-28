@@ -7,10 +7,11 @@ use std::io::{BufRead, BufReader};
 use async_trait::async_trait;
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::log_tail::{
-    local_log_open as ssh_local_log_open, local_log_read_lines as ssh_local_log_read_lines,
+    LogTailChunk, LogTailEventSink, local_log_open as ssh_local_log_open,
+    local_log_read_lines as ssh_local_log_read_lines,
     local_log_tail_initial as ssh_local_log_tail_initial,
     local_log_tail_start as ssh_local_log_tail_start,
-    local_log_tail_stop as ssh_local_log_tail_stop, LogTailChunk, LogTailEventSink,
+    local_log_tail_stop as ssh_local_log_tail_stop,
 };
 use regex::Regex;
 use tauri::{AppHandle, Emitter};
@@ -70,7 +71,12 @@ pub async fn local_log_tail_initial(
     Ok(lines)
 }
 
-fn match_line(text: &str, pattern: &str, is_regex: bool, re: &Option<Regex>) -> Option<(usize, usize)> {
+fn match_line(
+    text: &str,
+    pattern: &str,
+    is_regex: bool,
+    re: &Option<Regex>,
+) -> Option<(usize, usize)> {
     if is_regex {
         let re = re.as_ref()?;
         let m = re.find(text)?;
@@ -174,7 +180,9 @@ pub async fn local_log_search(
         Ok(hits)
     })
     .await
-    .map_err(|e| OmniError::new(ErrorCode::Internal, "本地日志搜索任务失败").with_cause(e.to_string()))?
+    .map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "本地日志搜索任务失败").with_cause(e.to_string())
+    })?
 }
 
 #[tauri::command]

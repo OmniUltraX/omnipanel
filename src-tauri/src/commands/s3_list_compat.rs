@@ -3,8 +3,8 @@
 
 use s3::bucket::Bucket;
 use s3::command::Command;
-use s3::request::tokio_backend::HyperRequest;
 use s3::request::Request;
+use s3::request::tokio_backend::HyperRequest;
 use serde::Deserialize;
 
 use omnipanel_error::{ErrorCode, OmniError};
@@ -88,9 +88,9 @@ pub async fn s3_list_page(
         start_after: None,
         max_keys,
     };
-    let request = HyperRequest::new(bucket, "/", command)
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 S3 列表请求失败").with_cause(e.to_string()))?;
+    let request = HyperRequest::new(bucket, "/", command).await.map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "创建 S3 列表请求失败").with_cause(e.to_string())
+    })?;
     let response = request
         .response_data(false)
         .await
@@ -99,11 +99,10 @@ pub async fn s3_list_page(
     let body = response.as_slice();
     if !(200..300).contains(&status) {
         let text = String::from_utf8_lossy(body);
-        return Err(OmniError::new(
-            ErrorCode::Io,
-            format!("列出 S3 对象失败（HTTP {status}）"),
-        )
-        .with_cause(text.chars().take(500).collect::<String>()));
+        return Err(
+            OmniError::new(ErrorCode::Io, format!("列出 S3 对象失败（HTTP {status}）"))
+                .with_cause(text.chars().take(500).collect::<String>()),
+        );
     }
 
     parse_list_bucket_xml(body)

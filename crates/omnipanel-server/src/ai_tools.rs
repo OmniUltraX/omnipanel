@@ -29,8 +29,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use omnipanel_ai::types::ToolDef;
 use omnipanel_ai::ToolExecutor;
+use omnipanel_ai::types::ToolDef;
 use omnipanel_mcp::ToolRegistry;
 use omnipanel_ssh::SshConfig;
 use serde::Deserialize;
@@ -84,7 +84,10 @@ async fn ssh_config_by_id(state: &ServerState, id: &str) -> Result<SshConfig, St
 }
 
 /// 建立无 shell 的 SSH 会话（复用 `SshSession::connect_no_shell`，与 Docker SSH 适配器同构）。
-async fn ssh_exec_session(state: &ServerState, id: &str) -> Result<Arc<omnipanel_ssh::SshSession>, String> {
+async fn ssh_exec_session(
+    state: &ServerState,
+    id: &str,
+) -> Result<Arc<omnipanel_ssh::SshSession>, String> {
     // 优先复用已有交互 SSH 会话（存在时）
     if let Some(session) = state.ssh_sessions.lock().await.get(id) {
         return Ok(session.clone());
@@ -270,9 +273,11 @@ impl<'a> ServerToolExecutor<'a> {
                     Some(m) => m,
                     None => {
                         return (
-                            format!("Error: 外部 MCP 管理器不可用（无法调用 {service_id}::{tool_name}）"),
+                            format!(
+                                "Error: 外部 MCP 管理器不可用（无法调用 {service_id}::{tool_name}）"
+                            ),
                             false,
-                        )
+                        );
                     }
                 };
                 let manager = manager.lock().await;
@@ -296,7 +301,11 @@ impl<'a> ServerToolExecutor<'a> {
 }
 
 /// 模块隔离校验（与桌面端 `ensure_tool_allowed_by_module_filter` 等价）。
-fn ensure_tool_allowed(state: &ServerState, name: &str, filter: Option<&str>) -> Result<(), String> {
+fn ensure_tool_allowed(
+    state: &ServerState,
+    name: &str,
+    filter: Option<&str>,
+) -> Result<(), String> {
     let _ = state;
     let Some(filter) = filter.filter(|f| !f.is_empty() && *f != "master") else {
         return Ok(());
@@ -359,11 +368,13 @@ impl<'a> ToolExecutor for ServerToolExecutor<'a> {
                     return (
                         format!("Error: 外部 MCP 管理器不可用（无法调用 {name}）"),
                         false,
-                    )
+                    );
                 }
             };
             let manager = manager.lock().await;
-            let outcome = manager.call_service_tool(&service_id, &tool_name, args).await;
+            let outcome = manager
+                .call_service_tool(&service_id, &tool_name, args)
+                .await;
             return match outcome {
                 Ok(result) => (result.content.clone(), !result.is_error),
                 Err(err) => (format!("Error: {err}"), false),
@@ -384,55 +395,41 @@ impl<'a> ToolExecutor for ServerToolExecutor<'a> {
         // 服务端自执的 UiDelegated 工具
         let result = match name {
             /* ---------- SSH ---------- */
-            "omni_ssh_exec" => {
-                match serde_json::from_value::<SshExecArgs>(args) {
-                    Ok(a) => ssh_exec(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
+            "omni_ssh_exec" => match serde_json::from_value::<SshExecArgs>(args) {
+                Ok(a) => ssh_exec(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
             "omni_ssh_create_run_script" => {
                 match serde_json::from_value::<SshCreateRunScriptArgs>(args) {
                     Ok(a) => ssh_create_run_script(&self.state, &a).await,
                     Err(e) => Err(format!("参数解析失败: {e}")),
                 }
             }
-            "omni_ssh_get_stats" => {
-                match serde_json::from_value::<SshGetStatsArgs>(args) {
-                    Ok(a) => ssh_get_stats(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
+            "omni_ssh_get_stats" => match serde_json::from_value::<SshGetStatsArgs>(args) {
+                Ok(a) => ssh_get_stats(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
             /* ---------- Docker ---------- */
-            "omni_docker_list_containers" => {
-                match serde_json::from_value::<DockerArgs>(args) {
-                    Ok(a) => docker_list_containers(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
-            "omni_docker_container_logs" => {
-                match serde_json::from_value::<DockerArgs>(args) {
-                    Ok(a) => docker_container_logs(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
-            "omni_docker_inspect_container" => {
-                match serde_json::from_value::<DockerArgs>(args) {
-                    Ok(a) => docker_inspect_container(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
-            "omni_docker_container_action" => {
-                match serde_json::from_value::<DockerArgs>(args) {
-                    Ok(a) => docker_container_action(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
-            "omni_docker_exec" => {
-                match serde_json::from_value::<DockerArgs>(args) {
-                    Ok(a) => docker_exec(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
+            "omni_docker_list_containers" => match serde_json::from_value::<DockerArgs>(args) {
+                Ok(a) => docker_list_containers(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
+            "omni_docker_container_logs" => match serde_json::from_value::<DockerArgs>(args) {
+                Ok(a) => docker_container_logs(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
+            "omni_docker_inspect_container" => match serde_json::from_value::<DockerArgs>(args) {
+                Ok(a) => docker_inspect_container(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
+            "omni_docker_container_action" => match serde_json::from_value::<DockerArgs>(args) {
+                Ok(a) => docker_container_action(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
+            "omni_docker_exec" => match serde_json::from_value::<DockerArgs>(args) {
+                Ok(a) => docker_exec(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
             /* ---------- Database ---------- */
             "omni_database_get_databases_from_connection" => {
                 match serde_json::from_value::<DbArgs>(args) {
@@ -446,18 +443,14 @@ impl<'a> ToolExecutor for ServerToolExecutor<'a> {
                     Err(e) => Err(format!("参数解析失败: {e}")),
                 }
             }
-            "omni_database_get_table_info" => {
-                match serde_json::from_value::<DbArgs>(args) {
-                    Ok(a) => db_table_info(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
-            "omni_database_execute_sql" => {
-                match serde_json::from_value::<DbArgs>(args) {
-                    Ok(a) => db_execute_sql(&self.state, &a).await,
-                    Err(e) => Err(format!("参数解析失败: {e}")),
-                }
-            }
+            "omni_database_get_table_info" => match serde_json::from_value::<DbArgs>(args) {
+                Ok(a) => db_table_info(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
+            "omni_database_execute_sql" => match serde_json::from_value::<DbArgs>(args) {
+                Ok(a) => db_execute_sql(&self.state, &a).await,
+                Err(e) => Err(format!("参数解析失败: {e}")),
+            },
             /* ---------- Files ---------- */
             "omni_files_list" => match serde_json::from_value::<FilesListArgs>(args) {
                 Ok(a) => files_list(&self.state, &a).await,
@@ -607,10 +600,7 @@ async fn docker_inspect_container(
     Ok(serde_json::to_string_pretty(&info).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn docker_container_action(
-    state: &ServerState,
-    args: &DockerArgs,
-) -> Result<String, String> {
+async fn docker_container_action(state: &ServerState, args: &DockerArgs) -> Result<String, String> {
     let container_id = args
         .container_id
         .clone()
@@ -619,7 +609,13 @@ async fn docker_container_action(
         .action
         .clone()
         .ok_or_else(|| "缺少 action".to_string())?;
-    crate::docker_ops::docker_container_action(state, args.connection_id.clone(), container_id, action).await?;
+    crate::docker_ops::docker_container_action(
+        state,
+        args.connection_id.clone(),
+        container_id,
+        action,
+    )
+    .await?;
     Ok("ok".to_string())
 }
 
@@ -689,25 +685,13 @@ async fn db_table_info(state: &ServerState, args: &DbArgs) -> Result<String, Str
         .table_name
         .clone()
         .ok_or_else(|| "缺少 table_name".to_string())?;
-    let info = crate::db::db_preview_table(
-        state,
-        conn,
-        table,
-        200,
-        0,
-        None,
-        None,
-    )
-    .await?;
+    let info = crate::db::db_preview_table(state, conn, table, 200, 0, None, None).await?;
     Ok(serde_json::to_string_pretty(&info).unwrap_or_else(|_| "{}".to_string()))
 }
 
 async fn db_execute_sql(state: &ServerState, args: &DbArgs) -> Result<String, String> {
     let conn = db_config_by_name(state, &args.connection_name).await?;
-    let sql = args
-        .sql
-        .clone()
-        .ok_or_else(|| "缺少 sql".to_string())?;
+    let sql = args.sql.clone().ok_or_else(|| "缺少 sql".to_string())?;
     let result = crate::db::db_execute_query(
         state,
         conn,
@@ -735,7 +719,10 @@ async fn files_list(state: &ServerState, args: &FilesListArgs) -> Result<String,
 }
 
 async fn files_read(state: &ServerState, args: &FilesReadArgs) -> Result<String, String> {
-    let max_bytes = args.max_bytes.unwrap_or(512 * 1024).clamp(0, 8 * 1024 * 1024) as f64;
+    let max_bytes = args
+        .max_bytes
+        .unwrap_or(512 * 1024)
+        .clamp(0, 8 * 1024 * 1024) as f64;
     let data = crate::files::file_read_file(
         state,
         args.connection_id.clone(),
@@ -769,13 +756,8 @@ async fn files_write(state: &ServerState, args: &FilesWriteArgs) -> Result<Strin
         )
         .await?;
     } else {
-        crate::files::file_upload_file(
-            state,
-            args.connection_id.clone(),
-            args.path.clone(),
-            data,
-        )
-        .await?;
+        crate::files::file_upload_file(state, args.connection_id.clone(), args.path.clone(), data)
+            .await?;
     }
     Ok("ok".to_string())
 }

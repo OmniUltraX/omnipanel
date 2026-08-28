@@ -55,8 +55,9 @@ pub async fn docker_container_action(
     container_id: String,
     action: String,
 ) -> Result<(), OmniError> {
-    let parsed = DockerContainerAction::parse(&action)
-        .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, format!("未知容器操作: {action}")))?;
+    let parsed = DockerContainerAction::parse(&action).ok_or_else(|| {
+        OmniError::new(ErrorCode::InvalidInput, format!("未知容器操作: {action}"))
+    })?;
     if parsed.is_destructive() {
         tracing::info!(
             connection = %connection_id,
@@ -117,7 +118,6 @@ pub async fn docker_list_container_log_infos(
         .list_container_log_infos()
         .await
 }
-
 
 /// 卷详情（`docker volume inspect`）。
 #[tauri::command]

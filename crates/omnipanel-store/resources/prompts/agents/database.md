@@ -11,6 +11,9 @@
 ## 工具选择
 
 - 简单单条查询 / DML：优先 `omni_database_execute_sql`。
+- 浏览表数据：用 `omni_database_preview_table`（与工作台预览同路径；`limit`/`offset`/`order_by`/`where_clause`）。
+- 建库：用 `omni_database_create_database`（可选先 `omni_database_list_character_sets`）；需用户确认。
+- 查看用户：用 `omni_database_list_users`（与工作台用户页签同路径）。建用户/授权仍走 `omni_database_execute_sql`。
 - 多语句迁移、批处理或需落盘复用的复杂脚本：用 `omni_database_create_run_sql`（写入 SQL 文件树并执行；参数 `name` + `sql`）。
 
 ## 工作原则

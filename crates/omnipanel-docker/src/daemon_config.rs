@@ -111,7 +111,11 @@ async fn read_remote_text(session: &SshSession, path: &str) -> OmniResult<(Strin
     Ok((out.stdout, true))
 }
 
-async fn write_remote_text_privileged(session: &SshSession, path: &str, content: &str) -> OmniResult<()> {
+async fn write_remote_text_privileged(
+    session: &SshSession,
+    path: &str,
+    content: &str,
+) -> OmniResult<()> {
     let parent = Path::new(path)
         .parent()
         .map(|value| value.to_string_lossy().into_owned())
@@ -167,10 +171,8 @@ pub async fn restart_ssh_docker_daemon(session: &SshSession) -> OmniResult<()> {
     let cmd = "systemctl restart docker 2>/dev/null || service docker restart 2>/dev/null || sudo systemctl restart docker 2>/dev/null || sudo service docker restart";
     let out = session.exec_capture(cmd).await?;
     if out.exit_code != 0 {
-        return Err(
-            OmniError::new(ErrorCode::Internal, "重启 Docker 服务失败")
-                .with_cause(out.stderr.trim().to_string()),
-        );
+        return Err(OmniError::new(ErrorCode::Internal, "重启 Docker 服务失败")
+            .with_cause(out.stderr.trim().to_string()));
     }
     Ok(())
 }

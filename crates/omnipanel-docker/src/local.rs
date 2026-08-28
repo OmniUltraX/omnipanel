@@ -117,7 +117,10 @@ impl DockerExecSession {
     }
 }
 
-use crate::compose::{ComposeContainerRow, aggregate_compose, compose_fields_from_label_map, COMPOSE_CONFIG_LABEL, COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, COMPOSE_WORKDIR_LABEL};
+use crate::compose::{
+    COMPOSE_CONFIG_LABEL, COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL, COMPOSE_WORKDIR_LABEL,
+    ComposeContainerRow, aggregate_compose, compose_fields_from_label_map,
+};
 use crate::model::*;
 use crate::{ContainerFilter, DockerAdapter, normalize_name, short_id};
 
@@ -516,7 +519,9 @@ fn map_disk_usage_item(
     }
 }
 
-pub(crate) fn map_system_data_usage(resp: bollard::models::SystemDataUsageResponse) -> DockerSystemDiskUsage {
+pub(crate) fn map_system_data_usage(
+    resp: bollard::models::SystemDataUsageResponse,
+) -> DockerSystemDiskUsage {
     DockerSystemDiskUsage {
         images: resp
             .image_usage
@@ -760,7 +765,11 @@ impl DockerAdapter for LocalDockerAdapter {
         Ok(resp.id)
     }
 
-    async fn container_logs(&self, id: &str, query: &DockerLogQuery) -> OmniResult<Vec<DockerLogLine>> {
+    async fn container_logs(
+        &self,
+        id: &str,
+        query: &DockerLogQuery,
+    ) -> OmniResult<Vec<DockerLogLine>> {
         let tail = query.tail_or_default();
         let mut builder = LogsOptionsBuilder::default()
             .stdout(true)
@@ -804,9 +813,7 @@ impl DockerAdapter for LocalDockerAdapter {
             let size_bytes = if log_path.is_empty() {
                 None
             } else {
-                std::fs::metadata(&log_path)
-                    .ok()
-                    .map(|m| m.len() as i64)
+                std::fs::metadata(&log_path).ok().map(|m| m.len() as i64)
             };
             out.push(DockerContainerLogInfo {
                 container_id: c.id.clone(),
@@ -906,11 +913,7 @@ impl DockerAdapter for LocalDockerAdapter {
         })
     }
 
-    async fn search_images(
-        &self,
-        term: &str,
-        limit: u32,
-    ) -> OmniResult<DockerImageSearchPage> {
+    async fn search_images(&self, term: &str, limit: u32) -> OmniResult<DockerImageSearchPage> {
         let term = term.trim();
         if term.is_empty() {
             return Ok(DockerImageSearchPage::default());
@@ -1526,13 +1529,10 @@ impl DockerAdapter for LocalDockerAdapter {
         let mut cmd = tokio::process::Command::new("docker");
         cmd.args(["exec", container_id, "ls", "-lan", "--", path]);
         crate::host_cli::configure_no_window(&mut cmd);
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| {
-                OmniError::new(ErrorCode::Internal, "执行 docker exec 列出目录失败")
-                    .with_cause(e.to_string())
-            })?;
+        let output = cmd.output().await.map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "执行 docker exec 列出目录失败")
+                .with_cause(e.to_string())
+        })?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -2260,14 +2260,14 @@ async fn clear_container_logs_via_docker_cli(id: &str) -> OmniResult<()> {
         .output()
         .await
         .map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "清空容器日志失败")
-                .with_cause(e.to_string())
+            OmniError::new(ErrorCode::Internal, "清空容器日志失败").with_cause(e.to_string())
         })?;
     if output.status.success() {
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(OmniError::new(ErrorCode::Internal, "清空容器日志失败").with_cause(stderr.trim().to_string()))
+    Err(OmniError::new(ErrorCode::Internal, "清空容器日志失败")
+        .with_cause(stderr.trim().to_string()))
 }
 
 /// 从 IPAM 配置提取首个 IPv4 子网与网关（优先含 `.` 且不含 `:` 的条目）。
@@ -2358,14 +2358,8 @@ fn parse_docker_search_item(v: serde_json::Value) -> Option<DockerImageSearchRes
             .or_else(|| v.get("pull_count"))
             .and_then(|x| x.as_i64().or_else(|| x.as_f64().map(|n| n as i64)))
             .unwrap_or(0),
-        is_official: json_truthy(
-            v.get("IsOfficial")
-                .or_else(|| v.get("is_official")),
-        ),
-        is_automated: json_truthy(
-            v.get("IsAutomated")
-                .or_else(|| v.get("is_automated")),
-        ),
+        is_official: json_truthy(v.get("IsOfficial").or_else(|| v.get("is_official"))),
+        is_automated: json_truthy(v.get("IsAutomated").or_else(|| v.get("is_automated"))),
     })
 }
 
@@ -2418,9 +2412,8 @@ async fn search_images_via_docker_cli(
         })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(
-            OmniError::new(ErrorCode::Internal, "搜索镜像失败").with_cause(stderr.trim().to_string()),
-        );
+        return Err(OmniError::new(ErrorCode::Internal, "搜索镜像失败")
+            .with_cause(stderr.trim().to_string()));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(parse_docker_search_json_lines(&stdout, limit))

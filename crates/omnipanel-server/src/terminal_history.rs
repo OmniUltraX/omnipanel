@@ -21,12 +21,7 @@ pub async fn terminal_history_upsert_blocks(
     policy: TerminalHistoryRetainPolicy,
 ) -> OmniResult<()> {
     let storage = state.storage.lock().await;
-    storage.terminal_history_upsert_blocks(
-        &session_id,
-        workspace_id.as_deref(),
-        &blocks,
-        &policy,
-    )
+    storage.terminal_history_upsert_blocks(&session_id, workspace_id.as_deref(), &blocks, &policy)
 }
 
 pub async fn terminal_history_remove_block(

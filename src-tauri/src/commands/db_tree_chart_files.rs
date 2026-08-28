@@ -67,13 +67,16 @@ fn content_file_path(content_dir: &Path, id: &str) -> PathBuf {
 
 fn read_document_from_disk(content_dir: &Path, id: &str) -> Option<String> {
     let path = content_file_path(content_dir, id);
-    fs::read_to_string(&path).ok().filter(|raw| !raw.trim().is_empty())
+    fs::read_to_string(&path)
+        .ok()
+        .filter(|raw| !raw.trim().is_empty())
 }
 
 fn write_document_to_disk(content_dir: &Path, id: &str, document: &str) -> Result<(), String> {
     let path = content_file_path(content_dir, id);
     let tmp = path.with_extension("ctr.tmp");
-    fs::write(&tmp, document).map_err(|e| format!("写入 .ctr 文件失败 ({}): {e}", path.display()))?;
+    fs::write(&tmp, document)
+        .map_err(|e| format!("写入 .ctr 文件失败 ({}): {e}", path.display()))?;
     fs::rename(&tmp, &path).map_err(|e| format!("替换 .ctr 文件失败 ({}): {e}", path.display()))?;
     Ok(())
 }
@@ -114,7 +117,9 @@ fn prune_orphan_content_files(content_dir: &Path, nodes: &[DbTreeChartFileNode])
             .and_then(|name| name.to_str())
             .unwrap_or_default()
             .to_string();
-        let still_exists = nodes.iter().any(|node| sanitize_file_stem(&node.id) == stem);
+        let still_exists = nodes
+            .iter()
+            .any(|node| sanitize_file_stem(&node.id) == stem);
         if !still_exists {
             remove_document_from_disk(content_dir, &stem);
         }
@@ -131,8 +136,12 @@ pub async fn db_tree_chart_files_load(app: AppHandle) -> Result<DbTreeChartFiles
         return recover_from_content_dir_only(&content_dir);
     }
 
-    let raw = fs::read_to_string(&index_path)
-        .map_err(|e| format!("读取 db-tree-chart-files.json 失败 ({}): {e}", index_path.display()))?;
+    let raw = fs::read_to_string(&index_path).map_err(|e| {
+        format!(
+            "读取 db-tree-chart-files.json 失败 ({}): {e}",
+            index_path.display()
+        )
+    })?;
     if raw.trim().is_empty() {
         return recover_from_content_dir_only(&content_dir);
     }
@@ -194,15 +203,15 @@ fn recover_from_content_dir_only(content_dir: &Path) -> Result<DbTreeChartFilesF
     }
 
     nodes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    Ok(DbTreeChartFilesFile {
-        version: 1,
-        nodes,
-    })
+    Ok(DbTreeChartFilesFile { version: 1, nodes })
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn db_tree_chart_files_save(app: AppHandle, file: DbTreeChartFilesFile) -> Result<(), String> {
+pub async fn db_tree_chart_files_save(
+    app: AppHandle,
+    file: DbTreeChartFilesFile,
+) -> Result<(), String> {
     let index_path = tree_chart_files_index_path(&app)?;
     let content_dir = tree_chart_files_content_dir(&app)?;
 

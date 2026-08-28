@@ -110,9 +110,8 @@ pub struct PluginManifest {
 
 impl PluginManifest {
     pub fn from_json(raw: &str) -> Result<Self, PluginError> {
-        let value: serde_json::Value = serde_json::from_str(raw).map_err(|e| {
-            PluginError::InvalidManifest(format!("清单 JSON 无法解析: {e}"))
-        })?;
+        let value: serde_json::Value = serde_json::from_str(raw)
+            .map_err(|e| PluginError::InvalidManifest(format!("清单 JSON 无法解析: {e}")))?;
         Self::from_value(value)
     }
 
@@ -140,7 +139,9 @@ impl PluginManifest {
         let mut seen = std::collections::BTreeSet::new();
         for method in &self.methods {
             if method.name.trim().is_empty() {
-                return Err(PluginError::InvalidManifest("methods[].name 不能为空".into()));
+                return Err(PluginError::InvalidManifest(
+                    "methods[].name 不能为空".into(),
+                ));
             }
             if !seen.insert(method.name.clone()) {
                 return Err(PluginError::InvalidManifest(format!(

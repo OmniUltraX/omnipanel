@@ -152,6 +152,54 @@ export function followIntentsForTool(
       }
     }
 
+    // 表预览 → 选中表（与工作台预览页签对齐）
+    if (toolName.includes("preview_table")) {
+      const dbName =
+        str(args.database_name) ??
+        str(args.database) ??
+        str(parsedResult?.database);
+      const tableName =
+        str(args.table_name) ??
+        str(parsedResult?.table) ??
+        str(parsedResult?.name);
+      if (dbName && tableName) {
+        intents.push({
+          type: "selectTable",
+          connectionId: resolvedConnectionId,
+          database: dbName,
+          table: tableName,
+        });
+        return intents;
+      }
+    }
+
+    // 用户 / 字符集 / 库表元数据：只定位连接或库，不要打开 SQL 草稿
+    if (
+      toolName.includes("list_users") ||
+      toolName.includes("list_character_sets") ||
+      toolName.includes("get_databases") ||
+      toolName.includes("get_tables") ||
+      toolName.includes("get_table_info") ||
+      toolName.includes("show_processlist") ||
+      toolName.includes("slow_log")
+    ) {
+      const dbName = str(args.database_name) ?? str(args.database) ?? str(parsedResult?.database);
+      if (dbName) {
+        intents.push({
+          type: "selectDatabase",
+          connectionId: resolvedConnectionId,
+          database: dbName,
+        });
+      } else {
+        intents.push({
+          type: "openConnection",
+          module: "database",
+          resourceId: resolvedConnectionId,
+        });
+      }
+      return intents;
+    }
+
     // 参数感知：执行 SQL → openSqlDraft（create_run_sql 已在上方单独处理）
     if (toolName.includes("execute_sql") || toolName.includes("run_sql")) {
       intents.push({

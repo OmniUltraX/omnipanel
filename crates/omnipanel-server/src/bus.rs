@@ -112,7 +112,6 @@ impl EventBus {
     }
 }
 
-
 /// 把事件流转写为 WS 文本帧。
 pub async fn forward_events_to_ws(
     mut rx: broadcast::Receiver<Event>,

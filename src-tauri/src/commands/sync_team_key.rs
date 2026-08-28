@@ -5,9 +5,9 @@ use std::path::Path;
 use base64::Engine;
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    clear_sync_team_key, export_sync_team_key_json, get_or_create_sync_team_key,
-    import_sync_team_key_json, load_sync_team_key, sync_team_key_fingerprint,
-    SYNC_TEAM_KEY_BYTES,
+    SYNC_TEAM_KEY_BYTES, clear_sync_team_key, export_sync_team_key_json,
+    get_or_create_sync_team_key, import_sync_team_key_json, load_sync_team_key,
+    sync_team_key_fingerprint,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -53,7 +53,9 @@ pub fn sync_team_key_status(team_id: i64) -> Result<SyncTeamKeyStatus, OmniError
 
 #[tauri::command]
 #[specta::specta]
-pub fn sync_team_key_get_or_create(team_id: i64) -> Result<SyncTeamKeyGetOrCreateResult, OmniError> {
+pub fn sync_team_key_get_or_create(
+    team_id: i64,
+) -> Result<SyncTeamKeyGetOrCreateResult, OmniError> {
     if team_id <= 0 {
         return Err(OmniError::invalid_input("团队 ID 无效"));
     }
@@ -83,9 +85,8 @@ pub fn sync_team_key_export_file(
     if team_id <= 0 {
         return Err(OmniError::invalid_input("团队 ID 无效"));
     }
-    let key = load_sync_team_key(team_id)?.ok_or_else(|| {
-        OmniError::new(ErrorCode::NotFound, "本机尚无团队同步密钥，无法导出")
-    })?;
+    let key = load_sync_team_key(team_id)?
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "本机尚无团队同步密钥，无法导出"))?;
     let pass = passphrase.as_deref();
     let json = export_sync_team_key_json(team_id, &key, pass)?;
     std::fs::write(Path::new(path.trim()), json).map_err(|e| {
@@ -121,7 +122,8 @@ pub struct SyncTeamKeyEphemeralKeypair {
 
 #[tauri::command]
 #[specta::specta]
-pub fn sync_team_key_generate_ephemeral_keypair() -> Result<SyncTeamKeyEphemeralKeypair, OmniError> {
+pub fn sync_team_key_generate_ephemeral_keypair() -> Result<SyncTeamKeyEphemeralKeypair, OmniError>
+{
     let (sk, pk) = omnipanel_store::generate_pairing_keypair()?;
     Ok(SyncTeamKeyEphemeralKeypair {
         secret_key_b64: base64::engine::general_purpose::STANDARD.encode(sk),
@@ -142,9 +144,8 @@ pub fn sync_team_key_wrap_for_relay(
     if team_id <= 0 {
         return Err(OmniError::invalid_input("团队 ID 无效"));
     }
-    let key = load_sync_team_key(team_id)?.ok_or_else(|| {
-        OmniError::new(ErrorCode::NotFound, "本机尚无团队同步密钥")
-    })?;
+    let key = load_sync_team_key(team_id)?
+        .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "本机尚无团队同步密钥"))?;
     let aad = format!(
         "{}:{}:{}",
         request_id.trim(),

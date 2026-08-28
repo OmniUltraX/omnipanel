@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::{Value, json};
+use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
@@ -73,25 +74,93 @@ fn cell_to_json(data: &ColumnData<'_>) -> Value {
             .map(|x| Value::String(x.to_string()))
             .unwrap_or(Value::Null),
         ColumnData::DateTime(v) => v
-            .map(|d| Value::String(format!("{d:?}")))
+            .map(|d| {
+                format_naive_datetime(sqlserver_datetime(
+                    i64::from(d.days()),
+                    i64::from(d.seconds_fragments()),
+                ))
+            })
             .unwrap_or(Value::Null),
         ColumnData::SmallDateTime(v) => v
-            .map(|d| Value::String(format!("{d:?}")))
+            .map(|d| {
+                format_naive_datetime(sqlserver_smalldatetime(
+                    i64::from(d.days()),
+                    u32::from(d.seconds_fragments()),
+                ))
+            })
             .unwrap_or(Value::Null),
         ColumnData::DateTime2(v) => v
-            .map(|d| Value::String(format!("{d:?}")))
+            .map(|d| format_naive_datetime(sqlserver_datetime2(d.date().days(), d.time())))
             .unwrap_or(Value::Null),
         ColumnData::DateTimeOffset(v) => v
-            .map(|d| Value::String(format!("{d:?}")))
+            .map(|d| {
+                format_naive_datetime(sqlserver_datetime2(
+                    d.datetime2().date().days(),
+                    d.datetime2().time(),
+                ))
+            })
             .unwrap_or(Value::Null),
         ColumnData::Time(v) => v
-            .map(|d| Value::String(format!("{d:?}")))
+            .map(|d| Value::String(sqlserver_time(d).format("%H:%M:%S%.f").to_string()))
             .unwrap_or(Value::Null),
         ColumnData::Date(v) => v
-            .map(|d| Value::String(format!("{d:?}")))
+            .map(|d| Value::String(sqlserver_date(d.days()).format("%Y-%m-%d").to_string()))
             .unwrap_or(Value::Null),
     };
     sanitize_json_value_for_js(value)
+}
+
+fn format_naive_datetime(dt: NaiveDateTime) -> Value {
+    Value::String(dt.format("%Y-%m-%d %H:%M:%S%.f").to_string())
+}
+
+fn sqlserver_date_from(days: i64, start_year: i32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(start_year, 1, 1).unwrap_or(NaiveDate::MIN)
+        + Duration::days(days)
+}
+
+fn sqlserver_date(days: u32) -> NaiveDate {
+    sqlserver_date_from(i64::from(days), 1)
+}
+
+fn sqlserver_time_from_ns(ns: i64) -> NaiveTime {
+    NaiveTime::from_hms_opt(0, 0, 0).unwrap_or(NaiveTime::MIN) + Duration::nanoseconds(ns)
+}
+
+fn sqlserver_time(time: tiberius::time::Time) -> NaiveTime {
+    let scale = u32::from(time.scale());
+    let factor = 10i64.pow(9u32.saturating_sub(scale));
+    sqlserver_time_from_ns(time.increments() as i64 * factor)
+}
+
+fn sqlserver_datetime(days: i64, seconds_fragments: i64) -> NaiveDateTime {
+    NaiveDateTime::new(
+        sqlserver_date_from(days, 1900),
+        sqlserver_time_from_ns(seconds_fragments * 1_000_000_000 / 300),
+    )
+}
+
+fn sqlserver_smalldatetime(days: i64, minutes: u32) -> NaiveDateTime {
+    NaiveDateTime::new(
+        sqlserver_date_from(days, 1900),
+        NaiveTime::from_num_seconds_from_midnight_opt(minutes.saturating_mul(60), 0)
+            .unwrap_or(NaiveTime::MIN),
+    )
+}
+
+fn sqlserver_datetime2(days: u32, time: tiberius::time::Time) -> NaiveDateTime {
+    NaiveDateTime::new(sqlserver_date(days), sqlserver_time(time))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sqlserver_datetime;
+
+    #[test]
+    fn datetime_epoch_offset() {
+        let dt = sqlserver_datetime(46259, 0);
+        assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-08-27 00:00:00");
+    }
 }
 
 fn first_cell_i64(result: &QueryResult) -> i64 {

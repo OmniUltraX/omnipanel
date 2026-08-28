@@ -2,7 +2,7 @@ use omnipanel_error::{OmniError, OmniResult};
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::error::{map_assistant_error, map_assistant_error_with_cause, AssistantErrorKind};
+use crate::error::{AssistantErrorKind, map_assistant_error, map_assistant_error_with_cause};
 
 /// 调用账号服务时附带的鉴权上下文。
 #[derive(Debug, Clone)]
@@ -138,12 +138,20 @@ pub async fn fetch_oss_sts(auth: &AuthContext) -> OmniResult<OssStsCredentials> 
         .send()
         .await
         .map_err(|e| {
-            map_assistant_error_with_cause(AssistantErrorKind::Sts, "申请 OSS 凭证失败", e.to_string())
+            map_assistant_error_with_cause(
+                AssistantErrorKind::Sts,
+                "申请 OSS 凭证失败",
+                e.to_string(),
+            )
         })?;
 
     let status = resp.status();
     let text = resp.text().await.map_err(|e| {
-        map_assistant_error_with_cause(AssistantErrorKind::Sts, "读取 OSS 凭证响应失败", e.to_string())
+        map_assistant_error_with_cause(
+            AssistantErrorKind::Sts,
+            "读取 OSS 凭证响应失败",
+            e.to_string(),
+        )
     })?;
 
     if !status.is_success() {

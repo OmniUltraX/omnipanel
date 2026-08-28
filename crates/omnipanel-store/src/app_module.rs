@@ -139,9 +139,7 @@ impl Storage {
             )
             .map_err(map_sqlite)?;
 
-        let rows = stmt
-            .query_map([], row_to_app_module)
-            .map_err(map_sqlite)?;
+        let rows = stmt.query_map([], row_to_app_module).map_err(map_sqlite)?;
 
         rows.collect::<Result<Vec<_>, _>>().map_err(map_sqlite)
     }

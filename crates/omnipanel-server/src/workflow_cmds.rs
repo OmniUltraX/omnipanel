@@ -1,7 +1,7 @@
 //! 工作流 store CRUD + 执行引擎（shell/docker/sql 步骤）。
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
@@ -123,7 +123,8 @@ pub async fn workflow_run(state: &ServerState, id: String) -> Result<WorkflowExe
     let bg_exec_id = exec_id.clone();
 
     tokio::spawn(async move {
-        let result = execute_workflow_steps(&storage, &bus, &detail, &bg_exec_id, &cancel_flag).await;
+        let result =
+            execute_workflow_steps(&storage, &bus, &detail, &bg_exec_id, &cancel_flag).await;
         {
             let mut running = running_workflows.lock().await;
             running.remove(&bg_exec_id);
@@ -140,10 +141,7 @@ pub async fn workflow_run(state: &ServerState, id: String) -> Result<WorkflowExe
             exec_detail.execution.output = output;
             let _ = storage_guard.workflow_update_execution(&exec_detail.execution);
         }
-        bus.emit(
-            "workflow-execution-complete",
-            serde_json::json!(bg_exec_id),
-        );
+        bus.emit("workflow-execution-complete", serde_json::json!(bg_exec_id));
     });
 
     let storage_guard = state.storage.lock().await;
@@ -201,9 +199,13 @@ async fn execute_workflow_steps(
             }),
         );
 
-        let step_result =
-            execute_single_step(&step.step_type, &step.command, &previous_output, cancel_flag)
-                .await;
+        let step_result = execute_single_step(
+            &step.step_type,
+            &step.command,
+            &previous_output,
+            cancel_flag,
+        )
+        .await;
         let step_finished = now_ms();
 
         {
