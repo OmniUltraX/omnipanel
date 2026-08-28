@@ -1299,6 +1299,7 @@ mod tests {
             enabled: true,
             has_password: !password.is_empty(),
             tags: Vec::new(),
+            group: String::new(),
         }
     }
 

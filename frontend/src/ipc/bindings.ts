@@ -2340,6 +2340,8 @@ export type DbConnectionConfig = {
 	has_password?: boolean,
 	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
 	tags?: string[],
+	/**  侧栏分组名；空 / `default` 视为「默认」。 */
+	group?: string,
 };
 
 export type DbDataSyncSqlGenerateResult = {

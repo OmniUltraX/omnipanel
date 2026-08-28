@@ -232,7 +232,7 @@ impl AppState {
             &db_connections,
             &plugin_registry,
         );
-        let _ = db_connections.seed_local_docker_connections();
+        let _ = db_connections.purge_local_docker_seed_connections();
 
         Self {
             serial_sessions: Arc::new(Mutex::new(HashMap::new())),
