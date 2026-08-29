@@ -1105,8 +1105,7 @@ pub async fn team_sync_push_modules(
         collect_local_bundle(&storage, &modules_request)?
     };
     let mut bundle = bundle;
-    let device_name = identity.device_name.trim().to_string();
-    finalize_modules_bundle_for_upload(&mut bundle, &device_name);
+    finalize_modules_bundle_for_upload(&mut bundle);
     let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化团队模块同步数据失败").with_cause(e.to_string())
     })?;
@@ -1181,8 +1180,7 @@ pub async fn team_sync_peek_modules(
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &modules_request)?
     };
-    let device_name = identity.device_name.trim().to_string();
-    finalize_modules_bundle_for_upload(&mut local, &device_name);
+    finalize_modules_bundle_for_upload(&mut local);
 
     let remote = if request.after_upload {
         Some(local.clone())

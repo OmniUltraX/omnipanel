@@ -4022,6 +4022,17 @@ pub async fn dispatch(
                 crate::client_sync_modules_cmds::client_sync_pull_modules(state, request).await,
             )
         }
+        "client_sync_migrate_device_tags" => {
+            let request: crate::client_sync_modules_cmds::ClientSyncMigrateDeviceTagsRequest =
+                match serde_json::from_value(args.get("request").cloned().unwrap_or_default()) {
+                    Ok(v) => v,
+                    Err(e) => return InvokeResponse::err(format!("解析 request 失败: {e}")),
+                };
+            respond_omni(
+                crate::client_sync_modules_cmds::client_sync_migrate_device_tags(state, request)
+                    .await,
+            )
+        }
 
         /* ---------------- 密文库 ---------------- */
         "secrets_vault_status" => respond_omni(crate::store_ext::secrets_vault_status(state).await),

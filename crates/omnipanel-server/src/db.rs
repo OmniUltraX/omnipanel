@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use omnipanel_db::{DbParams, QueryResult};
-use omnipanel_store::{DbConnectionConfig, fill_db_password_from_vault};
+use omnipanel_store::{DbConnectionConfig, ensure_creator_tag, fill_db_password_from_vault};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -111,8 +111,18 @@ pub async fn db_get_connection_secret(state: &ServerState, id: String) -> Result
 /// 保存 DB 连接（写回 connections.json + Vault）。
 pub async fn db_save_connection(
     state: &ServerState,
-    connection: DbConnectionConfig,
+    mut connection: DbConnectionConfig,
 ) -> Result<DbConnectionConfig, String> {
+    // 新建连接时打 creator 标签，标记创建设备
+    let existed = !connection.id.trim().is_empty()
+        && state
+            .db_connections
+            .get_with_secret(&connection.id)
+            .map_err(|e| e.to_string())?
+            .is_some();
+    if !existed {
+        ensure_creator_tag(&mut connection.tags, &crate::auth_cmds::current_device_name());
+    }
     state
         .db_connections
         .save(connection)

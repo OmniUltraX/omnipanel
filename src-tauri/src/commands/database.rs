@@ -14,10 +14,10 @@ use omnipanel_error::OmniError;
 pub use omnipanel_store::{
     DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
     SchemaCacheIndex, SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser,
-    SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, load_schema_cache, load_schema_filters,
-    load_schema_tree_expanded, patch_schema_cache_connection, prune_connection_cache,
-    prune_connection_expanded, prune_connection_filters, save_schema_cache, save_schema_filters,
-    save_schema_tree_expanded,
+    SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, ensure_creator_tag, load_schema_cache,
+    load_schema_filters, load_schema_tree_expanded, patch_schema_cache_connection,
+    prune_connection_cache, prune_connection_expanded, prune_connection_filters,
+    save_schema_cache, save_schema_filters, save_schema_tree_expanded,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
@@ -318,12 +318,21 @@ pub async fn db_get_connection_secret(
 #[specta::specta]
 pub async fn db_save_connection(
     state: State<'_, AppState>,
-    connection: DbConnectionConfig,
+    mut connection: DbConnectionConfig,
 ) -> Result<DbConnectionConfig, String> {
+    let mut existed = false;
     if !connection.id.trim().is_empty() {
         if let Ok(Some(old)) = state.db_connections.get_with_secret(&connection.id) {
+            existed = true;
             evict_sidecar_agent(&old).await;
         }
+    }
+    // 新建连接时打 creator 标签，标记创建设备
+    if !existed {
+        ensure_creator_tag(
+            &mut connection.tags,
+            &crate::commands::auth::current_device_name(),
+        );
     }
     state
         .db_connections

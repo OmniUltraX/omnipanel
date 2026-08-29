@@ -150,8 +150,10 @@ impl Storage {
             if let Some((key, value)) = tag.split_once(':') {
                 let key = key.trim();
                 let value = value.trim();
-                if matches!(key, "os" | "kernel" | "arch" | "db" | "engine" | "panel")
-                    && !value.is_empty()
+                if matches!(
+                    key,
+                    "os" | "kernel" | "arch" | "db" | "engine" | "panel" | "creator"
+                ) && !value.is_empty()
                 {
                     let _ = self.resource_set_system_key(
                         crate::tag::TaggableKind::Connection,

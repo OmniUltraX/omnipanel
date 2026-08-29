@@ -1,7 +1,7 @@
 ﻿//! 客户端选定团队「各业务模块」同步。
 //! 路径：团队 OSS `modules/latest.json`；上传前端到端加密（sync_key_v2），凭据随快照一并同步。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::assistant_cmds::build_auth_context;
@@ -17,8 +17,8 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
     Connection, ConnectionKind, DbConnectionConfig, HttpCollection, HttpEnvironment,
     KnowledgeEntry, SYNC_KIND_MODULES, SavedHttpRequest, SshKeyRecord, Vault, db_password_ref,
-    load_database_connections, ssh_key_passphrase_ref, ssh_key_private_ref, ssh_passphrase_ref,
-    ssh_password_ref, ssh_pem_ref,
+    load_database_connections, migrate_device_tags_to_creator, ssh_key_passphrase_ref,
+    ssh_key_private_ref, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -98,7 +98,7 @@ pub struct ClientSyncWorkspaceInfo {
     pub window_form: Option<String>,
     #[serde(default)]
     pub updated_at: f64,
-    /// 资源标签列表；上传时若为空会自动补当前设备名。
+    /// 资源标签列表；工作区创建时打 `creator: <设备名>` 标记创建设备。
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -415,39 +415,6 @@ fn collect_local_bundle(
     })
 }
 
-/// 给 bundle 中尚未包含设备名的资源追加当前设备名标签（仅 push 上传时用）。
-///
-/// 已有其他标签（如 Connection 的 `os:Ubuntu` 资源探测标签）的资源也会补上设备名，
-/// 仅当 tags 中已存在相同设备名时跳过，避免重复。
-pub(crate) fn tag_bundle_with_device(bundle: &mut ClientSyncModulesBundle, device_name: &str) {
-    let push_if_absent = |tags: &mut Vec<String>| {
-        if !tags.iter().any(|t| t.trim() == device_name) {
-            tags.push(device_name.to_string());
-        }
-    };
-    for c in &mut bundle.connections {
-        push_if_absent(&mut c.connection.tags);
-    }
-    for d in &mut bundle.database_connections {
-        push_if_absent(&mut d.connection.tags);
-    }
-    for k in &mut bundle.knowledge {
-        push_if_absent(&mut k.tags);
-    }
-    for r in &mut bundle.http_requests {
-        push_if_absent(&mut r.tags);
-    }
-    for col in &mut bundle.http_collections {
-        push_if_absent(&mut col.tags);
-    }
-    for env in &mut bundle.http_environments {
-        push_if_absent(&mut env.tags);
-    }
-    for w in &mut bundle.workspaces {
-        push_if_absent(&mut w.tags);
-    }
-}
-
 /// 推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）。
 pub async fn client_sync_push_modules(
     state: &crate::state::ServerState,
@@ -466,15 +433,10 @@ pub async fn client_sync_push_modules(
     let team_id = team.id;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
 
-    let mut bundle = {
+    let bundle = {
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &request)?
     };
-    // 上传前给 tags 为空的资源补当前设备名，便于多设备快照区分来源
-    let device_name = identity.device_name.trim().to_string();
-    if !device_name.is_empty() {
-        tag_bundle_with_device(&mut bundle, &device_name);
-    }
 
     // 新空设备误推会覆盖云端真实快照；无资源且无墓碑时若远端仍有数据则跳过上传。
     if bundle_is_vacuous_empty(&bundle) {
@@ -679,6 +641,44 @@ async fn apply_modules_bundle(
         }
     }
 
+    // 名称/备注为设备本地字段，不参与云端同步：应用云端快照时保留本地已有资源的名称/备注。
+    let (local_conn_names, local_kn_titles, local_req_names, local_col_meta, local_env_names) = {
+        let storage = state.storage.lock().await;
+        (
+            storage
+                .list_connections()?
+                .into_iter()
+                .map(|c| (c.id, c.name))
+                .collect::<HashMap<String, String>>(),
+            storage
+                .list_knowledge(None, None)?
+                .into_iter()
+                .map(|e| (e.id, e.title))
+                .collect::<HashMap<String, String>>(),
+            storage
+                .http_list_requests(None)?
+                .into_iter()
+                .map(|r| (r.id, r.name))
+                .collect::<HashMap<String, String>>(),
+            storage
+                .http_list_collections()?
+                .into_iter()
+                .map(|c| (c.id, (c.name, c.description)))
+                .collect::<HashMap<String, (String, String)>>(),
+            storage
+                .http_list_environments()?
+                .into_iter()
+                .map(|e| (e.id, e.name))
+                .collect::<HashMap<String, String>>(),
+        )
+    };
+    let local_db_names: HashMap<String, String> = state
+        .db_connections
+        .list()?
+        .into_iter()
+        .map(|c| (c.id, c.name))
+        .collect();
+
     for item in &bundle.database_connections {
         let mut c = item.connection.clone();
         c.password.clear();
@@ -686,28 +686,52 @@ async fn apply_modules_bundle(
             restore_vault_secret(&db_password_ref(&c.id), pw);
             c.has_password = true;
         }
+        if let Some(name) = local_db_names.get(&c.id) {
+            c.name = name.clone();
+        }
         state.db_connections.save(c)?;
     }
 
     {
         let storage = state.storage.lock().await;
         for item in &bundle.connections {
-            storage.save_connection(&item.connection)?;
+            let mut conn = item.connection.clone();
+            if let Some(name) = local_conn_names.get(&conn.id) {
+                conn.name = name.clone();
+            }
+            storage.save_connection(&conn)?;
             if let Some(pw) = item.secret.as_deref().filter(|s| !s.is_empty()) {
-                restore_vault_secret(&ssh_password_ref(&item.connection.id), pw);
+                restore_vault_secret(&ssh_password_ref(&conn.id), pw);
             }
         }
         for entry in &bundle.knowledge {
-            storage.save_knowledge(entry)?;
+            let mut e = entry.clone();
+            if let Some(title) = local_kn_titles.get(&e.id) {
+                e.title = title.clone();
+            }
+            storage.save_knowledge(&e)?;
         }
         for col in &bundle.http_collections {
-            storage.http_save_collection(col)?;
+            let mut c = col.clone();
+            if let Some((name, description)) = local_col_meta.get(&c.id) {
+                c.name = name.clone();
+                c.description = description.clone();
+            }
+            storage.http_save_collection(&c)?;
         }
         for env in &bundle.http_environments {
-            storage.http_save_environment(env)?;
+            let mut e = env.clone();
+            if let Some(name) = local_env_names.get(&e.id) {
+                e.name = name.clone();
+            }
+            storage.http_save_environment(&e)?;
         }
         for req in &bundle.http_requests {
-            storage.http_save_request(req)?;
+            let mut r = req.clone();
+            if let Some(name) = local_req_names.get(&r.id) {
+                r.name = name.clone();
+            }
+            storage.http_save_request(&r)?;
         }
     }
 
@@ -832,4 +856,98 @@ pub async fn client_sync_pull_modules(
         folder_trees_json,
         custom_panels_json,
     })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSyncMigrateDeviceTagsRequest {
+    /// 账号设备名列表（前端 authListDevices 获取），用于识别资源上的旧设备名标签。
+    #[serde(default)]
+    pub device_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSyncMigrateDeviceTagsResult {
+    /// 是否有任何资源标签被改写（供前端决定是否回推云端快照）。
+    pub changed: bool,
+    pub connections: f64,
+    pub databases: f64,
+    pub knowledge: f64,
+    pub http_requests: f64,
+    pub http_collections: f64,
+    pub http_environments: f64,
+}
+
+/// 将本机资源上的旧设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。
+///
+/// 工作区标签存于前端 localStorage，由前端迁移编排器一并处理。
+pub async fn client_sync_migrate_device_tags(
+    state: &crate::state::ServerState,
+    request: ClientSyncMigrateDeviceTagsRequest,
+) -> Result<ClientSyncMigrateDeviceTagsResult, OmniError> {
+    let current = crate::auth_cmds::current_device_name();
+    let mut device_names = request.device_names;
+    if !device_names.iter().any(|n| n.trim() == current.trim()) {
+        device_names.push(current.clone());
+    }
+
+    let mut result = ClientSyncMigrateDeviceTagsResult {
+        changed: false,
+        connections: 0.0,
+        databases: 0.0,
+        knowledge: 0.0,
+        http_requests: 0.0,
+        http_collections: 0.0,
+        http_environments: 0.0,
+    };
+
+    {
+        let storage = state.storage.lock().await;
+        for mut conn in storage.list_connections()? {
+            if migrate_device_tags_to_creator(&mut conn.tags, &device_names, &current) {
+                storage.save_connection(&conn)?;
+                result.connections += 1.0;
+            }
+        }
+        for mut entry in storage.list_knowledge(None, None)? {
+            if migrate_device_tags_to_creator(&mut entry.tags, &device_names, &current) {
+                storage.save_knowledge(&entry)?;
+                result.knowledge += 1.0;
+            }
+        }
+        for mut req in storage.http_list_requests(None)? {
+            if migrate_device_tags_to_creator(&mut req.tags, &device_names, &current) {
+                storage.http_save_request(&req)?;
+                result.http_requests += 1.0;
+            }
+        }
+        for mut col in storage.http_list_collections()? {
+            if migrate_device_tags_to_creator(&mut col.tags, &device_names, &current) {
+                storage.http_save_collection(&col)?;
+                result.http_collections += 1.0;
+            }
+        }
+        for mut env in storage.http_list_environments()? {
+            if migrate_device_tags_to_creator(&mut env.tags, &device_names, &current) {
+                storage.http_save_environment(&env)?;
+                result.http_environments += 1.0;
+            }
+        }
+    }
+
+    for mut db in state.db_connections.list()? {
+        if migrate_device_tags_to_creator(&mut db.tags, &device_names, &current) {
+            state.db_connections.save(db)?;
+            result.databases += 1.0;
+        }
+    }
+
+    result.changed = result.connections > 0.0
+        || result.databases > 0.0
+        || result.knowledge > 0.0
+        || result.http_requests > 0.0
+        || result.http_collections > 0.0
+        || result.http_environments > 0.0;
+    Ok(result)
 }

@@ -1,4 +1,4 @@
-//! HTTP 请求历史与集合持久化。
+﻿//! HTTP 请求历史与集合持久化。
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use rusqlite::params;
@@ -20,7 +20,7 @@ pub struct HttpEnvironment {
     pub created_at: i64,
     #[specta(type = f64)]
     pub updated_at: i64,
-    /// 资源标签列表；快照上传时若为空会自动补当前设备名。
+    /// 资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -47,7 +47,7 @@ pub struct SavedHttpRequest {
     pub created_at: i64,
     #[specta(type = f64)]
     pub updated_at: i64,
-    /// 资源标签列表；快照上传时若为空会自动补当前设备名。
+    /// 资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -96,12 +96,45 @@ pub struct HttpCollection {
     pub created_at: i64,
     #[specta(type = f64)]
     pub updated_at: i64,
-    /// 资源标签列表；快照上传时若为空会自动补当前设备名。
+    /// 资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。
     #[serde(default)]
     pub tags: Vec<String>,
 }
 
 impl Storage {
+    fn table_id_exists(&self, table: &str, id: &str) -> OmniResult<bool> {
+        self.conn()
+            .query_row(
+                &format!("SELECT 1 FROM {table} WHERE id = ?1"),
+                params![id],
+                |_| Ok(()),
+            )
+            .map(|_| true)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(false),
+                other => Err(OmniError::new(
+                    ErrorCode::Database,
+                    format!("查询 {table} 失败"),
+                )
+                .with_cause(other.to_string())),
+            })
+    }
+
+    /// 请求是否已存在（用于区分新建与更新）。
+    pub fn http_request_exists(&self, id: &str) -> OmniResult<bool> {
+        self.table_id_exists("http_requests", id)
+    }
+
+    /// 集合是否已存在（用于区分新建与更新）。
+    pub fn http_collection_exists(&self, id: &str) -> OmniResult<bool> {
+        self.table_id_exists("http_collections", id)
+    }
+
+    /// 环境是否已存在（用于区分新建与更新）。
+    pub fn http_environment_exists(&self, id: &str) -> OmniResult<bool> {
+        self.table_id_exists("http_environments", id)
+    }
+
     pub fn http_save_request(&self, req: &SavedHttpRequest) -> OmniResult<()> {
         self.conn().execute(
             "INSERT OR REPLACE INTO http_requests (id, name, method, url, headers, body, auth_type, auth_value, collection_id, environment_id, path_params, query_params, created_at, updated_at, tags) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",

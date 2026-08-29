@@ -1277,6 +1277,8 @@ export const commands = {
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
 	/**  从默认个人团队 OSS 拉取模块快照并应用到本机。 */
 	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
+	/**  将本机资源上的旧设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。 */
+	clientSyncMigrateDeviceTags: (request: ClientSyncMigrateDeviceTagsRequest) => typedError<ClientSyncMigrateDeviceTagsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_migrate_device_tags", { request })),
 	/**  按团队切换本机 SQLite / 连接 JSON / 文件索引（进程内换库）。 */
 	storageSwitchTeam: (teamScope: string) => typedError<StorageSwitchTeamResult, OmniError_Serialize>(__TAURI_INVOKE("storage_switch_team", { teamScope })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
@@ -2174,6 +2176,22 @@ export type ClientSyncPushModulesResult = {
 	objectKey: string,
 	etag: string | null,
 	bytes: number | null,
+};
+
+export type ClientSyncMigrateDeviceTagsRequest = {
+	/**  账号设备名列表（前端 authListDevices 获取），用于识别资源上的旧设备名标签。 */
+	deviceNames?: string[],
+};
+
+export type ClientSyncMigrateDeviceTagsResult = {
+	/**  是否有任何资源标签被改写（供前端决定是否回推云端快照）。 */
+	changed: boolean,
+	connections: number,
+	databases: number,
+	knowledge: number,
+	httpRequests: number,
+	httpCollections: number,
+	httpEnvironments: number,
 };
 
 export type ClientSyncTombstone = {

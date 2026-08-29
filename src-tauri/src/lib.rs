@@ -627,6 +627,7 @@ fn export_ipc_bindings() {
         commands::client_sync::client_sync_pull_conversations,
         commands::client_sync_modules::client_sync_push_modules,
         commands::client_sync_modules::client_sync_pull_modules,
+        commands::client_sync_modules::client_sync_migrate_device_tags,
         commands::storage_team::storage_switch_team,
         // MCP 服务管理
         commands::mcp::mcp_list_services,
@@ -1593,6 +1594,7 @@ fn build_and_run_tauri() {
             commands::client_sync::client_sync_pull_conversations,
             commands::client_sync_modules::client_sync_push_modules,
             commands::client_sync_modules::client_sync_pull_modules,
+            commands::client_sync_modules::client_sync_migrate_device_tags,
             commands::storage_team::storage_switch_team,
             // MCP 服务管理
             commands::mcp::mcp_list_services,

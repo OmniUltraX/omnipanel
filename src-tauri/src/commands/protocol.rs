@@ -14,7 +14,9 @@ use crate::protocol::sniffer::{self, CaptureStats, NetworkInterface, SnifferPack
 use crate::protocol::sse::{self, SseConfig, SseEventMessage};
 use crate::protocol::ws::{self, WsConfig, WsMessage};
 use crate::state::AppState;
-use omnipanel_store::{HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest};
+use omnipanel_store::{
+    HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest, ensure_creator_tag,
+};
 
 static SERIAL_COUNTER: AtomicU64 = AtomicU64::new(1);
 static WS_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -476,9 +478,16 @@ pub async fn redis_pubsub_disconnect(state: State<'_, AppState>, id: String) -> 
 #[specta::specta]
 pub async fn http_save_request(
     state: State<'_, AppState>,
-    req: SavedHttpRequest,
+    mut req: SavedHttpRequest,
 ) -> Result<(), String> {
     let storage = state.storage.lock().await;
+    // 新建请求时打 creator 标签，标记创建设备
+    if !storage
+        .http_request_exists(&req.id)
+        .map_err(|e| e.to_string())?
+    {
+        ensure_creator_tag(&mut req.tags, &crate::commands::auth::current_device_name());
+    }
     storage.http_save_request(&req).map_err(|e| e.to_string())
 }
 
@@ -566,9 +575,16 @@ pub async fn http_clear_history_for_request(
 #[specta::specta]
 pub async fn http_save_collection(
     state: State<'_, AppState>,
-    col: HttpCollection,
+    mut col: HttpCollection,
 ) -> Result<(), String> {
     let storage = state.storage.lock().await;
+    // 新建集合时打 creator 标签，标记创建设备
+    if !storage
+        .http_collection_exists(&col.id)
+        .map_err(|e| e.to_string())?
+    {
+        ensure_creator_tag(&mut col.tags, &crate::commands::auth::current_device_name());
+    }
     storage
         .http_save_collection(&col)
         .map_err(|e| e.to_string())
@@ -605,9 +621,16 @@ pub async fn http_list_environments(
 #[specta::specta]
 pub async fn http_save_environment(
     state: State<'_, AppState>,
-    env: HttpEnvironment,
+    mut env: HttpEnvironment,
 ) -> Result<(), String> {
     let storage = state.storage.lock().await;
+    // 新建环境时打 creator 标签，标记创建设备
+    if !storage
+        .http_environment_exists(&env.id)
+        .map_err(|e| e.to_string())?
+    {
+        ensure_creator_tag(&mut env.tags, &crate::commands::auth::current_device_name());
+    }
     storage
         .http_save_environment(&env)
         .map_err(|e| e.to_string())

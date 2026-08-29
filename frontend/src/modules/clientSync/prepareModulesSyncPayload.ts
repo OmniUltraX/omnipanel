@@ -32,6 +32,7 @@ function collectWorkspacesJson(): string {
     description: w.description ?? "",
     windowForm: w.windowForm ?? null,
     updatedAt: Date.now(),
+    tags: w.tags ?? [],
   }));
   return JSON.stringify(payload);
 }

@@ -649,6 +649,11 @@ pub async fn auth_device_identity() -> Result<AuthDeviceIdentity, OmniError> {
     load_or_create_device_identity()
 }
 
+/// 当前设备名（同步读取，供资源创建时打 `creator:` 标签）。
+pub fn current_device_name() -> String {
+    local_hostname()
+}
+
 /// 获取当前用户设备列表。
 pub async fn auth_list_devices(token: String) -> Result<Vec<AuthDevice>, OmniError> {
     let token = token.trim().to_string();

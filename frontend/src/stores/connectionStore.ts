@@ -17,6 +17,7 @@ import {
   type WorkspaceResource,
 } from "../lib/resourceRegistry";
 import { getOpenSshHostResource } from "../lib/sshConfigHosts";
+import { isNameOnlyChange } from "../lib/nameOnlyChange";
 import { normalizeSshGroup, sanitizeSshGroupInput } from "../lib/sshGroups";
 import { modulePathForType } from "../lib/paths";
 import {
@@ -173,6 +174,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   save: async (connection) => {
+    // 名称不参与云端同步：保存前先记录旧值，用于判断是否纯改名
+    const existing = get().connections.find((c) => c.id === connection.id);
     try {
       const res = await commands.connSave(connection);
       if (res.status === "ok") {
@@ -186,7 +189,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           return { connections: next };
         });
         scheduleAssistantSnapshotSync();
-        scheduleClientModuleSync();
+        if (!isNameOnlyChange(connection, existing, "name")) {
+          scheduleClientModuleSync();
+        }
         return saved;
       }
       set({ error: res.error.message });

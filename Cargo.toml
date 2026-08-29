@@ -28,6 +28,7 @@ members = [
     "crates/omnipanel-plugin-wasm",
     "crates/omnipanel-plugin-js",
     "crates/omnipanel-everything",
+    "crates/tag-cleanup-tool",
 ]
 
 [workspace.package]

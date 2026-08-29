@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use omnipanel_error::OmniError;
 use omnipanel_store::{
     KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult, KnowledgeTodoList,
-    knowledge_entry_assets_dir,
+    ensure_creator_tag, knowledge_entry_assets_dir,
 };
 use tauri::State;
 
@@ -79,9 +79,13 @@ pub async fn knowledge_get(
 #[specta::specta]
 pub async fn knowledge_save(
     state: State<'_, AppState>,
-    entry: KnowledgeEntry,
+    mut entry: KnowledgeEntry,
 ) -> Result<(), OmniError> {
     let storage = state.storage.lock().await;
+    // 新建条目时打 creator 标签，标记创建设备
+    if storage.get_knowledge(&entry.id)?.is_none() {
+        ensure_creator_tag(&mut entry.tags, &crate::commands::auth::current_device_name());
+    }
     storage.save_knowledge(&entry)
 }
 

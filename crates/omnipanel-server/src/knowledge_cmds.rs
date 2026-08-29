@@ -8,7 +8,7 @@ use omnipanel_store::{
     KnowledgeChunkListResult, KnowledgeEntry, KnowledgeRevision, KnowledgeSearchResult,
     KnowledgeTodoList, ResourceObservation, ResourceProfileSummary, SearchEverywhereHit, TagDto,
     TagMatchMode, TagSource, TaggableKind, TaggedResourceSummary, TodoList, TodoStep, TodoTask,
-    TodoTaskQuery, knowledge_entry_assets_dir,
+    TodoTaskQuery, ensure_creator_tag, knowledge_entry_assets_dir,
 };
 use serde::{Deserialize, Serialize};
 
@@ -82,8 +82,15 @@ pub async fn knowledge_get(
     storage.get_knowledge(&id)
 }
 
-pub async fn knowledge_save(state: &ServerState, entry: KnowledgeEntry) -> Result<(), OmniError> {
+pub async fn knowledge_save(
+    state: &ServerState,
+    mut entry: KnowledgeEntry,
+) -> Result<(), OmniError> {
     let storage = state.storage.lock().await;
+    // 新建条目时打 creator 标签，标记创建设备
+    if storage.get_knowledge(&entry.id)?.is_none() {
+        ensure_creator_tag(&mut entry.tags, &crate::auth_cmds::current_device_name());
+    }
     storage.save_knowledge(&entry)
 }
 

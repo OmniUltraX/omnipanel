@@ -74,7 +74,8 @@ pub use connection::{Connection, ConnectionKind};
 pub use database::{
     BUILTIN_FILE_INDEX_CONN_ID, BUILTIN_META_DB_CONN_ID, DatabaseConnectionStore,
     DbConnectionConfig, ensure_builtin_demo_connections, fill_db_password_from_vault,
-    load_database_connections, mark_builtin_demo_removed, save_database_connections,
+    load_database_connections, load_database_connections_from, mark_builtin_demo_removed,
+    save_database_connections, save_database_connections_to,
 };
 pub use embedding_config::{
     EmbeddingProviderConfig, default_ollama_embedding_provider, load_embedding_provider,
@@ -177,8 +178,9 @@ pub use sync_team_key::{
     store_sync_team_key, sync_team_key_fingerprint,
 };
 pub use tag::{
-    ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode, TagSource, TaggableKind,
-    TaggedResourceSummary, normalize_tag_path, normalize_tag_segment,
+    CREATOR_TAG_KEY, ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode, TagSource,
+    TaggableKind, TaggedResourceSummary, ensure_creator_tag, migrate_device_tags_to_creator,
+    normalize_tag_path, normalize_tag_segment,
 };
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use task_events::{TaskEventFilter, TaskEventRecord};

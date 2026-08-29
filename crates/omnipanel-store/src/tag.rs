@@ -101,6 +101,71 @@ impl TagMatchMode {
     }
 }
 
+/// 资源创建设备标签的 key（`creator: <设备名>`）。
+pub const CREATOR_TAG_KEY: &str = "creator";
+
+/// 资源创建时打上创建设备标签（`creator: <设备名>`）。
+///
+/// 仅在 tags 尚无任何 `creator:` 标签时写入，不覆盖既有来源标记；
+/// 设备名为空（读取失败/占位）时跳过。
+pub fn ensure_creator_tag(tags: &mut Vec<String>, device_name: &str) {
+    let name = device_name.trim();
+    if name.is_empty() {
+        return;
+    }
+    if tags
+        .iter()
+        .any(|t| t.trim().to_ascii_lowercase().starts_with("creator:"))
+    {
+        return;
+    }
+    tags.push(format!("{CREATOR_TAG_KEY}:{name}"));
+}
+
+/// 将资源上的纯设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。
+///
+/// 旧版同步会在上传时给所有资源补当前设备名标签；迁移规则：
+/// - 已有 `creator:` 标签：仅移除设备名标签，不覆盖来源标记；
+/// - 无 `creator:` 标签：取第一个匹配账号设备名的标签值作为创建设备，
+///   匹配不到时回退 `fallback_creator`（当前设备名）；
+/// - 其他标签（如 `os:Ubuntu`、用户自定义标签）不受影响。
+///
+/// 返回 tags 是否发生变化（供调用方决定是否回写与推送云端）。
+pub fn migrate_device_tags_to_creator(
+    tags: &mut Vec<String>,
+    device_names: &[String],
+    fallback_creator: &str,
+) -> bool {
+    let original = tags.clone();
+    let names: Vec<String> = device_names
+        .iter()
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .collect();
+
+    let has_creator = tags
+        .iter()
+        .any(|t| t.trim().to_ascii_lowercase().starts_with("creator:"));
+    let matched_creator = if has_creator {
+        None
+    } else {
+        tags.iter()
+            .find(|t| names.iter().any(|n| n == t.trim()))
+            .map(|t| t.trim().to_string())
+    };
+
+    tags.retain(|t| !names.iter().any(|n| n == t.trim()));
+
+    if !has_creator {
+        let creator = matched_creator.unwrap_or_else(|| fallback_creator.trim().to_string());
+        if !creator.is_empty() {
+            tags.push(format!("{CREATOR_TAG_KEY}:{creator}"));
+        }
+    }
+
+    *tags != original
+}
+
 /// 标签节点（扁平，前端组树）。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -1546,6 +1611,55 @@ fn legacy_connection_tag_to_path(tag: &str) -> (Option<String>, TagSource) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrate_device_tags_replaces_device_name_with_creator() {
+        let mut tags = vec!["Laptop-A".to_string(), "os:Linux".to_string(), "prod".to_string()];
+        let names = vec!["Laptop-A".to_string(), "Desktop-B".to_string()];
+        let changed = migrate_device_tags_to_creator(&mut tags, &names, "Desktop-B");
+        assert!(changed);
+        assert_eq!(tags, vec!["os:Linux".to_string(), "prod".to_string(), "creator:Laptop-A".to_string()]);
+    }
+
+    #[test]
+    fn migrate_device_tags_is_idempotent() {
+        let mut tags = vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()];
+        let names = vec!["Laptop-A".to_string()];
+        assert!(!migrate_device_tags_to_creator(&mut tags, &names, "Desktop-B"));
+        assert_eq!(tags, vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()]);
+    }
+
+    #[test]
+    fn migrate_device_tags_keeps_existing_creator() {
+        let mut tags = vec!["Laptop-A".to_string(), "creator:Laptop-Old".to_string()];
+        let names = vec!["Laptop-A".to_string()];
+        let changed = migrate_device_tags_to_creator(&mut tags, &names, "Desktop-B");
+        assert!(changed);
+        assert_eq!(tags, vec!["creator:Laptop-Old".to_string()]);
+    }
+
+    #[test]
+    fn migrate_device_tags_falls_back_to_current_device() {
+        let mut tags = vec!["os:Linux".to_string()];
+        let changed = migrate_device_tags_to_creator(&mut tags, &["Laptop-A".to_string()].as_slice(), " Desktop-B ");
+        assert!(changed);
+        assert_eq!(tags, vec!["os:Linux".to_string(), "creator:Desktop-B".to_string()]);
+    }
+
+    #[test]
+    fn migrate_device_tags_without_creator_source_adds_nothing() {
+        let mut tags = vec!["os:Linux".to_string()];
+        assert!(!migrate_device_tags_to_creator(&mut tags, &["Laptop-A".to_string()], "  "));
+        assert_eq!(tags, vec!["os:Linux".to_string()]);
+    }
+
+    #[test]
+    fn migrate_device_tags_trims_and_skips_empty_device_names() {
+        let mut tags = vec![" Laptop-A ".to_string(), "os:Linux".to_string()];
+        let changed = migrate_device_tags_to_creator(&mut tags, &[" Laptop-A ".to_string(), "  ".to_string()].as_slice(), "Desktop-B");
+        assert!(changed);
+        assert_eq!(tags, vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()]);
+    }
 
     #[test]
     fn migrate_and_query_tags() {

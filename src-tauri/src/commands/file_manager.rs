@@ -6,7 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{SshAuth, SshConfig, SshSession, ssh_config_from_json};
-use omnipanel_store::{Connection, ConnectionKind, Vault, inject_ssh_vault_into_config};
+use omnipanel_store::{
+    Connection, ConnectionKind, Vault, ensure_creator_tag, inject_ssh_vault_into_config,
+};
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
@@ -1859,6 +1861,10 @@ pub async fn file_save_connection(
     bind_file_connection_secret(&mut connection, secret)?;
     connection.updated_at = unix_secs(SystemTime::now());
     let storage = state.storage.lock().await;
+    // 新建连接时打 creator 标签，标记创建设备
+    if storage.get_connection(&connection.id)?.is_none() {
+        ensure_creator_tag(&mut connection.tags, &crate::commands::auth::current_device_name());
+    }
     storage.save_connection(&connection)?;
     Ok(connection)
 }
