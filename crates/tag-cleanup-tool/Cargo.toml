@@ -1,0 +1,17 @@
+[package]
+name = "tag-cleanup-tool"
+description = "独立设备标签清理工具：移除本机与云端快照中的旧设备名标签并补 creator 标签"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+omnipanel-assistant = { path = "../omnipanel-assistant" }
+omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-store = { path = "../omnipanel-store" }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+urlencoding = { workspace = true }

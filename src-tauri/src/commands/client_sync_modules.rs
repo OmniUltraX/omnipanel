@@ -12,8 +12,8 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
     Connection, ConnectionKind, DbConnectionConfig, HttpCollection, HttpEnvironment,
     KnowledgeEntry, SYNC_KIND_MODULES, SavedHttpRequest, SshKeyRecord, Vault, db_password_ref,
-    load_database_connections, ssh_key_passphrase_ref, ssh_key_private_ref, ssh_passphrase_ref,
-    ssh_password_ref, ssh_pem_ref,
+    load_database_connections, migrate_device_tags_to_creator, ssh_key_passphrase_ref,
+    ssh_key_private_ref, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -102,7 +102,7 @@ pub struct ClientSyncWorkspaceInfo {
     pub window_form: Option<String>,
     #[serde(default)]
     pub updated_at: f64,
-    /// 资源标签列表；上传时若为空会自动补当前设备名。
+    /// 资源标签列表；工作区创建时打 `creator: <设备名>` 标记创建设备。
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -421,15 +421,62 @@ pub(crate) fn normalize_modules_bundle_layouts(bundle: &mut ClientSyncModulesBun
     });
 }
 
-/// 上传/预览对齐：修剪布局 → 补设备标签。
-pub(crate) fn finalize_modules_bundle_for_upload(
-    bundle: &mut ClientSyncModulesBundle,
-    device_name: &str,
-) {
-    normalize_modules_bundle_layouts(bundle);
-    if !device_name.is_empty() {
-        tag_bundle_with_device(bundle, device_name);
+/// 墓碑资源过滤：已标记删除的资源不再随快照上传，防止「删除云端数据」后被本机推送复活。
+/// 预览路径不携带墓碑（`to_peek_modules_request` 置空），本机真实数据仍会展示。
+fn filter_tombstoned_resources(bundle: &mut ClientSyncModulesBundle) {
+    let conn_deleted = tombstone_ids(&bundle.deleted_connections);
+    if !conn_deleted.is_empty() {
+        bundle
+            .connections
+            .retain(|item| !conn_deleted.contains(&item.connection.id));
+        bundle.vault_secrets = collect_bundle_vault_secrets(&bundle.connections, &bundle.ssh_keys);
     }
+    let db_deleted = tombstone_ids(&bundle.deleted_databases);
+    if !db_deleted.is_empty() {
+        bundle
+            .database_connections
+            .retain(|item| !db_deleted.contains(&item.connection.id));
+    }
+    let kn_deleted = tombstone_ids(&bundle.deleted_knowledge);
+    if !kn_deleted.is_empty() {
+        bundle.knowledge.retain(|entry| !kn_deleted.contains(&entry.id));
+    }
+    let col_deleted = tombstone_ids(&bundle.deleted_http_collections);
+    if !col_deleted.is_empty() {
+        bundle
+            .http_collections
+            .retain(|col| !col_deleted.contains(&col.id));
+    }
+    let req_deleted = tombstone_ids(&bundle.deleted_http_requests);
+    if !req_deleted.is_empty() {
+        bundle
+            .http_requests
+            .retain(|req| !req_deleted.contains(&req.id));
+    }
+    let env_deleted = tombstone_ids(&bundle.deleted_http_environments);
+    if !env_deleted.is_empty() {
+        bundle
+            .http_environments
+            .retain(|env| !env_deleted.contains(&env.id));
+    }
+    let ws_deleted = tombstone_ids(&bundle.deleted_workspaces);
+    if !ws_deleted.is_empty() {
+        bundle.workspaces.retain(|ws| !ws_deleted.contains(&ws.id));
+    }
+    let panel_deleted = tombstone_ids(&bundle.deleted_custom_panels);
+    if !panel_deleted.is_empty() {
+        crate::commands::team_sync::remove_custom_panels_from_json(
+            &mut bundle.custom_panels_json,
+            &panel_deleted,
+        );
+    }
+}
+
+/// 上传/预览对齐：修剪布局，保证快照与本机 UI 一致。
+/// 资源来源设备由创建时的 `creator:` 标签标记，上传时不再统一补设备名。
+pub(crate) fn finalize_modules_bundle_for_upload(bundle: &mut ClientSyncModulesBundle) {
+    filter_tombstoned_resources(bundle);
+    normalize_modules_bundle_layouts(bundle);
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -474,7 +521,7 @@ fn push_vault_secret(out: &mut Vec<ClientSyncVaultSecret>, reference: String) {
     }
 }
 
-fn collect_connection_vault_secrets(conn: &Connection, out: &mut Vec<ClientSyncVaultSecret>) {
+pub(crate) fn collect_connection_vault_secrets(conn: &Connection, out: &mut Vec<ClientSyncVaultSecret>) {
     match conn.kind {
         ConnectionKind::Ssh => {
             push_vault_secret(out, ssh_password_ref(&conn.id));
@@ -598,39 +645,6 @@ pub(crate) fn collect_local_bundle(
     })
 }
 
-/// 给 bundle 中尚未包含设备名的资源追加当前设备名标签（仅 push 上传 / peek 展示时用）。
-///
-/// 已有其他标签（如 Connection 的 `os:Ubuntu` 资源探测标签）的资源也会补上设备名，
-/// 仅当 tags 中已存在相同设备名时跳过，避免重复。
-pub(crate) fn tag_bundle_with_device(bundle: &mut ClientSyncModulesBundle, device_name: &str) {
-    let push_if_absent = |tags: &mut Vec<String>| {
-        if !tags.iter().any(|t| t.trim() == device_name) {
-            tags.push(device_name.to_string());
-        }
-    };
-    for c in &mut bundle.connections {
-        push_if_absent(&mut c.connection.tags);
-    }
-    for d in &mut bundle.database_connections {
-        push_if_absent(&mut d.connection.tags);
-    }
-    for k in &mut bundle.knowledge {
-        push_if_absent(&mut k.tags);
-    }
-    for r in &mut bundle.http_requests {
-        push_if_absent(&mut r.tags);
-    }
-    for col in &mut bundle.http_collections {
-        push_if_absent(&mut col.tags);
-    }
-    for env in &mut bundle.http_environments {
-        push_if_absent(&mut env.tags);
-    }
-    for w in &mut bundle.workspaces {
-        push_if_absent(&mut w.tags);
-    }
-}
-
 /// 推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）。
 #[tauri::command]
 #[specta::specta]
@@ -655,8 +669,7 @@ pub async fn client_sync_push_modules(
         let storage = state.storage.lock().await;
         collect_local_bundle(&storage, &request)?
     };
-    let device_name = identity.device_name.trim().to_string();
-    finalize_modules_bundle_for_upload(&mut bundle, &device_name);
+    finalize_modules_bundle_for_upload(&mut bundle);
 
     let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "序列化模块同步数据失败").with_cause(e.to_string())
@@ -842,6 +855,44 @@ pub(crate) async fn apply_modules_bundle(
         }
     }
 
+    // 名称/备注为设备本地字段，不参与云端同步：应用云端快照时保留本地已有资源的名称/备注。
+    let (local_conn_names, local_kn_titles, local_req_names, local_col_meta, local_env_names) = {
+        let storage = state.storage.lock().await;
+        (
+            storage
+                .list_connections()?
+                .into_iter()
+                .map(|c| (c.id, c.name))
+                .collect::<HashMap<String, String>>(),
+            storage
+                .list_knowledge(None, None)?
+                .into_iter()
+                .map(|e| (e.id, e.title))
+                .collect::<HashMap<String, String>>(),
+            storage
+                .http_list_requests(None)?
+                .into_iter()
+                .map(|r| (r.id, r.name))
+                .collect::<HashMap<String, String>>(),
+            storage
+                .http_list_collections()?
+                .into_iter()
+                .map(|c| (c.id, (c.name, c.description)))
+                .collect::<HashMap<String, (String, String)>>(),
+            storage
+                .http_list_environments()?
+                .into_iter()
+                .map(|e| (e.id, e.name))
+                .collect::<HashMap<String, String>>(),
+        )
+    };
+    let local_db_names: HashMap<String, String> = state
+        .db_connections
+        .list()?
+        .into_iter()
+        .map(|c| (c.id, c.name))
+        .collect();
+
     for item in &bundle.database_connections {
         let mut c = item.connection.clone();
         c.password.clear();
@@ -849,28 +900,52 @@ pub(crate) async fn apply_modules_bundle(
             restore_vault_secret(&db_password_ref(&c.id), pw);
             c.has_password = true;
         }
+        if let Some(name) = local_db_names.get(&c.id) {
+            c.name = name.clone();
+        }
         state.db_connections.save(c)?;
     }
 
     {
         let storage = state.storage.lock().await;
         for item in &bundle.connections {
-            storage.save_connection(&item.connection)?;
+            let mut conn = item.connection.clone();
+            if let Some(name) = local_conn_names.get(&conn.id) {
+                conn.name = name.clone();
+            }
+            storage.save_connection(&conn)?;
             if let Some(pw) = item.secret.as_deref().filter(|s| !s.is_empty()) {
-                restore_vault_secret(&ssh_password_ref(&item.connection.id), pw);
+                restore_vault_secret(&ssh_password_ref(&conn.id), pw);
             }
         }
         for entry in &bundle.knowledge {
-            storage.save_knowledge(entry)?;
+            let mut e = entry.clone();
+            if let Some(title) = local_kn_titles.get(&e.id) {
+                e.title = title.clone();
+            }
+            storage.save_knowledge(&e)?;
         }
         for col in &bundle.http_collections {
-            storage.http_save_collection(col)?;
+            let mut c = col.clone();
+            if let Some((name, description)) = local_col_meta.get(&c.id) {
+                c.name = name.clone();
+                c.description = description.clone();
+            }
+            storage.http_save_collection(&c)?;
         }
         for env in &bundle.http_environments {
-            storage.http_save_environment(env)?;
+            let mut e = env.clone();
+            if let Some(name) = local_env_names.get(&e.id) {
+                e.name = name.clone();
+            }
+            storage.http_save_environment(&e)?;
         }
         for req in &bundle.http_requests {
-            storage.http_save_request(req)?;
+            let mut r = req.clone();
+            if let Some(name) = local_req_names.get(&r.id) {
+                r.name = name.clone();
+            }
+            storage.http_save_request(&r)?;
         }
     }
 
@@ -992,6 +1067,102 @@ pub async fn client_sync_pull_modules(
         folder_trees_json,
         custom_panels_json,
     })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSyncMigrateDeviceTagsRequest {
+    /// 账号设备名列表（前端 authListDevices 获取），用于识别资源上的旧设备名标签。
+    #[serde(default)]
+    pub device_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientSyncMigrateDeviceTagsResult {
+    /// 是否有任何资源标签被改写（供前端决定是否回推云端快照）。
+    pub changed: bool,
+    pub connections: f64,
+    pub databases: f64,
+    pub knowledge: f64,
+    pub http_requests: f64,
+    pub http_collections: f64,
+    pub http_environments: f64,
+}
+
+/// 将本机资源上的旧设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。
+///
+/// 工作区标签存于前端 localStorage，由前端迁移编排器一并处理。
+#[tauri::command]
+#[specta::specta]
+pub async fn client_sync_migrate_device_tags(
+    state: State<'_, AppState>,
+    request: ClientSyncMigrateDeviceTagsRequest,
+) -> Result<ClientSyncMigrateDeviceTagsResult, OmniError> {
+    let current = crate::commands::auth::current_device_name();
+    let mut device_names = request.device_names;
+    if !device_names.iter().any(|n| n.trim() == current.trim()) {
+        device_names.push(current.clone());
+    }
+
+    let mut result = ClientSyncMigrateDeviceTagsResult {
+        changed: false,
+        connections: 0.0,
+        databases: 0.0,
+        knowledge: 0.0,
+        http_requests: 0.0,
+        http_collections: 0.0,
+        http_environments: 0.0,
+    };
+
+    {
+        let storage = state.storage.lock().await;
+        for mut conn in storage.list_connections()? {
+            if migrate_device_tags_to_creator(&mut conn.tags, &device_names, &current) {
+                storage.save_connection(&conn)?;
+                result.connections += 1.0;
+            }
+        }
+        for mut entry in storage.list_knowledge(None, None)? {
+            if migrate_device_tags_to_creator(&mut entry.tags, &device_names, &current) {
+                storage.save_knowledge(&entry)?;
+                result.knowledge += 1.0;
+            }
+        }
+        for mut req in storage.http_list_requests(None)? {
+            if migrate_device_tags_to_creator(&mut req.tags, &device_names, &current) {
+                storage.http_save_request(&req)?;
+                result.http_requests += 1.0;
+            }
+        }
+        for mut col in storage.http_list_collections()? {
+            if migrate_device_tags_to_creator(&mut col.tags, &device_names, &current) {
+                storage.http_save_collection(&col)?;
+                result.http_collections += 1.0;
+            }
+        }
+        for mut env in storage.http_list_environments()? {
+            if migrate_device_tags_to_creator(&mut env.tags, &device_names, &current) {
+                storage.http_save_environment(&env)?;
+                result.http_environments += 1.0;
+            }
+        }
+    }
+
+    for mut db in state.db_connections.list()? {
+        if migrate_device_tags_to_creator(&mut db.tags, &device_names, &current) {
+            state.db_connections.save(db)?;
+            result.databases += 1.0;
+        }
+    }
+
+    result.changed = result.connections > 0.0
+        || result.databases > 0.0
+        || result.knowledge > 0.0
+        || result.http_requests > 0.0
+        || result.http_collections > 0.0
+        || result.http_environments > 0.0;
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -1496,4 +1667,128 @@ fn build_connection_peek_items(
         ));
     }
     out
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_bundle() -> ClientSyncModulesBundle {
+        ClientSyncModulesBundle {
+            schema_version: 1,
+            kind: MODULES_KIND.to_string(),
+            updated_at: 100.0,
+            connections: Vec::new(),
+            deleted_connections: Vec::new(),
+            database_connections: Vec::new(),
+            deleted_databases: Vec::new(),
+            knowledge: Vec::new(),
+            deleted_knowledge: Vec::new(),
+            http_collections: vec![
+                HttpCollection {
+                    id: "col-keep".into(),
+                    name: "A".into(),
+                    description: String::new(),
+                    created_at: 0,
+                    updated_at: 0,
+                    tags: Vec::new(),
+                },
+                HttpCollection {
+                    id: "col-del".into(),
+                    name: "B".into(),
+                    description: String::new(),
+                    created_at: 0,
+                    updated_at: 0,
+                    tags: Vec::new(),
+                },
+            ],
+            http_environments: Vec::new(),
+            http_requests: Vec::new(),
+            deleted_http_requests: Vec::new(),
+            deleted_http_collections: vec![ClientSyncTombstone {
+                id: "col-del".into(),
+                deleted_at: 50.0,
+            }],
+            deleted_http_environments: Vec::new(),
+            workspaces: vec![
+                ClientSyncWorkspaceInfo {
+                    id: "ws-keep".into(),
+                    name: "W1".into(),
+                    description: String::new(),
+                    window_form: None,
+                    updated_at: 0.0,
+                    tags: Vec::new(),
+                },
+                ClientSyncWorkspaceInfo {
+                    id: "ws-del".into(),
+                    name: "W2".into(),
+                    description: String::new(),
+                    window_form: None,
+                    updated_at: 0.0,
+                    tags: Vec::new(),
+                },
+            ],
+            deleted_workspaces: vec![ClientSyncTombstone {
+                id: "ws-del".into(),
+                deleted_at: 60.0,
+            }],
+            ssh_sidebar_tree_json: None,
+            folder_trees_json: None,
+            custom_panels_json: Some(
+                r#"{"customPanels":{"p-keep":{"label":"K"},"p-del":{"label":"D"}},"deletedIds":[]}"#.into(),
+            ),
+            deleted_custom_panels: vec![ClientSyncTombstone {
+                id: "p-del".into(),
+                deleted_at: 70.0,
+            }],
+            vault_secrets: Vec::new(),
+            ssh_keys: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn tombstoned_resources_are_filtered_from_upload() {
+        let mut bundle = test_bundle();
+        finalize_modules_bundle_for_upload(&mut bundle);
+
+        assert_eq!(bundle.http_collections.len(), 1);
+        assert_eq!(bundle.http_collections[0].id, "col-keep");
+        assert_eq!(bundle.workspaces.len(), 1);
+        assert_eq!(bundle.workspaces[0].id, "ws-keep");
+
+        let panels_json = bundle.custom_panels_json.as_deref().unwrap_or_default();
+        let panels: serde_json::Value = serde_json::from_str(panels_json).expect("panels json");
+        let custom = panels.get("customPanels").unwrap();
+        assert!(custom.get("p-keep").is_some());
+        assert!(custom.get("p-del").is_none());
+        let deleted: Vec<&str> = panels
+            .get("deletedIds")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        assert!(deleted.contains(&"p-del"));
+
+        // 墓碑保留在快照中继续向其他设备传播
+        assert_eq!(bundle.deleted_http_collections.len(), 1);
+        assert_eq!(bundle.deleted_workspaces.len(), 1);
+        assert_eq!(bundle.deleted_custom_panels.len(), 1);
+    }
+
+    #[test]
+    fn empty_tombstones_keep_all_resources() {
+        let mut bundle = test_bundle();
+        bundle.deleted_http_collections.clear();
+        bundle.deleted_workspaces.clear();
+        bundle.deleted_custom_panels.clear();
+        finalize_modules_bundle_for_upload(&mut bundle);
+
+        assert_eq!(bundle.http_collections.len(), 2);
+        assert_eq!(bundle.workspaces.len(), 2);
+        assert!(bundle
+            .custom_panels_json
+            .as_deref()
+            .unwrap_or_default()
+            .contains("p-del"));
+    }
 }

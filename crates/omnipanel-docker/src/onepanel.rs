@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::SshSession;
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,7 @@ const COMPOSE_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 #[derive(Debug, Clone)]
 pub struct OnePanelClient {
     base_url: String,
+    entrance: String,
     api_key: String,
     insecure: bool,
 }
@@ -87,14 +89,53 @@ fn map_onepanel_context(err: OmniError, context: &str) -> OmniError {
     OmniError::new(err.code, context).with_cause(detail)
 }
 
+fn map_http_send_error(detail: &str, url: &str) -> OmniError {
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("certificate")
+        || lower.contains("cert")
+        || lower.contains("tls")
+        || lower.contains("ssl")
+        || lower.contains("handshake")
+    {
+        return OmniError::new(
+            ErrorCode::Connection,
+            "1Panel HTTPS 证书校验失败（面板多为自签证书，可在连接设置中勾选跳过证书校验）",
+        )
+        .with_cause(format!("{detail} | {url}"));
+    }
+    if lower.contains("timed out") || lower.contains("timeout") {
+        return OmniError::new(ErrorCode::Timeout, "连接 1Panel 面板超时")
+            .with_cause(format!("{detail} | {url}"));
+    }
+    if lower.contains("proxy") {
+        return OmniError::new(
+            ErrorCode::Connection,
+            "1Panel 请求被系统/环境代理拦截（面板地址应直连，请关闭系统代理或 VPN 分流后重试）",
+        )
+        .with_cause(format!("{detail} | {url}"));
+    }
+    if lower.contains("connect") || lower.contains("connection refused") {
+        return OmniError::new(
+            ErrorCode::Connection,
+            "无法连接 1Panel 面板（请检查地址、端口、防火墙/安全组是否放行本机 IP）",
+        )
+        .with_cause(format!("{detail} | {url}"));
+    }
+    OmniError::new(ErrorCode::Connection, "1Panel 请求失败")
+        .with_cause(format!("{detail} | {url}"))
+}
+
 fn non_json_response_error(text: &str) -> OmniError {
     let trimmed = text.trim_start_matches('\u{feff}').trim();
     if looks_like_html(trimmed) {
-        return OmniError::new(
-            ErrorCode::Connection,
-            "1Panel 返回了 HTML 页面而非 JSON（请检查面板地址是否包含安全入口路径）",
-        )
-        .with_cause(truncate_text(trimmed, 300));
+        let lower = trimmed.to_ascii_lowercase();
+        let hint = if lower.contains("access temporarily unavailable") {
+            "1Panel 返回了安全入口拦截页（请确认面板地址含安全入口路径；API 将自动附带 EntranceCode 头，或检查授权 IP 白名单）"
+        } else {
+            "1Panel 返回了 HTML 页面而非 JSON（请检查面板地址、安全入口或 API 授权 IP）"
+        };
+        return OmniError::new(ErrorCode::Connection, hint)
+            .with_cause(truncate_text(trimmed, 300));
     }
     OmniError::new(ErrorCode::Internal, "1Panel 响应不是合法 JSON")
         .with_cause(truncate_text(trimmed, 300))
@@ -151,41 +192,125 @@ fn onepanel_envelope_error(text: &str) -> Option<(i32, String)> {
 
 fn is_retryable_onepanel_envelope(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
-    is_order_by_oneof_error(message)
-        || lower.contains("not found")
+    // 注意：orderBy oneof 错误不应触发 v2→v1 路径回退。
+    // v2 端点明确存在（只是参数不对），回退到 v1 只会命中不存在的路径，
+    // 1Panel 会返回安全入口拦截页，掩盖真正的参数错误。
+    // orderBy 回退由 post_search_values 在同一 API 版本内处理。
+    lower.contains("not found")
         || lower.contains("404")
         || lower.contains("route")
 }
 
+/// 1Panel API 根地址与安全入口（API 走 `/api/v2`，入口经 `EntranceCode` 头传递）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OnePanelEndpoint {
+    /// `scheme://host[:port]`，不含安全入口路径。
+    pub base_url: String,
+    /// 安全入口段（无 leading `/`）；空表示未配置。
+    pub entrance: String,
+}
+
+fn strip_accidental_api_suffix(path: &str) -> String {
+    let p = path.trim_end_matches('/');
+    if let Some(s) = p.strip_suffix("/api/v2").or_else(|| p.strip_suffix("/api/v1")) {
+        return s.trim_end_matches('/').to_string();
+    }
+    p.to_string()
+}
+
+fn normalize_entrance_segment(raw: &str) -> String {
+    raw.trim().trim_start_matches('/').trim_end_matches('/').to_string()
+}
+
+/// 从面板地址解析 API origin 与安全入口。
+pub fn resolve_onepanel_endpoint(host: &str, explicit_entrance: Option<&str>) -> OnePanelEndpoint {
+    let mut normalized = host.trim().to_string();
+    if normalized.is_empty() {
+        return OnePanelEndpoint {
+            base_url: String::new(),
+            entrance: String::new(),
+        };
+    }
+    if !normalized.starts_with("http://") && !normalized.starts_with("https://") {
+        normalized = format!("http://{normalized}");
+    }
+    let rest_start = normalized.find("://").map(|i| i + 3).unwrap_or(0);
+    let slash_idx = normalized[rest_start..].find('/').map(|i| rest_start + i);
+    let origin = match slash_idx {
+        Some(i) => normalized[..i].trim_end_matches('/').to_string(),
+        None => normalized.trim_end_matches('/').to_string(),
+    };
+    let mut entrance = explicit_entrance
+        .map(normalize_entrance_segment)
+        .unwrap_or_default();
+    if let Some(i) = slash_idx {
+        let path = strip_accidental_api_suffix(&normalized[i..]);
+        if !path.is_empty() && path != "/" {
+            let segment = path
+                .trim_start_matches('/')
+                .split('/')
+                .next()
+                .unwrap_or("");
+            let segment = normalize_entrance_segment(segment);
+            if !segment.is_empty() {
+                entrance = segment;
+            }
+        }
+    }
+    OnePanelEndpoint {
+        base_url: origin,
+        entrance,
+    }
+}
+
+/// 规范化 1Panel API 根地址（仅 origin，不含 `/api/v2` 与安全入口路径）。
+pub fn normalize_onepanel_api_base_url(host: &str, entrance: Option<&str>) -> String {
+    resolve_onepanel_endpoint(host, entrance).base_url
+}
+
+/// 构建 1Panel API 鉴权头（含可选 `EntranceCode`）。
+pub fn build_onepanel_auth_headers(api_key: &str, entrance: &str) -> Vec<(String, String)> {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let digest = md5::compute(format!("1panel{api_key}{ts}"));
+    let mut headers = vec![
+        ("1Panel-Timestamp".to_string(), ts.to_string()),
+        ("1Panel-Token".to_string(), format!("{:x}", digest)),
+    ];
+    let ent = normalize_entrance_segment(entrance);
+    if !ent.is_empty() {
+        headers.push((
+            "EntranceCode".to_string(),
+            base64::engine::general_purpose::STANDARD.encode(ent.as_bytes()),
+        ));
+    }
+    headers
+}
+
 impl OnePanelClient {
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, insecure: bool) -> Self {
-        let mut url = base_url.into().trim().to_string();
-        if !url.is_empty() && !url.starts_with("http://") && !url.starts_with("https://") {
-            url = format!("http://{url}");
-        }
-        let rest_start = url.find("://").map(|i| i + 3).unwrap_or(0);
-        let origin = match url[rest_start..].find('/') {
-            Some(i) => url[..rest_start + i].trim_end_matches('/').to_string(),
-            None => url.trim_end_matches('/').to_string(),
-        };
+        let endpoint = resolve_onepanel_endpoint(&base_url.into(), None);
         Self {
-            base_url: origin,
+            base_url: endpoint.base_url,
+            entrance: endpoint.entrance,
             api_key: api_key.into(),
             insecure,
         }
     }
 
-    /// 计算 1Panel-Token 头。
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub fn entrance(&self) -> &str {
+        &self.entrance
+    }
+
+    /// 计算 1Panel-Token / EntranceCode 等鉴权头。
     pub fn auth_headers(&self) -> Vec<(String, String)> {
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let digest = md5::compute(format!("1panel{}{}", self.api_key, ts));
-        vec![
-            ("1Panel-Timestamp".to_string(), ts.to_string()),
-            ("1Panel-Token".to_string(), format!("{:x}", digest)),
-        ]
+        build_onepanel_auth_headers(&self.api_key, &self.entrance)
     }
 
     /// 发起 GET 鉴权请求并把 `data` 字段反序列化出来。
@@ -344,8 +469,14 @@ impl OnePanelClient {
             Ok(v) => Ok(v),
             Err(err) => {
                 if self.base_url.starts_with("http://") {
-                    let https_base =
+                    let https_origin =
                         format!("https://{}", self.base_url.trim_start_matches("http://"));
+                    // HTTP→HTTPS 回退时必须保留安全入口，否则 EntranceCode 头丢失会触发面板拦截页
+                    let https_base = if self.entrance.is_empty() {
+                        https_origin
+                    } else {
+                        format!("{}/{}", https_origin, self.entrance)
+                    };
                     let https_client = Self::new(&https_base, &self.api_key, self.insecure);
                     match https_client
                         .request_raw_with_paths(method, &paths, body_value.as_ref(), query, timeout)
@@ -372,6 +503,8 @@ impl OnePanelClient {
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(self.insecure)
             .timeout(timeout)
+            // 面板地址多为公网/内网 IP，应直连；避免 reqwest 走系统或 HTTP_PROXY 代理。
+            .no_proxy()
             .build()
             .map_err(|e| {
                 OmniError::new(ErrorCode::Connection, "构造 HTTP 客户端失败")
@@ -407,10 +540,8 @@ impl OnePanelClient {
             let resp = match req.send().await {
                 Ok(r) => r,
                 Err(e) => {
-                    last_err = Some(
-                        OmniError::new(ErrorCode::Connection, "1Panel 请求失败")
-                            .with_cause(format!("{} ({})", e, url)),
-                    );
+                    let detail = e.to_string();
+                    last_err = Some(map_http_send_error(&detail, &url));
                     continue;
                 }
             };
@@ -1420,11 +1551,13 @@ fn container_search_body(page: u32, page_size: u32) -> serde_json::Value {
 }
 
 fn image_search_body(page: u32, page_size: u32) -> serde_json::Value {
+    // 1Panel v2 镜像列表不支持 orderBy=name（容器列表支持），
+    // 默认为 createdAt，避免首次请求就触发 oneof fallback。
     serde_json::json!({
         "name": "",
         "page": page,
         "pageSize": page_size,
-        "orderBy": "name",
+        "orderBy": "createdAt",
         "order": "null",
     })
 }
@@ -2991,4 +3124,68 @@ pub fn adapter_from_config(
         connection_id,
         ssh,
     )
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::{
+        build_onepanel_auth_headers, resolve_onepanel_endpoint, OnePanelClient,
+    };
+    use base64::Engine as _;
+
+    #[test]
+    fn extracts_entrance_from_url_for_header_not_path() {
+        let endpoint = resolve_onepanel_endpoint("http://59.110.152.23:17182/ca8b44c8e4", None);
+        assert_eq!(endpoint.base_url, "http://59.110.152.23:17182");
+        assert_eq!(endpoint.entrance, "ca8b44c8e4");
+    }
+
+    #[test]
+    fn appends_entrance_from_explicit_param() {
+        let endpoint = resolve_onepanel_endpoint(
+            "http://192.168.1.2:9999",
+            Some("/ca8b44c8e4"),
+        );
+        assert_eq!(endpoint.base_url, "http://192.168.1.2:9999");
+        assert_eq!(endpoint.entrance, "ca8b44c8e4");
+    }
+
+    #[test]
+    fn strips_accidental_api_suffix_from_url() {
+        let endpoint = resolve_onepanel_endpoint("http://host:9999/ent/api/v2", None);
+        assert_eq!(endpoint.base_url, "http://host:9999");
+        assert_eq!(endpoint.entrance, "ent");
+    }
+
+    #[test]
+    fn client_sends_entrance_code_header() {
+        let client = OnePanelClient::new(
+            "http://59.110.152.23:17182/ca8b44c8e4",
+            "key",
+            true,
+        );
+        assert_eq!(client.base_url(), "http://59.110.152.23:17182");
+        assert_eq!(client.entrance(), "ca8b44c8e4");
+        let headers = client.auth_headers();
+        let code = headers
+            .iter()
+            .find(|(k, _)| k == "EntranceCode")
+            .map(|(_, v)| v.as_str())
+            .unwrap();
+        let decoded = String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(code)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(decoded, "ca8b44c8e4");
+    }
+
+    #[test]
+    fn auth_headers_include_token_and_entrance() {
+        let headers = build_onepanel_auth_headers("api-key", "entrance1");
+        assert!(headers.iter().any(|(k, _)| k == "1Panel-Token"));
+        assert!(headers.iter().any(|(k, _)| k == "1Panel-Timestamp"));
+        assert!(headers.iter().any(|(k, _)| k == "EntranceCode"));
+    }
 }

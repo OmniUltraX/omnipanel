@@ -11,6 +11,7 @@ import {
   normalizeParentId,
 } from "../modules/knowledge/knowledgeTree";
 import { normalizeKnowledgeTags } from "../modules/knowledge/knowledgeTags";
+import { isNameOnlyChange } from "../lib/nameOnlyChange";
 import { scheduleAssistantSnapshotSync } from "../modules/assistant";
 import { scheduleClientModuleSync, recordModuleTombstones } from "../modules/clientSync";
 import { useSkillPromptStore } from "./skillPromptStore";
@@ -76,6 +77,8 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           ...entry,
           tags: normalizeKnowledgeTags(entry.tags),
         };
+        // 名称不参与云端同步：保存前记录旧值，用于判断是否纯改名
+        const existing = get().entries.find((e) => e.id === normalized.id);
         try {
           const res = await commands.knowledgeSave({
             ...normalized,
@@ -99,7 +102,9 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
                 });
             }
             scheduleAssistantSnapshotSync();
-            scheduleClientModuleSync();
+            if (!isNameOnlyChange(normalized, existing, "title")) {
+              scheduleClientModuleSync();
+            }
             return true;
           }
           set({ error: res.error.message });

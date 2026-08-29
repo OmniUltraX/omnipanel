@@ -148,12 +148,13 @@ function formToConfig(form: DockerForm, sshConnections: Connection[]): string {
 }
 
 function formToOnePanelConfig(form: DockerForm): string {
+  const baseUrl = form.panelBaseUrl.trim();
   const cfg: Record<string, unknown> = {
     source: "onepanel",
-    host: form.panelBaseUrl.trim(),
+    host: baseUrl,
     boundSshConnectionId: form.boundSshConnectionId.trim(),
     onepanel: {
-      baseUrl: form.panelBaseUrl.trim(),
+      baseUrl,
       apiKey: form.panelApiKey.trim(),
       insecure: form.panelInsecure,
     },
@@ -487,12 +488,17 @@ export function DockerConnectionDialog({
                   placeholder={
                     form.source === "btpanel"
                       ? "http://192.168.1.2:8888"
-                      : "http://192.168.1.2:9999"
+                      : "http://192.168.1.2:9999 或 http://192.168.1.2:9999/安全入口"
                   }
                   value={form.panelBaseUrl}
                   onChange={(value) => update("panelBaseUrl", value)}
                   style={{ width: "100%" }}
                 />
+                  {form.source === "onepanel" ? (
+                  <p className="form-hint" style={{ marginTop: 6 }}>
+                    若开启了安全入口，请在地址中包含入口路径（与浏览器登录 URL 一致，不含 /login）；API 会自动附带 EntranceCode 头。
+                  </p>
+                ) : null}
               </div>
               <div className="form-field">
                 <label className="form-label">API Key</label>

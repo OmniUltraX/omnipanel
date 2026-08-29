@@ -7,6 +7,7 @@ import {
 } from "../lib/resourceRegistry";
 import { resolveResourceById } from "./connectionStore";
 import { DASHBOARD_PATH } from "../lib/paths";
+import { getCachedDeviceName } from "../lib/deviceIdentity";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { scheduleClientModuleSync, recordModuleTombstones } from "../modules/clientSync";
 
@@ -18,6 +19,8 @@ export interface WorkspaceInfo {
   windowForm?: "embedded" | "windowed";
   /** 独立窗口上次的位置和大小（物理像素） */
   windowBounds?: { x: number; y: number; width: number; height: number };
+  /** 资源标签；创建时自动打 `creator: <设备名>` 标记创建设备 */
+  tags?: string[];
 }
 
 export interface WorkspaceContextSnapshot {
@@ -147,10 +150,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         if (!trimmed) {
           return get().workspace;
         }
+        const creator = getCachedDeviceName();
         const newWorkspace: WorkspaceInfo = {
           id: `workspace-${Date.now()}`,
           name: trimmed,
           description: description?.trim() ?? "",
+          // 创建时标记创建设备，多设备同步时区分来源
+          ...(creator ? { tags: [`creator:${creator}`] } : {}),
         };
         const prevId = get().workspace.id;
         set((state) => ({
@@ -250,7 +256,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const nextWorkspace =
           state.workspace.id === id ? { ...state.workspace, name: trimmed } : state.workspace;
         set({ workspaces: nextWorkspaces, workspace: nextWorkspace });
-        scheduleClientModuleSync();
+        // 名称不参与云端同步，纯改名不触发快照推送
         return true;
       },
 

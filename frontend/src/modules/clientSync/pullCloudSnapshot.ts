@@ -1,6 +1,7 @@
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
+import { runDeviceTagMigration } from "../../lib/deviceTagMigration";
 import { useAuthStore } from "../../stores/authStore";
 import { useAiStore, type AiConversation } from "../../stores/aiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
@@ -32,6 +33,7 @@ function mergeWorkspacesJson(raw: string | null | undefined): void {
       name: string;
       description?: string;
       windowForm?: string | null;
+      tags?: string[];
     }>;
     if (!Array.isArray(list) || list.length === 0) return;
 
@@ -45,13 +47,20 @@ function mergeWorkspacesJson(raw: string | null | undefined): void {
           w.windowForm === "windowed" || w.windowForm === "embedded"
             ? w.windowForm
             : undefined,
+        // 保留远端 creator 标签，避免下次上传丢失来源设备信息
+        tags: Array.isArray(w.tags) ? w.tags.filter((t) => typeof t === "string") : undefined,
       }));
     if (incoming.length === 0) return;
 
     const current = useWorkspaceStore.getState();
     const byId = new Map(current.workspaces.map((w) => [w.id, w]));
     for (const w of incoming) {
-      byId.set(w.id, w);
+      const existing = byId.get(w.id);
+      // 名称/备注为设备本地字段，不参与云端同步：本地已有工作区保留本地名称/备注
+      byId.set(
+        w.id,
+        existing ? { ...w, name: existing.name, description: existing.description } : w,
+      );
     }
     const workspaces = [...byId.values()];
     const activeStill = workspaces.some((w) => w.id === current.workspace.id);
@@ -219,6 +228,8 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
     setSecretsVaultSyncSuppressed(false);
   }
 
+  // 拉取结束后迁移设备标签（清掉旧设备名标签并补 creator），再考虑回写，保证推送的是干净标签
+  await runDeviceTagMigration();
   // suppress 解除后再考虑回写，否则 schedule 会被吞掉
   await republishLocalModulesIfCloudEmpty(result);
   return result;

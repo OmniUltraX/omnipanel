@@ -22,6 +22,7 @@ import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { expandMainWindow, showSplashWindow } from "./lib/bootSplashBridge";
+import { initDeviceNameCache } from "./lib/deviceIdentity";
 import { selectIsLoggedIn, useAuthStore } from "./stores/authStore";
 import { syncAuthProfile } from "./lib/auth/syncAuthProfile";
 
@@ -109,6 +110,8 @@ export function Bootstrap() {
 
         const token = useAuthStore.getState().token;
         const profileSync = token ? syncAuthProfile() : Promise.resolve();
+        // 预热设备名缓存，供工作区创建等同步路径打 creator 标签
+        void initDeviceNameCache();
 
         const proxy = useSettingsStore.getState().proxy;
         await pushLog(t("app.splash.logs.proxy"));

@@ -1029,10 +1029,12 @@ export function UserCenterTeams({
 
               <TeamDataTree
                 teamId={numericTeamId(selectedTeam) ?? 0}
+                token={token ?? ""}
                 peek={dataPeek}
                 loading={dataPeekLoading}
                 error={dataPeekError}
                 onExclusionChange={() => void loadTeamDataPeek(selectedTeam, { silent: true })}
+                onCloudDelete={() => void loadTeamDataPeek(selectedTeam)}
               />
 
               <div className="user-center-teams-sync">

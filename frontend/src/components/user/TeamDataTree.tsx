@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
-import type { TeamSyncPeekItem, TeamSyncPeekModule, TeamSyncPeekResult } from "../../ipc/bindings";
+import { commands, type TeamSyncPeekItem, type TeamSyncPeekModule, type TeamSyncPeekResult } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
+import { appConfirm } from "../../lib/appConfirm";
+import { formatTeamSyncError } from "../../lib/auth/teamSyncApi";
 import {
   clearTeamSyncExcluded,
   markTeamSyncExcluded,
   type TeamSyncModuleKey,
 } from "../../modules/teamSync/exclusions";
+import {
+  recordModuleTombstones,
+  type ClientSyncTombstoneKind,
+} from "../../modules/clientSync/tombstones";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { showToast } from "../../stores/toastStore";
-import { IconChevronDown, IconFolder, IconLink, IconXCircle } from "../ui/icons/Icons";
+import { IconChevronDown, IconFolder, IconLink, IconTrash, IconXCircle } from "../ui/icons/Icons";
 
 type PeekItem = TeamSyncPeekItem & { moduleKey: TeamSyncModuleKey };
 
@@ -33,6 +41,90 @@ function isSyncManageable(item: PeekItem): boolean {
   }
   return true;
 }
+
+/** 是否为云端快照中的真实资源（区别于布局节点 / 虚拟分组）。 */
+function isCloudResource(item: PeekItem): boolean {
+  if (isVirtualNode(item)) return false;
+  if (item.detail === "layout-folder") return false;
+  if (item.kind === "folder" && item.moduleKey !== "http" && item.moduleKey !== "knowledge") {
+    return false;
+  }
+  return true;
+}
+
+/** 存在于云端快照（已同步 / 仅云端）的资源才可从云端删除。 */
+function isCloudDeletable(item: PeekItem): boolean {
+  return isCloudResource(item) && (item.syncStatus === "synced" || item.syncStatus === "remote");
+}
+
+type CloudDeleteTargets = {
+  connections: string[];
+  databases: string[];
+  knowledge: string[];
+  httpCollections: string[];
+  httpRequests: string[];
+  workspaces: string[];
+  customPanels: string[];
+};
+
+function emptyDeleteTargets(): CloudDeleteTargets {
+  return {
+    connections: [],
+    databases: [],
+    knowledge: [],
+    httpCollections: [],
+    httpRequests: [],
+    workspaces: [],
+    customPanels: [],
+  };
+}
+
+function deleteCategoryFor(item: PeekItem): keyof CloudDeleteTargets | null {
+  if (!isCloudResource(item)) return null;
+  switch (item.moduleKey) {
+    case "connections":
+      return "connections";
+    case "databases":
+      return "databases";
+    case "knowledge":
+      return "knowledge";
+    case "workspaces":
+      return "workspaces";
+    case "customPanels":
+      return "customPanels";
+    case "http":
+      return item.kind === "folder" ? "httpCollections" : "httpRequests";
+    default:
+      return null;
+  }
+}
+
+/** 收集子树内全部云端删除目标（知识文件夹 / HTTP 集合会级联到后代）。 */
+function collectDeleteTargets(node: TreeNode): CloudDeleteTargets {
+  const targets = emptyDeleteTargets();
+  const walk = (current: TreeNode) => {
+    const category = deleteCategoryFor(current.item);
+    if (category) {
+      targets[category].push(current.item.id);
+    }
+    current.children.forEach(walk);
+  };
+  walk(node);
+  return targets;
+}
+
+const TOMBSTONE_KIND_BY_CATEGORY: Record<
+  keyof CloudDeleteTargets,
+  Exclude<ClientSyncTombstoneKind, "conversation">
+> = {
+  connections: "connection",
+  databases: "database",
+  knowledge: "knowledge",
+  httpCollections: "httpCollection",
+  httpRequests: "httpRequest",
+  workspaces: "workspace",
+  customPanels: "customPanel",
+};
 
 function normalizeParentId(parentId: string | null | undefined): string {
   return parentId?.trim() ?? "";
@@ -178,16 +270,20 @@ function flattenModules(modules: TeamSyncPeekModule[]): PeekItem[] {
 
 export function TeamDataTree({
   teamId,
+  token,
   peek,
   loading,
   error,
   onExclusionChange,
+  onCloudDelete,
 }: {
   teamId: number;
+  token: string;
   peek: TeamSyncPeekResult | null;
   loading: boolean;
   error: string | null;
   onExclusionChange: () => void;
+  onCloudDelete: () => void;
 }) {
   const { t, locale } = useI18n();
   const items = useMemo(() => (peek ? flattenModules(peek.modules) : []), [peek]);
@@ -197,6 +293,7 @@ export function TeamDataTree({
     [items],
   );
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     setCollapsed(new Set());
@@ -226,6 +323,56 @@ export function TeamDataTree({
       t(excluded ? "userCenter.teams.cancelSyncSuccess" : "userCenter.teams.restoreSyncSuccess"),
     );
     onExclusionChange();
+  };
+
+  const handleDeleteFromCloud = async (node: TreeNode) => {
+    if (!token.trim() || teamId <= 0 || deletingId !== null) return;
+    const targets = collectDeleteTargets(node);
+    const total = Object.values(targets).reduce((sum, ids) => sum + ids.length, 0);
+    if (total === 0) return;
+    const label = resolveLabel(node.item, t);
+    const confirmed = await appConfirm(
+      total > 1
+        ? t("userCenter.teams.deleteCloudConfirmCascade", { name: label, count: total })
+        : t("userCenter.teams.deleteCloudConfirm", { name: label }),
+      t("userCenter.teams.deleteCloudTitle"),
+    );
+    if (!confirmed) return;
+
+    setDeletingId(node.item.id);
+    try {
+      const result = await unwrapCommand(
+        commands.teamSyncDeleteResources({ token, teamId, ...targets }),
+      );
+      const removed = (
+        [
+          result.connections,
+          result.databases,
+          result.knowledge,
+          result.httpCollections,
+          result.httpRequests,
+          result.workspaces,
+          result.customPanels,
+        ] as Array<number | null>
+      )
+        .map((count) => Number(count) || 0)
+        .reduce((sum, count) => sum + count, 0);
+      // 被删团队即当前同步团队时记录墓碑，防止本机后续推送把资源复活回云端
+      if (getCurrentSyncTeamId() === teamId) {
+        for (const category of Object.keys(targets) as Array<keyof CloudDeleteTargets>) {
+          const ids = targets[category];
+          if (ids.length > 0) {
+            recordModuleTombstones(TOMBSTONE_KIND_BY_CATEGORY[category], ids);
+          }
+        }
+      }
+      showToast(t("userCenter.teams.deleteCloudSuccess", { count: removed }));
+      onCloudDelete();
+    } catch (e) {
+      showToast(formatTeamSyncError(e));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   if (loading) {
@@ -270,6 +417,7 @@ export function TeamDataTree({
               const syncStatusBadge = resolveSyncStatusBadge(item, t);
               const showExcludedBadge =
                 item.excluded || (isVirtualNode(item) && syncState.allExcluded && syncState.hasTargets);
+              const cloudDeletable = isCloudDeletable(item);
 
               return (
                 <tr key={item.id} className={folder ? "is-folder" : ""}>
@@ -314,29 +462,43 @@ export function TeamDataTree({
                   </td>
                   <td className="data-sync-table__time">{formatUpdatedAt(item.updatedAt, locale)}</td>
                   <td className="user-center-team-data__actions-col">
-                    {syncState.hasTargets ? (
-                      syncState.allExcluded ? (
-                        <button
-                          type="button"
-                          className="btn-icon user-center-team-data__action-btn"
-                          title={t("userCenter.teams.restoreSync")}
-                          aria-label={t("userCenter.teams.restoreSync")}
-                          onClick={() => applySubtreeExclusion(node, false)}
-                        >
-                          <IconLink size={14} />
-                        </button>
-                      ) : (
+                    <div className="user-center-team-data__actions">
+                      {syncState.hasTargets ? (
+                        syncState.allExcluded ? (
+                          <button
+                            type="button"
+                            className="btn-icon user-center-team-data__action-btn"
+                            title={t("userCenter.teams.restoreSync")}
+                            aria-label={t("userCenter.teams.restoreSync")}
+                            onClick={() => applySubtreeExclusion(node, false)}
+                          >
+                            <IconLink size={14} />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-icon user-center-team-data__action-btn user-center-team-data__action-btn--danger"
+                            title={t("userCenter.teams.cancelSync")}
+                            aria-label={t("userCenter.teams.cancelSync")}
+                            onClick={() => applySubtreeExclusion(node, true)}
+                          >
+                            <IconXCircle size={14} />
+                          </button>
+                        )
+                      ) : null}
+                      {cloudDeletable ? (
                         <button
                           type="button"
                           className="btn-icon user-center-team-data__action-btn user-center-team-data__action-btn--danger"
-                          title={t("userCenter.teams.cancelSync")}
-                          aria-label={t("userCenter.teams.cancelSync")}
-                          onClick={() => applySubtreeExclusion(node, true)}
+                          title={t("userCenter.teams.deleteCloudResource")}
+                          aria-label={t("userCenter.teams.deleteCloudResource")}
+                          disabled={deletingId !== null}
+                          onClick={() => void handleDeleteFromCloud(node)}
                         >
-                          <IconXCircle size={14} />
+                          <IconTrash size={14} />
                         </button>
-                      )
-                    ) : null}
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );

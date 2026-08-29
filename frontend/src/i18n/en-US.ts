@@ -7947,6 +7947,13 @@ export const enUS: TranslationDict = {
       restoreSync: "Include in sync",
       cancelSyncSuccess: "Item excluded from team sync",
       restoreSyncSuccess: "Item included in team sync again",
+      deleteCloudResource: "Delete from cloud",
+      deleteCloudTitle: "Delete cloud data",
+      deleteCloudConfirm:
+        "Delete \"{name}\" from the team cloud snapshot? This device and member devices will remove it on the next sync pull.",
+      deleteCloudConfirmCascade:
+        "Delete \"{name}\" and its children ({count} items) from the team cloud snapshot? This device and member devices will remove them on the next sync pull.",
+      deleteCloudSuccess: "Deleted {count} item(s) from the cloud",
       dataModules: {
         connections: "SSH connections",
         databases: "Databases",

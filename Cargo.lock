@@ -9321,6 +9321,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tag-cleanup-tool"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-assistant",
+ "omnipanel-error",
+ "omnipanel-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "urlencoding",
+]
+
+[[package]]
 name = "tailscale"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

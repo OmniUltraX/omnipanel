@@ -10,23 +10,33 @@ pub fn build_token(api_key: &str, timestamp: i64) -> String {
     format!("{:x}", md5::compute(payload))
 }
 
-/// 规范化面板地址为 origin（scheme://host:port，无安全入口路径）。未带协议时默认 http。
+/// 规范化 1Panel API 根地址（仅 origin，不含 `/api/v2` 与安全入口路径）。
 pub fn normalize_base_url(host: &str) -> Result<String, OmniError> {
-    let mut normalized = host.trim().to_string();
-    if normalized.is_empty() {
+    let endpoint = omnipanel_docker::resolve_onepanel_endpoint(host, None);
+    if endpoint.base_url.is_empty() {
         return Err(OmniError::invalid_input("1Panel 地址不能为空"));
     }
-    if !normalized.starts_with("http://") && !normalized.starts_with("https://") {
-        normalized = format!("http://{normalized}");
+    Ok(endpoint.base_url)
+}
+
+fn resolve_endpoint(host: &str) -> Result<omnipanel_docker::OnePanelEndpoint, OmniError> {
+    let endpoint = omnipanel_docker::resolve_onepanel_endpoint(host, None);
+    if endpoint.base_url.is_empty() {
+        return Err(OmniError::invalid_input("1Panel 地址不能为空"));
     }
-    let rest_start = normalized.find("://").map(|i| i + 3).unwrap_or(0);
-    let origin = match normalized[rest_start..].find('/') {
-        Some(i) => normalized[..rest_start + i]
-            .trim_end_matches('/')
-            .to_string(),
-        None => normalized.trim_end_matches('/').to_string(),
-    };
-    Ok(origin)
+    Ok(endpoint)
+}
+
+fn apply_auth_headers(
+    req: reqwest::RequestBuilder,
+    api_key: &str,
+    entrance: &str,
+) -> reqwest::RequestBuilder {
+    let mut req = req;
+    for (key, value) in omnipanel_docker::build_onepanel_auth_headers(api_key, entrance) {
+        req = req.header(key, value);
+    }
+    req
 }
 
 fn current_timestamp() -> i64 {
@@ -190,9 +200,7 @@ async fn send_request_once(
     body: Option<Value>,
     api_prefix: &str,
 ) -> Result<(reqwest::StatusCode, String, Vec<u8>, Option<String>), OmniError> {
-    let base = normalize_base_url(host)?;
-    let timestamp = current_timestamp();
-    let token = build_token(api_key, timestamp);
+    let endpoint = resolve_endpoint(host)?;
 
     let method = method
         .parse::<Method>()
@@ -203,20 +211,23 @@ async fn send_request_once(
     } else {
         format!("/{path}")
     };
-    let url = format!("{base}{api_prefix}{path}");
+    let url = format!("{}{api_prefix}{path}", endpoint.base_url);
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
         // 面板常见自签 HTTPS；与宝塔客户端一致放行，否则握手失败会变成「error sending request」
         .danger_accept_invalid_certs(true)
+        .no_proxy()
         .build()
         .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
 
-    let mut req = client
-        .request(method.clone(), &url)
-        .header("Accept", "application/json, text/plain, */*")
-        .header("1Panel-Token", token)
-        .header("1Panel-Timestamp", timestamp.to_string());
+    let mut req = apply_auth_headers(
+        client
+            .request(method.clone(), &url)
+            .header("Accept", "application/json, text/plain, */*"),
+        api_key,
+        &endpoint.entrance,
+    );
 
     match body {
         Some(value) => {
@@ -417,7 +428,7 @@ async fn send_multipart(
     boundary: &str,
     timeout_secs: u64,
 ) -> Result<(), OmniError> {
-    let base = normalize_base_url(host)?;
+    let endpoint = resolve_endpoint(host)?;
     let url_path = if path.starts_with('/') {
         path.to_string()
     } else {
@@ -426,28 +437,29 @@ async fn send_multipart(
 
     let mut last_err: Option<OmniError> = None;
     for api_prefix in ["/api/v2", "/api/v1"] {
-        let timestamp = current_timestamp();
-        let token = build_token(api_key, timestamp);
-        let url = format!("{base}{api_prefix}{url_path}");
+        let url = format!("{}{api_prefix}{url_path}", endpoint.base_url);
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(timeout_secs))
             .danger_accept_invalid_certs(true)
+            .no_proxy()
             .build()
             .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
 
-        let resp = match client
-            .post(&url)
-            .header("Accept", "application/json, text/plain, */*")
-            .header(
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            )
-            .header("1Panel-Token", token)
-            .header("1Panel-Timestamp", timestamp.to_string())
-            .body(body.clone())
-            .send()
-            .await
+        let resp = match apply_auth_headers(
+            client
+                .post(&url)
+                .header("Accept", "application/json, text/plain, */*")
+                .header(
+                    "Content-Type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                ),
+            api_key,
+            &endpoint.entrance,
+        )
+        .body(body.clone())
+        .send()
+        .await
         {
             Ok(r) => r,
             Err(e) => {
@@ -701,26 +713,27 @@ pub async fn fetch_app_icon(host: &str, api_key: &str, app_key: &str) -> Result<
         return Err(OmniError::invalid_input("应用 key 不能为空"));
     }
 
-    let base = normalize_base_url(host)?;
+    let endpoint = resolve_endpoint(host)?;
     let mut last_err: Option<OmniError> = None;
     for api_prefix in ["/api/v2", "/api/v1"] {
-        let timestamp = current_timestamp();
-        let token = build_token(api_key, timestamp);
-        let url = format!("{base}{api_prefix}/apps/icon/{key}");
+        let url = format!("{}{api_prefix}/apps/icon/{key}", endpoint.base_url);
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .danger_accept_invalid_certs(true)
+            .no_proxy()
             .build()
             .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
 
-        let resp = match client
-            .get(&url)
-            .header("Accept", "application/json, image/*, */*")
-            .header("1Panel-Token", token)
-            .header("1Panel-Timestamp", timestamp.to_string())
-            .send()
-            .await
+        let resp = match apply_auth_headers(
+            client
+                .get(&url)
+                .header("Accept", "application/json, image/*, */*"),
+            api_key,
+            &endpoint.entrance,
+        )
+        .send()
+        .await
         {
             Ok(r) => r,
             Err(e) => {
@@ -771,7 +784,7 @@ pub async fn fetch_app_icon(host: &str, api_key: &str, app_key: &str) -> Result<
             continue;
         }
 
-        return icon_bytes_to_data_url(&base, &content_type, &bytes);
+        return icon_bytes_to_data_url(&endpoint.base_url, &content_type, &bytes);
     }
 
     Err(last_err.unwrap_or_else(|| OmniError::not_found("应用图标为空")))

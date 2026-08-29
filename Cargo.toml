@@ -30,6 +30,7 @@ members = [
     "crates/omnipanel-plugin-js",
     "crates/omnipanel-everything",
     "crates/omnipanel-presence",
+    "crates/tag-cleanup-tool",
 ]
 
 [workspace.package]

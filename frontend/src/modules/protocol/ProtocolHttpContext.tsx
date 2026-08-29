@@ -10,6 +10,7 @@ import {
 } from "react";
 import { asArray } from "../../ipc/asArray";
 import { commands, type HttpCollection, type HttpEnvironment, type HttpHistoryEntry, type SavedHttpRequest } from "../../ipc/bindings";
+import { isNameOnlyChange } from "../../lib/nameOnlyChange";
 import { scheduleAssistantSnapshotSync } from "../assistant";
 import {
   scheduleClientModuleSync,
@@ -40,11 +41,14 @@ import {
 import type { HttpPathParamPair } from "./httpPathParams";
 import type { ProtocolImportDocument, ProtocolImportStats } from "./import/protocolImportTypes";
 
-async function persistHttpRequest(req: SavedHttpRequest) {
+async function persistHttpRequest(req: SavedHttpRequest, opts?: { nameOnly?: boolean }) {
   const res = await commands.httpSaveRequest(req);
   if (res.status === "ok") {
     scheduleAssistantSnapshotSync();
-    scheduleClientModuleSync();
+    // 名称不参与云端同步：纯改名不触发快照推送
+    if (!opts?.nameOnly) {
+      scheduleClientModuleSync();
+    }
   }
   return res;
 }
@@ -542,12 +546,15 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
       if (res.status !== "ok") {
         throw new Error(typeof res.error === "string" ? res.error : String(res.error));
       }
-      scheduleClientModuleSync();
+      // 名称不参与云端同步：纯改名不触发快照推送
+      if (!isNameOnlyChange(env, environments.find((e) => e.id === env.id), "name")) {
+        scheduleClientModuleSync();
+      }
       await loadEnvironments();
       writeStoredActiveEnvironmentId(env.id);
       setEditorState((prev) => ({ ...prev, environmentId: env.id }));
     },
-    [loadEnvironments],
+    [environments, loadEnvironments],
   );
 
   const deleteEnvironment = useCallback(
@@ -947,7 +954,7 @@ export function ProtocolHttpProvider({ children }: { children: ReactNode }) {
         name: trimmed,
         updatedAt: Date.now(),
       };
-      const res = await persistHttpRequest(req);
+      const res = await persistHttpRequest(req, { nameOnly: true });
       if (res.status === "ok") {
         await loadSavedRequests();
       }

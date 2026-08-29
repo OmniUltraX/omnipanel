@@ -1274,6 +1274,8 @@ export const commands = {
 	teamSyncPullModules: (token: string, teamId: number) => typedError<TeamSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_pull_modules", { token, teamId })),
 	/**  预览本机模块数据与团队 OSS 快照的对比（树形结构 + 已同步标记）。 */
 	teamSyncPeekModules: (request: TeamSyncPeekModulesRequest) => typedError<TeamSyncPeekResult_Serialize, OmniError_Serialize>(__TAURI_INVOKE("team_sync_peek_modules", { request })),
+	/**  从团队云端快照删除指定资源（仅改云端；本机与成员设备在下次同步拉取时移除对应数据）。 */
+	teamSyncDeleteResources: (request: TeamSyncDeleteResourcesRequest) => typedError<TeamSyncDeleteResourcesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_delete_resources", { request })),
 	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
 	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */
@@ -1304,6 +1306,12 @@ export const commands = {
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
 	/**  从默认个人团队 OSS 拉取模块快照并应用到本机。 */
 	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
+	/**
+	 *  将本机资源上的旧设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。
+	 * 
+	 *  工作区标签存于前端 localStorage，由前端迁移编排器一并处理。
+	 */
+	clientSyncMigrateDeviceTags: (request: ClientSyncMigrateDeviceTagsRequest) => typedError<ClientSyncMigrateDeviceTagsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_migrate_device_tags", { request })),
 	/**  切换本机业务数据目录到指定团队（`local` 或数字 id）。 */
 	storageSwitchTeam: (teamScope: string) => typedError<StorageSwitchTeamResult, OmniError_Serialize>(__TAURI_INVOKE("storage_switch_team", { teamScope })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
@@ -2119,6 +2127,22 @@ export type CliProviderUpsertInput = {
 	modelDiscoveryArgs?: string[],
 };
 
+export type ClientSyncMigrateDeviceTagsRequest = {
+	/**  账号设备名列表（前端 authListDevices 获取），用于识别资源上的旧设备名标签。 */
+	deviceNames?: string[],
+};
+
+export type ClientSyncMigrateDeviceTagsResult = {
+	/**  是否有任何资源标签被改写（供前端决定是否回推云端快照）。 */
+	changed: boolean,
+	connections: number | null,
+	databases: number | null,
+	knowledge: number | null,
+	httpRequests: number | null,
+	httpCollections: number | null,
+	httpEnvironments: number | null,
+};
+
 export type ClientSyncPullConversationsRequest = {
 	token: string,
 	/**  可选团队 ID；缺省回退到默认个人团队。 */
@@ -2454,7 +2478,7 @@ export type DbConnectionConfig = {
 	enabled?: boolean,
 	/**  钥匙串中是否已保存密码。 */
 	has_password?: boolean,
-	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
 	tags?: string[],
 	/**  侧栏分组名；空 / `default` 视为「默认」。 */
 	group?: string,
@@ -3754,7 +3778,7 @@ export type HttpCollection = {
 	description: string,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
 	tags?: string[],
 };
 
@@ -3768,7 +3792,7 @@ export type HttpEnvironment = {
 	authValue: string | null,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
 	tags?: string[],
 };
 
@@ -4850,7 +4874,7 @@ export type SavedHttpRequest = {
 	queryParams?: string,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
 	tags?: string[],
 };
 
@@ -5715,6 +5739,31 @@ export type TeamSummary = {
 	teamOssKey: string,
 	createdAt: string,
 	updatedAt: string,
+};
+
+/**  从团队云端快照删除资源：按类别传 id 列表（http 集合/知识文件夹会级联删除后代）。 */
+export type TeamSyncDeleteResourcesRequest = {
+	token: string,
+	teamId: number | null,
+	connections?: string[],
+	databases?: string[],
+	knowledge?: string[],
+	httpCollections?: string[],
+	httpRequests?: string[],
+	workspaces?: string[],
+	customPanels?: string[],
+};
+
+export type TeamSyncDeleteResourcesResult = {
+	connections: number | null,
+	databases: number | null,
+	knowledge: number | null,
+	httpCollections: number | null,
+	httpRequests: number | null,
+	workspaces: number | null,
+	customPanels: number | null,
+	objectKey: string,
+	bytes: number | null,
 };
 
 export type TeamSyncFetchShareResult = {

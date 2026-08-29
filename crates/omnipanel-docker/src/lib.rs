@@ -37,7 +37,10 @@ pub use host_cli::{run_local_docker_cli, run_ssh_docker_cli, validate_docker_cli
 pub use local::{DockerExecOutput, DockerExecSession, DockerOneShotExecOutput, LocalDockerAdapter};
 pub use local_engine::{local_engine_status, restart_local_engine, start_local_engine};
 pub use model::*;
-pub use onepanel::{OnePanelAdapter, OnePanelClient};
+pub use onepanel::{
+    build_onepanel_auth_headers, normalize_onepanel_api_base_url, resolve_onepanel_endpoint,
+    OnePanelAdapter, OnePanelClient, OnePanelEndpoint,
+};
 pub use ssh::SshDockerAdapter;
 
 /// 重新导出 bollard，供命令层直接构造远程 Engine 客户端。

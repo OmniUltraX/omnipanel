@@ -9,6 +9,7 @@ import type {
 } from "../../ipc/bindings";
 import { asArray } from "../../ipc/asArray";
 import { unwrapCommand } from "../../ipc/result";
+import { isNameOnlyChange } from "../../lib/nameOnlyChange";
 import { scheduleAssistantSnapshotSync } from "../assistant";
 import { scheduleClientModuleSync, recordModuleTombstones } from "../clientSync";
 import {
@@ -757,6 +758,14 @@ export async function patchSchemaCache(
 }
 
 export async function saveConnection(connection: DbConnectionConfig): Promise<DbConnectionConfig> {
+  // 名称不参与云端同步：保存前取旧值，用于判断是否纯改名（列表含禁用连接）
+  let existing: BindingsDbConnectionConfig | undefined;
+  try {
+    const list = await unwrapCommand(commands.dbListConnections(), { quiet: true });
+    existing = list.find((c) => c.id === connection.id);
+  } catch {
+    // 取旧值失败时保守处理：照常触发同步
+  }
   const saved = (await unwrapCommand(
     commands.dbSaveConnection(ipcConn(connection)),
   )) as DbConnectionConfig;
@@ -765,7 +774,9 @@ export async function saveConnection(connection: DbConnectionConfig): Promise<Db
     m.useDbConnectionListStore.getState().refresh(),
   );
   scheduleAssistantSnapshotSync();
-  scheduleClientModuleSync();
+  if (!isNameOnlyChange(ipcConn(connection), existing, "name")) {
+    scheduleClientModuleSync();
+  }
   return saved;
 }
 

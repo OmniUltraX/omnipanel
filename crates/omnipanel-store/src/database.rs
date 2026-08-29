@@ -1,4 +1,4 @@
-//! 数据库模块持久化：`~/.omnipd/database/connections.json`。
+﻿//! 数据库模块持久化：`~/.omnipd/database/connections.json`。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -58,7 +58,7 @@ pub struct DbConnectionConfig {
     /// 钥匙串中是否已保存密码。
     #[serde(default)]
     pub has_password: bool,
-    /// 资源标签列表；快照上传时若为空会自动补当前设备名。
+    /// 资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。
     #[serde(default)]
     pub tags: Vec<String>,
     /// 侧栏分组名；空 / `default` 视为「默认」。

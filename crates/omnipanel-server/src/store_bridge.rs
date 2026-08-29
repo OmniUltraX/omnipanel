@@ -13,7 +13,7 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
     AppModule, AppModuleStatus, BuiltinToolCatalogEntry, BuiltinToolRecord, Connection,
     ConnectionKind, HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest, Vault,
-    ai_provider_key_ref,
+    ai_provider_key_ref, ensure_creator_tag,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -40,6 +40,10 @@ pub async fn conn_save(
     }
     connection.updated_at = now;
     let storage = state.storage.lock().await;
+    // 新建连接时打 creator 标签，标记创建设备（多设备同步时区分来源）
+    if storage.get_connection(&connection.id)?.is_none() {
+        ensure_creator_tag(&mut connection.tags, &crate::auth_cmds::current_device_name());
+    }
     storage.save_connection(&connection)?;
     Ok(connection)
 }
@@ -152,8 +156,18 @@ pub async fn http_list_requests(
         .map_err(|e| e.to_string())
 }
 
-pub async fn http_save_request(state: &ServerState, req: SavedHttpRequest) -> Result<(), String> {
+pub async fn http_save_request(
+    state: &ServerState,
+    mut req: SavedHttpRequest,
+) -> Result<(), String> {
     let storage = state.storage.lock().await;
+    // 新建请求时打 creator 标签，标记创建设备
+    if !storage
+        .http_request_exists(&req.id)
+        .map_err(|e| e.to_string())?
+    {
+        ensure_creator_tag(&mut req.tags, &crate::auth_cmds::current_device_name());
+    }
     storage.http_save_request(&req).map_err(|e| e.to_string())
 }
 
@@ -167,8 +181,18 @@ pub async fn http_list_collections(state: &ServerState) -> Result<Vec<HttpCollec
     storage.http_list_collections().map_err(|e| e.to_string())
 }
 
-pub async fn http_save_collection(state: &ServerState, col: HttpCollection) -> Result<(), String> {
+pub async fn http_save_collection(
+    state: &ServerState,
+    mut col: HttpCollection,
+) -> Result<(), String> {
     let storage = state.storage.lock().await;
+    // 新建集合时打 creator 标签，标记创建设备
+    if !storage
+        .http_collection_exists(&col.id)
+        .map_err(|e| e.to_string())?
+    {
+        ensure_creator_tag(&mut col.tags, &crate::auth_cmds::current_device_name());
+    }
     storage
         .http_save_collection(&col)
         .map_err(|e| e.to_string())
@@ -188,9 +212,16 @@ pub async fn http_list_environments(state: &ServerState) -> Result<Vec<HttpEnvir
 
 pub async fn http_save_environment(
     state: &ServerState,
-    env: HttpEnvironment,
+    mut env: HttpEnvironment,
 ) -> Result<(), String> {
     let storage = state.storage.lock().await;
+    // 新建环境时打 creator 标签，标记创建设备
+    if !storage
+        .http_environment_exists(&env.id)
+        .map_err(|e| e.to_string())?
+    {
+        ensure_creator_tag(&mut env.tags, &crate::auth_cmds::current_device_name());
+    }
     storage
         .http_save_environment(&env)
         .map_err(|e| e.to_string())

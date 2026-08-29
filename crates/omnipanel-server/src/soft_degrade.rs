@@ -183,6 +183,11 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "found": false, "objectKey": null, "bytes": null, "appliedConnections": null, "appliedDatabases": null, "appliedKnowledge": null, "appliedHttpRequests": null, "appliedWorkspaces": null, "workspacesJson": null, "sshSidebarTreeJson": null, "folderTreesJson": null });
     }
 
+    if c == "client_sync_migrate_device_tags" {
+        // 旧服务器不认识迁移命令：视为无变化，前端不回推
+        return serde_json::json!({ "changed": false, "connections": null, "databases": null, "knowledge": null, "httpRequests": null, "httpCollections": null, "httpEnvironments": null });
+    }
+
     if c == "client_sync_push_conversations" {
         // ClientSyncPushConversationsResult arrays=[]
         return serde_json::json!({ "objectKey": "", "etag": null, "bytes": null });
