@@ -1,7 +1,6 @@
 /**
- * omniserver 团队同步密钥中继（§4.2）。
- * 同组织（team_id）成员设备可互相中继；不限同一登录账号。
- * WebRTC P2P 传钥 ICE 配置见 `syncKeyP2p.ts`。团队 mesh（tailscale-rs）见 `teamMesh.ts`。
+ * omniserver 团队同步密钥中继（HTTP 兜底）。
+ * 首选路径：团队 mesh（tailscale-rs）TCP :42424，见 `teamMesh.ts` / `ensureTeamSyncKey.ts`。
  */
 export {
   createSyncKeyPeerConnection,

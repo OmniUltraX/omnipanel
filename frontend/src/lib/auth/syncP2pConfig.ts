@@ -5,8 +5,8 @@
  * 可通过 `VITE_OMNIPANEL_STUN_URL` 覆盖（多个地址用逗号分隔）。
  */
 
-/** 生产默认 STUN（coturn --stun-only，realm=1.99.protected.fun）。 */
-export const DEFAULT_SYNC_STUN_URL = "stun:1.99.protected.fun:3478";
+/** 未配置环境变量时的 STUN 回退（现网已停用 coturn；mesh TCP 为主路径）。 */
+export const DEFAULT_SYNC_STUN_URL = "";
 
 /** 同步密钥 DataChannel 标签（WebRTC 传钥时使用）。 */
 export const SYNC_KEY_P2P_DATA_CHANNEL_LABEL = "omnipanel-sync-key-v1";
@@ -19,10 +19,12 @@ function parseStunUrls(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** 解析 STUN URL 列表；未配置环境变量时回退到 {@link DEFAULT_SYNC_STUN_URL}。 */
+/** 解析 STUN URL 列表；未配置环境变量时返回空（WebRTC 传钥未启用）。 */
 export function resolveSyncStunUrls(): string[] {
   const fromEnv = parseStunUrls(import.meta.env.VITE_OMNIPANEL_STUN_URL as string | undefined);
-  return fromEnv.length > 0 ? fromEnv : [DEFAULT_SYNC_STUN_URL];
+  if (fromEnv.length > 0) return fromEnv;
+  const fallback = DEFAULT_SYNC_STUN_URL.trim();
+  return fallback ? [fallback] : [];
 }
 
 /** 构建 `RTCPeerConnection` 使用的 ICE servers（当前仅 STUN，无 TURN）。 */

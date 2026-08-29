@@ -12,10 +12,10 @@ import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { appConfirm } from "../../lib/appConfirm";
 import {
   importSyncTeamKeyFile,
-  requestTeamSyncKeyFromRelay,
   SyncKeyRelayError,
 } from "../../lib/auth/syncKeyRelayApi";
 import {
+  requestTeamSyncKey,
   resolveTeamSyncKeyWait,
   shouldSkipPullAfterTeamKey,
 } from "../../lib/auth/ensureTeamSyncKey";
@@ -93,7 +93,7 @@ export function SyncTeamKeySetupDialog() {
     try {
       const identity = await unwrapCommand(commands.authDeviceIdentity());
       setPhase("waiting");
-      const result = await requestTeamSyncKeyFromRelay({
+      const result = await requestTeamSyncKey({
         token: authToken,
         teamId,
         deviceId: identity.deviceId,

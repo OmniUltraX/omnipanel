@@ -6,9 +6,15 @@ import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { getSyncTeamKeyStatus } from "./syncTeamKeyApi";
-import { requestTeamSyncKeyFromRelay, SyncKeyRelayError, listOnlineSyncPeers } from "./syncKeyRelayApi";
-import { meshHostname } from "./teamMesh";
+import {
+  listOnlineSyncPeers,
+  requestTeamSyncKeyFromRelay,
+  SyncKeyRelayError,
+  type RequestTeamSyncKeyOptions,
+} from "./syncKeyRelayApi";
+import { meshHostname, startTeamMesh, waitForMeshReady } from "./teamMesh";
 
 export class TeamSyncKeyRequiredError extends Error {
   constructor(message = "需要团队同步密钥") {
@@ -65,6 +71,8 @@ async function tryMeshTeamSyncKey(teamId: number, timeoutMs: number): Promise<bo
   const token = useAuthStore.getState().token?.trim();
   if (!token) return false;
   try {
+    await startTeamMesh();
+    await waitForMeshReady(Math.min(timeoutMs, 20_000));
     const deviceId = await resolveDeviceId();
     if (!deviceId) return false;
     const peers = await listOnlineSyncPeers(token, teamId);
@@ -132,6 +140,30 @@ async function tryRelayTeamSyncKey(
     }
     throw e;
   }
+}
+
+/**
+ * 向同团队在线设备请求同步密钥：优先团队 mesh TCP（:42424），失败再走 HTTP 中继。
+ */
+export async function requestTeamSyncKey(
+  opts: RequestTeamSyncKeyOptions,
+): Promise<{ fingerprint: string }> {
+  const teamId = opts.teamId ?? getCurrentSyncTeamId();
+  if (!teamId || teamId <= 0) {
+    throw new Error("无法解析当前同步团队");
+  }
+
+  const relayTimeoutMs = opts.timeoutMs ?? 90_000;
+  if (await tryMeshTeamSyncKey(teamId, Math.min(relayTimeoutMs, 25_000))) {
+    const status = await getSyncTeamKeyStatus(teamId);
+    const fingerprint = status.fingerprint?.trim() ?? "";
+    if (!fingerprint) {
+      throw new SyncKeyRelayError("request_failed", "mesh 传钥成功但无法读取密钥指纹");
+    }
+    return { fingerprint };
+  }
+
+  return requestTeamSyncKeyFromRelay(opts);
 }
 
 function waitForForcedTeamSyncKey(teamId: number): Promise<void> {

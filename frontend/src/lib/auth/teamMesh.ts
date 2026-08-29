@@ -75,3 +75,25 @@ export async function stopTeamMesh(): Promise<void> {
     /* 未入网时停止可忽略 */
   }
 }
+
+/** 等待 tailnet IPv4 就绪；mesh 不可用或超时返回 false，不抛错。 */
+export async function waitForMeshReady(timeoutMs = 20_000): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  while (Date.now() < deadline) {
+    try {
+      const status = await unwrapCommand(commands.meshStatus(), { quiet: true });
+      if (
+        status.online &&
+        status.teamId != null &&
+        status.teamId > 0 &&
+        status.ipv4.trim()
+      ) {
+        return true;
+      }
+    } catch {
+      /* 继续轮询 */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
