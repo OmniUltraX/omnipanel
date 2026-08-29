@@ -26698,9 +26698,16 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 }
 
 .user-center-team-data__actions-col {
-    width: 44px;
+    width: 72px;
     text-align: center;
     white-space: nowrap;
+}
+
+.user-center-team-data__actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
 }
 
 .user-center-team-data__table-wrap .data-sync-table th,
@@ -26745,6 +26752,10 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     width: 24px;
     height: 24px;
     margin-inline: auto;
+}
+
+.user-center-team-data__actions .user-center-team-data__action-btn {
+    margin-inline: 0;
 }
 
 .user-center-team-data__action-btn svg {

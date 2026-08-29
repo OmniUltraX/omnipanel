@@ -7709,6 +7709,13 @@ export const zhCN = {
       restoreSync: "恢复同步",
       cancelSyncSuccess: "已取消该项的团队同步",
       restoreSyncSuccess: "已恢复该项的团队同步",
+      deleteCloudResource: "删除云端数据",
+      deleteCloudTitle: "删除云端数据",
+      deleteCloudConfirm:
+        "确定从团队云端快照中删除「{name}」吗？本机与成员设备将在下次同步拉取时移除该数据。",
+      deleteCloudConfirmCascade:
+        "确定从团队云端快照中删除「{name}」及其子项（共 {count} 项）吗？本机与成员设备将在下次同步拉取时移除这些数据。",
+      deleteCloudSuccess: "已从云端删除 {count} 项",
       dataModules: {
         connections: "SSH 连接",
         databases: "数据库",

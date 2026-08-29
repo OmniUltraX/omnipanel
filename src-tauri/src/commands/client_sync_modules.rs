@@ -421,9 +421,61 @@ pub(crate) fn normalize_modules_bundle_layouts(bundle: &mut ClientSyncModulesBun
     });
 }
 
+/// 墓碑资源过滤：已标记删除的资源不再随快照上传，防止「删除云端数据」后被本机推送复活。
+/// 预览路径不携带墓碑（`to_peek_modules_request` 置空），本机真实数据仍会展示。
+fn filter_tombstoned_resources(bundle: &mut ClientSyncModulesBundle) {
+    let conn_deleted = tombstone_ids(&bundle.deleted_connections);
+    if !conn_deleted.is_empty() {
+        bundle
+            .connections
+            .retain(|item| !conn_deleted.contains(&item.connection.id));
+        bundle.vault_secrets = collect_bundle_vault_secrets(&bundle.connections, &bundle.ssh_keys);
+    }
+    let db_deleted = tombstone_ids(&bundle.deleted_databases);
+    if !db_deleted.is_empty() {
+        bundle
+            .database_connections
+            .retain(|item| !db_deleted.contains(&item.connection.id));
+    }
+    let kn_deleted = tombstone_ids(&bundle.deleted_knowledge);
+    if !kn_deleted.is_empty() {
+        bundle.knowledge.retain(|entry| !kn_deleted.contains(&entry.id));
+    }
+    let col_deleted = tombstone_ids(&bundle.deleted_http_collections);
+    if !col_deleted.is_empty() {
+        bundle
+            .http_collections
+            .retain(|col| !col_deleted.contains(&col.id));
+    }
+    let req_deleted = tombstone_ids(&bundle.deleted_http_requests);
+    if !req_deleted.is_empty() {
+        bundle
+            .http_requests
+            .retain(|req| !req_deleted.contains(&req.id));
+    }
+    let env_deleted = tombstone_ids(&bundle.deleted_http_environments);
+    if !env_deleted.is_empty() {
+        bundle
+            .http_environments
+            .retain(|env| !env_deleted.contains(&env.id));
+    }
+    let ws_deleted = tombstone_ids(&bundle.deleted_workspaces);
+    if !ws_deleted.is_empty() {
+        bundle.workspaces.retain(|ws| !ws_deleted.contains(&ws.id));
+    }
+    let panel_deleted = tombstone_ids(&bundle.deleted_custom_panels);
+    if !panel_deleted.is_empty() {
+        crate::commands::team_sync::remove_custom_panels_from_json(
+            &mut bundle.custom_panels_json,
+            &panel_deleted,
+        );
+    }
+}
+
 /// 上传/预览对齐：修剪布局，保证快照与本机 UI 一致。
 /// 资源来源设备由创建时的 `creator:` 标签标记，上传时不再统一补设备名。
 pub(crate) fn finalize_modules_bundle_for_upload(bundle: &mut ClientSyncModulesBundle) {
+    filter_tombstoned_resources(bundle);
     normalize_modules_bundle_layouts(bundle);
 }
 
@@ -469,7 +521,7 @@ fn push_vault_secret(out: &mut Vec<ClientSyncVaultSecret>, reference: String) {
     }
 }
 
-fn collect_connection_vault_secrets(conn: &Connection, out: &mut Vec<ClientSyncVaultSecret>) {
+pub(crate) fn collect_connection_vault_secrets(conn: &Connection, out: &mut Vec<ClientSyncVaultSecret>) {
     match conn.kind {
         ConnectionKind::Ssh => {
             push_vault_secret(out, ssh_password_ref(&conn.id));
@@ -1615,4 +1667,128 @@ fn build_connection_peek_items(
         ));
     }
     out
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_bundle() -> ClientSyncModulesBundle {
+        ClientSyncModulesBundle {
+            schema_version: 1,
+            kind: MODULES_KIND.to_string(),
+            updated_at: 100.0,
+            connections: Vec::new(),
+            deleted_connections: Vec::new(),
+            database_connections: Vec::new(),
+            deleted_databases: Vec::new(),
+            knowledge: Vec::new(),
+            deleted_knowledge: Vec::new(),
+            http_collections: vec![
+                HttpCollection {
+                    id: "col-keep".into(),
+                    name: "A".into(),
+                    description: String::new(),
+                    created_at: 0,
+                    updated_at: 0,
+                    tags: Vec::new(),
+                },
+                HttpCollection {
+                    id: "col-del".into(),
+                    name: "B".into(),
+                    description: String::new(),
+                    created_at: 0,
+                    updated_at: 0,
+                    tags: Vec::new(),
+                },
+            ],
+            http_environments: Vec::new(),
+            http_requests: Vec::new(),
+            deleted_http_requests: Vec::new(),
+            deleted_http_collections: vec![ClientSyncTombstone {
+                id: "col-del".into(),
+                deleted_at: 50.0,
+            }],
+            deleted_http_environments: Vec::new(),
+            workspaces: vec![
+                ClientSyncWorkspaceInfo {
+                    id: "ws-keep".into(),
+                    name: "W1".into(),
+                    description: String::new(),
+                    window_form: None,
+                    updated_at: 0.0,
+                    tags: Vec::new(),
+                },
+                ClientSyncWorkspaceInfo {
+                    id: "ws-del".into(),
+                    name: "W2".into(),
+                    description: String::new(),
+                    window_form: None,
+                    updated_at: 0.0,
+                    tags: Vec::new(),
+                },
+            ],
+            deleted_workspaces: vec![ClientSyncTombstone {
+                id: "ws-del".into(),
+                deleted_at: 60.0,
+            }],
+            ssh_sidebar_tree_json: None,
+            folder_trees_json: None,
+            custom_panels_json: Some(
+                r#"{"customPanels":{"p-keep":{"label":"K"},"p-del":{"label":"D"}},"deletedIds":[]}"#.into(),
+            ),
+            deleted_custom_panels: vec![ClientSyncTombstone {
+                id: "p-del".into(),
+                deleted_at: 70.0,
+            }],
+            vault_secrets: Vec::new(),
+            ssh_keys: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn tombstoned_resources_are_filtered_from_upload() {
+        let mut bundle = test_bundle();
+        finalize_modules_bundle_for_upload(&mut bundle);
+
+        assert_eq!(bundle.http_collections.len(), 1);
+        assert_eq!(bundle.http_collections[0].id, "col-keep");
+        assert_eq!(bundle.workspaces.len(), 1);
+        assert_eq!(bundle.workspaces[0].id, "ws-keep");
+
+        let panels_json = bundle.custom_panels_json.as_deref().unwrap_or_default();
+        let panels: serde_json::Value = serde_json::from_str(panels_json).expect("panels json");
+        let custom = panels.get("customPanels").unwrap();
+        assert!(custom.get("p-keep").is_some());
+        assert!(custom.get("p-del").is_none());
+        let deleted: Vec<&str> = panels
+            .get("deletedIds")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        assert!(deleted.contains(&"p-del"));
+
+        // 墓碑保留在快照中继续向其他设备传播
+        assert_eq!(bundle.deleted_http_collections.len(), 1);
+        assert_eq!(bundle.deleted_workspaces.len(), 1);
+        assert_eq!(bundle.deleted_custom_panels.len(), 1);
+    }
+
+    #[test]
+    fn empty_tombstones_keep_all_resources() {
+        let mut bundle = test_bundle();
+        bundle.deleted_http_collections.clear();
+        bundle.deleted_workspaces.clear();
+        bundle.deleted_custom_panels.clear();
+        finalize_modules_bundle_for_upload(&mut bundle);
+
+        assert_eq!(bundle.http_collections.len(), 2);
+        assert_eq!(bundle.workspaces.len(), 2);
+        assert!(bundle
+            .custom_panels_json
+            .as_deref()
+            .unwrap_or_default()
+            .contains("p-del"));
+    }
 }

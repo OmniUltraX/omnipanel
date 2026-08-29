@@ -723,7 +723,7 @@ export const commands = {
 	sshImportKey: (name: string, privateKey: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_import_key", { name, privateKey })),
 	/**  删除 OmniPanel 密钥库中的 SSH 密钥。 */
 	sshDeleteKey: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_delete_key", { name })),
-	/**  重命名 OmniPanel 密钥库中的 SSH 密钥。 */
+	/**  重命名 OmniPanel 密钥库中的 SSH 密钥（仅改显示名称，不影响 keyId 与 Vault 引用）。 */
 	sshRenameKey: (name: string, newName: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_rename_key", { name, newName })),
 	/**  读取密钥库中公钥内容。 */
 	sshReadKeyPublic: (name: string) => typedError<string | null, OmniError_Serialize>(__TAURI_INVOKE("ssh_read_key_public", { name })),
@@ -738,7 +738,7 @@ export const commands = {
 	writeTextFile: (path: string, contents: string) => typedError<string, string>(__TAURI_INVOKE("write_text_file", { path, contents })),
 	/**  列出 Spring Boot Admin 中的应用实例。 */
 	springBootAdminListInstances: (adminUrl: string) => typedError<SbaInstanceInfo[], OmniError_Serialize>(__TAURI_INVOKE("spring_boot_admin_list_instances", { adminUrl })),
-	/**  拉取实例 JVM 线程 / Heap / Non-heap 当前值。 */
+	/**  拉取实例 JVM 线程 / Heap / Non-heap 当前值（Jolokia MemoryMXBean，失败则回退 Micrometer）。 */
 	springBootAdminJvmSnapshot: (adminUrl: string, instanceId: string) => typedError<SbaJvmSnapshot, OmniError_Serialize>(__TAURI_INVOKE("spring_boot_admin_jvm_snapshot", { adminUrl, instanceId })),
 	/**  列出文件管理器可用连接（含内置本机）。 */
 	fileListConnections: () => typedError<FileManagerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("file_list_connections")),
@@ -1033,7 +1033,7 @@ export const commands = {
 	discoveryRun: (probeId: string, scope: DiscoveryScope) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("discovery_run", { probeId, scope })),
 	/**  prod 确认回传：前端弹窗结果 → 唤醒等待中的桥调用。 */
 	pluginConfirmResolve: (requestId: string, allow: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_confirm_resolve", { requestId, allow })),
-	/**  读取已安装插件的文本资产（L3 沙箱 UI 用）。仅限包目录内、文本类扩展、≤512KB。 */
+	/**  读取插件包内资产（L3 沙箱 UI / 首页图标）。仅限包目录或第一方嵌入、允许扩展、≤512KB。 */
 	pluginReadAsset: (pluginId: string, relPath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_read_asset", { pluginId, relPath })),
 	/**  沙箱 UI 专用的受限网络访问：与 L2 桥同源权限闸 + prod 确认。 */
 	pluginSandboxNetFetch: (pluginId: string, specJson: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_sandbox_net_fetch", { pluginId, specJson })),
@@ -1044,8 +1044,10 @@ export const commands = {
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
 	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。 */
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
+	/**  插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`。 */
 	pluginStateGet: (pluginId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_state_get", { pluginId })),
 	pluginStateSet: (pluginId: string, payload: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_state_set", { pluginId, payload })),
+	/**  插件私密凭据：系统钥匙串（或降级文件），命名空间 `plugin:{id}:{key}`。 */
 	pluginSecretPut: (pluginId: string, key: string, secret: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_put", { pluginId, key, secret })),
 	pluginSecretHas: (pluginId: string, key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_has", { pluginId, key })),
 	pluginSecretGet: (pluginId: string, key: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_get", { pluginId, key })),
@@ -1054,6 +1056,8 @@ export const commands = {
 	pluginDbxCatalog: () => typedError<DbxCatalogDriver[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_catalog")),
 	/**  从 DBX 官方目录下载 native 或 JDBC agent，写入 `app_data/plugins/omni.engine.<key>/`。 */
 	pluginDbxInstall: (key: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install", { key })),
+	/**  安装金仓 / Vastbase / UXDB / OceanBase 等；目录无包则记原因，不阻断其余项。 */
+	pluginDbxInstallCatalogEngines: () => typedError<DbxInstallAttempt[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install_catalog_engines")),
 	/**  列出任务，可选按状态过滤。 */
 	taskList: (statusFilter: string | null, limit: number) => typedError<Task[], OmniError_Serialize>(__TAURI_INVOKE("task_list", { statusFilter, limit })),
 	/**  获取单个任务。 */
@@ -1224,7 +1228,10 @@ export const commands = {
 	teamUpdateMember: (token: string, teamId: number, email: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_update_member", { token, teamId, email, roleCode, userTeamName })),
 	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{email}）。 */
 	teamRemoveMember: (token: string, teamId: number, email: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_remove_member", { token, teamId, email })),
-	/**  生成一次性 6 位数字邀请码（POST /api/teams/{team_id}/invites，仅 creator/manager）。 */
+	/**
+	 *  生成一次性 6 位数字邀请码（POST /api/teams/{team_id}/invites，仅 creator/manager）。
+	 *  同一团队再次生成会使尚未使用的旧码失效；兑换成功后立即作废。
+	 */
 	teamCreateInvite: (token: string, teamId: number) => typedError<TeamInvite, OmniError_Serialize>(__TAURI_INVOKE("team_create_invite", { token, teamId })),
 	/**  凭邀请码加入团队（POST /api/teams/join）。码被使用后立即失效。 */
 	teamJoinByInvite: (token: string, code: string) => typedError<TeamSummary, OmniError_Serialize>(__TAURI_INVOKE("team_join_by_invite", { token, code })),
@@ -1247,6 +1254,8 @@ export const commands = {
 	teamSyncPullModules: (token: string, teamId: number) => typedError<TeamSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_pull_modules", { token, teamId })),
 	/**  预览本机模块数据与团队 OSS 快照的对比（树形结构 + 已同步标记）。 */
 	teamSyncPeekModules: (request: TeamSyncPeekModulesRequest) => typedError<TeamSyncPeekResult_Serialize, OmniError_Serialize>(__TAURI_INVOKE("team_sync_peek_modules", { request })),
+	/**  从团队云端快照删除指定资源（仅改云端；本机与成员设备在下次同步拉取时移除对应数据）。 */
+	teamSyncDeleteResources: (request: TeamSyncDeleteResourcesRequest) => typedError<TeamSyncDeleteResourcesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_delete_resources", { request })),
 	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
 	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */
@@ -1277,9 +1286,13 @@ export const commands = {
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
 	/**  从默认个人团队 OSS 拉取模块快照并应用到本机。 */
 	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
-	/**  将本机资源上的旧设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。 */
+	/**
+	 *  将本机资源上的旧设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。
+	 * 
+	 *  工作区标签存于前端 localStorage，由前端迁移编排器一并处理。
+	 */
 	clientSyncMigrateDeviceTags: (request: ClientSyncMigrateDeviceTagsRequest) => typedError<ClientSyncMigrateDeviceTagsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_migrate_device_tags", { request })),
-	/**  按团队切换本机 SQLite / 连接 JSON / 文件索引（进程内换库）。 */
+	/**  切换本机业务数据目录到指定团队（`local` 或数字 id）。 */
 	storageSwitchTeam: (teamScope: string) => typedError<StorageSwitchTeamResult, OmniError_Serialize>(__TAURI_INVOKE("storage_switch_team", { teamScope })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
@@ -1461,7 +1474,7 @@ export type AiModelProvider_Deserialize = {
 	excludedModelNames?: string[],
 	disabledModelNames?: string[],
 	apiModelMeta?: { [key in string]: ApiModelMeta_Deserialize },
-	/**  请求时是否自动补 /v1。 */
+	/**  请求时是否自动补 `/v1`（已以 /v1 结尾则不会重复）。缺省 true 以兼容旧配置。 */
 	appendV1?: boolean,
 	createdAt: number | null,
 };
@@ -1483,6 +1496,7 @@ export type AiModelProvider_Serialize = {
 	excludedModelNames: string[],
 	disabledModelNames: string[],
 	apiModelMeta: { [key in string]: ApiModelMeta_Serialize },
+	/**  请求时是否自动补 `/v1`（已以 /v1 结尾则不会重复）。缺省 true 以兼容旧配置。 */
 	appendV1: boolean,
 	createdAt: number | null,
 };
@@ -2093,6 +2107,22 @@ export type CliProviderUpsertInput = {
 	modelDiscoveryArgs?: string[],
 };
 
+export type ClientSyncMigrateDeviceTagsRequest = {
+	/**  账号设备名列表（前端 authListDevices 获取），用于识别资源上的旧设备名标签。 */
+	deviceNames?: string[],
+};
+
+export type ClientSyncMigrateDeviceTagsResult = {
+	/**  是否有任何资源标签被改写（供前端决定是否回推云端快照）。 */
+	changed: boolean,
+	connections: number | null,
+	databases: number | null,
+	knowledge: number | null,
+	httpRequests: number | null,
+	httpCollections: number | null,
+	httpEnvironments: number | null,
+};
+
 export type ClientSyncPullConversationsRequest = {
 	token: string,
 	/**  可选团队 ID；缺省回退到默认个人团队。 */
@@ -2129,12 +2159,6 @@ export type ClientSyncPullModulesResult = {
 	folderTreesJson: string | null,
 	/**  首页自定义面板 JSON，由前端写入 dashboardStore。 */
 	customPanelsJson: string | null,
-};
-
-export type StorageSwitchTeamResult = {
-	teamScope: string,
-	/**  目标团队本机目录在打开前没有主库，可安全拉取云端快照。 */
-	empty: boolean,
 };
 
 export type ClientSyncPushConversationsRequest = {
@@ -2176,22 +2200,6 @@ export type ClientSyncPushModulesResult = {
 	objectKey: string,
 	etag: string | null,
 	bytes: number | null,
-};
-
-export type ClientSyncMigrateDeviceTagsRequest = {
-	/**  账号设备名列表（前端 authListDevices 获取），用于识别资源上的旧设备名标签。 */
-	deviceNames?: string[],
-};
-
-export type ClientSyncMigrateDeviceTagsResult = {
-	/**  是否有任何资源标签被改写（供前端决定是否回推云端快照）。 */
-	changed: boolean,
-	connections: number,
-	databases: number,
-	knowledge: number,
-	httpRequests: number,
-	httpCollections: number,
-	httpEnvironments: number,
 };
 
 export type ClientSyncTombstone = {
@@ -2377,7 +2385,7 @@ export type DbConnectionConfig = {
 	database: string,
 	/**  是否启用 SSL（MySQL 等）。SQL Server 表示加密传输。 */
 	ssl?: boolean,
-	/**  Oracle SID；空则使用 database 作为服务名。 */
+	/**  Oracle SID；空则使用 `database` 作为服务名。 */
 	sid?: string,
 	/**  Oracle 以 SYSDBA 登录。 */
 	sysdba?: boolean,
@@ -2386,7 +2394,7 @@ export type DbConnectionConfig = {
 	enabled?: boolean,
 	/**  钥匙串中是否已保存密码。 */
 	has_password?: boolean,
-	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
 	tags?: string[],
 	/**  侧栏分组名；空 / `default` 视为「默认」。 */
 	group?: string,
@@ -2603,6 +2611,24 @@ export type DbUserMeta_Serialize = {
 	isRole: boolean,
 	/**  MySQL account_locked；PG 无此概念 */
 	accountLocked?: boolean | null,
+};
+
+export type DbxCatalogDriver = {
+	key: string,
+	pluginId: string,
+	label: string,
+	version: string,
+	defaultPort: number,
+	size: number,
+	artifactKind: string,
+	installed: boolean,
+	installedVersion: string | null,
+};
+
+export type DbxInstallAttempt = {
+	key: string,
+	ok: boolean,
+	message: string,
 };
 
 export type DiscoveryScope = {
@@ -3662,7 +3688,7 @@ export type HttpCollection = {
 	description: string,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
 	tags?: string[],
 };
 
@@ -3676,7 +3702,7 @@ export type HttpEnvironment = {
 	authValue: string | null,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
 	tags?: string[],
 };
 
@@ -4086,6 +4112,14 @@ export type MemoryStats_Serialize = {
 	buffers?: number | null,
 };
 
+export type MeshStatus = {
+	online: boolean,
+	teamId: number | null,
+	hostname: string,
+	ipv4: string,
+	listenPort: number,
+};
+
 /**  Modbus 连接配置。 */
 export type ModbusConfig = {
 	host: string,
@@ -4333,18 +4367,6 @@ export type PluginManifestDto = {
 
 /**  插件来源：编译期内置（不可卸载）vs 磁盘安装（可卸载/升级）。 */
 export type PluginSource = "builtin" | "installed";
-
-export type DbxCatalogDriver = {
-	key: string
-	pluginId: string
-	label: string
-	version: string
-	defaultPort: number
-	size: number
-	artifactKind: string
-	installed: boolean
-	installedVersion: string | null
-}
 
 /**  单类连接的活跃 / 空闲统计。 */
 export type PoolCategorySummary = {
@@ -4732,7 +4754,7 @@ export type SavedHttpRequest = {
 	queryParams?: string,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；快照上传时若为空会自动补当前设备名。 */
+	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
 	tags?: string[],
 };
 
@@ -5388,6 +5410,12 @@ export type StepStatus = "ready" | "pending" | "running" | "passed" | "failed" |
 
 export type StepType = "shell" | "sql" | "docker" | "workflow";
 
+export type StorageSwitchTeamResult = {
+	teamScope: string,
+	/**  目标团队本机目录在打开前没有主库，可安全拉取云端快照。 */
+	empty: boolean,
+};
+
 export type SyncMasterKeyGetOrCreateResult = {
 	key: string,
 	/**  true = 本次新生成，应弹出备份引导 */
@@ -5528,26 +5556,11 @@ export type TeamCreated = {
 	updatedAt: string,
 };
 
-/** 管理员生成的一次性 6 位数字邀请码。 */
+/**  管理员生成的一次性 6 位数字邀请码。 */
 export type TeamInvite = {
 	code: string,
 	/**  ISO-8601 过期时间；空表示服务端未返回（仍一次性失效）。 */
-	expiresAt: string,
-};
-
-export type TeamMeshAuth = {
-	authKey: string,
-	controlServerUrl: string,
-	hostname: string,
-	listenPort: number,
-};
-
-export type MeshStatus = {
-	online: boolean,
-	teamId: number | null,
-	hostname: string,
-	ipv4: string,
-	listenPort: number,
+	expiresAt?: string,
 };
 
 export type TeamMember = {
@@ -5558,6 +5571,13 @@ export type TeamMember = {
 	userTeamName: string,
 	createdAt: string,
 	updatedAt: string,
+};
+
+export type TeamMeshAuth = {
+	authKey: string,
+	controlServerUrl: string,
+	hostname: string,
+	listenPort: number,
 };
 
 export type TeamSharePushRequest = {
@@ -5599,6 +5619,31 @@ export type TeamSummary = {
 	teamOssKey: string,
 	createdAt: string,
 	updatedAt: string,
+};
+
+/**  从团队云端快照删除资源：按类别传 id 列表（http 集合/知识文件夹会级联删除后代）。 */
+export type TeamSyncDeleteResourcesRequest = {
+	token: string,
+	teamId: number | null,
+	connections?: string[],
+	databases?: string[],
+	knowledge?: string[],
+	httpCollections?: string[],
+	httpRequests?: string[],
+	workspaces?: string[],
+	customPanels?: string[],
+};
+
+export type TeamSyncDeleteResourcesResult = {
+	connections: number | null,
+	databases: number | null,
+	knowledge: number | null,
+	httpCollections: number | null,
+	httpRequests: number | null,
+	workspaces: number | null,
+	customPanels: number | null,
+	objectKey: string,
+	bytes: number | null,
 };
 
 export type TeamSyncFetchShareResult = {

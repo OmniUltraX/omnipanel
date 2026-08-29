@@ -22,9 +22,10 @@ use crate::commands::auth::{
     resolve_sync_team,
 };
 use crate::commands::client_sync_modules::{
-    ClientSyncModulesBundle, ClientSyncPeekItem, ClientSyncPushModulesRequest,
-    build_peek_from_bundle, collect_local_bundle, dismissed_ssh_folder_names_from_bundle,
-    filter_dismissed_ssh_layout_folders, finalize_modules_bundle_for_upload,
+    ClientSyncModulesBundle, ClientSyncPeekItem, ClientSyncPushModulesRequest, ClientSyncTombstone,
+    build_peek_from_bundle, collect_connection_vault_secrets, collect_local_bundle,
+    dismissed_ssh_folder_names_from_bundle, filter_dismissed_ssh_layout_folders,
+    finalize_modules_bundle_for_upload,
 };
 use crate::state::AppState;
 use omnipanel_store::SYNC_KIND_MODULES;
@@ -1202,4 +1203,374 @@ pub async fn team_sync_peek_modules(
         remote.as_ref(),
         &exclusions,
     ))
+}
+
+/// 从团队云端快照删除资源：按类别传 id 列表（http 集合/知识文件夹会级联删除后代）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSyncDeleteResourcesRequest {
+    pub token: String,
+    #[specta(type = f64)]
+    pub team_id: i64,
+    #[serde(default)]
+    pub connections: Vec<String>,
+    #[serde(default)]
+    pub databases: Vec<String>,
+    #[serde(default)]
+    pub knowledge: Vec<String>,
+    #[serde(default)]
+    pub http_collections: Vec<String>,
+    #[serde(default)]
+    pub http_requests: Vec<String>,
+    #[serde(default)]
+    pub workspaces: Vec<String>,
+    #[serde(default)]
+    pub custom_panels: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSyncDeleteResourcesResult {
+    pub connections: f64,
+    pub databases: f64,
+    pub knowledge: f64,
+    pub http_collections: f64,
+    pub http_requests: f64,
+    pub workspaces: f64,
+    pub custom_panels: f64,
+    pub object_key: String,
+    pub bytes: f64,
+}
+
+fn trimmed_id_set(ids: &[String]) -> HashSet<String> {
+    ids.iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn now_ms_f64() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0)
+}
+
+/// 幂等写入墓碑：已有同 id 条目时仅刷新时间戳。
+fn push_tombstone(list: &mut Vec<ClientSyncTombstone>, id: &str, now: f64) {
+    let id = id.trim();
+    if id.is_empty() {
+        return;
+    }
+    if let Some(existing) = list.iter_mut().find(|t| t.id == id) {
+        if now > existing.deleted_at {
+            existing.deleted_at = now;
+        }
+        return;
+    }
+    list.push(ClientSyncTombstone {
+        id: id.to_string(),
+        deleted_at: now,
+    });
+}
+
+/// 沿 parent 链展开子树：种子 id 及其全部后代（用于知识条目 / HTTP 集合级联删除）。
+fn expand_tree_descendants(seeds: &HashSet<String>, pairs: &[(String, String)]) -> HashSet<String> {
+    let mut out = seeds.clone();
+    loop {
+        let mut changed = false;
+        for (id, parent) in pairs {
+            if out.contains(id) {
+                continue;
+            }
+            let parent = parent.trim();
+            if !parent.is_empty() && out.contains(parent) {
+                out.insert(id.clone());
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    out
+}
+
+/// 从 custom_panels_json（`{ customPanels, deletedIds }`）移除指定面板并写入 deletedIds。
+/// 返回实际移除的面板数；结构非法或无匹配时原样保留。
+pub(crate) fn remove_custom_panels_from_json(raw: &mut Option<String>, ids: &HashSet<String>) -> usize {
+    let Some(text) = raw.as_mut() else {
+        return 0;
+    };
+    if text.trim().is_empty() {
+        return 0;
+    }
+    let Ok(mut value) = serde_json::from_str::<Value>(text) else {
+        return 0;
+    };
+    let Some(panels) = value.get_mut("customPanels").and_then(|v| v.as_object_mut()) else {
+        return 0;
+    };
+    let mut removed = 0usize;
+    for id in ids {
+        if panels.remove(id).is_some() {
+            removed += 1;
+        }
+    }
+    if removed == 0 {
+        return 0;
+    }
+    let deleted = value
+        .get_mut("deletedIds")
+        .and_then(|v| v.as_array_mut())
+        .map(|arr| {
+            for id in ids {
+                if !arr.iter().any(|v| v.as_str() == Some(id.as_str())) {
+                    arr.push(Value::String(id.clone()));
+                }
+            }
+        })
+        .is_some();
+    if !deleted {
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert(
+                "deletedIds".to_string(),
+                Value::Array(ids.iter().map(|id| Value::String(id.clone())).collect()),
+            );
+        }
+    }
+    if let Ok(next) = serde_json::to_string(&value) {
+        *text = next;
+    }
+    removed
+}
+
+/// 从团队云端快照删除指定资源（仅改云端；本机与成员设备在下次同步拉取时移除对应数据）。
+#[tauri::command]
+#[specta::specta]
+pub async fn team_sync_delete_resources(
+    state: State<'_, AppState>,
+    request: TeamSyncDeleteResourcesRequest,
+) -> Result<TeamSyncDeleteResourcesResult, OmniError> {
+    let token = require_token(&request.token)?;
+    if request.team_id <= 0 {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "团队 ID 无效"));
+    }
+
+    let conn_ids = trimmed_id_set(&request.connections);
+    let db_ids = trimmed_id_set(&request.databases);
+    let kn_ids = trimmed_id_set(&request.knowledge);
+    let col_ids = trimmed_id_set(&request.http_collections);
+    let req_ids = trimmed_id_set(&request.http_requests);
+    let ws_ids = trimmed_id_set(&request.workspaces);
+    let panel_ids = trimmed_id_set(&request.custom_panels);
+    let total = conn_ids.len()
+        + db_ids.len()
+        + kn_ids.len()
+        + col_ids.len()
+        + req_ids.len()
+        + ws_ids.len()
+        + panel_ids.len();
+    if total == 0 {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "请选择要删除的资源"));
+    }
+
+    let identity = auth_device_identity().await?;
+    let me = auth_get_me(state.clone(), token.clone()).await?;
+    let team = resolve_sync_team(Some(request.team_id), &me)?;
+    let auth = build_auth_context(&state, &token, &identity.device_id).await?;
+
+    let pulled = pull_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF).await?;
+    let Some((_object_key, body)) = pulled else {
+        return Err(OmniError::new(ErrorCode::NotFound, "团队云端尚无模块快照"));
+    };
+    let plaintext = decode_sync_team_payload(&me, &team, SYNC_KIND_MODULES, &body)?;
+    validate_modules_bundle_json(&plaintext)?;
+    let mut bundle: ClientSyncModulesBundle = serde_json::from_slice(&plaintext).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "解析云端模块快照失败").with_cause(e.to_string())
+    })?;
+
+    let now = now_ms_f64();
+    let mut result = TeamSyncDeleteResourcesResult::default();
+
+    // 连接：移除 + 顺带清理其 Vault 凭据条目
+    let removed_conns: Vec<_> = bundle
+        .connections
+        .iter()
+        .filter(|item| conn_ids.contains(&item.connection.id))
+        .map(|item| item.connection.clone())
+        .collect();
+    if !removed_conns.is_empty() {
+        let mut secret_refs = Vec::new();
+        for conn in &removed_conns {
+            collect_connection_vault_secrets(conn, &mut secret_refs);
+        }
+        let dead_refs: HashSet<String> = secret_refs
+            .into_iter()
+            .map(|entry| entry.reference)
+            .collect();
+        bundle.vault_secrets.retain(|entry| !dead_refs.contains(&entry.reference));
+        for conn in &removed_conns {
+            push_tombstone(&mut bundle.deleted_connections, &conn.id, now);
+        }
+    }
+    bundle.connections.retain(|item| !conn_ids.contains(&item.connection.id));
+    result.connections = removed_conns.len() as f64;
+
+    // 数据库连接：平铺列表
+    let before = bundle.database_connections.len();
+    bundle
+        .database_connections
+        .retain(|item| !db_ids.contains(&item.connection.id));
+    result.databases = (before - bundle.database_connections.len()) as f64;
+    for id in &db_ids {
+        push_tombstone(&mut bundle.deleted_databases, id, now);
+    }
+
+    // 知识条目：文件夹级联删除全部后代
+    let kn_pairs: Vec<(String, String)> = bundle
+        .knowledge
+        .iter()
+        .map(|entry| (entry.id.clone(), entry.parent_id.clone()))
+        .collect();
+    let kn_all = expand_tree_descendants(&kn_ids, &kn_pairs);
+    let before = bundle.knowledge.len();
+    bundle.knowledge.retain(|entry| !kn_all.contains(&entry.id));
+    result.knowledge = (before - bundle.knowledge.len()) as f64;
+    for id in &kn_all {
+        push_tombstone(&mut bundle.deleted_knowledge, id, now);
+    }
+
+    // HTTP：集合平铺；删除集合时级联删除其下全部请求
+    let before = bundle.http_collections.len();
+    bundle.http_collections.retain(|col| !col_ids.contains(&col.id));
+    result.http_collections = (before - bundle.http_collections.len()) as f64;
+    for id in &col_ids {
+        push_tombstone(&mut bundle.deleted_http_collections, id, now);
+    }
+
+    let req_all: HashSet<String> = req_ids
+        .union(
+            &bundle
+                .http_requests
+                .iter()
+                .filter(|req| {
+                    req.collection_id
+                        .as_deref()
+                        .is_some_and(|cid| col_ids.contains(cid))
+                })
+                .map(|req| req.id.clone())
+                .collect::<HashSet<String>>(),
+        )
+        .cloned()
+        .collect();
+    let before = bundle.http_requests.len();
+    bundle.http_requests.retain(|req| !req_all.contains(&req.id));
+    result.http_requests = (before - bundle.http_requests.len()) as f64;
+    for id in &req_all {
+        push_tombstone(&mut bundle.deleted_http_requests, id, now);
+    }
+
+    // 工作区：平铺列表
+    let before = bundle.workspaces.len();
+    bundle.workspaces.retain(|ws| !ws_ids.contains(&ws.id));
+    result.workspaces = (before - bundle.workspaces.len()) as f64;
+    for id in &ws_ids {
+        push_tombstone(&mut bundle.deleted_workspaces, id, now);
+    }
+
+    // 自定义面板：改写 custom_panels_json + 墓碑
+    result.custom_panels =
+        remove_custom_panels_from_json(&mut bundle.custom_panels_json, &panel_ids) as f64;
+    for id in &panel_ids {
+        push_tombstone(&mut bundle.deleted_custom_panels, id, now);
+    }
+
+    finalize_modules_bundle_for_upload(&mut bundle);
+    bundle.updated_at = now;
+    let plaintext = serde_json::to_vec(&bundle).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "序列化团队模块同步数据失败").with_cause(e.to_string())
+    })?;
+    validate_modules_bundle_json(&plaintext)?;
+    let body = encrypt_sync_team_payload(team.id, SYNC_KIND_MODULES, &plaintext)?;
+    let uploaded = push_team_sync_json(&auth, team.id, TEAM_MODULES_LATEST_LEAF, &body).await?;
+
+    result.object_key = uploaded.object_key;
+    result.bytes = uploaded.bytes as f64;
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_tombstone_is_idempotent_and_updates_timestamp() {
+        let mut list = Vec::new();
+        push_tombstone(&mut list, "a", 100.0);
+        push_tombstone(&mut list, "a", 50.0); // 旧时间戳不回退
+        push_tombstone(&mut list, "a", 200.0); // 新时间戳覆盖
+        push_tombstone(&mut list, " ", 300.0); // 空 id 忽略
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "a");
+        assert_eq!(list[0].deleted_at, 200.0);
+    }
+
+    #[test]
+    fn expand_tree_descendants_walks_parent_chains() {
+        let pairs = vec![
+            ("root".to_string(), "".to_string()),
+            ("child1".to_string(), "root".to_string()),
+            ("grandchild".to_string(), "child1".to_string()),
+            ("child2".to_string(), "root".to_string()),
+            ("other".to_string(), "".to_string()),
+        ];
+        let seeds: HashSet<String> = ["child1".to_string()].into_iter().collect();
+        let out = expand_tree_descendants(&seeds, &pairs);
+        assert!(out.contains("child1"));
+        assert!(out.contains("grandchild"));
+        assert!(!out.contains("root"));
+        assert!(!out.contains("child2"));
+        assert!(!out.contains("other"));
+    }
+
+    #[test]
+    fn remove_custom_panels_updates_deleted_ids() {
+        let mut raw = Some(
+            r#"{"customPanels":{"p1":{"label":"A"},"p2":{"label":"B"}},"deletedIds":["p0"]}"#
+                .to_string(),
+        );
+        let ids: HashSet<String> = ["p1".to_string()].into_iter().collect();
+        assert_eq!(remove_custom_panels_from_json(&mut raw, &ids), 1);
+        let value: Value = serde_json::from_str(raw.as_deref().unwrap()).unwrap();
+        let panels = value.get("customPanels").unwrap().as_object().unwrap();
+        assert!(!panels.contains_key("p1"));
+        assert!(panels.contains_key("p2"));
+        let deleted: Vec<&str> = value["deletedIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(deleted.contains(&"p0"));
+        assert!(deleted.contains(&"p1"));
+    }
+
+    #[test]
+    fn remove_custom_panels_no_match_keeps_raw() {
+        let original = r#"{"customPanels":{"p1":{"label":"A"}}}"#;
+        let mut raw = Some(original.to_string());
+        let ids: HashSet<String> = ["zzz".to_string()].into_iter().collect();
+        assert_eq!(remove_custom_panels_from_json(&mut raw, &ids), 0);
+        assert_eq!(raw.as_deref(), Some(original));
+    }
+
+    #[test]
+    fn remove_custom_panels_creates_deleted_ids_when_missing() {
+        let mut raw = Some(r#"{"customPanels":{"p1":{"label":"A"}}}"#.to_string());
+        let ids: HashSet<String> = ["p1".to_string()].into_iter().collect();
+        assert_eq!(remove_custom_panels_from_json(&mut raw, &ids), 1);
+        let value: Value = serde_json::from_str(raw.as_deref().unwrap()).unwrap();
+        assert!(value["deletedIds"].is_array());
+    }
 }
