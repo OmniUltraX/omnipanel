@@ -121,6 +121,7 @@ async function queryMysqlBinlogVariables(
       makeQueryRunId(),
       null,
       null,
+      null,
     ),
   );
   const rows = rowsToRecord(res.columns, res.rows);
@@ -230,7 +231,7 @@ export async function listBinaryLogs(
   connection: DbConnectionConfig,
 ): Promise<BinlogFileInfo[]> {
   const res = await unwrapCommand(
-    commands.dbExecuteQuery(ipcConn(connection), "SHOW BINARY LOGS", makeQueryRunId(), null, null),
+    commands.dbExecuteQuery(ipcConn(connection), "SHOW BINARY LOGS", makeQueryRunId(), null, null, null),
   );
   const rows = rowsToRecord(res.columns, res.rows);
   return rows
@@ -1282,7 +1283,7 @@ export async function executeFlashbackSql(
     const runSql = stmt.endsWith(";") ? stmt : `${stmt};`;
     try {
       await unwrapCommand(
-        commands.dbExecuteQuery(ipcConn(connection), runSql, makeQueryRunId(), null, null),
+        commands.dbExecuteQuery(ipcConn(connection), runSql, makeQueryRunId(), null, null, null),
       );
       ok += 1;
     } catch (e) {

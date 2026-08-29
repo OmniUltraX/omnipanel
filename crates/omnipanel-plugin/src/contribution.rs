@@ -24,6 +24,27 @@ pub struct PluginContributes {
     pub ai: Option<AiContributes>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud: Option<CloudContributes>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudContributes {
+    #[serde(default)]
+    pub capabilities: Vec<CloudCapabilityDecl>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudCapabilityDecl {
+    pub id: String,
+    #[serde(default)]
+    pub scope: String,
+    #[serde(default)]
+    pub columns: Vec<Value>,
+    #[serde(default)]
+    pub actions: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]

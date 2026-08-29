@@ -384,6 +384,8 @@ interface SettingsState {
   fileTransferRateLimitBps: FileTransferRateLimitBps;
   /** 协议实验室可配置 Tab 的开关状态 */
   protocolLabTabs: Record<ControllableProtocolTabKey, "open" | "closed">;
+  /** 危险操作优先使用操作系统在场验证 */
+  osPresenceEnabled: boolean;
   /** 点击窗口关闭按钮：询问 / 最小化到托盘 / 直接退出 */
   closeBehavior: CloseBehavior;
   /** 主题包 id（v1 仅 CSS token，禁止 JS） */
@@ -439,6 +441,7 @@ interface SettingsState {
   setProtocolLabSettings: (
     patch: Partial<Pick<SettingsState, "protocolLabTabs">>,
   ) => void;
+  setOsPresenceEnabled: (enabled: boolean) => void;
 }
 
 export function clampUiScale(percent: number): number {
@@ -552,6 +555,7 @@ export const useSettingsStore = create<SettingsState>()(
       fileTransferConcurrency: DEFAULT_FILE_TRANSFER_CONCURRENCY,
       fileTransferRateLimitBps: DEFAULT_FILE_TRANSFER_RATE_LIMIT_BPS,
       protocolLabTabs: { ...DEFAULT_CONTROLLABLE_PROTOCOL_STATUS },
+      osPresenceEnabled: true,
       closeBehavior: "ask",
       resolved: resolveTheme("system"),
       setLocale: (locale) => {
@@ -696,6 +700,7 @@ export const useSettingsStore = create<SettingsState>()(
               })
             : state.protocolLabTabs,
         })),
+      setOsPresenceEnabled: (osPresenceEnabled) => set({ osPresenceEnabled }),
     }),
     {
       name: "omnipanel-settings",
@@ -778,6 +783,7 @@ export const useSettingsStore = create<SettingsState>()(
         fileTransferConcurrency: state.fileTransferConcurrency,
         fileTransferRateLimitBps: state.fileTransferRateLimitBps,
         protocolLabTabs: state.protocolLabTabs,
+        osPresenceEnabled: state.osPresenceEnabled,
         closeBehavior: state.closeBehavior,
       }),
       onRehydrateStorage: () => (state) => {
@@ -816,6 +822,7 @@ export const useSettingsStore = create<SettingsState>()(
             state?.fileTransferRateLimitBps ?? DEFAULT_FILE_TRANSFER_RATE_LIMIT_BPS,
           ),
           protocolLabTabs: normalizeControllableProtocolStatus(state?.protocolLabTabs),
+          osPresenceEnabled: state?.osPresenceEnabled !== false,
           closeBehavior: normalizeCloseBehavior(state?.closeBehavior),
           aiDataSharing: normalizeAiDataSharing(state?.aiDataSharing),
           terminalTmuxMode: normalizeTerminalTmuxMode(state?.terminalTmuxMode),
@@ -844,11 +851,12 @@ export function initSettings() {
   useSettingsStore.setState({ resolved });
 
   // 同步持久化的 tmux 模式偏好到后端（后端为内存态，需每次启动同步）
-  void import("../ipc/bindings").then(({ commands }) =>
+  void import("../ipc/bindings").then(({ commands }) => {
     commands.setTerminalTmuxMode(state.terminalTmuxMode).catch(() => {
       // 非 Tauri 环境或后端未就绪时静默忽略
-    }),
-  );
+    });
+    commands.presenceSetOsEnabled(state.osPresenceEnabled !== false).catch(() => {});
+  });
 
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (useSettingsStore.getState().theme === "system") {

@@ -26,6 +26,8 @@ type GroupPanelViewState = {
   activeView?: string;
   /** 旧版 dockview 侧/底 Tab 栏字段，加载时由 stripSideHeaderLayout 剥除 */
   headerPosition?: string;
+  /** 由 syncTabGroups 运行时重建；持久化还原会打 addTab(invalid location) */
+  tabGroups?: unknown;
 };
 
 interface SerializedLeaf {
@@ -49,9 +51,21 @@ function isBranch(node: SerializedNode): node is SerializedBranch {
   return node.type === "branch";
 }
 
+function uniqueViewIds(views: string[] | undefined): string[] {
+  if (!views || views.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of views) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 function isEmptyGroup(group: GroupPanelViewState | undefined): boolean {
   if (!group) return true;
-  return !Array.isArray(group.views) || group.views.length === 0;
+  return uniqueViewIds(group.views).length === 0;
 }
 
 function toGridNode(node: SerializedNode): NonNullable<SerializedDockview["grid"]["root"]> {
@@ -191,7 +205,7 @@ function filterGroupViews(
   group: GroupPanelViewState,
   allowed: Set<string>,
 ): GroupPanelViewState {
-  const oldViews = group.views ?? [];
+  const oldViews = uniqueViewIds(group.views);
   const views = oldViews.filter((id) => allowed.has(id));
   const next: GroupPanelViewState = { ...group, views };
   if (group.activeView && !allowed.has(group.activeView)) {
@@ -367,7 +381,7 @@ export function reorderLayoutViews(
   const next = cloneLayout(layout);
   const root = fromGridNode(next.grid.root);
   const updated = mapRoot(root, (leaf) => {
-    const originalViews = leaf.data.views ?? [];
+    const originalViews = uniqueViewIds(leaf.data.views);
     const views = originalViews.filter((id) => allowed.has(id));
     if (views.length === 0) return leaf;
     const ordered = tabIds.filter((id) => views.includes(id));
@@ -426,18 +440,32 @@ function mapRoot(
   return node;
 }
 
-/** dockview 侧/底 Tab 栏（headerPosition + edgeGroups）——不再使用，加载时统一剥除 */
+/** 剥除侧/底 Tab 栏、tabGroups、重复 views；fromJSON 前必须洗过，否则 dockview 会 invalid location */
 function stripSideHeaderLayout(layout: SerializedDockview): SerializedDockview {
   const next = cloneLayout(layout);
-  delete (next as SerializedDockview & { edgeGroups?: unknown }).edgeGroups;
+  const extra = next as SerializedDockview & {
+    edgeGroups?: unknown;
+    floatingGroups?: unknown;
+    popoutGroups?: unknown;
+  };
+  delete extra.edgeGroups;
+  delete extra.floatingGroups;
+  delete extra.popoutGroups;
 
   const root = fromGridNode(next.grid.root);
   const normalized = mapRoot(root, (leaf) => {
-    if (!leaf.data.headerPosition || leaf.data.headerPosition === "top") {
-      return leaf;
-    }
-    const { headerPosition: _removed, ...data } = leaf.data;
-    return { ...leaf, data };
+    const { headerPosition: _header, tabGroups: _tabGroups, ...rest } = leaf.data;
+    const views = uniqueViewIds(rest.views);
+    const activeView =
+      rest.activeView && views.includes(rest.activeView) ? rest.activeView : views[0];
+    return {
+      ...leaf,
+      data: {
+        ...rest,
+        views,
+        activeView,
+      },
+    };
   });
   next.grid.root = toGridNode(normalized);
   return next;
@@ -548,7 +576,7 @@ export function isLayoutUsable(
     if (!node) return true;
     if (isLeaf(node)) {
       if (typeof node.data?.id !== "string" || node.data.id.length === 0) return false;
-      const views = node.data.views ?? [];
+      const views = uniqueViewIds(node.data.views ?? []);
       if (views.length === 0) return false;
       for (const id of views) {
         if (!panelIds.has(id)) return false;

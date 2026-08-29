@@ -305,6 +305,13 @@ export async function restartDeployedService(
   await sshExec(sshId, command);
 }
 
+export function restartGrantLocation(deployment: DeploymentServiceInfo): string {
+  if (deployment.kind === "docker") {
+    return resolveContainerId(deployment) || deployment.locationTag || "";
+  }
+  return deployment.serverName || deployment.locationTag || "host";
+}
+
 export function describeRestartTarget(deployment: DeploymentServiceInfo): string {
   if (deployment.kind === "docker") {
     return deployment.containerName || deployment.containerId || deployment.locationTag || "Docker";

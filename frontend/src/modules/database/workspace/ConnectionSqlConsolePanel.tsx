@@ -12,6 +12,7 @@ import { formatIpcError, unwrapCommand } from "../../../ipc/result";
 import { useI18n } from "../../../i18n";
 import type { DbConnectionConfig } from "../api";
 import { isQueryCancelledError, makeQueryRunId } from "../sql/queryRun";
+import { resolveSqlPresenceToken } from "../sql/sqlPresence";
 import {
   loadCliReplSession,
   saveCliReplSession,
@@ -226,13 +227,17 @@ export function ConnectionSqlConsolePanel({
 
   const runSql = useCallback(
     async (sql: string) => {
+      const presenceToken = await resolveSqlPresenceToken(connection, sql, t);
+      if (presenceToken === null) {
+        return;
+      }
       const runId = makeQueryRunId();
       runIdRef.current = runId;
       setRunning(true);
       const started = performance.now();
       try {
         const data = await unwrapCommand(
-          commands.dbExecuteQuery(connection, sql, runId, RESULT_ROW_LIMIT, 0),
+          commands.dbExecuteQuery(connection, sql, runId, RESULT_ROW_LIMIT, 0, presenceToken ?? null),
         );
         const elapsedMs = Math.round(performance.now() - started);
         appendOutput(["", formatQueryOutput(data, elapsedMs), ""]);

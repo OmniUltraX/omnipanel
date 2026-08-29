@@ -60,6 +60,7 @@ import { quickInput } from "../../lib/quickInput";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { isSqlEditorFocused, sqlAtOffset } from "./sqlIntel/sqlStatement";
 import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
+import { resolveSqlPresenceToken } from "./sql/sqlPresence";
 import { escapeSqlLiteral } from "./sql/escapeSqlLiteral";
 import type { DbSqlFileNode } from "../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../stores/dbSqlFileStore";
@@ -5260,6 +5261,11 @@ export function DatabasePanel() {
       updateSqlResultSession(resolvedTabId, session.id, { running: true, error: null });
       const started = performance.now();
       const runId = makeQueryRunId();
+      const presenceToken = await resolveSqlPresenceToken(conn, sql, t);
+      if (presenceToken === null) {
+        updateSqlResultSession(resolvedTabId, session.id, { running: false });
+        return;
+      }
       try {
         const res = await invoke<QueryResult>("db_execute_query", {
           connection: conn,
@@ -5267,6 +5273,7 @@ export function DatabasePanel() {
           runId,
           limit: pageSize,
           offset: resultPage * pageSize,
+          presenceToken: presenceToken ?? null,
         });
         const hasMore = res.columns.length > 0 && res.rows.length >= pageSize;
         updateSqlResultSession(resolvedTabId, session.id, {
@@ -5343,6 +5350,11 @@ export function DatabasePanel() {
 
     const started = performance.now();
     const useManualTxn = tabState.autoCommit === false;
+    const presenceToken = await resolveSqlPresenceToken(conn, sql, t);
+    if (presenceToken === null) {
+      updateSqlTabState(resolvedTabId, { running: false, activeQueryRunId: null });
+      return;
+    }
     try {
       const res = useManualTxn
         ? await invoke<QueryResult>("db_execute_query_in_session", {
@@ -5352,6 +5364,7 @@ export function DatabasePanel() {
             runId,
             limit: pageSize,
             offset: 0,
+            presenceToken: presenceToken ?? null,
           })
         : await invoke<QueryResult>("db_execute_query", {
             connection: conn,
@@ -5359,6 +5372,7 @@ export function DatabasePanel() {
             runId,
             limit: pageSize,
             offset: 0,
+            presenceToken: presenceToken ?? null,
           });
       const elapsed = Math.round(performance.now() - started);
       const hasMore = res.columns.length > 0 && res.rows.length >= pageSize;

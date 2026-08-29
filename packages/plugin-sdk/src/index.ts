@@ -175,6 +175,28 @@ export type ImporterContribution = z.infer<typeof importerContributionSchema>;
 
 export type PluginHomeContribution = z.infer<typeof pluginHomeContributionSchema>;
 
+export const cloudCapabilityScopeSchema = z.enum(["region", "global"]);
+
+export const cloudColumnSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().optional(),
+});
+
+export const cloudActionDeclSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(["host", "plugin", "link"]).optional(),
+});
+
+export const cloudCapabilitySchema = z.object({
+  id: z.string().min(1),
+  scope: cloudCapabilityScopeSchema,
+  columns: z.array(cloudColumnSchema).default([]),
+  actions: z.array(cloudActionDeclSchema).default([]),
+});
+
+export type CloudCapabilityScope = z.infer<typeof cloudCapabilityScopeSchema>;
+export type CloudCapabilityDecl = z.infer<typeof cloudCapabilitySchema>;
+
 export const pluginManifestSchema = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
@@ -214,6 +236,11 @@ export const pluginManifestSchema = z.object({
       themes: z.object({ tokens: z.unknown().optional() }).nullable().optional(),
       ai: z.object({ tools: z.array(aiToolContributionSchema).optional() }).nullable().optional(),
       workspace: z.unknown().nullable().optional(),
+      cloud: z
+        .object({
+          capabilities: z.array(cloudCapabilitySchema).default([]),
+        })
+        .optional(),
     })
     .default({}),
 })

@@ -38,10 +38,10 @@ export type FileConfigJson = {
   publicDomain?: string;
   prefix?: string;
   accessKey?: string;
-  /** 从云厂商 OSS 加入文件列表时写入，用于反查关联 */
+  /** 从云厂商对象存储加入文件列表时写入；kind 为能力 id，兼容旧 oss */
   cloudSource?: {
     accountId: string;
-    kind: "ecs" | "swas" | "oss";
+    kind: string;
     resourceId: string;
   };
 };

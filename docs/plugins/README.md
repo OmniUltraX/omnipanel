@@ -19,7 +19,7 @@ node scripts/create-plugin.mjs my-first-engine engine
 # 2. 打包（dev 签名）
 cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/my-first-engine my-first-engine.omni-plugin
 
-# 3. 安装：设置 → 插件 → 「安装本地插件」选择 .omni-plugin 文件
+# 3. 安装：插件中心 → 「选择包文件…」选择 .omni-plugin 文件
 ```
 
 ## 能力速览

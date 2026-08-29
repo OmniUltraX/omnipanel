@@ -42,6 +42,7 @@ use crate::output_buffer::{self, OutputBuffers};
 use crate::ssh_tmux::TmuxManager;
 use omnipanel_mcp::SharedMcpManager;
 use omnipanel_plugin::{InvokeGateway, PluginRegistry};
+use omnipanel_presence::TokenStore;
 
 /// Docker 容器交互终端会话条目（含归属，便于切换/重进时回收旧 PTY）。
 pub struct DockerExecSessionEntry {
@@ -139,6 +140,10 @@ pub struct AppState {
     pub gateway_handle: Arc<Mutex<Option<omnipanel_gateway::GatewayHandle>>>,
     /// 外部 MCP 工具调用是否需用户审批（由设置同步）。
     pub mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
+    /// 在场验证短命 token（内存）。
+    pub presence_tokens: Arc<TokenStore>,
+    /// 是否优先使用操作系统验证（设置同步，默认开）。
+    pub os_presence_enabled: Arc<std::sync::atomic::AtomicBool>,
     /// 本地媒体 Range 代理（边下边播）。
     pub media_stream: Arc<MediaStreamServer>,
     /// 活跃日志跟踪流（按 token 索引），用于 sftp_log_tail_stop 主动停止。
@@ -284,6 +289,8 @@ impl AppState {
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
             gateway_handle: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            presence_tokens: Arc::new(TokenStore::system()),
+            os_presence_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             media_stream,
             log_tail_streams: Arc::new(Mutex::new(HashMap::new())),
             capability_cache: Arc::new(CapabilityCache::new()),

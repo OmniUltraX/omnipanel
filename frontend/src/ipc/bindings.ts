@@ -108,14 +108,21 @@ export const commands = {
 	 *  `limit` / `offset` 非零时，SELECT/WITH 语句会被包裹为 `SELECT * FROM (...) LIMIT n OFFSET m`，防止超大结果集卡死前端。
 	 *  `run_id` 供前端中断长时间查询（`db_cancel_query`）。
 	 */
-	dbExecuteQuery: (connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query", { connection, sql, runId, limit, offset })),
+	dbExecuteQuery: (connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null, presenceToken: string | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query", { connection, sql, runId, limit, offset, presenceToken })),
 	/**  中断正在执行的 SQL 查询（按 run_id，与 db_execute_query 配对）。 */
 	dbCancelQuery: (runId: string) => typedError<null, string>(__TAURI_INVOKE("db_cancel_query", { runId })),
 	/**
 	 *  在手动事务会话中执行 SQL（session_id 通常为 SQL Tab id）。
 	 *  首次执行时自动 BEGIN；失败不自动 ROLLBACK。
 	 */
-	dbExecuteQueryInSession: (sessionId: string, connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query_in_session", { sessionId, connection, sql, runId, limit, offset })),
+	dbExecuteQueryInSession: (sessionId: string, connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null, presenceToken: string | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query_in_session", { sessionId, connection, sql, runId, limit, offset, presenceToken })),
+	presenceStatus: () => typedError<PresenceStatus, OmniError_Serialize>(__TAURI_INVOKE("presence_status")),
+	presenceSetOsEnabled: (enabled: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("presence_set_os_enabled", { enabled })),
+	presenceVerify: (action: string, target: string, reason: string) => typedError<PresenceTokenIssued, OmniError_Serialize>(__TAURI_INVOKE("presence_verify", { action, target, reason })),
+	presenceIssueTyped: (action: string, target: string, typed: string) => typedError<PresenceTokenIssued, OmniError_Serialize>(__TAURI_INVOKE("presence_issue_typed", { action, target, typed })),
+	dbRestartService: (sshConnectionId: string, service: string, kind: string, location: string, presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_restart_service", { sshConnectionId, service, kind, location, presenceToken })),
+	dbDropTable: (connection: DbConnectionConfig, objects: DbDropObject[], presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_drop_table", { connection, objects, presenceToken })),
+	dbDropDatabase: (connection: DbConnectionConfig, databases: string[], presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_drop_database", { connection, databases, presenceToken })),
 	/**  提交手动事务会话。 */
 	dbQuerySessionCommit: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("db_query_session_commit", { sessionId })),
 	/**  回滚手动事务会话。 */
@@ -318,12 +325,21 @@ export const commands = {
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
 	/**  测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。 */
 	cloudTest: (connection: Connection, secret: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_test", { connection, secret })),
+	/**  过渡：产品级列表，内部仍走同一客户端。前端主路径请用 `cloud_list_resources`。 */
 	cloudListOss: (connectionId: string, region: string | null) => typedError<CloudOssBucket[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_oss", { connectionId, region })),
 	cloudListSwas: (connectionId: string, region: string | null) => typedError<CloudSwasInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_swas", { connectionId, region })),
 	cloudListDomains: (connectionId: string) => typedError<CloudDomainItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_domains", { connectionId })),
 	cloudListEcs: (connectionId: string, region: string | null) => typedError<CloudEcsInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_ecs", { connectionId, region })),
 	cloudListRegions: (connectionId: string) => typedError<CloudRegion[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_regions", { connectionId })),
+	cloudGetAccount: (connectionId: string) => typedError<CloudAccountSnapshot, OmniError_Serialize>(__TAURI_INVOKE("cloud_get_account", { connectionId })),
 	cloudListCerts: (connectionId: string) => typedError<CloudCertificateItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_certs", { connectionId })),
+	cloudListResources: (connectionId: string, capability: string, filter: {
+	regions?: string[],
+	status?: string | null,
+	query?: string | null,
+} | null) => typedError<CloudResourceRow[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_resources", { connectionId, capability, filter })),
+	cloudGetResource: (connectionId: string, capability: string, resourceId: string, regionId: string | null) => typedError<CloudResourceDetail, OmniError_Serialize>(__TAURI_INVOKE("cloud_get_resource", { connectionId, capability, resourceId, regionId })),
+	cloudInvokeAction: (connectionId: string, action: CloudAction) => typedError<CloudActionResult, OmniError_Serialize>(__TAURI_INVOKE("cloud_invoke_action", { connectionId, action })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerListConnections: () => typedError<DockerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_connections")),
 	/**  编辑 Docker 连接表单：从 Vault 取回面板 API Key（列表 / config 永不存明文）。 */
@@ -723,7 +739,7 @@ export const commands = {
 	sshImportKey: (name: string, privateKey: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_import_key", { name, privateKey })),
 	/**  删除 OmniPanel 密钥库中的 SSH 密钥。 */
 	sshDeleteKey: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_delete_key", { name })),
-	/**  重命名 OmniPanel 密钥库中的 SSH 密钥。 */
+	/**  重命名 OmniPanel 密钥库中的 SSH 密钥（仅改显示名称，不影响 keyId 与 Vault 引用）。 */
 	sshRenameKey: (name: string, newName: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_rename_key", { name, newName })),
 	/**  读取密钥库中公钥内容。 */
 	sshReadKeyPublic: (name: string) => typedError<string | null, OmniError_Serialize>(__TAURI_INVOKE("ssh_read_key_public", { name })),
@@ -738,7 +754,7 @@ export const commands = {
 	writeTextFile: (path: string, contents: string) => typedError<string, string>(__TAURI_INVOKE("write_text_file", { path, contents })),
 	/**  列出 Spring Boot Admin 中的应用实例。 */
 	springBootAdminListInstances: (adminUrl: string) => typedError<SbaInstanceInfo[], OmniError_Serialize>(__TAURI_INVOKE("spring_boot_admin_list_instances", { adminUrl })),
-	/**  拉取实例 JVM 线程 / Heap / Non-heap 当前值。 */
+	/**  拉取实例 JVM 线程 / Heap / Non-heap 当前值（Jolokia MemoryMXBean，失败则回退 Micrometer）。 */
 	springBootAdminJvmSnapshot: (adminUrl: string, instanceId: string) => typedError<SbaJvmSnapshot, OmniError_Serialize>(__TAURI_INVOKE("spring_boot_admin_jvm_snapshot", { adminUrl, instanceId })),
 	/**  列出文件管理器可用连接（含内置本机）。 */
 	fileListConnections: () => typedError<FileManagerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("file_list_connections")),
@@ -1033,7 +1049,7 @@ export const commands = {
 	discoveryRun: (probeId: string, scope: DiscoveryScope) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("discovery_run", { probeId, scope })),
 	/**  prod 确认回传：前端弹窗结果 → 唤醒等待中的桥调用。 */
 	pluginConfirmResolve: (requestId: string, allow: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_confirm_resolve", { requestId, allow })),
-	/**  读取已安装插件的文本资产（L3 沙箱 UI 用）。仅限包目录内、文本类扩展、≤512KB。 */
+	/**  读取插件包内资产（L3 沙箱 UI / 首页图标）。仅限包目录或第一方嵌入、允许扩展、≤512KB。 */
 	pluginReadAsset: (pluginId: string, relPath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_read_asset", { pluginId, relPath })),
 	/**  沙箱 UI 专用的受限网络访问：与 L2 桥同源权限闸 + prod 确认。 */
 	pluginSandboxNetFetch: (pluginId: string, specJson: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_sandbox_net_fetch", { pluginId, specJson })),
@@ -1044,8 +1060,10 @@ export const commands = {
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
 	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。 */
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
+	/**  插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`。 */
 	pluginStateGet: (pluginId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_state_get", { pluginId })),
 	pluginStateSet: (pluginId: string, payload: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_state_set", { pluginId, payload })),
+	/**  插件私密凭据：系统钥匙串（或降级文件），命名空间 `plugin:{id}:{key}`。 */
 	pluginSecretPut: (pluginId: string, key: string, secret: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_put", { pluginId, key, secret })),
 	pluginSecretHas: (pluginId: string, key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_has", { pluginId, key })),
 	pluginSecretGet: (pluginId: string, key: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_get", { pluginId, key })),
@@ -1054,6 +1072,12 @@ export const commands = {
 	pluginDbxCatalog: () => typedError<DbxCatalogDriver[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_catalog")),
 	/**  从 DBX 官方目录下载 native 或 JDBC agent，写入 `app_data/plugins/omni.engine.<key>/`。 */
 	pluginDbxInstall: (key: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install", { key })),
+	/**  安装金仓 / Vastbase / UXDB / OceanBase 等；目录无包则记原因，不阻断其余项。 */
+	pluginDbxInstallCatalogEngines: () => typedError<DbxInstallAttempt[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install_catalog_engines")),
+	/**  列出官方插件（内置 bundled + 可下载包）。远程失败回退仓库种子。 */
+	pluginOfficialCatalog: () => typedError<OfficialCatalogPlugin[], OmniError_Serialize>(__TAURI_INVOKE("plugin_official_catalog")),
+	/**  从官方目录下载 `.omni-plugin` 并安装。bundled 条目拒绝下载。 */
+	pluginOfficialInstall: (pluginId: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_official_install", { pluginId })),
 	/**  列出任务，可选按状态过滤。 */
 	taskList: (statusFilter: string | null, limit: number) => typedError<Task[], OmniError_Serialize>(__TAURI_INVOKE("task_list", { statusFilter, limit })),
 	/**  获取单个任务。 */
@@ -1224,7 +1248,10 @@ export const commands = {
 	teamUpdateMember: (token: string, teamId: number, email: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_update_member", { token, teamId, email, roleCode, userTeamName })),
 	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{email}）。 */
 	teamRemoveMember: (token: string, teamId: number, email: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_remove_member", { token, teamId, email })),
-	/**  生成一次性 6 位数字邀请码（POST /api/teams/{team_id}/invites，仅 creator/manager）。 */
+	/**
+	 *  生成一次性 6 位数字邀请码（POST /api/teams/{team_id}/invites，仅 creator/manager）。
+	 *  同一团队再次生成会使尚未使用的旧码失效；兑换成功后立即作废。
+	 */
 	teamCreateInvite: (token: string, teamId: number) => typedError<TeamInvite, OmniError_Serialize>(__TAURI_INVOKE("team_create_invite", { token, teamId })),
 	/**  凭邀请码加入团队（POST /api/teams/join）。码被使用后立即失效。 */
 	teamJoinByInvite: (token: string, code: string) => typedError<TeamSummary, OmniError_Serialize>(__TAURI_INVOKE("team_join_by_invite", { token, code })),
@@ -1277,7 +1304,7 @@ export const commands = {
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
 	/**  从默认个人团队 OSS 拉取模块快照并应用到本机。 */
 	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
-	/**  按团队切换本机 SQLite / 连接 JSON / 文件索引（进程内换库）。 */
+	/**  切换本机业务数据目录到指定团队（`local` 或数字 id）。 */
 	storageSwitchTeam: (teamScope: string) => typedError<StorageSwitchTeamResult, OmniError_Serialize>(__TAURI_INVOKE("storage_switch_team", { teamScope })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
@@ -1459,7 +1486,7 @@ export type AiModelProvider_Deserialize = {
 	excludedModelNames?: string[],
 	disabledModelNames?: string[],
 	apiModelMeta?: { [key in string]: ApiModelMeta_Deserialize },
-	/**  请求时是否自动补 /v1。 */
+	/**  请求时是否自动补 `/v1`（已以 /v1 结尾则不会重复）。缺省 true 以兼容旧配置。 */
 	appendV1?: boolean,
 	createdAt: number | null,
 };
@@ -1481,6 +1508,7 @@ export type AiModelProvider_Serialize = {
 	excludedModelNames: string[],
 	disabledModelNames: string[],
 	apiModelMeta: { [key in string]: ApiModelMeta_Serialize },
+	/**  请求时是否自动补 `/v1`（已以 /v1 结尾则不会重复）。缺省 true 以兼容旧配置。 */
 	appendV1: boolean,
 	createdAt: number | null,
 };
@@ -2129,12 +2157,6 @@ export type ClientSyncPullModulesResult = {
 	customPanelsJson: string | null,
 };
 
-export type StorageSwitchTeamResult = {
-	teamScope: string,
-	/**  目标团队本机目录在打开前没有主库，可安全拉取云端快照。 */
-	empty: boolean,
-};
-
 export type ClientSyncPushConversationsRequest = {
 	token: string,
 	/**  前端组装的 bundle JSON（含 schemaVersion / conversations / deleted）。 */
@@ -2181,6 +2203,31 @@ export type ClientSyncTombstone = {
 	deletedAt: number | null,
 };
 
+/**  账户身份与余额（余额接口无权限时仍返回身份，`balanceError` 说明原因）。 */
+export type CloudAccountSnapshot = {
+	callerId?: string,
+	arn?: string,
+	currency?: string,
+	availableAmount?: string,
+	cashAmount?: string,
+	creditAmount?: string,
+	balanceError?: string | null,
+};
+
+export type CloudAction = {
+	name: string,
+	resourceId?: string,
+	capability?: string,
+	regionId?: string,
+	/**  生产环境写操作必须为 true；取消确认不得打 API。 */
+	confirmed?: boolean,
+};
+
+export type CloudActionResult = {
+	ok: boolean,
+	message?: string,
+};
+
 export type CloudCertificateItem = {
 	orderId: string,
 	name: string,
@@ -2212,6 +2259,16 @@ export type CloudEcsInstance = {
 	privateIpAddress: string,
 	osName: string,
 	creationTime: string,
+	expiredTime?: string,
+	autoReleaseTime?: string,
+	chargeType?: string,
+	securityGroupIds?: string,
+	cpu?: string,
+	memory?: string,
+	hostname?: string,
+	bandwidth?: string,
+	vpcId?: string,
+	keyPairName?: string,
 };
 
 export type CloudOssBucket = {
@@ -2227,8 +2284,33 @@ export type CloudOssBucket = {
 export type CloudRegion = {
 	regionId: string,
 	localName: string,
-	hasEcs: boolean,
-	hasSwas: boolean,
+	/**  该地域已探测到的能力 id（如 `compute` / `compute.lite`）。 */
+	capabilities?: string[],
+};
+
+export type CloudResourceDetail = {
+	id: string,
+	name: string,
+	capability: string,
+	regionId?: string,
+	status?: string,
+	fields?: { [key in string]: string },
+	consoleUrl?: string | null,
+};
+
+export type CloudResourceFilter = {
+	regions?: string[],
+	status?: string | null,
+	query?: string | null,
+};
+
+export type CloudResourceRow = {
+	id: string,
+	name: string,
+	capability: string,
+	regionId?: string,
+	status?: string,
+	fields?: { [key in string]: string },
 };
 
 export type CloudSwasInstance = {
@@ -2241,6 +2323,10 @@ export type CloudSwasInstance = {
 	imageId: string,
 	instancePlan: string,
 	creationTime: string,
+	expiredTime?: string,
+	chargeType?: string,
+	bandwidth?: string,
+	diskSize?: string,
 };
 
 /**
@@ -2359,7 +2445,7 @@ export type DbConnectionConfig = {
 	database: string,
 	/**  是否启用 SSL（MySQL 等）。SQL Server 表示加密传输。 */
 	ssl?: boolean,
-	/**  Oracle SID；空则使用 database 作为服务名。 */
+	/**  Oracle SID；空则使用 `database` 作为服务名。 */
 	sid?: string,
 	/**  Oracle 以 SYSDBA 登录。 */
 	sysdba?: boolean,
@@ -2393,6 +2479,12 @@ export type DbDatabaseMeta = {
 	sizeBytes: number | null,
 	/**  估算总行数 */
 	rowsEstimate: number | null,
+};
+
+export type DbDropObject = {
+	database: string,
+	name: string,
+	kind: string,
 };
 
 export type DbIndexMeta = {
@@ -2585,6 +2677,24 @@ export type DbUserMeta_Serialize = {
 	isRole: boolean,
 	/**  MySQL account_locked；PG 无此概念 */
 	accountLocked?: boolean | null,
+};
+
+export type DbxCatalogDriver = {
+	key: string,
+	pluginId: string,
+	label: string,
+	version: string,
+	defaultPort: number,
+	size: number,
+	artifactKind: string,
+	installed: boolean,
+	installedVersion: string | null,
+};
+
+export type DbxInstallAttempt = {
+	key: string,
+	ok: boolean,
+	message: string,
 };
 
 export type DiscoveryScope = {
@@ -4068,6 +4178,14 @@ export type MemoryStats_Serialize = {
 	buffers?: number | null,
 };
 
+export type MeshStatus = {
+	online: boolean,
+	teamId: number | null,
+	hostname: string,
+	ipv4: string,
+	listenPort: number,
+};
+
 /**  Modbus 连接配置。 */
 export type ModbusConfig = {
 	host: string,
@@ -4174,6 +4292,19 @@ export type NetworkStats_Serialize = {
 	connections?: number | null,
 };
 
+export type OfficialCatalogPlugin = {
+	id: string,
+	kind: PluginKind,
+	name: string,
+	description: string,
+	version: string,
+	distribution: PluginDistribution,
+	size: number,
+	installed: boolean,
+	installedVersion: string | null,
+	permissions: string[],
+};
+
 /**  Ollama 探测结果。 */
 export type OllamaProbeResult = {
 	status: LocalRuntimeStatus,
@@ -4271,6 +4402,8 @@ export type PanelProbeResult = {
 	probedAt: number,
 };
 
+export type PluginDistribution = "bundled" | "download";
+
 /**  插件身份。七种锁死，不为单一产品新增第八种。 */
 export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon";
 
@@ -4316,18 +4449,6 @@ export type PluginManifestDto = {
 /**  插件来源：编译期内置（不可卸载）vs 磁盘安装（可卸载/升级）。 */
 export type PluginSource = "builtin" | "installed";
 
-export type DbxCatalogDriver = {
-	key: string
-	pluginId: string
-	label: string
-	version: string
-	defaultPort: number
-	size: number
-	artifactKind: string
-	installed: boolean
-	installedVersion: string | null
-}
-
 /**  单类连接的活跃 / 空闲统计。 */
 export type PoolCategorySummary = {
 	kind: string,
@@ -4347,6 +4468,21 @@ export type PoolSummary = {
 	active: number,
 	idle: number,
 	categories: PoolCategorySummary[],
+};
+
+export type PresenceKind = "none" | "hello" | "touchId";
+
+export type PresenceStatus = {
+	available: boolean,
+	kind: PresenceKind,
+	osEnabled: boolean,
+};
+
+export type PresenceTokenIssued = {
+	token: string,
+	expiresAtMs: number,
+	action: string,
+	target: string,
 };
 
 export type ProvidersFile = {
@@ -5370,6 +5506,12 @@ export type StepStatus = "ready" | "pending" | "running" | "passed" | "failed" |
 
 export type StepType = "shell" | "sql" | "docker" | "workflow";
 
+export type StorageSwitchTeamResult = {
+	teamScope: string,
+	/**  目标团队本机目录在打开前没有主库，可安全拉取云端快照。 */
+	empty: boolean,
+};
+
 export type SyncMasterKeyGetOrCreateResult = {
 	key: string,
 	/**  true = 本次新生成，应弹出备份引导 */
@@ -5510,26 +5652,11 @@ export type TeamCreated = {
 	updatedAt: string,
 };
 
-/** 管理员生成的一次性 6 位数字邀请码。 */
+/**  管理员生成的一次性 6 位数字邀请码。 */
 export type TeamInvite = {
 	code: string,
 	/**  ISO-8601 过期时间；空表示服务端未返回（仍一次性失效）。 */
-	expiresAt: string,
-};
-
-export type TeamMeshAuth = {
-	authKey: string,
-	controlServerUrl: string,
-	hostname: string,
-	listenPort: number,
-};
-
-export type MeshStatus = {
-	online: boolean,
-	teamId: number | null,
-	hostname: string,
-	ipv4: string,
-	listenPort: number,
+	expiresAt?: string,
 };
 
 export type TeamMember = {
@@ -5540,6 +5667,13 @@ export type TeamMember = {
 	userTeamName: string,
 	createdAt: string,
 	updatedAt: string,
+};
+
+export type TeamMeshAuth = {
+	authKey: string,
+	controlServerUrl: string,
+	hostname: string,
+	listenPort: number,
 };
 
 export type TeamSharePushRequest = {

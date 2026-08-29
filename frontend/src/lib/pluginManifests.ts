@@ -86,6 +86,13 @@ export const LEGACY_PLUGIN_ALIASES: Readonly<Record<string, string>> = {
   aliyun: "omni.cloud.aliyun",
 };
 
+export function manifestCloudCapabilities(
+  manifest: PluginManifest | null,
+): import("@omnipanel/plugin-sdk").CloudCapabilityDecl[] {
+  if (!manifest || manifest.kind !== "cloud") return [];
+  return manifest.contributes.cloud?.capabilities ?? [];
+}
+
 export function resolveLegacyPluginId(raw: string | null | undefined): string | null {
   const value = (raw ?? "").trim().toLowerCase();
   if (!value) return null;

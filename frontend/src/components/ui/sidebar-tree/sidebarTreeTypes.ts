@@ -7,4 +7,5 @@ export type SidebarTreeModule =
   | "database-sql"
   | "knowledge"
   | "protocol"
-  | "terminal";
+  | "terminal"
+  | "cloud";

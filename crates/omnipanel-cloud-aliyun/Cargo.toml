@@ -1,0 +1,22 @@
+[package]
+name = "omnipanel-cloud-aliyun"
+version.workspace = true
+edition.workspace = true
+description = "阿里云云厂商 Driver：OpenAPI HMAC 客户端、能力映射与 InvokeGateway 实现"
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+specta.workspace = true
+reqwest.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+omnipanel-error = { path = "../omnipanel-error" }
+base64.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+hmac = "0.12"
+sha1 = "0.10"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

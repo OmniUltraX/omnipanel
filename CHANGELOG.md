@@ -6,6 +6,9 @@
 
 ### 新增
 
+- **安全 · 在场验证**：重启 MySQL/Redis、删表/删库、SQL 编辑器 `DROP` 须先过 Windows Hello / Touch ID 或打字签发短命 token；后端按 action+target 一次性消费，无「点确认就放行」
+- **云 · 能力工作台**：树为账户 → 能力 → 实例；阿里云迁入独立 crate，经插件能力合同分发（计算 / 轻量 / OSS / 域名 / 证书）
+- **插件中心**：左下角入口；已安装管理 + 官方 GitHub 目录 + 第三方 DBX 引擎市场
 - **数据库 · sidecar 引擎**：ClickHouse / MongoDB / SQL Server 走独立 sidecar；Redis 走进程内；DBX 插件（Oracle、达梦、Hive 等）可装即用
 - **数据库 · 方言家族工作台**：Oracle 系 / PG 系 / MySQL 系 / Hive 系补齐库列表统计、表详情、用户与表设计，不再因「不支持的数据库类型」残缺工作区
 - **数据库 · 瀚高身份**：已激活瀚高插件时把历史 `ys-highgo4.5` 纠正为 `highgo`；有插件则禁止静默回退 PostgreSQL

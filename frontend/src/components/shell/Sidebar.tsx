@@ -24,6 +24,8 @@ import { usesMacTrafficLights } from "../../lib/platform";
 import { SidebarMiniappButton } from "./SidebarMiniappButton";
 import { SidebarUserButton } from "./SidebarUserButton";
 import { WinControls } from "./WinControls";
+import { IconGrid } from "../ui/icons/Icons";
+import { PLUGINS_PATH, isPluginsPath } from "../../lib/paths";
 
 export function Sidebar() {
   const { t } = useI18n();
@@ -156,6 +158,15 @@ export function Sidebar() {
 
       <div className="sidebar-spacer" />
 
+      <button
+        type="button"
+        className={`sidebar-item${isPluginsPath(location.pathname) ? " active" : ""}`}
+        title={t("plugins.center.title")}
+        aria-label={t("plugins.center.title")}
+        onClick={() => go(PLUGINS_PATH)}
+      >
+        <IconGrid size={20} />
+      </button>
       <SidebarMiniappButton />
       <SidebarUserButton />
 

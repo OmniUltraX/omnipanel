@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useSettingsStore, type Locale } from "../stores/settingsStore";
-import { DASHBOARD_PATH } from "../lib/paths";
+import { DASHBOARD_PATH, PLUGINS_PATH } from "../lib/paths";
 import { zhCN, type TranslationDict } from "./zh-CN";
 import { enUS } from "./en-US";
 
@@ -62,6 +62,7 @@ export function getRouteTitle(path: string, locale?: Locale) {
   const map: Record<string, Path> = {
     "/": "routes.dashboard",
     [DASHBOARD_PATH]: "routes.dashboard",
+    [PLUGINS_PATH]: "routes.plugins",
     "/terminal": "routes.terminal",
     "/database": "routes.database",
     "/docker": "routes.docker",

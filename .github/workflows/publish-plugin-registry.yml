@@ -1,0 +1,41 @@
+name: Publish plugin registry
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "plugins/registry.json"
+      - "plugins/*/plugin.json"
+      - "scripts/generate-plugin-registry.mjs"
+      - ".github/workflows/publish-plugin-registry.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Upload plugins-latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate registry
+        run: node scripts/generate-plugin-registry.mjs
+
+      - name: Stage release asset
+        run: cp plugins/registry.json plugin-registry.json
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: plugins-latest
+          name: Plugin registry
+          body: Official OmniPanel plugin catalog (bundled first-party + downloadable extras).
+          files: plugin-registry.json
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

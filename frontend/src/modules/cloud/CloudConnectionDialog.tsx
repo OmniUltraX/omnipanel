@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
-import { useI18n } from "../../../i18n";
-import { FormDialog } from "../../../components/ui/form/FormDialog";
-import { PasswordInput } from "../../../components/ui/form/PasswordInput";
-import { TextInput } from "../../../components/ui/form/TextInput";
-import { MultiSelect } from "../../../components/ui/form/MultiSelect";
-import { useConnectionStore } from "../../../stores/connectionStore";
-import { commands } from "../../../ipc/bindings";
-import type { Connection } from "../../../ipc/bindings";
-import { unwrapCommand, formatIpcError } from "../../../ipc/result";
-import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
-import { mergeConnectionTags, userConnectionTags } from "../../tags/tagKinds";
+import { useEffect, useMemo, useState } from "react";
+import { useI18n } from "../../i18n";
+import { FormDialog } from "../../components/ui/form/FormDialog";
+import { PasswordInput } from "../../components/ui/form/PasswordInput";
+import { TextInput } from "../../components/ui/form/TextInput";
+import { MultiSelect } from "../../components/ui/form/MultiSelect";
+import { useConnectionStore } from "../../stores/connectionStore";
+import { commands } from "../../ipc/bindings";
+import type { Connection } from "../../ipc/bindings";
+import { unwrapCommand, formatIpcError } from "../../ipc/result";
+import { GlobalTagEditor } from "../tags/GlobalTagEditor";
+import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 import {
   ALIYUN_REGION_OPTIONS,
   EMPTY_CLOUD_FORM,
@@ -18,7 +18,9 @@ import {
   type CloudFormData,
 } from "./cloudForm";
 import { invalidateCloudAccountRegions } from "./cloudRegionDiscovery";
-import aliyunIcon from "../../../assets/icons/Aliyun.svg";
+import { listPluginManifests } from "../../lib/pluginManifests";
+import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import aliyunIcon from "../../assets/icons/Aliyun.svg";
 
 interface CloudConnectionDialogProps {
   open: boolean;
@@ -26,6 +28,10 @@ interface CloudConnectionDialogProps {
   onSaved?: () => void;
   editConnection?: Connection;
 }
+
+const PLUGIN_ICONS: Record<string, string> = {
+  "omni.cloud.aliyun": aliyunIcon,
+};
 
 export function CloudConnectionDialog({
   open,
@@ -35,6 +41,8 @@ export function CloudConnectionDialog({
 }: CloudConnectionDialogProps) {
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
+  const hydrated = usePluginRuntimeStore((s) => s.hydrated);
+  const pluginItems = usePluginRuntimeStore((s) => s.items);
   const [form, setForm] = useState<CloudFormData>(EMPTY_CLOUD_FORM);
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -47,15 +55,25 @@ export function CloudConnectionDialog({
 
   const isEdit = !!editConnection?.id;
 
+  const activatedPlugins = useMemo(() => {
+    void hydrated;
+    void pluginItems;
+    return listPluginManifests("cloud").filter((item) => isPluginActivated(item.id));
+  }, [hydrated, pluginItems]);
+
   useEffect(() => {
     if (!open) return;
-    setForm(editConnection ? cloudConnectionToForm(editConnection) : { ...EMPTY_CLOUD_FORM });
+    const next = editConnection ? cloudConnectionToForm(editConnection) : { ...EMPTY_CLOUD_FORM };
+    if (!editConnection && activatedPlugins[0] && !activatedPlugins.some((p) => p.id === next.pluginId)) {
+      next.pluginId = activatedPlugins[0].id;
+    }
+    setForm(next);
     setTags(userConnectionTags(editConnection?.tags));
     setError(null);
     setStatus(null);
     setSaving(false);
     setTesting(false);
-  }, [open, editConnection]);
+  }, [open, editConnection, activatedPlugins]);
 
   const update = <K extends keyof CloudFormData>(key: K, value: CloudFormData[K]) => {
     setError(null);
@@ -68,6 +86,7 @@ export function CloudConnectionDialog({
     if (form.regions.length === 0) return t("server.cloud.create.regionRequired");
     if (!form.accessKeyId.trim()) return t("server.cloud.create.akRequired");
     if (!isEdit && !form.accessKeySecret.trim()) return t("server.cloud.create.skRequired");
+    if (!form.pluginId.trim()) return t("cloud.dialog.pluginRequired");
     return null;
   };
 
@@ -146,13 +165,13 @@ export function CloudConnectionDialog({
         {
           label: testing ? t("server.cloud.create.testing") : t("server.cloud.create.test"),
           variant: "ghost",
-          disabled: saving || testing || !form.accessKeyId.trim(),
+          disabled: saving || testing || !form.accessKeyId.trim() || activatedPlugins.length === 0,
           onClick: () => void handleTest(),
         },
       ]}
       primaryAction={{
         label: saving ? t("ssh.dialog.saving") : isEdit ? t("common.save") : t("ssh.dialog.save"),
-        disabled: saving || testing,
+        disabled: saving || testing || activatedPlugins.length === 0,
         onClick: () => void handleSave(),
       }}
     >
@@ -167,14 +186,33 @@ export function CloudConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">{t("server.cloud.create.provider")}</label>
-        <div className="engine-grid" style={{ gridTemplateColumns: "1fr" }}>
-          <button type="button" className="engine-chip engine-chip--active">
-            <span className="engine-chip-icon">
-              <img src={aliyunIcon} alt="" className="engine-chip-logo" draggable={false} />
-            </span>
-            <span className="engine-chip-label">{t("server.cloud.providers.aliyun")}</span>
-          </button>
-        </div>
+        {activatedPlugins.length === 0 ? (
+          <p className="form-hint">{t("cloud.dialog.noPlugin")}</p>
+        ) : (
+          <div className="engine-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
+            {activatedPlugins.map((plugin) => {
+              const icon = PLUGIN_ICONS[plugin.id];
+              const active = form.pluginId === plugin.id;
+              return (
+                <button
+                  key={plugin.id}
+                  type="button"
+                  className={`engine-chip${active ? " engine-chip--active" : ""}`}
+                  onClick={() => update("pluginId", plugin.id)}
+                >
+                  <span className="engine-chip-icon">
+                    {icon ? (
+                      <img src={icon} alt="" className="engine-chip-logo" draggable={false} />
+                    ) : (
+                      <span>☁</span>
+                    )}
+                  </span>
+                  <span className="engine-chip-label">{t("server.cloud.providers.aliyun")}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="form-field">
@@ -192,7 +230,7 @@ export function CloudConnectionDialog({
               : t("server.cloud.create.regionsSelected", { count: String(labels.length) })
           }
         />
-        <p className="form-hint">{t("server.cloud.create.regionsHint")}</p>
+        <p className="form-hint">{t("cloud.dialog.regionsHint")}</p>
       </div>
 
       <div className="form-field">
@@ -211,9 +249,7 @@ export function CloudConnectionDialog({
           copyable
           value={form.accessKeySecret}
           onChange={(value) => update("accessKeySecret", value)}
-          placeholder={
-            isEdit ? t("server.cloud.create.secretEditHint") : "••••••••"
-          }
+          placeholder={isEdit ? t("server.cloud.create.secretEditHint") : "••••••••"}
         />
       </div>
 

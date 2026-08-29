@@ -3,15 +3,112 @@
   "version": "0.1.0",
   "kind": "cloud",
   "permissions": ["connections:write", "net:connect", "vault:read"],
+  "methods": [
+    { "name": "testAccount", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listRegions", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getAccount", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listResources", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getResource", "permissions": ["net:connect", "vault:read"] },
+    { "name": "invokeAction", "permissions": ["net:connect", "vault:read"] }
+  ],
   "contributes": {
     "ui": {
       "sidebar": true,
-      "panelTabs": [
-        { "id": "ecs" },
-        { "id": "swas" },
-        { "id": "oss" },
-        { "id": "domains" },
-        { "id": "certs" }
+      "connectionForm": {
+        "fields": [
+          { "key": "accessKeyId", "type": "text" },
+          { "key": "accessKeySecret", "type": "password" },
+          { "key": "regions", "type": "multiselect" }
+        ]
+      }
+    },
+    "cloud": {
+      "capabilities": [
+        {
+          "id": "compute",
+          "scope": "region",
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "instanceType" },
+            { "key": "zone" },
+            { "key": "publicIp" },
+            { "key": "privateIp" },
+            { "key": "expiredTime" },
+            { "key": "chargeType" },
+            { "key": "securityGroups" },
+            { "key": "os" }
+          ],
+          "actions": [
+            { "id": "start", "kind": "plugin" },
+            { "id": "stop", "kind": "plugin" },
+            { "id": "reboot", "kind": "plugin" },
+            { "id": "addSsh", "kind": "host" },
+            { "id": "openConsole", "kind": "link" }
+          ]
+        },
+        {
+          "id": "compute.lite",
+          "scope": "region",
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "plan" },
+            { "key": "publicIp" },
+            { "key": "privateIp" },
+            { "key": "expiredTime" },
+            { "key": "chargeType" }
+          ],
+          "actions": [
+            { "id": "start", "kind": "plugin" },
+            { "id": "stop", "kind": "plugin" },
+            { "id": "reboot", "kind": "plugin" },
+            { "id": "addSsh", "kind": "host" },
+            { "id": "openConsole", "kind": "link" }
+          ]
+        },
+        {
+          "id": "objectStorage",
+          "scope": "region",
+          "columns": [
+            { "key": "name" },
+            { "key": "region" },
+            { "key": "storageClass" },
+            { "key": "creationDate" },
+            { "key": "endpoint" }
+          ],
+          "actions": [
+            { "id": "addToFiles", "kind": "host" },
+            { "id": "openConsole", "kind": "link" }
+          ]
+        },
+        {
+          "id": "domains",
+          "scope": "global",
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "type" },
+            { "key": "registrationDate" },
+            { "key": "expirationDate" }
+          ],
+          "actions": [{ "id": "openConsole", "kind": "link" }]
+        },
+        {
+          "id": "certs",
+          "scope": "global",
+          "columns": [
+            { "key": "name" },
+            { "key": "domain" },
+            { "key": "status" },
+            { "key": "product" },
+            { "key": "certType" },
+            { "key": "endDate" }
+          ],
+          "actions": [{ "id": "openConsole", "kind": "link" }]
+        }
       ]
     }
   }

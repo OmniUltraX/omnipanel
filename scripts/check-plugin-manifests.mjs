@@ -218,6 +218,30 @@ if (missingIds.length > 0) {
   failed += 1;
 }
 
+const registryPath = path.join(pluginsDir, "registry.json");
+if (!fs.existsSync(registryPath)) {
+  console.error("[plugin-manifest] 缺少 plugins/registry.json，请运行 node scripts/generate-plugin-registry.mjs");
+  failed += 1;
+} else {
+  try {
+    const registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
+    const bundledIds = new Set(
+      (Array.isArray(registry.plugins) ? registry.plugins : [])
+        .filter((p) => p && p.distribution === "bundled")
+        .map((p) => p.id),
+    );
+    for (const id of jsonIds) {
+      if (!bundledIds.has(id)) {
+        console.error(`[plugin-manifest] 官方目录未收录第一方插件: ${id}`);
+        failed += 1;
+      }
+    }
+  } catch (err) {
+    console.error(`[plugin-manifest] plugins/registry.json 无法解析 (${err})`);
+    failed += 1;
+  }
+}
+
 // 前端单源目录必须与 plugins/ 目录一一对应（防手写数组漂移）。
 const catalogPath = path.join(root, "frontend", "src", "lib", "pluginManifests.ts");
 const catalogSrc = fs.readFileSync(catalogPath, "utf8");

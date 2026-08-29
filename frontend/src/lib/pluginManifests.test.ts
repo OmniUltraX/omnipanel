@@ -131,6 +131,22 @@ describe("pluginManifests 单源目录", () => {
     ]);
   });
 
+  it("阿里云声明 capabilities 而非 ecs panelTabs", () => {
+    const manifest = getPluginManifest("omni.cloud.aliyun");
+    expect(manifest?.kind).toBe("cloud");
+    expect(manifestPanelTabIds(manifest)).toEqual([]);
+    expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
+      "compute",
+      "compute.lite",
+      "objectStorage",
+      "domains",
+      "certs",
+    ]);
+    expect(manifest?.methods?.map((m) => m.name)).toEqual(
+      expect.arrayContaining(["listResources", "invokeAction"]),
+    );
+  });
+
   it("legacy 别名解析到插件 id", () => {
     expect(resolveLegacyPluginId("aliyun")).toBe("omni.cloud.aliyun");
     expect(resolveLegacyPluginId(" omni.cloud.aliyun ")).toBe("omni.cloud.aliyun");

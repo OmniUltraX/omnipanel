@@ -932,6 +932,9 @@ export function SettingsPanel() {
   // AI settings are managed by the new AiSection component.
 
   // Security settings state
+  const osPresenceEnabled = useSettingsStore((s) => s.osPresenceEnabled);
+  const setOsPresenceEnabled = useSettingsStore((s) => s.setOsPresenceEnabled);
+  const [osPresenceKind, setOsPresenceKind] = useState<"hello" | "touchId" | "none">("none");
   const [credentialStorage, setCredentialStorage] = useState("系统钥匙串");
   const [prodConfirm, setProdConfirm] = useState(true);
   const [dangerDetection, setDangerDetection] = useState(true);
@@ -950,6 +953,17 @@ export function SettingsPanel() {
     else if (label === "不发送") setAiDataSharing("none");
     else setAiDataSharing("minimal");
   };
+
+  useEffect(() => {
+    void commands
+      .presenceStatus()
+      .then((res) => {
+        if (res.status !== "ok") return;
+        const kind = res.data.kind;
+        setOsPresenceKind(kind === "hello" ? "hello" : kind === "touchId" ? "touchId" : "none");
+      })
+      .catch(() => setOsPresenceKind("none"));
+  }, []);
 
   // Terminal settings from store
   const terminalFontFamily = useSettingsStore((s) => s.terminalFontFamily);
@@ -1669,6 +1683,26 @@ export function SettingsPanel() {
                   <p>执行 rm -rf、DROP TABLE、docker rm 等操作前发出警告</p>
                 </div>
                 <Toggle value={dangerDetection} onChange={setDangerDetection} />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.osPresence.label")}</h4>
+                  <p>
+                    {t("settings.osPresence.desc")}{" "}
+                    {osPresenceKind === "hello"
+                      ? t("settings.osPresence.statusHello")
+                      : osPresenceKind === "touchId"
+                        ? t("settings.osPresence.statusTouchId")
+                        : t("settings.osPresence.statusNone")}
+                  </p>
+                </div>
+                <Toggle
+                  value={osPresenceEnabled}
+                  onChange={(enabled) => {
+                    setOsPresenceEnabled(enabled);
+                    void commands.presenceSetOsEnabled(enabled).catch(() => {});
+                  }}
+                />
               </div>
               <div className="setting-row">
                 <div className="setting-label">

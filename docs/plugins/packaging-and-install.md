@@ -28,7 +28,7 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- <plugin_dir> out.omni-plugin
 
 ## 安装
 
-设置 → 插件 → **安装本地插件** → 选择 `.omni-plugin`：
+插件中心 → **安装本地插件** → 选择 `.omni-plugin`：
 
 - 解压到 `app_data/plugins/<plugin_id>/`；
 - 验签 → 清单校验 → 与内置插件 id 冲突检查 → Registry 重建 → 贡献点生效；
@@ -37,7 +37,7 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- <plugin_dir> out.omni-plugin
 
 ## 卸载
 
-- **已安装**来源：设置页「卸载」按钮（删目录 + 清启用记录）；
+- **已安装**来源：插件中心「卸载」按钮（删目录 + 清启用记录）；
 - **内置**来源：不可卸载，仅可禁用。
 
 ## 签名校验矩阵

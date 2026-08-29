@@ -79,7 +79,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useAppUpdateStore } from "./stores/appUpdateStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
-import { DASHBOARD_PATH, MODULE_PATHS, MODULE_PREFIX, WORKSPACE_PATHS, isDashboardPath, isWorkspacePath, moduleKeyFromPath, modulePathForType, navModuleKeyFromPath, pluginModuleKeyFromPath } from "./lib/paths";
+import { DASHBOARD_PATH, MODULE_PATHS, MODULE_PREFIX, PLUGINS_PATH, WORKSPACE_PATHS, isDashboardPath, isPluginsPath, isWorkspacePath, moduleKeyFromPath, modulePathForType, navModuleKeyFromPath, pluginModuleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { usePluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { PluginModuleHost } from "./modules/plugin-module/PluginModuleHost";
@@ -105,6 +105,7 @@ import {
   LazyUserWorkspace,
   LazyWorkflowPanel,
   LazyCloudPanel,
+  LazyPluginsPanel,
   preloadModuleChunks,
 } from "./routes/lazyModules";
 
@@ -446,6 +447,7 @@ function AppShell() {
   const isTasks = location.pathname === MODULE_PATHS.tasks;
   const isCloud = location.pathname === MODULE_PATHS.cloud;
   const pluginModuleKey = pluginModuleKeyFromPath(location.pathname);
+  const isPlugins = isPluginsPath(location.pathname);
   const isShellRoute = isShellRoutePath(location.pathname) && !isDashboard;
 
   // 叠层模块按需挂载：启动时不全量挂载，避免首页主线程被终端/数据库等重型面板堵死
@@ -684,6 +686,14 @@ function AppShell() {
               element={
                 <SuspendedModulePanel active={isWorkspacePath(location.pathname)}>
                   <LazyUserWorkspace />
+                </SuspendedModulePanel>
+              }
+            />
+            <Route
+              path={PLUGINS_PATH}
+              element={
+                <SuspendedModulePanel active={isPlugins}>
+                  <LazyPluginsPanel />
                 </SuspendedModulePanel>
               }
             />

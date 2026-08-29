@@ -7,6 +7,7 @@ import "./styles/subwindow.css";
 import "./styles/modules/terminal.css";
 import "./styles/modules/database.css";
 import "./styles/modules/docker.css";
+import "./styles/modules/cloud.css";
 import "./styles/modules/files.css";
 import "./styles/modules/knowledge.css";
 import "./styles/modules/tags.css";

@@ -592,6 +592,75 @@ pub async fn dispatch(
                 .unwrap_or_default();
             respond(crate::db::db_count_tables(state, connection, schema, tables).await)
         }
+        "presence_status" => {
+            let cap = omnipanel_presence::platform_verifier().status();
+            respond(Ok(serde_json::json!({
+                "available": cap.available,
+                "kind": cap.kind,
+                "osEnabled": state.os_presence_enabled.load(std::sync::atomic::Ordering::Relaxed),
+            })))
+        }
+        "presence_set_os_enabled" => {
+            let enabled = args.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+            state
+                .os_presence_enabled
+                .store(enabled, std::sync::atomic::Ordering::Relaxed);
+            respond(Ok(serde_json::Value::Null))
+        }
+        "presence_verify" => respond::<()>(Err("本机不支持系统验证".into())),
+        "db_drop_table" => {
+            let connection: omnipanel_store::DbConnectionConfig =
+                match serde_json::from_value(args.get("connection").cloned().unwrap_or_default()) {
+                    Ok(c) => c,
+                    Err(e) => return InvokeResponse::err(format!("解析 connection 失败: {e}")),
+                };
+            let objects: Vec<crate::db::DbDropObject> =
+                serde_json::from_value(args.get("objects").cloned().unwrap_or_default())
+                    .unwrap_or_default();
+            let token = get_str(&args, "presenceToken").unwrap_or_default();
+            respond(crate::db::db_drop_table(state, connection, objects, token).await)
+        }
+        "db_drop_database" => {
+            let connection: omnipanel_store::DbConnectionConfig =
+                match serde_json::from_value(args.get("connection").cloned().unwrap_or_default()) {
+                    Ok(c) => c,
+                    Err(e) => return InvokeResponse::err(format!("解析 connection 失败: {e}")),
+                };
+            let databases: Vec<String> =
+                serde_json::from_value(args.get("databases").cloned().unwrap_or_default())
+                    .unwrap_or_default();
+            let token = get_str(&args, "presenceToken").unwrap_or_default();
+            respond(crate::db::db_drop_database(state, connection, databases, token).await)
+        }
+        "db_restart_service" => {
+            respond(
+                crate::db::db_restart_service(
+                    state,
+                    get_str(&args, "sshConnectionId").unwrap_or_default(),
+                    get_str(&args, "service").unwrap_or_default(),
+                    get_str(&args, "kind").unwrap_or_default(),
+                    get_str(&args, "location").unwrap_or_default(),
+                    get_str(&args, "presenceToken").unwrap_or_default(),
+                )
+                .await,
+            )
+        }
+        "presence_issue_typed" => {
+            let action = get_str(&args, "action").unwrap_or_default();
+            let target = get_str(&args, "target").unwrap_or_default();
+            let typed = get_str(&args, "typed").unwrap_or_default();
+            respond(
+                match omnipanel_presence::expected_typed(&action, &target) {
+                    Ok(expected) if typed.trim() == expected => state
+                        .presence_tokens
+                        .issue(&action, &target)
+                        .map(|issued| serde_json::to_value(issued).unwrap_or_default())
+                        .map_err(|e| e.to_string()),
+                    Ok(_) => Err("输入内容不匹配".into()),
+                    Err(e) => Err(e.to_string()),
+                },
+            )
+        }
         "db_execute_query" => {
             let connection: omnipanel_store::DbConnectionConfig =
                 match serde_json::from_value(args.get("connection").cloned().unwrap_or_default()) {
@@ -605,8 +674,21 @@ pub async fn dispatch(
                 .get("offset")
                 .and_then(|v| v.as_u64())
                 .map(|n| n as u32);
+            let presence_token = args
+                .get("presenceToken")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             respond(
-                crate::db::db_execute_query(state, connection, sql, run_id, limit, offset).await,
+                crate::db::db_execute_query(
+                    state,
+                    connection,
+                    sql,
+                    run_id,
+                    limit,
+                    offset,
+                    presence_token,
+                )
+                .await,
             )
         }
         "db_cancel_query" => {
@@ -3573,9 +3655,53 @@ pub async fn dispatch(
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             respond_omni(crate::cloud_cmds::cloud_list_regions(state, connection_id).await)
         }
+        "cloud_get_account" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            respond_omni(crate::cloud_cmds::cloud_get_account(state, connection_id).await)
+        }
         "cloud_list_certs" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             respond_omni(crate::cloud_cmds::cloud_list_certs(state, connection_id).await)
+        }
+        "cloud_list_resources" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let capability = get_str(&args, "capability").unwrap_or_default();
+            let filter = args
+                .get("filter")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok());
+            respond_omni(
+                crate::cloud_cmds::cloud_list_resources(state, connection_id, capability, filter)
+                    .await,
+            )
+        }
+        "cloud_get_resource" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let capability = get_str(&args, "capability").unwrap_or_default();
+            let resource_id = get_str(&args, "resourceId").unwrap_or_default();
+            let region_id = get_str(&args, "regionId");
+            respond_omni(
+                crate::cloud_cmds::cloud_get_resource(
+                    state,
+                    connection_id,
+                    capability,
+                    resource_id,
+                    region_id,
+                )
+                .await,
+            )
+        }
+        "cloud_invoke_action" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let action = match serde_json::from_value(
+                args.get("action").cloned().unwrap_or_default(),
+            ) {
+                Ok(a) => a,
+                Err(e) => return InvokeResponse::err(format!("解析 action 失败: {e}")),
+            };
+            respond_omni(
+                crate::cloud_cmds::cloud_invoke_action(state, connection_id, action).await,
+            )
         }
 
         /* ---------------- 文件索引 / 连接 ---------------- */

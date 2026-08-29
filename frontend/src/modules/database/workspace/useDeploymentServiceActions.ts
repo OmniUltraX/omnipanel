@@ -1,8 +1,10 @@
 import { useCallback, useState } from "react";
 import type { TextEditorIO } from "../../../components/textEditor/types";
 import { useI18n } from "../../../i18n";
-import { appConfirm } from "../../../lib/appConfirm";
-import { appPrompt } from "../../../lib/appPrompt";
+import { commands } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
+import { ACTION_DB_RESTART, restartTarget } from "../../../lib/presenceTargets";
+import { requireStepUp } from "../../../lib/stepUp";
 import { showToast } from "../../../stores/toastStore";
 import type { DbConnectionConfig } from "../api";
 import type { MysqlDeploymentInfo } from "../mysqlDeploymentDetect";
@@ -12,14 +14,11 @@ import {
   createServiceLogTextIO,
   describeRestartTarget,
   type DatabaseServiceKind,
-  restartDeployedService,
+  restartGrantLocation,
   resolveMysqlServiceLogSource,
   resolveRedisServiceLogSource,
   toRemoteDeployment,
 } from "./deploymentServiceActions";
-
-/** 二次确认后仍须在输入框原样输入该词，才真正执行重启 */
-const RESTART_CONFIRM_TOKEN = "RESTART";
 
 export function useDeploymentServiceActions() {
   const { t } = useI18n();
@@ -79,56 +78,37 @@ export function useDeploymentServiceActions() {
         service === "mysql"
           ? t("database.connectionInfo.deployment.serviceMysql")
           : t("database.connectionInfo.deployment.serviceRedis");
-      const target = describeRestartTarget(deployment);
-
-      const firstOk = await appConfirm(
-        t("database.connectionInfo.deployment.restartConfirmMessage", {
-          service: serviceLabel,
-          target,
-        }),
-        t("database.connectionInfo.deployment.restartConfirmTitle"),
-        {
-          confirmLabel: t("database.connectionInfo.deployment.restartConfirmContinue"),
-        },
-      );
-      if (!firstOk) {
+      const targetLabel = describeRestartTarget(deployment);
+      const location = restartGrantLocation(deployment);
+      const sshId = deployment.sshConnectionId;
+      if (!sshId) {
+        showToast(t("database.connectionInfo.deployment.restartFailed"));
         return;
       }
-
-      const secondOk = await appConfirm(
-        t("database.connectionInfo.deployment.restartConfirmMessage2", {
+      const grantTarget = restartTarget(sshId, service, deployment.kind, location);
+      const token = await requireStepUp({
+        action: ACTION_DB_RESTART,
+        target: grantTarget,
+        title: t("database.connectionInfo.deployment.restartConfirmTitle"),
+        message: t("database.connectionInfo.deployment.restartConfirmMessage", {
           service: serviceLabel,
-          target,
+          target: targetLabel,
         }),
-        t("database.connectionInfo.deployment.restartConfirmTitle2"),
-        {
-          confirmLabel: t("database.connectionInfo.deployment.restartConfirmContinue2"),
-        },
-      );
-      if (!secondOk) {
-        return;
-      }
-
-      const typed = await appPrompt(
-        t("database.connectionInfo.deployment.restartTypePrompt", {
-          token: RESTART_CONFIRM_TOKEN,
+        reason: t("database.connectionInfo.deployment.restartConfirmMessage", {
           service: serviceLabel,
-          target,
+          target: targetLabel,
         }),
-        "",
-        t("database.connectionInfo.deployment.restartTypeTitle"),
-      );
-      if (typed == null) {
-        return;
-      }
-      if (typed.trim() !== RESTART_CONFIRM_TOKEN) {
-        showToast(t("database.connectionInfo.deployment.restartTypeMismatch"));
+        confirmLabel: t("database.connectionInfo.deployment.restartConfirmContinue"),
+      });
+      if (!token) {
         return;
       }
 
       setRestartBusy(true);
       try {
-        await restartDeployedService(service, deployment);
+        await unwrapCommand(
+          commands.dbRestartService(sshId, service, deployment.kind, location, token),
+        );
         showToast(t("database.connectionInfo.deployment.restartSuccess"));
         await onAfterRestart?.();
       } catch (e) {

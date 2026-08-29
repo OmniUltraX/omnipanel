@@ -1,13 +1,15 @@
-//! 云厂商（阿里云）只读资源命令。
+//! 云厂商（阿里云）资源命令。
 
+use omnipanel_cloud_aliyun::{
+    driver_for, is_write_action, AliyunCloudDriver, AliyunCredentials, CloudAccountSnapshot,
+    CloudAction, CloudActionResult, CloudCertificateItem, CloudDomainItem, CloudEcsInstance,
+    CloudOssBucket, CloudProviderDriver, CloudRegion, CloudResourceDetail, CloudResourceFilter,
+    CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN,
+};
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{Connection, ConnectionKind, Vault};
+use omnipanel_store::{AuditEntry, Connection, ConnectionKind, Vault};
 use serde::Deserialize;
 
-use crate::cloud::aliyun::{
-    AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
-    CloudRegion, CloudSwasInstance,
-};
 use crate::http_client::{build_http_client_for_url, proxy_config};
 use crate::state::ServerState;
 
@@ -16,6 +18,8 @@ use crate::state::ServerState;
 struct CloudConfig {
     #[serde(default = "default_provider")]
     provider: String,
+    #[serde(default)]
+    plugin_id: String,
     #[serde(default)]
     region: String,
     #[serde(default)]
@@ -71,6 +75,7 @@ pub(crate) fn normalize_cloud_connection(
     }
     let mut cfg: CloudConfig = serde_json::from_str(&connection.config).unwrap_or(CloudConfig {
         provider: default_provider(),
+        plugin_id: String::new(),
         region: String::new(),
         regions: Vec::new(),
         access_key_id: String::new(),
@@ -91,7 +96,14 @@ pub(crate) fn normalize_cloud_connection(
         }
     }
     let regions = normalize_regions(&cfg.regions, &cfg.region);
+    let plugin_id = omnipanel_cloud_aliyun::resolve_plugin_id(if cfg.plugin_id.trim().is_empty() {
+        cfg.provider.as_str()
+    } else {
+        cfg.plugin_id.as_str()
+    })
+    .unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
     connection.config = serde_json::to_string(&serde_json::json!({
+        "pluginId": plugin_id,
         "provider": cfg.provider.trim().to_ascii_lowercase(),
         "regions": regions,
         "region": regions.first().map(String::as_str).unwrap_or(""),
@@ -111,12 +123,12 @@ fn resolve_credentials(
     let cfg: CloudConfig = serde_json::from_str(&connection.config).map_err(|e| {
         OmniError::new(ErrorCode::InvalidInput, "云厂商配置解析失败").with_cause(e.to_string())
     })?;
-    if !cfg.provider.eq_ignore_ascii_case("aliyun") && !cfg.provider.is_empty() {
-        return Err(OmniError::invalid_input(format!(
-            "暂不支持云厂商: {}",
-            cfg.provider
-        )));
-    }
+    let plugin_raw = if cfg.plugin_id.trim().is_empty() {
+        cfg.provider.as_str()
+    } else {
+        cfg.plugin_id.as_str()
+    };
+    let _ = driver_for(&omnipanel_cloud_aliyun::resolve_plugin_id(plugin_raw)?)?;
     let access_key_id = cfg.access_key_id.trim().to_string();
     if access_key_id.is_empty() {
         return Err(OmniError::invalid_input("请填写 AccessKey ID"));
@@ -148,6 +160,7 @@ fn resolve_credentials(
         access_key_id,
         access_key_secret: secret,
         region: effective_region(&cfg, None),
+        regions: normalize_regions(&cfg.regions, &cfg.region),
     })
 }
 
@@ -174,7 +187,7 @@ pub async fn cloud_test(
 ) -> Result<String, OmniError> {
     let creds = resolve_credentials(&connection, secret.as_deref())?;
     let http = http_for_aliyun("https://sts.aliyuncs.com/").await?;
-    creds.test_credentials(&http).await
+    AliyunCloudDriver.test_account(&creds, &http).await
 }
 
 pub async fn cloud_list_oss(
@@ -249,6 +262,7 @@ pub async fn cloud_list_regions(
     let creds = resolve_credentials(&conn, None)?;
     let cfg: CloudConfig = serde_json::from_str(&conn.config).unwrap_or(CloudConfig {
         provider: default_provider(),
+        plugin_id: String::new(),
         region: String::new(),
         regions: Vec::new(),
         access_key_id: String::new(),
@@ -256,7 +270,19 @@ pub async fn cloud_list_regions(
     });
     let configured = normalize_regions(&cfg.regions, &cfg.region);
     let http = http_for_aliyun("https://ecs.aliyuncs.com/").await?;
-    creds.discover_regions(&http, &configured).await
+    AliyunCloudDriver
+        .list_regions(&creds, &http, &configured)
+        .await
+}
+
+pub async fn cloud_get_account(
+    state: &ServerState,
+    connection_id: String,
+) -> Result<CloudAccountSnapshot, OmniError> {
+    let conn = load_connection(state, &connection_id).await?;
+    let creds = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun("https://sts.aliyuncs.com/").await?;
+    AliyunCloudDriver.get_account(&creds, &http).await
 }
 
 pub async fn cloud_list_certs(
@@ -267,4 +293,127 @@ pub async fn cloud_list_certs(
     let creds = resolve_credentials(&conn, None)?;
     let http = http_for_aliyun("https://cas.aliyuncs.com/").await?;
     creds.list_certificates(&http).await
+}
+
+fn plugin_id_of(cfg: &CloudConfig) -> Result<String, OmniError> {
+    let raw = if !cfg.plugin_id.trim().is_empty() {
+        cfg.plugin_id.as_str()
+    } else {
+        cfg.provider.as_str()
+    };
+    omnipanel_cloud_aliyun::resolve_plugin_id(raw)
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn require_prod_confirm(conn: &Connection, action: &CloudAction) -> Result<(), OmniError> {
+    if !is_write_action(&action.name) {
+        return Ok(());
+    }
+    if conn.env_tag.trim().eq_ignore_ascii_case("prod") && !action.confirmed {
+        return Err(OmniError::invalid_input("生产环境写操作需要确认"));
+    }
+    Ok(())
+}
+
+fn audit_cloud_action(
+    state: &ServerState,
+    conn: &Connection,
+    plugin_id: &str,
+    action: &str,
+    resource_id: &str,
+    status: &str,
+) {
+    let entry = AuditEntry {
+        ts: now_ms(),
+        action: "cloud.invoke".into(),
+        target: conn.id.clone(),
+        env_tag: conn.env_tag.clone(),
+        risk: if is_write_action(action) {
+            "high".into()
+        } else {
+            "medium".into()
+        },
+        status: status.into(),
+        detail: format!("pluginId={plugin_id} action={action} resource={resource_id}"),
+    };
+    if let Ok(store) = state.storage.try_lock() {
+        let _ = store.append_audit(&entry);
+    }
+}
+
+pub async fn cloud_list_resources(
+    state: &ServerState,
+    connection_id: String,
+    capability: String,
+    filter: Option<CloudResourceFilter>,
+) -> Result<Vec<CloudResourceRow>, OmniError> {
+    let conn = load_connection(state, &connection_id).await?;
+    let creds = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun("https://ecs.aliyuncs.com/").await?;
+    AliyunCloudDriver
+        .list_resources(&creds, &http, &capability, &filter.unwrap_or_default())
+        .await
+}
+
+pub async fn cloud_get_resource(
+    state: &ServerState,
+    connection_id: String,
+    capability: String,
+    resource_id: String,
+    region_id: Option<String>,
+) -> Result<CloudResourceDetail, OmniError> {
+    let conn = load_connection(state, &connection_id).await?;
+    let creds = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun("https://ecs.aliyuncs.com/").await?;
+    AliyunCloudDriver
+        .get_resource(
+            &creds,
+            &http,
+            &capability,
+            &resource_id,
+            region_id.as_deref().unwrap_or(""),
+        )
+        .await
+}
+
+pub async fn cloud_invoke_action(
+    state: &ServerState,
+    connection_id: String,
+    action: CloudAction,
+) -> Result<CloudActionResult, OmniError> {
+    let conn = load_connection(state, &connection_id).await?;
+    let cfg = serde_json::from_str(&conn.config).unwrap_or(CloudConfig {
+        provider: default_provider(),
+        plugin_id: String::new(),
+        region: String::new(),
+        regions: Vec::new(),
+        access_key_id: String::new(),
+        access_key_secret: String::new(),
+    });
+    let plugin_id = plugin_id_of(&cfg).unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
+    if let Err(err) = require_prod_confirm(&conn, &action) {
+        audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "blocked");
+        return Err(err);
+    }
+    let creds = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun("https://ecs.aliyuncs.com/").await?;
+    match AliyunCloudDriver
+        .invoke_action(&creds, &http, &action)
+        .await
+    {
+        Ok(result) => {
+            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "success");
+            Ok(result)
+        }
+        Err(err) => {
+            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "failed");
+            Err(err)
+        }
+    }
 }

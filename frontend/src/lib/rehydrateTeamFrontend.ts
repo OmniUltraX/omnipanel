@@ -55,6 +55,8 @@ const LOADERS: Array<() => Promise<unknown>> = [
   () => import("../stores/dockerDockLayoutStore").then((m) => m.useDockerDockLayoutStore),
   () => import("../stores/dockerSidebarTreeStore").then((m) => m.useDockerSidebarTreeStore),
   () => import("../stores/serverPanelCacheStore").then((m) => m.useServerPanelCacheStore),
+  () => import("../stores/cloudInventoryStore").then((m) => m.useCloudInventoryStore),
+  () => import("../stores/cloudDockStore").then((m) => m.useCloudDockStore),
   () => import("../stores/serverPanelDockStore").then((m) => m.useServerPanelDockStore),
   () => import("../stores/serverDockLayoutStore").then((m) => m.useServerDockLayoutStore),
   () => import("../stores/serverTabStore").then((m) => m.useServerTabStore),

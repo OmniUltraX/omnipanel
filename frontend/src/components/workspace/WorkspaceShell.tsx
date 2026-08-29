@@ -4,14 +4,8 @@ import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useWorkspaceWindowStore } from "../../stores/workspaceWindowStore";
 import { workspaceShellState } from "../../lib/workspaceMode";
-import {
-  isOverlayModulePath,
-  isShellRoutePath,
-} from "../../lib/routePanels";
-import {
-  WORKSPACE_PATHS,
-  isWorkspacePath,
-} from "../../lib/paths";
+import { isOverlayModulePath, isShellRoutePath } from "../../lib/routePanels";
+import { WORKSPACE_PATHS, isPluginsPath, isWorkspacePath } from "../../lib/paths";
 import {
   relayoutDockviewInstances,
   scheduleRebalanceHorizontalSplitsForAiDock,
@@ -104,7 +98,7 @@ export const WorkspaceShell = memo(function WorkspaceShell({
       className={`workspace workspace--${wsState}${showBottomFullscreen ? " workspace--bottom-fullscreen" : ""}${embeddedModeClass}`}
       style={{ "--ai-dock-w": dockWidth } as React.CSSProperties}
     >
-      <Topbar title={title} hidden>
+      <Topbar title={title} hidden={!isPluginsPath(location.pathname)}>
         {topbarActions}
       </Topbar>
       <div className="workspace-body">

@@ -699,6 +699,7 @@ async fn db_execute_sql(state: &ServerState, args: &DbArgs) -> Result<String, St
         format!("ai-tool-{}", std::process::id()),
         Some(500),
         None,
+        None,
     )
     .await?;
     Ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()))

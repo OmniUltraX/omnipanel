@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useActionStore } from "../../stores/actionStore";
 import { goWorkspaceHome, navigateToFeature, navigateToSshManagement } from "../../lib/workspaceNavigation";
-import { MODULE_PATHS } from "../../lib/paths";
+import { MODULE_PATHS, PLUGINS_PATH } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { importerEntries, listActiveImporters, resolveImporterText } from "../../lib/importerCatalog";
@@ -64,6 +64,7 @@ function useRegisterBuiltinCommands() {
       { id: "protocol", label: t("shell.commandPalette.commands.protocol"), category: nav, run: () => navigateToFeature(MODULE_PATHS.protocol, navigate), source: "builtin" },
       { id: "workflow", label: t("shell.commandPalette.commands.workflow"), category: nav, run: () => navigateToFeature(MODULE_PATHS.workflow, navigate), source: "builtin" },
       { id: "knowledge", label: t("shell.commandPalette.commands.knowledge"), category: nav, run: () => navigateToFeature(MODULE_PATHS.knowledge, navigate), source: "builtin" },
+      { id: "plugins", label: t("shell.commandPalette.commands.plugins"), category: nav, run: () => navigateToFeature(PLUGINS_PATH, navigate), source: "builtin" },
       { id: "settings", label: t("shell.commandPalette.commands.settings"), shortcutId: "open-settings", category: nav, run: () => useSettingsUiOpen(), source: "builtin" },
       { id: "new-terminal", label: t("shell.commandPalette.commands.newTerminal"), shortcutId: "new-terminal", category: action, run: () => useNewTerminal(), source: "builtin" },
       { id: "new-ssh", label: t("shell.commandPalette.commands.newSsh"), shortcutId: "new-ssh", category: action, run: () => navigateToSshManagement(navigate), source: "builtin" },

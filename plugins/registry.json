@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "id": "omni.addon.everything",
+      "kind": "addon",
+      "name": "Everything local search",
+      "description": "Search local file paths via Everything (Windows, metadata only).",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "ai:tools",
+        "fs:read"
+      ]
+    },
+    {
+      "id": "omni.cloud.aliyun",
+      "kind": "cloud",
+      "name": "Alibaba Cloud",
+      "description": "Discover ECS and Simple Application Server resources.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.engine.clickhouse",
+      "kind": "engine",
+      "name": "ClickHouse",
+      "description": "First-party ClickHouse engine (sidecar).",
+      "version": "0.2.0",
+      "distribution": "bundled",
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.engine.mongodb",
+      "kind": "engine",
+      "name": "MongoDB",
+      "description": "First-party MongoDB engine (sidecar).",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.engine.mysql",
+      "kind": "engine",
+      "name": "MySQL",
+      "description": "First-party MySQL / MariaDB engine.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.engine.postgres",
+      "kind": "engine",
+      "name": "PostgreSQL",
+      "description": "First-party PostgreSQL engine.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.engine.qdrant",
+      "kind": "engine",
+      "name": "Qdrant",
+      "description": "First-party Qdrant vector database engine.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.engine.redis",
+      "kind": "engine",
+      "name": "Redis",
+      "description": "First-party Redis engine.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.engine.sqlite",
+      "kind": "engine",
+      "name": "SQLite",
+      "description": "First-party SQLite engine.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "fs:read"
+      ]
+    },
+    {
+      "id": "omni.engine.sqlserver",
+      "kind": "engine",
+      "name": "SQL Server",
+      "description": "First-party SQL Server engine (sidecar).",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.importer.docker-db",
+      "kind": "importer",
+      "name": "Docker database scan",
+      "description": "Scan published database ports on existing Docker engines.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write"
+      ]
+    },
+    {
+      "id": "omni.importer.warpgate",
+      "kind": "importer",
+      "name": "Warpgate import",
+      "description": "Import SSH and database targets from a Warpgate bastion.",
+      "version": "0.2.1",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.module.nacos",
+      "kind": "module",
+      "name": "Nacos module shell",
+      "description": "Host shell for the Nacos console plugin.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "ui:sidebar"
+      ]
+    },
+    {
+      "id": "omni.panel.1panel",
+      "kind": "panel",
+      "name": "1Panel",
+      "description": "Connect to 1Panel hosts for sites, apps, and certificates.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.panel.bt",
+      "kind": "panel",
+      "name": "BT Panel",
+      "description": "Connect to BT (Baota) panel hosts.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.theme.default",
+      "kind": "theme",
+      "name": "Default theme",
+      "description": "Built-in color tokens for the OmniPanel shell.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": []
+    }
+  ]
+}

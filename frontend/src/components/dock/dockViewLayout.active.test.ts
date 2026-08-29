@@ -4,6 +4,7 @@ import {
   canApplyDockLayoutIncrementally,
   createDefaultLayout,
   mergePanelsIntoLayout,
+  normalizeDockLayout,
 } from "./dockViewLayout";
 
 function readActiveView(layout: SerializedDockview): string | undefined {
@@ -73,5 +74,32 @@ describe("canApplyDockLayoutIncrementally", () => {
 
   it("空布局不走增量（交给 clear 路径）", () => {
     expect(canApplyDockLayoutIncrementally(["term-a"], [], [])).toBe(false);
+  });
+});
+
+describe("normalizeDockLayout", () => {
+  it("剥除 tabGroups 与重复 views，避免 fromJSON invalid location", () => {
+    const dirty = createDefaultLayout(["a", "b"], "a") as SerializedDockview & {
+      grid: { root: { type: string; data: unknown } };
+    };
+    const root = dirty.grid.root as {
+      type: "branch";
+      data: Array<{
+        type: "leaf";
+        data: { id: string; views: string[]; activeView?: string; tabGroups?: unknown };
+      }>;
+    };
+    const leaf = root.data[0]!;
+    leaf.data.views = ["a", "a", "b"];
+    leaf.data.tabGroups = [{ id: "tg-0", panelIds: ["a", "b"], collapsed: false }];
+    const cleaned = normalizeDockLayout(dirty);
+    const cleanedLeaf = (
+      cleaned!.grid.root as {
+        type: "branch";
+        data: Array<{ type: "leaf"; data: { views: string[]; tabGroups?: unknown } }>;
+      }
+    ).data[0]!;
+    expect(cleanedLeaf.data.views).toEqual(["a", "b"]);
+    expect(cleanedLeaf.data.tabGroups).toBeUndefined();
   });
 });

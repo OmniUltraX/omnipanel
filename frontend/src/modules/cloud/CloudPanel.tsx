@@ -10,27 +10,26 @@ import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
-import { CloudConnectionDialog } from "../server/cloud/CloudConnectionDialog";
-import { CloudDockPanel } from "../server/cloud/CloudDockPanel";
-import { CloudTreeSidebar } from "../server/cloud/CloudTreeSidebar";
-import { connectionToCloudAccount, type CloudAccount } from "../server/cloud/cloudForm";
-import {
-  makeCloudTreeKey,
-  type CloudSidebarNavTarget,
-} from "../server/cloud/cloudSidebarNav";
+import { CloudConnectionDialog } from "./CloudConnectionDialog";
+import { CloudDockPanel } from "./CloudDockPanel";
+import { CloudTreeSidebar } from "./CloudTreeSidebar";
+import { capabilityI18nKey, connectionToCloudAccount, type CloudAccount } from "./cloudForm";
+import { makeCloudTreeKey, type CloudSidebarNavTarget } from "./cloudWorkspaceTabs";
 import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
-import {
-  isCloudOverviewTab,
-  type ServerPanelDockOpenMode,
-} from "../server/panel/serverPanelWorkspaceTabs";
 import type { Connection } from "../../ipc/bindings";
-import {
-  useServerPanelDockStore,
-} from "../../stores/serverPanelDockStore";
+import { useCloudDockStore } from "../../stores/cloudDockStore";
+import { useCloudInventoryStore } from "../../stores/cloudInventoryStore";
 import { useUiFollowConsumer } from "../../lib/ai/uiFollow";
 import { VerticalSplitSidebar } from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { ScopedSearch } from "../../components/ui/search";
+import {
+  cloudRegionRowLabel,
+  fallbackCloudRegions,
+  loadCloudAccountRegions,
+} from "./cloudRegionDiscovery";
+import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { resolveCloudQueryRegions } from "./cloudResourceApi";
 
 export function CloudPanel() {
   const { t } = useI18n();
@@ -38,6 +37,7 @@ export function CloudPanel() {
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
   const tagAllowedIds = useModuleTagFilter("cloud", CONNECTION_TAG_KINDS);
+  usePluginRuntimeStore((s) => s.items);
   const cloudAccounts = useMemo(() => {
     const list: CloudAccount[] = [];
     for (const conn of connections) {
@@ -49,31 +49,34 @@ export function CloudPanel() {
     return list;
   }, [connections, tagAllowedIds]);
 
-  const dockTabs = useServerPanelDockStore((s) => s.tabs);
-  const activeTabId = useServerPanelDockStore((s) => s.activeTabId);
-  const dockLayout = useServerPanelDockStore((s) => s.dockLayout);
-  const selectCloud = useServerPanelDockStore((s) => s.selectCloud);
-  const closeTab = useServerPanelDockStore((s) => s.closeTab);
-  const setActiveTabId = useServerPanelDockStore((s) => s.setActiveTabId);
-  const setDockLayout = useServerPanelDockStore((s) => s.setDockLayout);
-  const removeServerTabs = useServerPanelDockStore((s) => s.removeServerTabs);
+  const dockTabs = useCloudDockStore((s) => s.tabs);
+  const activeTabId = useCloudDockStore((s) => s.activeTabId);
+  const dockLayout = useCloudDockStore((s) => s.dockLayout);
+  const selectAccount = useCloudDockStore((s) => s.selectAccount);
+  const selectResources = useCloudDockStore((s) => s.selectResources);
+  const selectResource = useCloudDockStore((s) => s.selectResource);
+  const closeTab = useCloudDockStore((s) => s.closeTab);
+  const setActiveTabId = useCloudDockStore((s) => s.setActiveTabId);
+  const setDockLayout = useCloudDockStore((s) => s.setDockLayout);
+  const removeAccountTabs = useCloudDockStore((s) => s.removeAccountTabs);
 
   useUiFollowConsumer("cloud", useCallback((intent) => {
     if (intent.type === "openConnection") {
       const conn = useConnectionStore.getState().connections.find((c) => c.id === intent.resourceId);
       if (conn?.kind === "cloud") {
-        selectCloud(intent.resourceId, "permanent");
+        selectAccount(intent.resourceId, "permanent");
         return true;
       }
     }
     return false;
-  }, [selectCloud]));
+  }, [selectAccount]));
 
   const [showCloudDialog, setShowCloudDialog] = useState(false);
   const [editCloudConnection, setEditCloudConnection] = useState<Connection | undefined>();
   const [activeCloudNavKey, setActiveCloudNavKey] = useState<string | null>(null);
-  const [cloudNavTarget, setCloudNavTarget] = useState<CloudSidebarNavTarget | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+  const [inspectorRowId, setInspectorRowId] = useState<string | null>(null);
   const [tabCtxMenu, setTabCtxMenu] = useState<{
     x: number;
     y: number;
@@ -89,47 +92,62 @@ export function CloudPanel() {
     return map;
   }, [cloudAccounts]);
 
-  const cloudTabs = useMemo(
-    () => dockTabs.filter((tab) => isCloudOverviewTab(tab)),
-    [dockTabs],
-  );
-
   useEffect(() => {
     const validIds = new Set(cloudAccounts.map((account) => account.id));
-    for (const tab of cloudTabs) {
-      if (!validIds.has(tab.serverId)) {
-        removeServerTabs(tab.serverId);
+    for (const tab of dockTabs) {
+      if (!validIds.has(tab.accountId)) {
+        removeAccountTabs(tab.accountId);
       }
     }
-  }, [cloudAccounts, cloudTabs, removeServerTabs]);
+  }, [cloudAccounts, dockTabs, removeAccountTabs]);
 
   const handleNavigateCloud = useCallback(
-    (target: CloudSidebarNavTarget, mode: ServerPanelDockOpenMode = "preview") => {
+    (target: CloudSidebarNavTarget, mode: "preview" | "permanent" = "preview") => {
       openDockTabNow({
         applyTabSync: () => {
-          selectCloud(target.accountId, mode);
-          setCloudNavTarget(target);
-          setActiveCloudNavKey(makeCloudTreeKey(target.accountId, target.region));
+          if (target.kind === "account") {
+            selectAccount(target.accountId, mode);
+          } else if (target.kind === "capability") {
+            selectResources(target.accountId, target.capability, mode);
+          } else {
+            selectResource(
+              target.accountId,
+              target.capability,
+              target.resourceId,
+              target.regionId ?? "",
+              mode,
+            );
+          }
+          setActiveCloudNavKey(makeCloudTreeKey(target));
         },
       });
     },
-    [selectCloud],
+    [selectAccount, selectResource, selectResources],
   );
 
   useEffect(() => {
-    const tab = cloudTabs.find((item) => item.id === activeTabId);
+    const tab = dockTabs.find((item) => item.id === activeTabId);
     if (!tab) {
       setActiveCloudNavKey(null);
       return;
     }
-    setActiveCloudNavKey((prev) => {
-      const accountKey = makeCloudTreeKey(tab.serverId);
-      if (prev === accountKey || prev?.startsWith(`${accountKey}:`)) {
-        return prev;
-      }
-      return accountKey;
-    });
-  }, [activeTabId, cloudTabs]);
+    if (tab.kind === "account") {
+      setActiveCloudNavKey(makeCloudTreeKey({ kind: "account", accountId: tab.accountId }));
+    } else if (tab.kind === "resources") {
+      setActiveCloudNavKey(
+        makeCloudTreeKey({ kind: "capability", accountId: tab.accountId, capability: tab.capability }),
+      );
+    } else {
+      setActiveCloudNavKey(
+        makeCloudTreeKey({
+          kind: "resource",
+          accountId: tab.accountId,
+          capability: tab.capability,
+          resourceId: tab.resourceId,
+        }),
+      );
+    }
+  }, [activeTabId, dockTabs]);
 
   const handleCloseTab = useCallback(
     (tabId: string) => {
@@ -165,31 +183,69 @@ export function CloudPanel() {
       );
       if (!confirmed) return;
       for (const id of ids) {
-        removeServerTabs(id);
+        removeAccountTabs(id);
+        useCloudInventoryStore.getState().removeAccount(id);
         await removeConn(id);
       }
     },
-    [removeConn, removeServerTabs, t],
+    [removeConn, removeAccountTabs, t],
+  );
+
+  const activeAccountId = useMemo(() => {
+    const tab = dockTabs.find((item) => item.id === activeTabId);
+    return tab ? tab.accountId : null;
+  }, [activeTabId, dockTabs]);
+
+  const activeAccount = activeAccountId ? cloudById.get(activeAccountId) ?? null : null;
+
+  const cachedLiveRegions = useCloudInventoryStore((s) =>
+    activeAccountId ? s.byAccount[activeAccountId]?.regions?.regions : undefined,
+  );
+
+  useEffect(() => {
+    if (!activeAccount) return;
+    void loadCloudAccountRegions(activeAccount.id).catch(() => undefined);
+  }, [activeAccount]);
+
+  const liveRegions = useMemo(() => {
+    if (cachedLiveRegions && cachedLiveRegions.length > 0) return cachedLiveRegions;
+    return fallbackCloudRegions(activeAccount?.regions ?? []);
+  }, [activeAccount, cachedLiveRegions]);
+
+  const liveRegionIds = useMemo(
+    () => liveRegions.map((region) => region.regionId),
+    [liveRegions],
+  );
+
+  const regionOptions = useMemo(
+    () => liveRegions.map((region) => ({ value: region.regionId, label: cloudRegionRowLabel(region) })),
+    [liveRegions],
   );
 
   const moduleDockTabs = useMemo(
     () =>
-      cloudTabs
+      dockTabs
         .map((tab) => {
-          const account = cloudById.get(tab.serverId);
+          const account = cloudById.get(tab.accountId);
           if (!account) return null;
+          let label = account.name;
+          if (tab.kind === "resources") {
+            label = `${t(capabilityI18nKey(tab.capability))}@${account.name}`;
+          } else if (tab.kind === "resource") {
+            label = `${tab.resourceId}@${account.name}`;
+          }
           return {
             id: tab.id,
-            label: `${t("server.cloud.sidebar.title")}@${account.name}`,
+            label,
             panelType: "cloud-panel",
-            icon: (account.provider === "aliyun" ? "aliyun" : "server") as DockHeaderIconKind,
+            icon: "aliyun" as DockHeaderIconKind,
             closable: true,
             preview: tab.preview,
-            tooltip: `${account.regions.join(", ")} · ${account.accessKeyId}`,
+            tooltip: account.accessKeyId,
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),
-    [cloudById, cloudTabs, t],
+    [cloudById, dockTabs, t],
   );
 
   const handleTabContextAction = useCallback(
@@ -215,26 +271,42 @@ export function CloudPanel() {
 
   const renderCloudPanel = useCallback(
     (tabId: string) => {
-      const tab = cloudTabs.find((item) => item.id === tabId);
+      const tab = dockTabs.find((item) => item.id === tabId);
       if (!tab) return <div className="server-panel-tab-pane" aria-hidden />;
-      const account = cloudById.get(tab.serverId);
+      const account = cloudById.get(tab.accountId);
       if (!account) return <div className="server-panel-tab-pane" aria-hidden />;
-      const isActive = activeTabId === tabId;
+      const queryRegions = resolveCloudQueryRegions(
+        selectedRegions,
+        account.id === activeAccountId ? liveRegionIds : [],
+        account.regions,
+      );
       return (
         <CloudDockPanel
+          tab={tab}
           account={account}
-          isActive={isActive && moduleLive}
-          navTarget={cloudNavTarget?.accountId === account.id ? cloudNavTarget : null}
+          selectedRegions={queryRegions}
+          inspectorRowId={inspectorRowId}
+          onOpenCapability={(capability) =>
+            handleNavigateCloud({ kind: "capability", accountId: account.id, capability }, "permanent")
+          }
+          onSelectRow={(capability, resourceId, regionId) => {
+            setInspectorRowId(resourceId);
+            handleNavigateCloud(
+              { kind: "resource", accountId: account.id, capability, resourceId, regionId },
+              "preview",
+            );
+          }}
+          onOpenRow={(capability, resourceId, regionId) =>
+            handleNavigateCloud(
+              { kind: "resource", accountId: account.id, capability, resourceId, regionId },
+              "permanent",
+            )
+          }
         />
       );
     },
-    [activeTabId, cloudById, cloudNavTarget, cloudTabs, moduleLive],
+    [activeAccountId, cloudById, dockTabs, handleNavigateCloud, inspectorRowId, liveRegionIds, selectedRegions],
   );
-
-  const activeCloudAccountId = useMemo(() => {
-    const tab = cloudTabs.find((item) => item.id === activeTabId);
-    return tab ? tab.serverId : null;
-  }, [activeTabId, cloudTabs]);
 
   return (
     <>
@@ -254,9 +326,13 @@ export function CloudPanel() {
             >
               <CloudTreeSidebar
                 accounts={cloudAccounts}
-                activeAccountId={activeCloudAccountId}
+                activeAccountId={activeAccountId}
                 activeNavKey={activeCloudNavKey}
                 searchQuery={searchQuery}
+                selectedRegions={selectedRegions}
+                liveRegionIds={liveRegionIds}
+                regionOptions={regionOptions}
+                onSelectedRegionsChange={setSelectedRegions}
                 onNavigate={handleNavigateCloud}
                 onCreateAccount={handleCreateCloud}
                 onEditAccount={handleEditCloud}

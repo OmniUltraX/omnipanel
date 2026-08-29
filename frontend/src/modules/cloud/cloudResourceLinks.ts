@@ -1,29 +1,45 @@
 import type { ExternalSource } from "@omnipanel/plugin-sdk";
-import type { Connection } from "../../../ipc/bindings";
-import type { FileConfigJson } from "../../files/FileConnectionDialog";
-import { defaultS3Endpoint, resolveS3Provider } from "../../files/s3Provider";
-import { normalizeS3ApiEndpoint } from "../../files/s3PublicUrl";
-import { saveFileConnection } from "../../files/fileApi";
-import type { SshConfigJson } from "../panel/serverConnection";
+import type { Connection } from "../../ipc/bindings";
+import type { FileConfigJson } from "../files/FileConnectionDialog";
+import { defaultS3Endpoint, resolveS3Provider } from "../files/s3Provider";
+import { normalizeS3ApiEndpoint } from "../files/s3PublicUrl";
+import { saveFileConnection } from "../files/fileApi";
+import type { SshConfigJson } from "../server/panel/serverConnection";
 import { parseCloudConfig, type CloudAccount } from "./cloudForm";
 
-export type CloudLinkKind = "ecs" | "swas" | "oss";
+export type CloudLinkKind = "compute" | "compute.lite" | "objectStorage" | "ecs" | "swas" | "oss";
 
-const ALIYUN_PLUGIN_ID = "omni.cloud.aliyun";
+function toCapabilityId(kind: string): string {
+  if (kind === "ecs") return "compute";
+  if (kind === "swas") return "compute.lite";
+  if (kind === "oss") return "objectStorage";
+  return kind;
+}
 
-/** 写入 SSH / S3 连接 config，用于反查「是否已加入」。 */
+export function cloudRemoteKindAliases(kind: string): string[] {
+  const cap = toCapabilityId(kind);
+  if (cap === "compute") return ["compute", "ecs"];
+  if (cap === "compute.lite") return ["compute.lite", "swas"];
+  if (cap === "objectStorage") return ["objectStorage", "oss"];
+  return [kind];
+}
+
+function pluginIdOf(account: CloudAccount): string {
+  return account.pluginId || "omni.cloud.aliyun";
+}
+
 export type CloudResourceSource = {
   accountId: string;
-  kind: CloudLinkKind;
+  kind: string;
   resourceId: string;
 };
 
-function toExternalSource(src: CloudResourceSource): ExternalSource {
+function toExternalSource(account: CloudAccount, src: CloudResourceSource): ExternalSource {
   return {
-    pluginId: ALIYUN_PLUGIN_ID,
+    pluginId: pluginIdOf(account),
     accountId: src.accountId,
     remoteId: src.resourceId,
-    remoteKind: src.kind,
+    remoteKind: toCapabilityId(src.kind),
   };
 }
 
@@ -34,11 +50,16 @@ function readLinkedSource(cfg: {
   if (cfg.externalSource?.remoteId) {
     return {
       accountId: cfg.externalSource.accountId ?? "",
-      kind: cfg.externalSource.remoteKind as CloudLinkKind,
+      kind: cfg.externalSource.remoteKind,
       resourceId: cfg.externalSource.remoteId,
     };
   }
   return cfg.cloudSource ?? null;
+}
+
+function kindsMatch(stored: string, wanted: string): boolean {
+  const aliases = new Set(cloudRemoteKindAliases(wanted));
+  return aliases.has(stored) || aliases.has(toCapabilityId(stored));
 }
 
 function parseSsh(conn: Connection): (SshConfigJson & {
@@ -64,6 +85,7 @@ function parseFile(conn: Connection): (FileConfigJson & {
   try {
     return JSON.parse(conn.config || "{}") as FileConfigJson & {
       cloudSource?: CloudResourceSource;
+      externalSource?: ExternalSource;
     };
   } catch {
     return null;
@@ -74,7 +96,6 @@ function normalizeIp(raw: string | undefined | null): string {
   return (raw ?? "").trim();
 }
 
-/** 规范化阿里云 OSS region（`cn-hangzhou` → `oss-cn-hangzhou`）。 */
 export function normalizeOssRegion(region: string): string {
   const r = region.trim();
   if (!r) return "oss-cn-hangzhou";
@@ -85,7 +106,7 @@ export function normalizeOssRegion(region: string): string {
 export function findLinkedSshConnection(
   connections: Connection[],
   accountId: string,
-  kind: "ecs" | "swas",
+  kind: string,
   instanceId: string,
   publicIp?: string,
   privateIp?: string,
@@ -99,17 +120,11 @@ export function findLinkedSshConnection(
     const cfg = parseSsh(conn);
     if (!cfg) continue;
     const src = readLinkedSource(cfg);
-    if (
-      src &&
-      src.accountId === accountId &&
-      src.kind === kind &&
-      src.resourceId === id
-    ) {
+    if (src && src.accountId === accountId && kindsMatch(src.kind, kind) && src.resourceId === id) {
       return conn;
     }
   }
 
-  // 兼容手工添加的同 IP 主机
   for (const conn of connections) {
     if (conn.kind !== "ssh") continue;
     const cfg = parseSsh(conn);
@@ -139,7 +154,7 @@ export function findLinkedOssFileConnection(
     if (
       src &&
       src.accountId === accountId &&
-      src.kind === "oss" &&
+      kindsMatch(src.kind, "objectStorage") &&
       src.resourceId === name
     ) {
       return conn;
@@ -167,7 +182,7 @@ export function pickInstanceHost(publicIp?: string, privateIp?: string): string 
 
 export async function addCloudInstanceToSsh(
   account: CloudAccount,
-  kind: "ecs" | "swas",
+  kind: string,
   row: { id: string; name: string; publicIp?: string; privateIp?: string },
   save: (connection: Connection) => Promise<Connection | null>,
 ): Promise<Connection> {
@@ -177,7 +192,7 @@ export async function addCloudInstanceToSsh(
   }
   const cloudSource: CloudResourceSource = {
     accountId: account.id,
-    kind,
+    kind: toCapabilityId(kind),
     resourceId: row.id,
   };
   const now = Math.floor(Date.now() / 1000);
@@ -191,7 +206,7 @@ export async function addCloudInstanceToSsh(
     auth: { type: "password", password: "" },
     publicIp: normalizeIp(row.publicIp) || undefined,
     cloudSource,
-    externalSource: toExternalSource(cloudSource),
+    externalSource: toExternalSource(account, cloudSource),
   };
   const draft: Connection = {
     id: "",
@@ -222,14 +237,13 @@ export async function addCloudOssToFile(
   if (!accessKey) throw new Error("NO_AK");
 
   const region = normalizeOssRegion(row.region || account.regions[0] || "cn-hangzhou");
-  const endpointRaw =
-    (row.endpoint ?? "").trim() || defaultS3Endpoint("aliyun", region);
+  const endpointRaw = (row.endpoint ?? "").trim() || defaultS3Endpoint("aliyun", region);
   const endpoint = normalizeS3ApiEndpoint(endpointRaw, bucket);
   const provider = resolveS3Provider({ provider: "aliyun", endpoint });
 
   const cloudSource: CloudResourceSource = {
     accountId: account.id,
-    kind: "oss",
+    kind: "objectStorage",
     resourceId: bucket,
   };
 
@@ -248,10 +262,9 @@ export async function addCloudOssToFile(
     accessKey,
     rootPath: "/",
     cloudSource,
-    externalSource: toExternalSource(cloudSource),
+    externalSource: toExternalSource(account, cloudSource),
   };
 
-  // 复用云账户 Vault 中的 Secret：file_save 会复制到 file-cred-{id}
   const draft: Connection = {
     id: "",
     kind: "file",
@@ -266,4 +279,20 @@ export async function addCloudOssToFile(
   };
 
   return saveFileConnection(draft, null);
+}
+
+export function listLinkedCloudSsh(connections: Connection[], accountId: string): Connection[] {
+  return connections.filter((conn) => {
+    if (conn.kind !== "ssh") return false;
+    const cfg = parseSsh(conn);
+    return cfg ? readLinkedSource(cfg)?.accountId === accountId : false;
+  });
+}
+
+export function listLinkedCloudFiles(connections: Connection[], accountId: string): Connection[] {
+  return connections.filter((conn) => {
+    if (conn.kind !== "file") return false;
+    const cfg = parseFile(conn);
+    return cfg ? readLinkedSource(cfg)?.accountId === accountId : false;
+  });
 }

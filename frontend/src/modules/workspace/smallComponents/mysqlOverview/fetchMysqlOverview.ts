@@ -63,7 +63,7 @@ async function queryRows(
   sql: string,
 ): Promise<Record<string, unknown>[]> {
   const result = await unwrapCommand(
-    commands.dbExecuteQuery(connection, sql, makeQueryRunId(), null, null),
+    commands.dbExecuteQuery(connection, sql, makeQueryRunId(), null, null, null),
     { quiet: true },
   );
   return rowsToRecord(result.columns, result.rows as unknown[][]);

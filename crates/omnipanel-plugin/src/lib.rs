@@ -17,9 +17,9 @@ mod source;
 
 pub use candidate::{ImportCandidate, upsert_candidates};
 pub use contribution::{
-    AiContributes, AiToolContribution, AiToolExecKind, DiscoveryContribution, HomeContribution,
-    HomeOpenContribution, LauncherContribution, PluginContributes, ThemeContribution,
-    UiContributes,
+    AiContributes, AiToolContribution, AiToolExecKind, CloudCapabilityDecl, CloudContributes,
+    DiscoveryContribution, HomeContribution, HomeOpenContribution, LauncherContribution,
+    PluginContributes, ThemeContribution, UiContributes,
 };
 pub use engine_sidecar::{
     InstalledEngineDriver, collect_activated_installed_engine_drivers, connection_form_engine_keys,

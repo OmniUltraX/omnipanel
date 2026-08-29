@@ -63,6 +63,8 @@ pub struct ServerState {
     pub mcp_manager: Arc<Mutex<Option<omnipanel_mcp::SharedMcpManager>>>,
     /// 外部 MCP 工具是否需审批（默认 true，与桌面端一致）。false 时服务端直接自执。
     pub mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
+    pub presence_tokens: Arc<omnipanel_presence::TokenStore>,
+    pub os_presence_enabled: Arc<std::sync::atomic::AtomicBool>,
     /// 挂起等待审批/回传的外部工具结果通道（`conversation_id:tool_call_id` → oneshot）。
     pub pending_internal_tool_results: Arc<
         tokio::sync::Mutex<
@@ -137,6 +139,8 @@ impl ServerState {
             media_streams: Arc::new(Mutex::new(HashMap::new())),
             mcp_manager: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            presence_tokens: Arc::new(omnipanel_presence::TokenStore::system()),
+            os_presence_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
             ssh_tunnels: crate::store_bridge::new_ssh_tunnel_map(),
             worker_pool,

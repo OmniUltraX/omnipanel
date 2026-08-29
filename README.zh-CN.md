@@ -68,14 +68,14 @@ OmniPanel 通过签名插件体系向第三方开放三级扩展能力：
 | **L2 逻辑包** | logic.js（QuickJS）或 logic.wasm，调用受权限闸保护的宿主能力（netFetch / fsRead / connectionUpsert） | 内存/栈/超时三重护栏、逐次权限校验、生产目标弹窗确认、审计日志 |
 | **L3 沙箱 UI** | Overlay 面板以 HTML 渲染于不透明 origin iframe（CSP 默认拒外联） | postMessage 白名单桥 |
 
-从磁盘安装 .omni-plugin（ed25519 签名），按插件启用/禁用，重启保持。
+从磁盘安装 .omni-plugin（ed25519 签名），也可在 **插件中心** 浏览官方目录与第三方 DBX 引擎并一键安装。按插件启用/禁用，重启保持。
 详见[插件开发指南](./docs/plugins/README.md)。
 ### 近期亮点（v0.8.x）
 
 | 类别 | 说明 |
 |------|------|
-| **插件平台** | `.omni-plugin` 签名安装；L1 声明式 / L2 逻辑包 / L3 沙箱 Overlay；Host SDK 与开发者文档 |
-| **云厂商** | 阿里云展开账户后自动发现有 ECS / 轻量实例的地域 |
+| **插件平台** | `.omni-plugin` 签名安装；插件中心（官方目录 + 第三方 DBX）；L1 / L2 / L3；Host SDK 与开发者文档 |
+| **云厂商** | 能力工作台（账户 → 能力 → 实例）；阿里云 ECS / 轻量 / OSS / 域名 / 证书；自动发现有资源的地域 |
 | **同步安全** | 团队 sync_key_v2 + 在线设备中继传钥；无 peer 时导入 `.omnipanel-sync.key`；助手绑定 v2 加密二维码 |
 | **团队同步** | 模块快照改 v2 密钥派生；文件夹树同步；上传后 peek 与本地一致 |
 | **数据库** | 远程导出修复 SSH 池滞后；导出前校验连接就绪 |

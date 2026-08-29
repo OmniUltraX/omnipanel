@@ -69,14 +69,14 @@ OmniPanel is extensible via a signed plugin system with three openness levels:
 etFetch / sRead / connectionUpsert) | Memory/stack/instruction limits, permission checks, prod-host confirmation, audit log |
 | **L3 sandbox UI** | Overlay panels rendered as HTML in an opaque-origin iframe with CSP default-src 'none' | postMessage whitelist bridge |
 
-Install from disk (.omni-plugin, ed25519-signed), enable/disable per plugin,
+Install from disk (.omni-plugin, ed25519-signed) or from **Plugin Center** (official catalog + third-party DBX engines). Enable/disable per plugin,
 state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 ### Recent highlights (v0.8.x)
 
 | Area | Highlights |
 |------|------------|
-| **Plugin platform** | Signed `.omni-plugin` install; L1 declarative / L2 logic / L3 sandbox overlay; Host SDK & docs |
-| **Cloud vendors** | Expanding an Aliyun account auto-discovers regions with ECS / SWAS instances |
+| **Plugin platform** | Signed `.omni-plugin` install; Plugin Center (official catalog + third-party DBX); L1 / L2 / L3; Host SDK & docs |
+| **Cloud vendors** | Capability workbench (account → capability → instance); Aliyun ECS / SWAS / OSS / domains / certs; auto-discover regions with resources |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
 | **Team sync** | Module snapshots use v2 key derivation; folder trees; post-upload peek matches local |
 | **Database** | Remote export SSH pool lag fixed; readiness check before export |

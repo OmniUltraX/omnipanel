@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../../i18n";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
-import { appConfirm } from "../../../lib/appConfirm";
+import { commands } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
+import { ACTION_DB_DROP_TABLE, dropTableTarget } from "../../../lib/presenceTargets";
+import { requireStepUp } from "../../../lib/stepUp";
 import { fetchTableDdl, fetchDatabaseTableDetails, isConnectionEnabled, isMysqlConnectionInfoCapable, listDatabasesWithStats, type DbDatabaseMeta, type DbTableDetails } from "../api";
 import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
 import { formatSqlDdl } from "../sql/formatSqlDdl";
@@ -16,7 +19,7 @@ import { getCachedTableCommentMap, getCachedTableNames } from "../schema/schemaC
 import { databaseObjectsNeedLoad } from "../schema/schemaCache";
 import { buildDatabaseTreeItem } from "../schema/schemaTreeItem";
 import { refreshAndApplySchemaTreeNode } from "../schema/schemaTreeRefresh";
-import { buildDropTableSql, isSchemaDropSqlSupported } from "../schema/schemaTreeDropSql";
+import { isSchemaDropSqlSupported } from "../schema/schemaTreeDropSql";
 import {
   allocateCloneTableName,
   buildCloneTableSql,
@@ -843,44 +846,40 @@ export function DatabaseTablesPanel({
         names.length === 1
           ? names[0]!
           : t("database.tablesPanel.deleteManyLabel", { count: names.length });
-      const confirmed = await appConfirm(
-        t("database.schemaTree.confirmDeleteTable", {
+      const grantTarget = dropTableTarget(selection.connection.id, selection.dbName, names);
+      const token = await requireStepUp({
+        action: ACTION_DB_DROP_TABLE,
+        target: grantTarget,
+        title: t("database.schemaTree.confirmDeleteTitle"),
+        message: t("database.schemaTree.confirmDeleteTable", {
           name: label,
           database: selection.dbName,
         }),
-        t("database.schemaTree.confirmDeleteTitle"),
-        {
-          confirmLabel: t("database.schemaTree.deleteTable"),
-          kind: "warning",
-        },
-      );
-      if (!confirmed) return;
+        reason: t("database.schemaTree.confirmDeleteTable", {
+          name: label,
+          database: selection.dbName,
+        }),
+        confirmLabel: t("database.schemaTree.deleteTable"),
+      });
+      if (!token) return;
 
       let ok = 0;
       let failed = 0;
-      for (const tableName of names) {
-        const sql = buildDropTableSql(
-          selection.connection.db_type,
-          selection.dbName,
-          tableName,
+      try {
+        await unwrapCommand(
+          commands.dbDropTable(
+            { ...selection.connection, database: selection.dbName },
+            names.map((name) => ({
+              database: selection.dbName,
+              name,
+              kind: "table",
+            })),
+            token,
+          ),
         );
-        if (!sql) {
-          failed += 1;
-          continue;
-        }
-        try {
-          await invoke("db_execute_query", {
-            connection: { ...selection.connection, database: selection.dbName },
-            sql,
-            runId: makeQueryRunId(),
-            limit: 1,
-            offset: 0,
-          });
-          ok += 1;
-        } catch (err) {
-          console.error("[tablesPanel.delete] failed", tableName, err);
-          failed += 1;
-        }
+        ok = names.length;
+      } catch {
+        failed = names.length;
       }
 
       setSelectedTableNames((prev) => {

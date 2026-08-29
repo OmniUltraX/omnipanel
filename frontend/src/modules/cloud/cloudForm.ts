@@ -1,19 +1,18 @@
-import type { Connection } from "../../../ipc/bindings";
+import type { Connection } from "../../ipc/bindings";
+import { resolveLegacyPluginId } from "../../lib/pluginManifests";
 
-export type CloudProvider = "aliyun";
-
-export interface CloudFormData {
+export type CloudFormData = {
   name: string;
-  provider: CloudProvider;
+  pluginId: string;
   regions: string[];
   accessKeyId: string;
   accessKeySecret: string;
   remark: string;
-}
+};
 
 export const EMPTY_CLOUD_FORM: CloudFormData = {
   name: "",
-  provider: "aliyun",
+  pluginId: "omni.cloud.aliyun",
   regions: ["cn-hangzhou"],
   accessKeyId: "",
   accessKeySecret: "",
@@ -56,11 +55,15 @@ export function cloudRegionLabel(regionId: string, localName?: string): string {
   return label ? `${label}（${id}）` : id;
 }
 
-/** 规范化区域列表：去重、去空；兼容旧字段 `region`。 */
-export function normalizeCloudRegions(
-  regions: unknown,
-  legacyRegion?: unknown,
-): string[] {
+/** 概览展示用，避免把完整 AccessKeyId 铺在工作台。 */
+export function maskCloudAccessKey(accessKeyId: string): string {
+  const value = accessKeyId.trim();
+  if (!value) return "—";
+  if (value.length <= 10) return "••••";
+  return `${value.slice(0, 6)}••••${value.slice(-4)}`;
+}
+
+export function normalizeCloudRegions(regions: unknown, legacyRegion?: unknown): string[] {
   const fromList = Array.isArray(regions)
     ? regions
         .filter((r): r is string => typeof r === "string")
@@ -81,6 +84,7 @@ export function normalizeCloudRegions(
 }
 
 export interface CloudConfigJson {
+  pluginId?: string;
   provider?: string;
   /** @deprecated 兼容旧配置，读取时并入 regions */
   region?: string;
@@ -98,12 +102,20 @@ export function parseCloudConfig(connection: Connection): CloudConfigJson {
   }
 }
 
+export function resolveCloudPluginId(cfg: CloudConfigJson): string {
+  return (
+    resolveLegacyPluginId(cfg.pluginId) ??
+    resolveLegacyPluginId(cfg.provider) ??
+    "omni.cloud.aliyun"
+  );
+}
+
 export function cloudConnectionToForm(connection: Connection): CloudFormData {
   const cfg = parseCloudConfig(connection);
   const regions = normalizeCloudRegions(cfg.regions, cfg.region);
   return {
     name: connection.name,
-    provider: cfg.provider === "aliyun" ? "aliyun" : "aliyun",
+    pluginId: resolveCloudPluginId(cfg),
     regions: regions.length > 0 ? regions : ["cn-hangzhou"],
     accessKeyId: cfg.accessKeyId?.trim() || "",
     accessKeySecret: "",
@@ -119,15 +131,15 @@ export function buildCloudConnection(
   tags: string[] = [],
 ): Connection {
   const regions = normalizeCloudRegions(form.regions);
+  const pluginId = form.pluginId.trim() || "omni.cloud.aliyun";
   const config: CloudConfigJson = {
-    provider: form.provider,
+    pluginId,
+    provider: pluginId === "omni.cloud.aliyun" ? "aliyun" : pluginId,
     regions,
-    // 保留首个 region，便于旧逻辑 / 后端默认回退
     region: regions[0],
     accessKeyId: form.accessKeyId.trim(),
     remark: form.remark.trim() || undefined,
   };
-  // 编辑时留空 Secret 表示保留 Vault 中的原密钥
   if (form.accessKeySecret.trim()) {
     config.accessKeySecret = form.accessKeySecret.trim();
   }
@@ -149,23 +161,42 @@ export function buildCloudConnection(
 export type CloudAccount = {
   id: string;
   name: string;
-  provider: CloudProvider;
-  /** 已选区域（至少一个） */
+  pluginId: string;
+  /** 展示用，旧账户可能是 aliyun */
+  provider: string;
   regions: string[];
   accessKeyId: string;
   remark: string;
+  envTag: string;
 };
 
 export function connectionToCloudAccount(connection: Connection): CloudAccount | null {
   if (connection.kind !== "cloud") return null;
   const cfg = parseCloudConfig(connection);
   const regions = normalizeCloudRegions(cfg.regions, cfg.region);
+  const pluginId = resolveCloudPluginId(cfg);
   return {
     id: connection.id,
     name: connection.name,
-    provider: "aliyun",
+    pluginId,
+    provider: cfg.provider?.trim() || pluginId,
     regions: regions.length > 0 ? regions : ["cn-hangzhou"],
     accessKeyId: cfg.accessKeyId?.trim() || "",
     remark: cfg.remark?.trim() || "",
+    envTag: connection.envTag?.trim() || "dev",
   };
+}
+
+export function capabilityI18nKey(capabilityId: string): string {
+  if (capabilityId === "compute.lite") return "cloud.capability.computeLite";
+  return `cloud.capability.${capabilityId}`;
+}
+
+export function formatCloudFieldValue(t: (key: string) => string, key: string, value: string): string {
+  if (!value) return value;
+  if (key === "chargeType") {
+    const mapped = t(`cloud.chargeType.${value}`);
+    if (mapped && mapped !== `cloud.chargeType.${value}`) return mapped;
+  }
+  return value;
 }

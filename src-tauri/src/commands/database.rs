@@ -126,7 +126,7 @@ fn err_msg(e: OmniError) -> String {
 }
 
 /// 将 IPC 连接配置转换为 omnipanel-db 的领域连接参数。
-fn to_params(c: &DbConnectionConfig) -> DbParams {
+pub(crate) fn to_params(c: &DbConnectionConfig) -> DbParams {
     let mut c = c.clone();
     omnipanel_store::fill_db_password_from_vault(&mut c);
     DbParams {
@@ -625,7 +625,27 @@ pub async fn db_execute_query(
     run_id: String,
     limit: Option<u32>,
     offset: Option<u32>,
+    presence_token: Option<String>,
 ) -> Result<DbQueryResult, String> {
+    let danger_grant = match omnipanel_presence::ensure_sql_presence(
+        &state.presence_tokens,
+        &sql,
+        &connection.id,
+        &connection.database,
+        presence_token.as_deref(),
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            crate::commands::db_danger::append_danger_audit(
+                &state,
+                "db.sql.dangerous",
+                &connection.id,
+                "blocked",
+                "token 无效",
+            );
+            return Err(e.to_string());
+        }
+    };
     let wrapped = match limit {
         Some(n) if n > 0 => omnipanel_db::wrap_editor_query(
             &connection.db_type,
@@ -654,6 +674,10 @@ pub async fn db_execute_query(
     };
 
     state.running_db_queries.lock().await.remove(&run_id);
+    if let Some((action, target)) = danger_grant {
+        let status = if result.is_ok() { "success" } else { "failed" };
+        crate::commands::db_danger::append_danger_audit(&state, &action, &target, status, "verified");
+    }
     result.map(to_db_query_result)
 }
 
@@ -686,7 +710,27 @@ pub async fn db_execute_query_in_session(
     run_id: String,
     limit: Option<u32>,
     offset: Option<u32>,
+    presence_token: Option<String>,
 ) -> Result<DbQueryResult, String> {
+    let danger_grant = match omnipanel_presence::ensure_sql_presence(
+        &state.presence_tokens,
+        &sql,
+        &connection.id,
+        &connection.database,
+        presence_token.as_deref(),
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            crate::commands::db_danger::append_danger_audit(
+                &state,
+                "db.sql.dangerous",
+                &connection.id,
+                "blocked",
+                "token 无效",
+            );
+            return Err(e.to_string());
+        }
+    };
     let wrapped = match limit {
         Some(n) if n > 0 => omnipanel_db::wrap_editor_query(
             &connection.db_type,
@@ -742,6 +786,10 @@ pub async fn db_execute_query_in_session(
     };
 
     state.running_db_queries.lock().await.remove(&run_id);
+    if let Some((action, target)) = danger_grant {
+        let status = if result.is_ok() { "success" } else { "failed" };
+        crate::commands::db_danger::append_danger_audit(&state, &action, &target, status, "verified");
+    }
     result.map(to_db_query_result)
 }
 

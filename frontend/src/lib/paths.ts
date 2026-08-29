@@ -1,6 +1,7 @@
 export const MODULE_PREFIX = "/module";
 export const WORKSPACE_PREFIX = "/workspace";
 export const DASHBOARD_PATH = "/dashboard";
+export const PLUGINS_PATH = "/plugins";
 
 export const MODULE_PATHS = {
   terminal: `${MODULE_PREFIX}/terminal`,
@@ -53,6 +54,10 @@ export const WORKSPACE_PATHS = {
 
 export function isDashboardPath(pathname: string): boolean {
   return pathname === DASHBOARD_PATH;
+}
+
+export function isPluginsPath(pathname: string): boolean {
+  return pathname === PLUGINS_PATH || pathname.startsWith(`${PLUGINS_PATH}/`);
 }
 
 export function modulePathForType(type: string): string {

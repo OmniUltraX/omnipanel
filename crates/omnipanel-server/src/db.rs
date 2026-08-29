@@ -310,7 +310,17 @@ pub async fn db_execute_query(
     run_id: String,
     limit: Option<u32>,
     offset: Option<u32>,
+    presence_token: Option<String>,
 ) -> Result<DbQueryResult, String> {
+    if let Err(e) = omnipanel_presence::ensure_sql_presence(
+        &state.presence_tokens,
+        &sql,
+        &connection.id,
+        &connection.database,
+        presence_token.as_deref(),
+    ) {
+        return Err(e.to_string());
+    }
     let wrapped = match limit {
         Some(n) if n > 0 => omnipanel_db::wrap_editor_query(
             &connection.db_type,
@@ -580,4 +590,218 @@ pub fn db_save_schema_tree_expanded(
     snapshot: omnipanel_store::SchemaTreeExpandedSnapshot,
 ) -> Result<(), String> {
     omnipanel_store::save_schema_tree_expanded(&snapshot).map_err(|e| e.user_message())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbDropObject {
+    pub database: String,
+    pub name: String,
+    pub kind: String,
+}
+
+pub async fn db_drop_table(
+    state: &ServerState,
+    connection: DbConnectionConfig,
+    objects: Vec<DbDropObject>,
+    presence_token: String,
+) -> Result<(), String> {
+    if objects.is_empty() {
+        return Err("未指定要删除的表".into());
+    }
+    let pairs: Vec<(&str, &str)> = objects
+        .iter()
+        .map(|o| (o.database.as_str(), o.name.as_str()))
+        .collect();
+    let target = omnipanel_presence::drop_table_objects_target(&connection.id, &pairs);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        Some(&presence_token),
+        omnipanel_presence::ACTION_DB_DROP_TABLE,
+        &target,
+    )
+    .map_err(|e| e.to_string())?;
+    for object in &objects {
+        let sql = build_drop_table_sql(
+            &connection.db_type,
+            &object.database,
+            &object.name,
+            object.kind.eq_ignore_ascii_case("view"),
+        );
+        let mut conn = connection.clone();
+        if !object.database.trim().is_empty() {
+            conn.database = object.database.clone();
+        }
+        let params = to_params(&conn);
+        let driver = omnipanel_db::connect(&params)
+            .await
+            .map_err(|e| e.to_string())?;
+        driver.execute(&sql).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub async fn db_drop_database(
+    state: &ServerState,
+    connection: DbConnectionConfig,
+    databases: Vec<String>,
+    presence_token: String,
+) -> Result<(), String> {
+    let mut names = databases;
+    names.sort();
+    names.dedup();
+    if names.is_empty() {
+        return Err("未指定要删除的数据库".into());
+    }
+    let joined = names.join(",");
+    let target = omnipanel_presence::drop_database_target(&connection.id, &joined);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        Some(&presence_token),
+        omnipanel_presence::ACTION_DB_DROP_DATABASE,
+        &target,
+    )
+    .map_err(|e| e.to_string())?;
+    for name in &names {
+        let sql = build_drop_database_sql(&connection.db_type, name)?;
+        let params = to_params(&connection);
+        let driver = omnipanel_db::connect(&params)
+            .await
+            .map_err(|e| e.to_string())?;
+        driver.execute(&sql).await.map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub async fn db_restart_service(
+    state: &ServerState,
+    ssh_connection_id: String,
+    service: String,
+    kind: String,
+    location: String,
+    presence_token: String,
+) -> Result<(), String> {
+    let target = omnipanel_presence::restart_target(&ssh_connection_id, &service, &kind, &location);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        Some(&presence_token),
+        omnipanel_presence::ACTION_DB_RESTART,
+        &target,
+    )
+    .map_err(|e| e.to_string())?;
+    let command = if kind == "docker" {
+        if location.trim().is_empty() {
+            return Err("缺少容器".into());
+        }
+        format!("docker restart '{}'", location.replace('\'', r#"'\''"#))
+    } else if kind == "host" {
+        match service.as_str() {
+            "mysql" => host_mysql_restart(),
+            "redis" => host_redis_restart(),
+            _ => return Err("不支持的数据库服务".into()),
+        }
+    } else {
+        return Err("不支持的部署类型".into());
+    };
+    let output = crate::ssh_ops::ssh_pool_exec_command(state, ssh_connection_id, command)
+        .await
+        .map_err(|e| e.to_string())?;
+    if output.exit_code != 0 {
+        return Err(format!("重启失败: {}", output.stderr.trim()));
+    }
+    Ok(())
+}
+
+fn quote_ident(engine: &str, name: &str) -> String {
+    match engine {
+        "mysql" | "hive" => format!("`{}`", name.replace('`', "``")),
+        "mssql" => format!("[{}]", name.replace(']', "]]")),
+        _ => format!("\"{}\"", name.replace('"', "\"\"")),
+    }
+}
+
+fn normalize_drop_engine(db_type: &str) -> &'static str {
+    let t = db_type.to_ascii_lowercase();
+    if t.contains("postgres") || t.contains("highgo") || t.contains("kingbase") {
+        "postgres"
+    } else if t.contains("sqlite") {
+        "sqlite"
+    } else if t.contains("mssql") || t.contains("sqlserver") {
+        "mssql"
+    } else if t.contains("oracle") {
+        "oracle"
+    } else if t.contains("hive") {
+        "hive"
+    } else {
+        "mysql"
+    }
+}
+
+fn build_drop_table_sql(db_type: &str, database: &str, table: &str, view: bool) -> String {
+    let engine = normalize_drop_engine(db_type);
+    let verb = if view { "VIEW" } else { "TABLE" };
+    let db = database.trim();
+    let name = table.trim();
+    match engine {
+        "postgres" => format!(
+            "DROP {verb} {}.{}",
+            quote_ident(engine, "public"),
+            quote_ident(engine, name)
+        ),
+        "sqlite" => format!("DROP {verb} {}", quote_ident(engine, name)),
+        "mssql" => format!(
+            "DROP {verb} {}.{}",
+            quote_ident(engine, "dbo"),
+            quote_ident(engine, name)
+        ),
+        "oracle" => format!(
+            "DROP {verb} {}.{}",
+            quote_ident(engine, db),
+            quote_ident(engine, name)
+        ),
+        _ => format!(
+            "DROP {verb} {}.{}",
+            quote_ident(engine, db),
+            quote_ident(engine, name)
+        ),
+    }
+}
+
+fn build_drop_database_sql(db_type: &str, database: &str) -> Result<String, String> {
+    let engine = normalize_drop_engine(db_type);
+    let name = database.trim();
+    if name.is_empty() {
+        return Err("数据库名为空".into());
+    }
+    Ok(format!("DROP DATABASE {}", quote_ident(engine, name)))
+}
+
+fn host_mysql_restart() -> String {
+    [
+        "if command -v systemctl >/dev/null 2>&1; then",
+        "for u in mysql mysqld mariadb; do",
+        r#"if systemctl is-active --quiet "$u" 2>/dev/null; then systemctl restart "$u" && exit 0; fi;"#,
+        "done;",
+        "fi;",
+        "if command -v service >/dev/null 2>&1; then",
+        r#"for u in mysql mysqld mariadb; do service "$u" restart 2>/dev/null && exit 0; done;"#,
+        "fi;",
+        "exit 1",
+    ]
+    .join(" ")
+}
+
+fn host_redis_restart() -> String {
+    [
+        "if command -v systemctl >/dev/null 2>&1; then",
+        "for u in redis redis-server; do",
+        r#"if systemctl is-active --quiet "$u" 2>/dev/null; then systemctl restart "$u" && exit 0; fi;"#,
+        "done;",
+        "fi;",
+        "if command -v service >/dev/null 2>&1; then",
+        r#"for u in redis redis-server; do service "$u" restart 2>/dev/null && exit 0; done;"#,
+        "fi;",
+        "exit 1",
+    ]
+    .join(" ")
 }

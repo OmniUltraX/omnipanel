@@ -27,6 +27,8 @@ omnipanel-db = { path = "../omnipanel-db" }
 omnipanel-db-sync = { path = "../omnipanel-db-sync" }
 omnipanel-docker = { path = "../omnipanel-docker" }
 omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-presence = { path = "../omnipanel-presence" }
+omnipanel-cloud-aliyun = { path = "../omnipanel-cloud-aliyun" }
 omnipanel-ssh = { path = "../omnipanel-ssh" }
 omnipanel-store = { path = "../omnipanel-store" }
 omnipanel-ai = { path = "../omnipanel-ai" }

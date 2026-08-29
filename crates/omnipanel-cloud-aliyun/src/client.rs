@@ -24,6 +24,8 @@ pub struct AliyunCredentials {
     pub access_key_secret: String,
     /// 默认地域，如 `cn-hangzhou`。
     pub region: String,
+    /// 账户配置的全部地域；空 filter 时按此扫描 ECS/SWAS。
+    pub regions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -50,6 +52,14 @@ pub struct CloudSwasInstance {
     pub image_id: String,
     pub instance_plan: String,
     pub creation_time: String,
+    #[serde(default)]
+    pub expired_time: String,
+    #[serde(default)]
+    pub charge_type: String,
+    #[serde(default)]
+    pub bandwidth: String,
+    #[serde(default)]
+    pub disk_size: String,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -76,6 +86,26 @@ pub struct CloudEcsInstance {
     pub private_ip_address: String,
     pub os_name: String,
     pub creation_time: String,
+    #[serde(default)]
+    pub expired_time: String,
+    #[serde(default)]
+    pub auto_release_time: String,
+    #[serde(default)]
+    pub charge_type: String,
+    #[serde(default)]
+    pub security_group_ids: String,
+    #[serde(default)]
+    pub cpu: String,
+    #[serde(default)]
+    pub memory: String,
+    #[serde(default)]
+    pub hostname: String,
+    #[serde(default)]
+    pub bandwidth: String,
+    #[serde(default)]
+    pub vpc_id: String,
+    #[serde(default)]
+    pub key_pair_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type, PartialEq, Eq)]
@@ -85,6 +115,28 @@ pub struct CloudRegion {
     pub local_name: String,
     pub has_ecs: bool,
     pub has_swas: bool,
+}
+
+/// 轻量应用服务器实际开通的地域。ECS `DescribeRegions` 会列出武汉、河源等，
+/// 但 `swas.{region}.aliyuncs.com` 并不存在，强打会 Connect 超时并把整表打挂。
+const SWAS_REGION_IDS: &[&str] = &[
+    "cn-qingdao",
+    "cn-beijing",
+    "cn-zhangjiakou",
+    "cn-hangzhou",
+    "cn-shanghai",
+    "cn-shenzhen",
+    "cn-guangzhou",
+    "cn-chengdu",
+    "cn-hongkong",
+    "ap-southeast-1",
+    "ap-southeast-3",
+    "us-west-1",
+];
+
+pub fn is_swas_region(region: &str) -> bool {
+    let id = region.trim();
+    !id.is_empty() && SWAS_REGION_IDS.iter().any(|item| *item == id)
 }
 
 /// DescribeRegions 失败时用于探测的常用地域（含用户未手选的地域）。
@@ -300,6 +352,30 @@ fn instance_private_ip(item: &Value) -> String {
     String::new()
 }
 
+fn parse_security_group_ids(item: &Value) -> String {
+    if let Some(obj) = item.get("SecurityGroupIds") {
+        let joined = str_field(obj, &["SecurityGroupId"]);
+        if !joined.is_empty() {
+            return joined;
+        }
+    }
+    str_field(item, &["SecurityGroupIds"])
+}
+
+fn format_memory_mb(raw: &str) -> String {
+    let Ok(mb) = raw.trim().parse::<u64>() else {
+        return raw.trim().to_string();
+    };
+    if mb == 0 {
+        return String::new();
+    }
+    if mb >= 1024 && mb % 1024 == 0 {
+        format!("{} GiB", mb / 1024)
+    } else {
+        format!("{mb} MiB")
+    }
+}
+
 fn parse_ecs_instance(item: &Value) -> CloudEcsInstance {
     let public_ip = str_field(
         item,
@@ -322,6 +398,19 @@ fn parse_ecs_instance(item: &Value) -> CloudEcsInstance {
         private_ip_address: instance_private_ip(item),
         os_name: str_field(item, &["OSName", "OSNameEn"]),
         creation_time: str_field(item, &["CreationTime"]),
+        expired_time: str_field(item, &["ExpiredTime", "ExpirationTime"]),
+        auto_release_time: str_field(item, &["AutoReleaseTime"]),
+        charge_type: str_field(item, &["InstanceChargeType", "ChargeType"]),
+        security_group_ids: parse_security_group_ids(item),
+        cpu: str_field(item, &["Cpu", "CPU"]),
+        memory: format_memory_mb(&str_field(item, &["Memory"])),
+        hostname: str_field(item, &["HostName"]),
+        bandwidth: str_field(item, &["InternetMaxBandwidthOut"]),
+        vpc_id: str_field(
+            item.get("VpcAttributes").unwrap_or(item),
+            &["VpcId"],
+        ),
+        key_pair_name: str_field(item, &["KeyPairName"]),
     }
 }
 
@@ -336,6 +425,10 @@ fn parse_swas_instance(item: &Value) -> CloudSwasInstance {
         image_id: str_field(item, &["ImageId"]),
         instance_plan: str_field(item, &["PlanId", "InstancePlan"]),
         creation_time: str_field(item, &["CreationTime", "CreatedTime"]),
+        expired_time: str_field(item, &["ExpiredTime", "ExpireTime"]),
+        charge_type: str_field(item, &["ChargeType", "InstanceChargeType"]),
+        bandwidth: str_field(item, &["Bandwidth", "InternetMaxBandwidthOut"]),
+        disk_size: str_field(item, &["DiskSize", "SystemDiskSize"]),
     }
 }
 
@@ -416,8 +509,18 @@ pub(crate) fn select_visible_cloud_regions(
 
 impl AliyunCredentials {
     pub async fn test_credentials(&self, http: &Client) -> Result<String, OmniError> {
-        // STS GetCallerIdentity：不依赖特定产品权限，适合连通性校验。
-        let body = self
+        let snap = self.account_snapshot(http).await?;
+        if snap.caller_id.is_empty() && snap.arn.is_empty() {
+            return Ok("凭证有效".into());
+        }
+        if snap.arn.is_empty() {
+            return Ok(format!("AccountId={}", snap.caller_id));
+        }
+        Ok(format!("AccountId={}; Arn={}", snap.caller_id, snap.arn))
+    }
+
+    pub async fn account_snapshot(&self, http: &Client) -> Result<crate::types::CloudAccountSnapshot, OmniError> {
+        let ident = self
             .rpc_call(
                 http,
                 "https://sts.aliyuncs.com/",
@@ -426,15 +529,33 @@ impl AliyunCredentials {
                 BTreeMap::new(),
             )
             .await?;
-        let account = str_field(&body, &["AccountId"]);
-        let arn = str_field(&body, &["Arn"]);
-        if account.is_empty() && arn.is_empty() {
-            return Ok("凭证有效".into());
+        let mut snap = crate::types::CloudAccountSnapshot {
+            caller_id: str_field(&ident, &["AccountId"]),
+            arn: str_field(&ident, &["Arn"]),
+            ..Default::default()
+        };
+        match self
+            .rpc_call(
+                http,
+                "https://business.aliyuncs.com/",
+                "2017-12-14",
+                "QueryAccountBalance",
+                BTreeMap::new(),
+            )
+            .await
+        {
+            Ok(body) => {
+                let data = body.get("Data").cloned().unwrap_or(body);
+                snap.currency = str_field(&data, &["Currency"]);
+                snap.available_amount = str_field(&data, &["AvailableAmount", "AvailableMoney"]);
+                snap.cash_amount = str_field(&data, &["AvailableCashAmount", "CashAmount"]);
+                snap.credit_amount = str_field(&data, &["CreditAmount"]);
+            }
+            Err(err) => {
+                snap.balance_error = Some(err.user_message());
+            }
         }
-        if arn.is_empty() {
-            return Ok(format!("AccountId={account}"));
-        }
-        Ok(format!("AccountId={account}; Arn={arn}"))
+        Ok(snap)
     }
 
     pub async fn list_oss_buckets(&self, http: &Client) -> Result<Vec<CloudOssBucket>, OmniError> {
@@ -502,6 +623,9 @@ impl AliyunCredentials {
         let region = self.region.trim();
         if region.is_empty() {
             return Err(OmniError::invalid_input("请先配置默认 Region"));
+        }
+        if !is_swas_region(region) {
+            return Ok(Vec::new());
         }
         let endpoint = format!("https://swas.{region}.aliyuncs.com/");
         let mut out = Vec::new();
@@ -626,6 +750,9 @@ impl AliyunCredentials {
     }
 
     async fn swas_total_count(&self, http: &Client, region: &str) -> Result<u64, OmniError> {
+        if !is_swas_region(region) {
+            return Ok(0);
+        }
         let endpoint = format!("https://swas.{region}.aliyuncs.com/");
         let mut params = BTreeMap::new();
         params.insert("RegionId".into(), region.to_string());
@@ -720,6 +847,88 @@ impl AliyunCredentials {
             .collect())
     }
 
+    pub async fn get_ecs_instance(
+        &self,
+        http: &Client,
+        instance_id: &str,
+    ) -> Result<CloudEcsInstance, OmniError> {
+        let region = self.region.trim();
+        if region.is_empty() {
+            return Err(OmniError::invalid_input("请先配置 Region"));
+        }
+        let endpoint = format!("https://ecs.{region}.aliyuncs.com/");
+        let mut params = BTreeMap::new();
+        params.insert("RegionId".into(), region.to_string());
+        params.insert("InstanceIds.1".into(), instance_id.trim().to_string());
+        let body = self
+            .rpc_call(http, &endpoint, "2014-05-26", "DescribeInstances", params)
+            .await?;
+        json_arr(&body, &["Instances", "Instance"])
+            .first()
+            .map(parse_ecs_instance)
+            .ok_or_else(|| OmniError::not_found(format!("未找到 ECS 实例: {instance_id}")))
+    }
+
+    pub async fn get_swas_instance(
+        &self,
+        http: &Client,
+        instance_id: &str,
+    ) -> Result<CloudSwasInstance, OmniError> {
+        let region = self.region.trim();
+        if region.is_empty() {
+            return Err(OmniError::invalid_input("请先配置 Region"));
+        }
+        let endpoint = format!("https://swas.{region}.aliyuncs.com/");
+        let mut params = BTreeMap::new();
+        params.insert("RegionId".into(), region.to_string());
+        params.insert("InstanceIds.1".into(), instance_id.trim().to_string());
+        let body = self
+            .rpc_call(http, &endpoint, "2020-06-01", "ListInstances", params)
+            .await?;
+        json_arr(&body, &["Instances", "Instance"])
+            .first()
+            .map(parse_swas_instance)
+            .ok_or_else(|| OmniError::not_found(format!("未找到轻量实例: {instance_id}")))
+    }
+
+    pub async fn ecs_instance_action(
+        &self,
+        http: &Client,
+        action: &str,
+        instance_id: &str,
+    ) -> Result<(), OmniError> {
+        let region = self.region.trim();
+        if region.is_empty() {
+            return Err(OmniError::invalid_input("请先配置 Region"));
+        }
+        let endpoint = format!("https://ecs.{region}.aliyuncs.com/");
+        let mut params = BTreeMap::new();
+        params.insert("InstanceId".into(), instance_id.trim().to_string());
+        let _ = self
+            .rpc_call(http, &endpoint, "2014-05-26", action, params)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn swas_instance_action(
+        &self,
+        http: &Client,
+        action: &str,
+        instance_id: &str,
+    ) -> Result<(), OmniError> {
+        let region = self.region.trim();
+        if region.is_empty() {
+            return Err(OmniError::invalid_input("请先配置 Region"));
+        }
+        let endpoint = format!("https://swas.{region}.aliyuncs.com/");
+        let mut params = BTreeMap::new();
+        params.insert("InstanceId".into(), instance_id.trim().to_string());
+        let _ = self
+            .rpc_call(http, &endpoint, "2020-06-01", action, params)
+            .await?;
+        Ok(())
+    }
+
     async fn rpc_call(
         &self,
         http: &Client,
@@ -762,13 +971,10 @@ impl AliyunCredentials {
             aliyun_percent_encode(&signature)
         );
 
-        let resp = http.get(&url).send().await.map_err(|e| {
-            let mut detail = e.to_string();
-            if let Some(src) = std::error::Error::source(&e) {
-                detail = format!("{detail}; {src}");
-            }
+        let resp = http.get(&url).send().await.map_err(|_| {
+            let host = endpoint.trim_end_matches('/');
             OmniError::new(ErrorCode::Connection, format!("阿里云 {action} 请求失败"))
-                .with_cause(detail)
+                .with_cause(format!("{host} 无法连接"))
         })?;
         let status = resp.status();
         let text = resp.text().await.map_err(|e| {
@@ -813,5 +1019,176 @@ impl AliyunCredentials {
             }
         }
         Ok(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn json_arr_reads_aliyun_nested_instance_list() {
+        let body = json!({
+            "Instances": {
+                "Instance": [
+                    { "InstanceId": "i-1" },
+                    { "InstanceId": "i-2" }
+                ]
+            },
+            "TotalCount": 2
+        });
+        let items = json_arr(&body, &["Instances", "Instance"]);
+        assert_eq!(items.len(), 2);
+        assert_eq!(json_total_count(&body), 2);
+    }
+
+    #[test]
+    fn json_arr_reads_describe_regions() {
+        let body = json!({
+            "Regions": {
+                "Region": [
+                    { "RegionId": "cn-hangzhou", "LocalName": "华东1（杭州）" },
+                    { "RegionId": "cn-shanghai", "LocalName": "华东2（上海）" }
+                ]
+            }
+        });
+        let items = json_arr(&body, &["Regions", "Region"]);
+        assert_eq!(items.len(), 2);
+        assert_eq!(str_field(&items[1], &["RegionId"]), "cn-shanghai");
+    }
+
+    #[test]
+    fn swas_skips_regions_without_endpoint() {
+        assert!(is_swas_region("cn-hangzhou"));
+        assert!(is_swas_region("cn-shanghai"));
+        assert!(!is_swas_region("cn-wuhan"));
+        assert!(!is_swas_region("cn-heyuan"));
+        assert!(!is_swas_region(""));
+    }
+
+    #[test]
+    fn parse_ecs_reads_vpc_private_ip() {
+        let item = json!({
+            "InstanceId": "i-bp1",
+            "InstanceName": "web",
+            "Status": "Running",
+            "RegionId": "cn-shanghai",
+            "ZoneId": "cn-shanghai-f",
+            "InstanceType": "ecs.t5",
+            "PublicIpAddress": { "IpAddress": ["47.1.2.3"] },
+            "InnerIpAddress": { "IpAddress": [] },
+            "ExpiredTime": "2026-12-01T00:00Z",
+            "InstanceChargeType": "PrePaid",
+            "Cpu": 2,
+            "Memory": 4096,
+            "SecurityGroupIds": { "SecurityGroupId": ["sg-a", "sg-b"] },
+            "VpcAttributes": {
+                "VpcId": "vpc-1",
+                "PrivateIpAddress": { "IpAddress": ["172.16.0.8"] }
+            }
+        });
+        let parsed = parse_ecs_instance(&item);
+        assert_eq!(parsed.instance_id, "i-bp1");
+        assert_eq!(parsed.public_ip_address, "47.1.2.3");
+        assert_eq!(parsed.private_ip_address, "172.16.0.8");
+        assert_eq!(parsed.expired_time, "2026-12-01T00:00Z");
+        assert_eq!(parsed.charge_type, "PrePaid");
+        assert_eq!(parsed.security_group_ids, "sg-a,sg-b");
+        assert_eq!(parsed.cpu, "2");
+        assert_eq!(parsed.memory, "4 GiB");
+        assert_eq!(parsed.vpc_id, "vpc-1");
+    }
+
+    #[test]
+    fn visible_regions_keep_occupied_and_configured() {
+        let described = vec![
+            CloudRegion {
+                region_id: "cn-hangzhou".into(),
+                local_name: "杭州".into(),
+                has_ecs: false,
+                has_swas: false,
+            },
+            CloudRegion {
+                region_id: "cn-shanghai".into(),
+                local_name: "上海".into(),
+                has_ecs: false,
+                has_swas: false,
+            },
+            CloudRegion {
+                region_id: "cn-beijing".into(),
+                local_name: "北京".into(),
+                has_ecs: false,
+                has_swas: false,
+            },
+            CloudRegion {
+                region_id: "cn-shenzhen".into(),
+                local_name: "深圳".into(),
+                has_ecs: false,
+                has_swas: false,
+            },
+        ];
+        let occupied_ecs = HashSet::from(["cn-shanghai".to_string()]);
+        let occupied_swas = HashSet::from(["cn-beijing".to_string()]);
+        let out = select_visible_cloud_regions(
+            described,
+            &occupied_ecs,
+            &occupied_swas,
+            &["cn-hangzhou".into()],
+            3,
+        );
+        let ids: Vec<_> = out.iter().map(|r| r.region_id.as_str()).collect();
+        assert_eq!(ids, vec!["cn-hangzhou", "cn-shanghai", "cn-beijing"]);
+        assert!(
+            out.iter()
+                .any(|r| r.region_id == "cn-shanghai" && r.has_ecs)
+        );
+        assert!(
+            out.iter()
+                .any(|r| r.region_id == "cn-beijing" && r.has_swas)
+        );
+    }
+
+    #[test]
+    fn visible_regions_show_all_when_occupied_empty() {
+        let described = vec![
+            CloudRegion {
+                region_id: "cn-hangzhou".into(),
+                local_name: "杭州".into(),
+                has_ecs: false,
+                has_swas: false,
+            },
+            CloudRegion {
+                region_id: "cn-shanghai".into(),
+                local_name: "上海".into(),
+                has_ecs: false,
+                has_swas: false,
+            },
+        ];
+        let empty = HashSet::new();
+        let out =
+            select_visible_cloud_regions(described, &empty, &empty, &["cn-hangzhou".into()], 4);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn visible_regions_show_all_when_probes_fail() {
+        let described = vec![
+            CloudRegion {
+                region_id: "cn-hangzhou".into(),
+                local_name: "杭州".into(),
+                has_ecs: false,
+                has_swas: false,
+            },
+            CloudRegion {
+                region_id: "cn-shanghai".into(),
+                local_name: "上海".into(),
+                has_ecs: false,
+                has_swas: false,
+            },
+        ];
+        let empty = HashSet::new();
+        let out = select_visible_cloud_regions(described, &empty, &empty, &[], 0);
+        assert_eq!(out.len(), 2);
     }
 }

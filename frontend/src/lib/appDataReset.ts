@@ -21,6 +21,7 @@ import { useAcpServicesStore, initAcpServicesStore } from "../stores/acpServices
 import { useDbConnectionListStore } from "../stores/dbConnectionListStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useDockerSidebarCacheStore } from "../stores/dockerSidebarCacheStore";
+import { useCloudInventoryStore } from "../stores/cloudInventoryStore";
 import { useFileManagerStore } from "../stores/fileManagerStore";
 import { useFilesClipboardStore } from "../stores/filesClipboardStore";
 import { useKnowledgeStore } from "../stores/knowledgeStore";
@@ -68,6 +69,7 @@ export function clearAppLayoutCache(): void {
     connections: {},
     refreshingKeys: {},
   });
+  useCloudInventoryStore.getState().clearAll();
   useProtocolWorkspaceStore.getState().reset();
 }
 
@@ -133,6 +135,9 @@ async function clearUnifiedConnections(): Promise<void> {
     if (conn.kind === "docker") {
       useDockerSidebarCacheStore.getState().removeConnection(conn.id);
       await commands.dockerRemoveSidebarCache(conn.id).catch(() => undefined);
+    }
+    if (conn.kind === "cloud") {
+      useCloudInventoryStore.getState().removeAccount(conn.id);
     }
   }
 

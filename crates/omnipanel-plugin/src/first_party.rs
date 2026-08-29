@@ -187,6 +187,28 @@ mod tests {
     }
 
     #[test]
+    fn cloud_aliyun_declares_capabilities_and_methods() {
+        let manifest = cloud_aliyun();
+        let methods: Vec<_> = manifest.methods.iter().map(|m| m.name.as_str()).collect();
+        assert!(methods.contains(&"listResources"));
+        assert!(methods.contains(&"invokeAction"));
+        let caps = manifest
+            .contributes
+            .cloud
+            .as_ref()
+            .expect("cloud.capabilities")
+            .capabilities
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            caps,
+            vec!["compute", "compute.lite", "objectStorage", "domains", "certs"]
+        );
+        assert!(manifest.contributes.ui.panel_tabs.is_empty());
+    }
+
+    #[test]
     fn clickhouse_form_keeps_optional_database() {
         let form = engine_clickhouse()
             .contributes

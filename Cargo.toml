@@ -23,11 +23,13 @@ members = [
     "crates/omnipanel-server",
     "crates/omnipanel-transfer",
     "crates/omnipanel-db-sync",
+    "crates/omnipanel-cloud-aliyun",
     "crates/omnipanel-plugin",
     "crates/omnipanel-plugin-pkg",
     "crates/omnipanel-plugin-wasm",
     "crates/omnipanel-plugin-js",
     "crates/omnipanel-everything",
+    "crates/omnipanel-presence",
 ]
 
 [workspace.package]

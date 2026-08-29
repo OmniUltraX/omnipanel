@@ -240,7 +240,7 @@ export function ConnectionRedisConsolePanel({
       setRunning(true);
       try {
         const data = await unwrapCommand(
-          commands.dbExecuteQuery(connection, command, runId, null, null),
+          commands.dbExecuteQuery(connection, command, runId, null, null, null),
         );
         const output = formatRedisOutput(data);
         appendOutput(output ? ["", output, ""] : [""]);

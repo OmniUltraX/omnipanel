@@ -52,11 +52,13 @@ omnipanel-db-sync = { path = "../crates/omnipanel-db-sync" }
 omnipanel-docker = { path = "../crates/omnipanel-docker" }
 omnipanel-assistant = { path = "../crates/omnipanel-assistant" }
 omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
+omnipanel-cloud-aliyun = { path = "../crates/omnipanel-cloud-aliyun" }
 omnipanel-plugin = { path = "../crates/omnipanel-plugin" }
 omnipanel-plugin-pkg = { path = "../crates/omnipanel-plugin-pkg" }
 omnipanel-plugin-wasm = { path = "../crates/omnipanel-plugin-wasm", optional = true }
 omnipanel-plugin-js = { path = "../crates/omnipanel-plugin-js" }
 omnipanel-everything = { path = "../crates/omnipanel-everything" }
+omnipanel-presence = { path = "../crates/omnipanel-presence" }
 omnipanel-gateway = { path = "../crates/omnipanel-gateway" }
 omnipanel-transfer = { path = "../crates/omnipanel-transfer", features = ["specta"] }
 tokio.workspace = true

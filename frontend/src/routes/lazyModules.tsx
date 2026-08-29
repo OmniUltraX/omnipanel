@@ -81,6 +81,11 @@ export const LazyUserWorkspace = lazyNamedModule(
   "UserWorkspace",
 );
 
+export const LazyPluginsPanel = lazyNamedModule(
+  () => import("../modules/plugins/PluginsPanel"),
+  "PluginsPanel",
+);
+
 /** 空闲预热顺序：终端优先，其余随后；仅拉 chunk，不挂载 */
 const IDLE_CHUNK_KEYS: OverlayModuleKey[] = [
   "terminal",

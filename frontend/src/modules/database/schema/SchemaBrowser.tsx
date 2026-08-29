@@ -13,7 +13,16 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../../i18n";
+import { commands } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
 import { appConfirm } from "../../../lib/appConfirm";
+import {
+  ACTION_DB_DROP_DATABASE,
+  ACTION_DB_DROP_TABLE,
+  dropDatabaseTarget,
+  dropTableObjectsTarget,
+} from "../../../lib/presenceTargets";
+import { requireStepUp } from "../../../lib/stepUp";
 import { appAlert } from "../../../lib/appAlert";
 import { quickInput } from "../../../lib/quickInput";
 import { useActionStore } from "../../../stores/actionStore";
@@ -872,7 +881,11 @@ export function SchemaBrowser({
   );
 
   const deleteOneSchemaNode = useCallback(
-    async (connection: DbConnectionConfig, item: SchemaTreeItem): Promise<boolean> => {
+    async (
+      connection: DbConnectionConfig,
+      item: SchemaTreeItem,
+      options?: { alreadyDropped?: boolean },
+    ): Promise<boolean> => {
       if (!isSchemaNodeDeletable(item.type)) {
         return false;
       }
@@ -958,13 +971,15 @@ export function SchemaBrowser({
           resourceId: connection.id,
           source: "用户",
         });
-        await invoke("db_execute_query", {
-          connection,
-          sql,
-          runId: makeQueryRunId(),
-          limit: 1,
-          offset: 0,
-        });
+        if (!options?.alreadyDropped) {
+          await invoke("db_execute_query", {
+            connection,
+            sql,
+            runId: makeQueryRunId(),
+            limit: 1,
+            offset: 0,
+          });
+        }
 
         let refreshItem: SchemaTreeItem;
         if (item.type === "database") {
@@ -1041,6 +1056,72 @@ export function SchemaBrowser({
         .filter((entry): entry is SchemaTreeItem => Boolean(entry));
 
       if (targets.length === 0) {
+        return;
+      }
+
+      const tableLike = targets.filter((item) => item.type === "table" || item.type === "view");
+      const databases = targets.filter((item) => item.type === "database");
+      if (tableLike.length === targets.length) {
+        const objects = tableLike.map((item) => {
+          const parsed =
+            item.type === "view" ? parseViewNodeId(item.id) : parseTableNodeId(item.id);
+          return {
+            database: parsed?.dbName ?? item.dbName ?? "",
+            name:
+              item.type === "view"
+                ? (parsed?.tableName ?? item.tableName ?? item.label).trim()
+                : (parsed?.tableName ?? item.tableName ?? item.label).trim(),
+            kind: item.type === "view" ? "view" : "table",
+          };
+        });
+        const grantTarget = dropTableObjectsTarget(connection.id, objects);
+        const label = objects.map((o) => o.name).join(", ");
+        const token = await requireStepUp({
+          action: ACTION_DB_DROP_TABLE,
+          target: grantTarget,
+          title: t("database.schemaTree.confirmDeleteTitle"),
+          message: t("database.schemaTree.confirmDeleteTable", {
+            name: label,
+            database: objects[0]?.database ?? "",
+          }),
+          reason: t("database.schemaTree.confirmDeleteTable", {
+            name: label,
+            database: objects[0]?.database ?? "",
+          }),
+          confirmLabel: t("database.schemaTree.deleteTable"),
+        });
+        if (!token) return;
+        try {
+          await unwrapCommand(commands.dbDropTable(connection, objects, token));
+          for (const item of tableLike) {
+            await deleteOneSchemaNode(connection, item, { alreadyDropped: true });
+          }
+        } catch (err) {
+          void appAlert(t("database.schemaTree.dropFailed", { message: String(err) }));
+        }
+        return;
+      }
+      if (databases.length === targets.length) {
+        const names = databases.map(
+          (item) => parseDatabaseNodeId(item.id)?.dbName ?? item.dbName ?? item.label.trim(),
+        );
+        const joined = [...names].sort().join(",");
+        const token = await requireStepUp({
+          action: ACTION_DB_DROP_DATABASE,
+          target: dropDatabaseTarget(connection.id, joined),
+          title: t("database.schemaTree.confirmDeleteTitle"),
+          message: t("database.schemaTree.confirmDeleteDatabase", { name: joined }),
+          reason: t("database.schemaTree.confirmDeleteDatabase", { name: joined }),
+        });
+        if (!token) return;
+        try {
+          await unwrapCommand(commands.dbDropDatabase(connection, names, token));
+          for (const item of databases) {
+            await deleteOneSchemaNode(connection, item, { alreadyDropped: true });
+          }
+        } catch (err) {
+          void appAlert(t("database.schemaTree.dropFailed", { message: String(err) }));
+        }
         return;
       }
 

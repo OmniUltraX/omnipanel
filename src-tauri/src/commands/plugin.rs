@@ -76,6 +76,27 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
             })
         }),
     );
+    for method in [
+        "testAccount",
+        "listRegions",
+        "listResources",
+        "getResource",
+        "invokeAction",
+    ] {
+        let method_name = method.to_string();
+        gateway.register(
+            omnipanel_plugin::PLUGIN_ID_CLOUD_ALIYUN,
+            method,
+            Arc::new(move |args| {
+                let method_name = method_name.clone();
+                Box::pin(async move {
+                    omnipanel_cloud_aliyun::handle_invoke(&method_name, args)
+                        .await
+                        .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))
+                })
+            }),
+        );
+    }
 }
 
 /// L2 执行器工厂：`plugin-wasm` feature 关闭时返回 None（L1/L3 不受影响）。
@@ -350,7 +371,7 @@ async fn sync_native_plugin_tools_with_state(state: &State<'_, AppState>) {
     sync_native_plugin_tools(&registry, &mcp.tool_registry, &state.plugin_invoke);
 }
 
-fn pkg_err_to_omni(err: omnipanel_plugin_pkg::PkgError) -> OmniError {
+pub(crate) fn pkg_err_to_omni(err: omnipanel_plugin_pkg::PkgError) -> OmniError {
     use omnipanel_plugin_pkg::PkgError as E;
     match err {
         E::BadSignature | E::UnsignedRejected => {
@@ -360,22 +381,17 @@ fn pkg_err_to_omni(err: omnipanel_plugin_pkg::PkgError) -> OmniError {
     }
 }
 
-/// 从本地 `.omni-plugin` 文件安装（覆盖升级同 id）。release 构建仅接受官方签名；
-/// dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`。
-#[tauri::command]
-#[specta::specta]
-pub async fn plugin_install_from_file(
-    state: State<'_, AppState>,
-    path: String,
+pub(crate) async fn install_plugin_from_path(
+    state: &State<'_, AppState>,
+    pkg_path: PathBuf,
 ) -> Result<PluginListItem, OmniError> {
-    let pkg_path = PathBuf::from(&path);
+    let verify_path = pkg_path.clone();
     let manifest =
-        tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::verify_file_dev(&pkg_path))
+        tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::verify_file_dev(&verify_path))
             .await
             .map_err(|e| OmniError::internal(e.to_string()))?
             .map_err(pkg_err_to_omni)?;
     let plugin_id = manifest.id.clone();
-    let pkg_path = PathBuf::from(&path);
 
     {
         let registry = state.plugin_registry.lock().await;
@@ -391,13 +407,14 @@ pub async fn plugin_install_from_file(
         .clone()
         .ok_or_else(|| OmniError::internal("无法定位插件安装目录"))?;
     let target = dest_root.join(&plugin_id);
-    tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::extract_to(&pkg_path, &target))
+    let extract_path = pkg_path;
+    tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::extract_to(&extract_path, &target))
         .await
         .map_err(|e| OmniError::internal(e.to_string()))?
         .map_err(pkg_err_to_omni)?;
-    rebuild_and_sync(&state).await?;
+    rebuild_and_sync(state).await?;
     audit_plugin_action(
-        &state,
+        state,
         "plugin.install",
         &plugin_id,
         "success",
@@ -417,6 +434,17 @@ pub async fn plugin_install_from_file(
         source: entry.source,
         unsupported_reason: entry.unsupported_reason.clone(),
     })
+}
+
+/// 从本地 `.omni-plugin` 文件安装（覆盖升级同 id）。release 构建仅接受官方签名；
+/// dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_install_from_file(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<PluginListItem, OmniError> {
+    install_plugin_from_path(&state, PathBuf::from(&path)).await
 }
 
 /// 卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。
