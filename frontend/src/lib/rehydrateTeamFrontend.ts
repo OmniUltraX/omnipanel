@@ -41,7 +41,6 @@ const LOADERS: Array<() => Promise<unknown>> = [
   () => import("../stores/protocolLabEntryStore").then((m) => m.useProtocolLabEntryStore),
   () => import("../stores/protocolHttpDockStore").then((m) => m.useProtocolHttpDockStore),
   () => import("../stores/protocolHttpLayoutStore").then((m) => m.useProtocolHttpLayoutStore),
-  () => import("../stores/dbGroupStore").then((m) => m.useDbGroupStore),
   () => import("../stores/dbScratchQueryStore").then((m) => m.useDbScratchQueryStore),
   () => import("../stores/dbSqlFileStore").then((m) => m.useDbSqlFileStore),
   () =>

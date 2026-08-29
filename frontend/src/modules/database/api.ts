@@ -52,21 +52,6 @@ export function isConnectionEnabled(connection: Pick<DbConnectionConfig, "enable
   return connection.enabled !== false;
 }
 
-export function normalizeConnectionGroup(group: string | null | undefined): string {
-  if (!group || !group.trim() || group === "default") {
-    return "默认";
-  }
-  return group.trim();
-}
-
-export function hydrateConnectionGroup(connection: DbConnectionConfig): DbConnectionConfig {
-  return { ...connection, group: normalizeConnectionGroup(connection.group) };
-}
-
-export function connectionMatchesGroup(connection: DbConnectionConfig, groupName: string): boolean {
-  return normalizeConnectionGroup(connection.group) === groupName;
-}
-
 export interface ConnectionFormData {
   engine: string;
   name: string;
@@ -113,7 +98,7 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
     ssl: Boolean(form.ssl),
     sid: form.engine === "oracle" || form.engine === "orcl" ? formText(form.sid).trim() : "",
     sysdba: (form.engine === "oracle" || form.engine === "orcl") && Boolean(form.sysdba),
-    group: normalizeConnectionGroup(form.group),
+    group: form.group.trim() || "默认",
     status: "unknown",
     enabled: true,
   };
@@ -133,7 +118,7 @@ export function connectionToForm(conn: DbConnectionConfig): ConnectionFormData {
     ssl: Boolean(conn.ssl),
     sid: formText(conn.sid),
     sysdba: Boolean(conn.sysdba),
-    group: normalizeConnectionGroup(conn.group),
+    group: conn.group || "默认",
   };
 }
 
@@ -734,8 +719,7 @@ export async function qdrantDeletePoints(
 }
 
 export async function listConnections(): Promise<DbConnectionConfig[]> {
-  const list = (await unwrapCommand(commands.dbListConnections())) as DbConnectionConfig[];
-  return list.map(hydrateConnectionGroup);
+  return (await unwrapCommand(commands.dbListConnections())) as DbConnectionConfig[];
 }
 
 export async function loadSchemaFilters(): Promise<SchemaFiltersSnapshot> {

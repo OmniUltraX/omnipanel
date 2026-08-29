@@ -11,6 +11,7 @@ import { useDbTreeChartFileStore } from "../stores/dbTreeChartFileStore";
 import { useDbWorkspaceSessionStore } from "../stores/dbWorkspaceSessionStore";
 import { useDbWorkspaceTabStore } from "../stores/dbWorkspaceTabStore";
 
+const DB_GROUPS_CACHE_KEY = "omnipanel-db-groups";
 const DB_SQL_FILES_CACHE_KEY = "omnipanel-db-sql-files";
 const DB_TREE_CHART_FILES_CACHE_KEY = "omnipanel-db-tree-chart-files";
 const DB_SCHEMA_SIDEBAR_SECTIONS_KEY = "omnipanel-db-schema-sidebar-sections";
@@ -69,6 +70,7 @@ export async function clearDatabaseModuleData(): Promise<void> {
   });
 
   try {
+    localStorage.removeItem(DB_GROUPS_CACHE_KEY);
     localStorage.removeItem(DB_SQL_FILES_CACHE_KEY);
     localStorage.removeItem(DB_TREE_CHART_FILES_CACHE_KEY);
     localStorage.removeItem(DB_SCHEMA_SIDEBAR_SECTIONS_KEY);

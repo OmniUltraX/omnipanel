@@ -1,0 +1,136 @@
+{
+  "id": "omni.importer.docker-db",
+  "version": "0.1.0",
+  "kind": "importer",
+  "permissions": ["connections:write"],
+  "contributes": {
+    "ui": {
+      "home": {
+        "show": true,
+        "title": "plugins.names.dockerDb",
+        "icon": "icon.svg",
+        "open": { "kind": "importer", "id": "docker-db" }
+      }
+    },
+    "importers": [
+      {
+        "id": "docker-db",
+        "title": "plugins.samples.dockerDb.title",
+        "hint": "plugins.samples.dockerDb.hint",
+        "sourceKind": "dockerConnections",
+        "defaultGroup": "Docker",
+        "defaultTag": "docker-db",
+        "note": "plugins.samples.dockerDb.note",
+        "scanners": [
+          {
+            "id": "mysql",
+            "images": ["mysql", "mariadb"],
+            "dbType": "mysql",
+            "defaultPort": 3306,
+            "userEnv": ["MYSQL_USER", "MARIADB_USER"],
+            "passwordEnv": [
+              "MYSQL_ROOT_PASSWORD",
+              "MYSQL_PASSWORD",
+              "MARIADB_ROOT_PASSWORD",
+              "MARIADB_PASSWORD"
+            ],
+            "databaseEnv": ["MYSQL_DATABASE", "MARIADB_DATABASE"],
+            "defaultUser": "root"
+          },
+          {
+            "id": "postgres",
+            "images": ["postgres"],
+            "dbType": "postgres",
+            "defaultPort": 5432,
+            "userEnv": ["POSTGRES_USER"],
+            "passwordEnv": ["POSTGRES_PASSWORD"],
+            "databaseEnv": ["POSTGRES_DB"],
+            "defaultUser": "postgres"
+          },
+          {
+            "id": "redis",
+            "images": ["redis", "valkey", "keydb"],
+            "dbType": "redis",
+            "defaultPort": 6379,
+            "userEnv": ["REDIS_USER"],
+            "passwordEnv": ["REDIS_PASSWORD", "REDISCLI_AUTH", "VALKEY_PASSWORD"],
+            "databaseEnv": ["REDIS_DB", "REDIS_DATABASE"],
+            "defaultUser": ""
+          },
+          {
+            "id": "mongodb",
+            "images": ["mongo", "mongodb"],
+            "dbType": "mongodb",
+            "defaultPort": 27017,
+            "userEnv": ["MONGO_INITDB_ROOT_USERNAME", "MONGODB_ROOT_USER", "MONGO_INITDB_USERNAME"],
+            "passwordEnv": ["MONGO_INITDB_ROOT_PASSWORD", "MONGODB_ROOT_PASSWORD", "MONGO_INITDB_PASSWORD"],
+            "databaseEnv": ["MONGO_INITDB_DATABASE", "MONGODB_DATABASE"],
+            "defaultUser": "root"
+          },
+          {
+            "id": "clickhouse",
+            "images": ["clickhouse"],
+            "dbType": "clickhouse",
+            "defaultPort": 8123,
+            "userEnv": ["CLICKHOUSE_USER", "CLICKHOUSE_DEFAULT_USER"],
+            "passwordEnv": ["CLICKHOUSE_PASSWORD", "CLICKHOUSE_DEFAULT_PASSWORD"],
+            "databaseEnv": ["CLICKHOUSE_DB", "CLICKHOUSE_DATABASE"],
+            "defaultUser": "default"
+          },
+          {
+            "id": "sqlserver",
+            "images": ["mssql", "sqlserver", "azure-sql-edge"],
+            "dbType": "sqlserver",
+            "defaultPort": 1433,
+            "userEnv": ["MSSQL_USER"],
+            "passwordEnv": ["MSSQL_SA_PASSWORD", "SA_PASSWORD", "MSSQL_PASSWORD"],
+            "databaseEnv": ["MSSQL_DATABASE"],
+            "defaultUser": "sa"
+          },
+          {
+            "id": "qdrant",
+            "images": ["qdrant"],
+            "dbType": "qdrant",
+            "defaultPort": 6333,
+            "userEnv": [],
+            "passwordEnv": ["QDRANT__SERVICE__API_KEY"],
+            "databaseEnv": [],
+            "defaultUser": ""
+          },
+          {
+            "id": "dameng",
+            "images": ["dameng", "damengdb", "dm8"],
+            "dbType": "dameng",
+            "defaultPort": 5236,
+            "userEnv": ["DM_USER", "SYSDBA_USER"],
+            "passwordEnv": ["DM_PASSWORD", "SYSDBA_PWD", "SYSDBA_PASSWORD"],
+            "databaseEnv": ["DM_DATABASE", "INSTANCE_NAME"],
+            "defaultUser": "SYSDBA",
+            "defaultPassword": "SYSDBA_dm001"
+          },
+          {
+            "id": "cassandra",
+            "images": ["cassandra"],
+            "dbType": "cassandra",
+            "defaultPort": 9042,
+            "userEnv": ["CASSANDRA_USER", "CASSANDRA_USERNAME"],
+            "passwordEnv": ["CASSANDRA_PASSWORD"],
+            "databaseEnv": ["CASSANDRA_KEYSPACE"],
+            "defaultUser": "cassandra"
+          },
+          {
+            "id": "neo4j",
+            "images": ["neo4j"],
+            "dbType": "neo4j",
+            "defaultPort": 7687,
+            "userEnv": ["NEO4J_USER"],
+            "passwordEnv": ["NEO4J_PASSWORD"],
+            "databaseEnv": ["NEO4J_dbms_default__database"],
+            "defaultUser": "neo4j"
+          }
+        ],
+        "entry": ["commandPalette", "settings", "home"]
+      }
+    ]
+  }
+}

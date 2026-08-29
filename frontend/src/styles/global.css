@@ -22936,6 +22936,15 @@ button.omni-btn-tool[aria-pressed="true"] {
     color: var(--muted);
 }
 
+.module-empty-state-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: 100%;
+}
+
 @keyframes emptyFadeIn {
     from {
         opacity: 0;

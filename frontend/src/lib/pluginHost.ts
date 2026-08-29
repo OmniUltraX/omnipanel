@@ -3,10 +3,17 @@ import { commands, type Connection, type DbConnectionConfig } from "../ipc/bindi
 import { formatIpcError, unwrapCommand } from "../ipc/result";
 import { getHostSelection } from "./hostSelection";
 import { useConnectionStore } from "../stores/connectionStore";
+import { findSidebarFolder } from "./importGroups";
 import { useDbConnectionListStore } from "../stores/dbConnectionListStore";
+import { useDbSchemaConnectionLayoutStore } from "../stores/dbSchemaConnectionLayoutStore";
+import {
+  sshSidebarConnectionNodeKey,
+  useSshSidebarTreeStore,
+} from "../stores/sshSidebarTreeStore";
 import { usePluginOverlayStore } from "../stores/pluginOverlayStore";
 import { candidateDedupeKey } from "./importCandidates";
 import { panelCandidateMatches } from "../modules/server/panel/panelPlugin";
+import { ensureEngineForDbType } from "../modules/database/ensureCatalogEngines";
 
 /** 内核发现（非插件）写入时跳过插件权限闸。 */
 export const KERNEL_DOCKER_PLUGIN_ID = "omni.host.docker";
@@ -105,11 +112,36 @@ function sshAuthFromCandidate(cfg: Record<string, unknown>): Record<string, unkn
   return { type: "password", password };
 }
 
-async function saveConnection(draft: Connection): Promise<void> {
+async function saveConnection(draft: Connection): Promise<Connection> {
   const saved = await useConnectionStore.getState().save(draft);
-  if (saved?.id) return;
+  if (saved?.id) return saved;
   const detail = useConnectionStore.getState().error;
   throw new Error(detail ? formatIpcError(detail) : "保存连接失败");
+}
+
+function placeImportedDbConnection(connId: string, folderPath: string): void {
+  const store = useDbSchemaConnectionLayoutStore.getState();
+  const trimmed = folderPath.trim();
+  if (!trimmed) {
+    store.setConnectionParent(connId, null);
+    return;
+  }
+  const found = findSidebarFolder(store.folders, trimmed);
+  const folderId = found?.id ?? store.addFolder(null, trimmed).id;
+  store.setConnectionParent(connId, folderId);
+}
+
+function placeImportedSshConnection(connId: string, folderPath: string): void {
+  const store = useSshSidebarTreeStore.getState();
+  store.ensureConnectionListed(connId);
+  const trimmed = folderPath.trim();
+  if (!trimmed) {
+    store.moveNode({ nodeKey: sshSidebarConnectionNodeKey(connId), targetParentId: null });
+    return;
+  }
+  const found = findSidebarFolder(store.folders, trimmed);
+  const folderId = found?.id ?? store.createFolder(trimmed, null);
+  store.moveNode({ nodeKey: sshSidebarConnectionNodeKey(connId), targetParentId: folderId });
 }
 
 export function importExtTag(candidate: ImportCandidate): string {
@@ -138,22 +170,38 @@ function findExistingDbConnection(
   );
 }
 
+const DB_IMPORT_KINDS: Record<string, { dbType: string; defaultPort: number }> = {
+  mysql: { dbType: "mysql", defaultPort: 3306 },
+  postgres: { dbType: "postgresql", defaultPort: 5432 },
+  redis: { dbType: "redis", defaultPort: 6379 },
+  mongodb: { dbType: "mongodb", defaultPort: 27017 },
+  clickhouse: { dbType: "clickhouse", defaultPort: 8123 },
+  sqlserver: { dbType: "sqlserver", defaultPort: 1433 },
+  qdrant: { dbType: "qdrant", defaultPort: 6333 },
+  dameng: { dbType: "dameng", defaultPort: 5236 },
+  cassandra: { dbType: "cassandra", defaultPort: 9042 },
+  neo4j: { dbType: "neo4j", defaultPort: 7687 },
+};
+
 async function upsertDbCandidate(
   candidate: ImportCandidate,
   cfg: Record<string, unknown>,
 ): Promise<void> {
-  const dbType = candidate.remoteKind === "postgres" ? "postgresql" : "mysql";
+  const mapped = DB_IMPORT_KINDS[candidate.remoteKind];
+  if (!mapped) throw new Error(`不支持导入类型: ${candidate.remoteKind}`);
+  const dbType = mapped.dbType;
   const host = asString(cfg.host);
-  const port = asNumber(cfg.port, candidate.remoteKind === "postgres" ? 5432 : 3306);
+  const port = asNumber(cfg.port, mapped.defaultPort);
   const user = asString(cfg.user);
   const password = asString(cfg.password);
-  const group = asString(cfg.importGroup) || "默认";
+  const group = asString(cfg.importGroup);
   const list = await unwrapCommand(commands.dbListConnections());
   const existing = findExistingDbConnection(list, candidate, host, port, user, dbType);
   const tags = Array.from(
     new Set([...(existing?.tags ?? []), ...asStringList(cfg.importTags), importExtTag(candidate)]),
   );
-  await unwrapCommand(
+  void ensureEngineForDbType(dbType);
+  const saved = await unwrapCommand(
     commands.dbSaveConnection({
       id: existing?.id ?? "",
       name: candidate.name,
@@ -167,10 +215,11 @@ async function upsertDbCandidate(
       status: existing?.status ?? "unknown",
       enabled: existing?.enabled ?? true,
       tags,
-      group: existing?.group || group,
+      group: existing?.group || group || "默认",
     }),
   );
-  void useDbConnectionListStore.getState().refresh();
+  if (saved.id) placeImportedDbConnection(saved.id, group);
+  await useDbConnectionListStore.getState().refresh();
 }
 
 async function upsertCandidateConnection(candidate: ImportCandidate): Promise<void> {
@@ -179,7 +228,7 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
   const ts = nowSec();
 
   if (candidate.remoteKind === "ssh") {
-    await saveConnection({
+    const saved = await saveConnection({
       id: existing?.id ?? "",
       kind: "ssh",
       name: candidate.name,
@@ -200,6 +249,7 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       createdAt: existing?.createdAt ?? ts,
       updatedAt: ts,
     });
+    placeImportedSshConnection(saved.id, asString(cfg.importGroup));
     return;
   }
 
@@ -245,7 +295,7 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
     return;
   }
 
-  if (candidate.remoteKind === "mysql" || candidate.remoteKind === "postgres") {
+  if (candidate.remoteKind in DB_IMPORT_KINDS) {
     await upsertDbCandidate(candidate, cfg);
     return;
   }

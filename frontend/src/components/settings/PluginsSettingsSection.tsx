@@ -29,6 +29,7 @@ const PLUGIN_NAME_KEYS: Record<string, string> = {
   "omni.engine.redis": "plugins.names.redis",
   "omni.module.nacos": "plugins.names.nacos",
   "omni.importer.warpgate": "plugins.names.warpgate",
+  "omni.importer.docker-db": "plugins.names.dockerDb",
   "omni.panel.1panel": "plugins.names.onepanel",
   "omni.panel.bt": "plugins.names.bt",
   "omni.theme.default": "plugins.names.themeDefault",

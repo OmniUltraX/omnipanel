@@ -35,6 +35,14 @@ describe("importerCatalog", () => {
     expect(active[0]?.importer.id).toBe("warpgate");
   });
 
+  it("Docker 库扫描器从清单读 scanners，不依赖 L2", () => {
+    const found = findImporter("omni.importer.docker-db", "docker-db");
+    expect(found?.pluginId).toBe("omni.importer.docker-db");
+    expect(found?.importer.sourceKind).toBe("dockerConnections");
+    expect(found?.importer.scanners?.length).toBe(10);
+    expect(importerEntries(found!.importer)).toEqual(["commandPalette", "settings", "home"]);
+  });
+
   it("secret key 使用清单前缀", () => {
     const found = findImporter("omni.importer.warpgate", "warpgate");
     const token = found?.importer.fields.find((field) => field.key === "token");
