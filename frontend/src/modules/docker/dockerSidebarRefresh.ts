@@ -20,8 +20,6 @@ function unwrap<T>(promise: Promise<CommandResult<T>>): Promise<T> {
   return unwrapCommand(promise, { quiet: true });
 }
 
-const ALL_CATEGORIES: DockerSidebarCategory[] = ["images", "containers", "networks", "volumes"];
-
 function warmComposeMetaIfNeeded(
   connectionId: string,
   containers: DockerSidebarCacheEntry["containers"] | undefined,
@@ -81,26 +79,76 @@ export async function fetchDockerSidebarResources(
     return await runWithDockerBoundSsh(scope.connectionId, async () => {
       if (scope.kind === "connection") {
         // 手动全量刷新：顺序拉取，避免 SSH 上对多个 docker list 并发抢 exec 锁导致整次首拉挂起
-        // 任一分类鉴权/封禁失败则立刻中止，避免连续打满宝塔验证计数
-        const containers = await unwrap(commands.dockerListContainers(scope.connectionId, null));
-        warmComposeMetaIfNeeded(scope.connectionId, containers);
-        const images = await unwrap(commands.dockerListImages(scope.connectionId));
-        const networks = await unwrap(commands.dockerListNetworks(scope.connectionId));
-        const volumes = await unwrap(commands.dockerListVolumes(scope.connectionId));
+        // 逐分类容错：某分类失败不阻止其余分类已获取的数据回填，避免镜像 API 报错连累容器列表不可见
+        const partial: Pick<
+          DockerSidebarCacheEntry,
+          "images" | "containers" | "networks" | "volumes"
+        > = {
+          images: [],
+          containers: [],
+          networks: [],
+          volumes: [],
+        };
+        const loaded: DockerSidebarCategory[] = [];
+        let firstError: string | null = null;
+
+        try {
+          partial.containers = asArray(
+            await unwrap(commands.dockerListContainers(scope.connectionId, null)),
+          );
+          warmComposeMetaIfNeeded(scope.connectionId, partial.containers);
+          loaded.push("containers");
+        } catch (e) {
+          firstError = firstError ?? toSidebarErrorMessage(e);
+          console.warn("[docker-sidebar] category failed (containers)", label, e);
+        }
+
+        try {
+          partial.images = asArray(
+            await unwrap(commands.dockerListImages(scope.connectionId)),
+          );
+          loaded.push("images");
+        } catch (e) {
+          firstError = firstError ?? toSidebarErrorMessage(e);
+          console.warn("[docker-sidebar] category failed (images)", label, e);
+        }
+
+        try {
+          partial.networks = asArray(
+            await unwrap(commands.dockerListNetworks(scope.connectionId)),
+          );
+          loaded.push("networks");
+        } catch (e) {
+          firstError = firstError ?? toSidebarErrorMessage(e);
+          console.warn("[docker-sidebar] category failed (networks)", label, e);
+        }
+
+        try {
+          partial.volumes = asArray(
+            await unwrap(commands.dockerListVolumes(scope.connectionId)),
+          );
+          loaded.push("volumes");
+        } catch (e) {
+          firstError = firstError ?? toSidebarErrorMessage(e);
+          console.warn("[docker-sidebar] category failed (volumes)", label, e);
+        }
+
         console.info("[docker-sidebar] refresh ok", label, {
-          containers: containers.length,
-          images: images.length,
-          networks: networks.length,
-          volumes: volumes.length,
+          containers: partial.containers.length,
+          images: partial.images.length,
+          networks: partial.networks.length,
+          volumes: partial.volumes.length,
+          loaded,
+          hasError: firstError != null,
         });
         return {
-          images,
-          containers,
-          networks,
-          volumes,
-          loadedCategories: markLoaded({}, ALL_CATEGORIES),
+          images: partial.images,
+          containers: partial.containers,
+          networks: partial.networks,
+          volumes: partial.volumes,
+          loadedCategories: markLoaded({}, loaded),
           refreshedAt: Date.now(),
-          error: null,
+          error: firstError,
         };
       }
 

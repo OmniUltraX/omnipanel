@@ -1,6 +1,6 @@
 import { commands, type OmniError_Serialize } from "../../ipc/bindings";
 import { canUseIpcBackend } from "../isTauriRuntime";
-import { buildOnePanelAuthHeaders, normalizeOnePanelBaseUrl } from "./auth";
+import { buildOnePanelAuthHeaders, resolveOnePanelEndpoint } from "./auth";
 import {
   OnePanelApiError,
   type OnePanelAcmeAccount,
@@ -168,13 +168,16 @@ function parseResponseText<T>(text: string): T {
 
 export class OnePanelClient {
   private readonly baseUrl: string;
+  private readonly entrance: string;
   private apiKey: string;
   private readonly connectionId?: string;
   private readonly useTauri: boolean;
   private resolvePromise: Promise<string> | null = null;
 
   constructor(options: OnePanelClientOptions) {
-    this.baseUrl = normalizeOnePanelBaseUrl(options.host);
+    const endpoint = resolveOnePanelEndpoint(options.host);
+    this.baseUrl = endpoint.baseUrl;
+    this.entrance = endpoint.entrance;
     this.apiKey = options.apiKey;
     this.connectionId = options.connectionId;
     this.useTauri = options.useTauri ?? true;
@@ -292,7 +295,7 @@ export class OnePanelClient {
     const headers = {
       Accept: "application/json, text/plain, */*",
       ...(hasBody ? { "Content-Type": "application/json" } : {}),
-      ...buildOnePanelAuthHeaders(apiKey, timestamp),
+      ...buildOnePanelAuthHeaders(apiKey, timestamp, this.entrance),
     };
     const payload = hasBody ? JSON.stringify(body ?? {}) : undefined;
     let lastErr: Error | null = null;
@@ -339,7 +342,7 @@ export class OnePanelClient {
     const headers = {
       Accept: "application/json",
       ...(hasBody ? { "Content-Type": "application/json" } : {}),
-      ...buildOnePanelAuthHeaders(apiKey, timestamp),
+      ...buildOnePanelAuthHeaders(apiKey, timestamp, this.entrance),
     };
     const payload = hasBody ? JSON.stringify(body ?? {}) : undefined;
     let lastErr: Error | null = null;
@@ -758,7 +761,7 @@ export class OnePanelClient {
       headers: {
         Accept: "application/json, application/zip, */*",
         "Content-Type": "application/json",
-        ...buildOnePanelAuthHeaders(apiKey, timestamp),
+        ...buildOnePanelAuthHeaders(apiKey, timestamp, this.entrance),
       },
       body: JSON.stringify({ id }),
     });
@@ -978,7 +981,7 @@ export class OnePanelClient {
       method: "POST",
       headers: {
         Accept: "application/json, text/plain, */*",
-        ...buildOnePanelAuthHeaders(apiKey, timestamp),
+        ...buildOnePanelAuthHeaders(apiKey, timestamp, this.entrance),
       },
       body: form,
     });
@@ -1091,7 +1094,7 @@ export class OnePanelClient {
       method: "GET",
       headers: {
         Accept: "application/json, image/*, */*",
-        ...buildOnePanelAuthHeaders(apiKey, timestamp),
+        ...buildOnePanelAuthHeaders(apiKey, timestamp, this.entrance),
       },
     });
 

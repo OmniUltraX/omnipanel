@@ -13,7 +13,7 @@ import {
   type BackgroundTaskInfo,
 } from "@/stores/backgroundTaskStore";
 import { parseSshConfig } from "../server/panel/serverConnection";
-import { panelProbeReachableAddress } from "../server/panel/panelAddress";
+import { appendPanelEntrance, panelProbeReachableAddress } from "../server/panel/panelAddress";
 import type { DiscoveryPreviewRow } from "@/components/ui/DiscoveryImportDialog";
 import { createPluginHost, KERNEL_DOCKER_PLUGIN_ID } from "@/lib/pluginHost";
 import { isProdEnvTag } from "@/lib/envTag";
@@ -49,9 +49,9 @@ export function findDockerBoundToSsh(connections: Connection[], sshId: string): 
   });
 }
 
-/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1；API 地址不含安全入口。 */
+/** 优先公网 IP，其次 SSH host，替换探测结果中的 127.0.0.1，并拼接安全入口。 */
 function realPanelAddress(panel: PanelProbeItem, ssh: Connection): string {
-  return panelProbeReachableAddress(panel, ssh);
+  return appendPanelEntrance(panelProbeReachableAddress(panel, ssh), panel.entrance);
 }
 
 function makeTask(
