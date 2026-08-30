@@ -83,6 +83,9 @@ export const ASSISTANT_TERMINAL_OPEN_OR_FOCUS =
 /** 任一窗口切换插件启用状态后广播，各窗口 reload plugin_list */
 export const PLUGIN_CHANGED = "plugin://changed" as const;
 
+/** 官方插件目录后台刷新后内容有变 */
+export const PLUGIN_OFFICIAL_CATALOG_UPDATED = "plugin://official-catalog-updated" as const;
+
 /** 发现任务在任务中心被取消 */
 export const PLUGIN_DISCOVERY_CANCELLED = "plugin://discovery-cancelled" as const;
 /** prod 目标命中：请求用户交互确认（requestId → pluginConfirmResolve 回传） */
@@ -114,5 +117,6 @@ export type IpcEventName =
   | typeof ASSISTANT_CHAT_SET_MODEL
   | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS
   | typeof PLUGIN_CHANGED
+  | typeof PLUGIN_OFFICIAL_CATALOG_UPDATED
   | typeof PLUGIN_DISCOVERY_CANCELLED
   | typeof PLUGIN_CONFIRM_REQUEST;

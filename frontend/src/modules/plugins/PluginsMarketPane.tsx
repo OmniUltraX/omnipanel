@@ -3,20 +3,29 @@ import { useI18n } from "../../i18n";
 import { getPluginManifest } from "../../lib/pluginManifests";
 import type { PluginListItem } from "../../ipc/bindings";
 import { IconChevronLeft, IconChevronRight, IconGrid, IconList } from "../../components/ui/icons/Icons";
+import { Select } from "../../components/ui/form/Select";
 import { isDbxOrigin, originMetaLabel } from "./pluginOrigin";
 import { PluginGlyph } from "./pluginGlyph";
 import {
   MARKET_PAGE_SIZE_DEFAULT,
   MARKET_PAGE_SIZE_OPTIONS,
+  MARKET_SORT_DEFAULT_DIR,
+  MARKET_SORT_KEYS,
+  formatPluginCount,
+  formatPluginDate,
   paginateItems,
+  sortMarketItems,
   type KindFilter,
   type MarketFilter,
   type MarketItem,
+  type MarketSortDir,
+  type MarketSortKey,
   type MarketView,
 } from "./pluginCenterTypes";
 
 const VIEW_STORAGE_KEY = "omnipanel.pluginCenter.marketView";
 const PAGE_SIZE_STORAGE_KEY = "omnipanel.pluginCenter.marketPageSize";
+const SORT_STORAGE_KEY = "omnipanel.pluginCenter.marketSort";
 
 function readMarketView(): MarketView {
   try {
@@ -48,6 +57,27 @@ function readPageSize(): number {
 function persistPageSize(size: number) {
   try {
     localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+type StoredSort = { key: MarketSortKey; dir: MarketSortDir };
+
+function readMarketSort(): StoredSort {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) ?? "");
+    const key = MARKET_SORT_KEYS.includes(raw?.key) ? (raw.key as MarketSortKey) : "updated";
+    const dir = raw?.dir === "asc" || raw?.dir === "desc" ? raw.dir : MARKET_SORT_DEFAULT_DIR[key];
+    return { key, dir };
+  } catch {
+    return { key: "updated", dir: "desc" };
+  }
+}
+
+function persistMarketSort(sort: StoredSort) {
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort));
   } catch {
     /* ignore quota / private mode */
   }
@@ -90,21 +120,27 @@ export function PluginsMarketPane({
   onOpenOverlay,
   onRefreshMarket,
 }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<MarketView>(readMarketView);
   const [pageSize, setPageSize] = useState(readPageSize);
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<StoredSort>(readMarketSort);
   const installedById = useMemo(
     () => new Map(installed.map((item) => [item.id, item])),
     [installed],
   );
 
+  const sortedMarket = useMemo(
+    () => sortMarketItems(market, sort.key, sort.dir),
+    [market, sort.dir, sort.key],
+  );
+
   useEffect(() => {
     setPage(1);
-  }, [kindFilter, marketFilter, view, market.length, pageSize]);
+  }, [kindFilter, marketFilter, view, market.length, pageSize, sort.key, sort.dir]);
 
-  const paging = paginateItems(market, page, pageSize);
+  const paging = paginateItems(sortedMarket, page, pageSize);
 
   useEffect(() => {
     if (paging.page !== page) setPage(paging.page);
@@ -118,6 +154,23 @@ export function PluginsMarketPane({
     setView(next);
     persistMarketView(next);
   };
+
+  const changeSortKey = (key: MarketSortKey) => {
+    const next = { key, dir: MARKET_SORT_DEFAULT_DIR[key] };
+    setSort(next);
+    persistMarketSort(next);
+  };
+
+  const toggleSortDir = () => {
+    const next = { ...sort, dir: (sort.dir === "asc" ? "desc" : "asc") as MarketSortDir };
+    setSort(next);
+    persistMarketSort(next);
+  };
+
+  const sortOptions = MARKET_SORT_KEYS.map((key) => ({
+    value: key,
+    label: t(`plugins.center.sort.${key}`),
+  }));
 
   return (
     <section className="plugin-center-col plugin-center-col--market">
@@ -134,6 +187,27 @@ export function PluginsMarketPane({
               {t(`plugins.center.filter.${filter}`)}
             </button>
           ))}
+        </div>
+        <div className="plugin-center-sort">
+          <Select
+            size="sm"
+            value={sort.key}
+            onChange={(value) => changeSortKey(value as MarketSortKey)}
+            options={sortOptions}
+            searchable={false}
+            aria-label={t("plugins.center.sort.label")}
+            title={t("plugins.center.sort.label")}
+            panelMinWidth={140}
+          />
+          <button
+            type="button"
+            className="plugin-center-chip"
+            aria-label={t("plugins.center.sort.dir")}
+            title={t("plugins.center.sort.dir")}
+            onClick={toggleSortDir}
+          >
+            {sort.dir === "asc" ? t("plugins.center.sort.asc") : t("plugins.center.sort.desc")}
+          </button>
         </div>
         <div className="plugin-center-view" role="group" aria-label={t("plugins.center.viewList")}>
           <button
@@ -176,6 +250,7 @@ export function PluginsMarketPane({
               installed={installedById.get(item.id) ?? null}
               selected={selectedId === item.id}
               installing={installingMarketId === item.id}
+              locale={locale}
               onSelect={onSelect}
               onInstall={onInstallMarket}
               onOpen={onOpenOverlay}
@@ -187,6 +262,7 @@ export function PluginsMarketPane({
               installed={installedById.get(item.id) ?? null}
               selected={selectedId === item.id}
               installing={installingMarketId === item.id}
+              locale={locale}
               onSelect={onSelect}
               onInstall={onInstallMarket}
               onOpen={onOpenOverlay}
@@ -243,23 +319,24 @@ export function PluginsMarketPane({
             })}
           </span>
           <label className="plugin-center-pager__size">
-            <select
+            <Select
+              size="sm"
+              searchable={false}
               className="plugin-center-pager__select"
-              value={pageSize}
+              value={String(pageSize)}
               aria-label={t("plugins.center.pageSize")}
               title={t("plugins.center.pageSize")}
-              onChange={(event) => {
-                const next = Number(event.target.value);
+              panelMinWidth={108}
+              options={MARKET_PAGE_SIZE_OPTIONS.map((size) => ({
+                value: String(size),
+                label: t("plugins.center.pageSizeOption", { count: size }),
+              }))}
+              onChange={(value) => {
+                const next = Number(value);
                 setPageSize(next);
                 persistPageSize(next);
               }}
-            >
-              {MARKET_PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>
-                  {t("plugins.center.pageSizeOption", { count: size })}
-                </option>
-              ))}
-            </select>
+            />
           </label>
         </nav>
       ) : null}
@@ -274,6 +351,22 @@ function canOpenOverlay(item: PluginListItem | null): boolean {
       item.activated &&
       (getPluginManifest(item.id)?.contributes.overlays?.length ?? 0) > 0,
   );
+}
+
+function marketMetaBits(
+  item: MarketItem,
+  t: (key: string, params?: Record<string, string | number>) => string,
+  locale: string,
+): string[] {
+  const bits = [originMetaLabel(item.origin, t), t(`plugins.center.kinds.${item.kind}`)];
+  const updated = formatPluginDate(item.updatedAt, locale);
+  if (updated) bits.push(t("plugins.center.updatedAt", { time: updated }));
+  if (item.downloads != null && item.downloads > 0) {
+    bits.push(t("plugins.center.downloads", { count: formatPluginCount(item.downloads) }));
+  } else if (item.localInstalls > 0) {
+    bits.push(t("plugins.center.downloadsLocal", { count: formatPluginCount(item.localInstalls) }));
+  }
+  return bits;
 }
 
 function MarketAction({
@@ -338,6 +431,7 @@ function MarketRow({
   installed,
   selected,
   installing,
+  locale,
   onSelect,
   onInstall,
   onOpen,
@@ -346,27 +440,23 @@ function MarketRow({
   installed: PluginListItem | null;
   selected: boolean;
   installing: boolean;
+  locale: string;
   onSelect: (id: string) => void;
   onInstall: (item: MarketItem) => void;
   onOpen: (id: string) => void;
 }) {
   const { t } = useI18n();
+  const meta = marketMetaBits(item, t, locale);
+  if (item.installed) {
+    meta.push(item.needsUpdate ? t("plugins.catalog.update") : t("plugins.catalog.installed"));
+  }
   return (
     <div className={`plugin-center-row plugin-center-row--split${selected ? " is-active" : ""}`}>
       <button type="button" className="plugin-center-row__hit plugin-center-row__hit--icon" onClick={() => onSelect(item.id)}>
         <PluginGlyph pluginId={item.id} kind={item.kind} name={item.name} size="sm" fromDbx={isDbxOrigin(item.origin)} />
         <span className="plugin-center-row__body">
           <span className="plugin-center-row__name">{item.name}</span>
-          <span className="plugin-center-row__meta">
-            {originMetaLabel(item.origin, t)}
-            {" · "}
-            {t(`plugins.center.kinds.${item.kind}`)}
-            {item.installed
-              ? item.needsUpdate
-                ? ` · ${t("plugins.catalog.update")}`
-                : ` · ${t("plugins.catalog.installed")}`
-              : ""}
-          </span>
+          <span className="plugin-center-row__meta">{meta.join(" · ")}</span>
         </span>
       </button>
       <MarketAction
@@ -385,6 +475,7 @@ function MarketCard({
   installed,
   selected,
   installing,
+  locale,
   onSelect,
   onInstall,
   onOpen,
@@ -393,6 +484,7 @@ function MarketCard({
   installed: PluginListItem | null;
   selected: boolean;
   installing: boolean;
+  locale: string;
   onSelect: (id: string) => void;
   onInstall: (item: MarketItem) => void;
   onOpen: (id: string) => void;
@@ -410,9 +502,7 @@ function MarketCard({
           <PluginGlyph pluginId={item.id} kind={item.kind} name={item.name} size="md" fromDbx={isDbxOrigin(item.origin)} />
           <span className="plugin-center-card__titles">
             <span className="plugin-center-card__name">{item.name}</span>
-            <span className="plugin-center-card__meta">
-              {originMetaLabel(item.origin, t)} · {t(`plugins.center.kinds.${item.kind}`)}
-            </span>
+            <span className="plugin-center-card__meta">{marketMetaBits(item, t, locale).join(" · ")}</span>
           </span>
         </span>
         <span className="plugin-center-card__desc">{desc}</span>

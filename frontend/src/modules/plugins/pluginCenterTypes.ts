@@ -4,6 +4,38 @@ import type { PluginOrigin } from "./pluginOrigin";
 export type KindFilter = PluginKind | "all";
 export type MarketFilter = "all" | "official" | "thirdParty";
 export type MarketView = "list" | "grid";
+export type MarketSortKey =
+  | "name"
+  | "kind"
+  | "origin"
+  | "version"
+  | "size"
+  | "created"
+  | "updated"
+  | "downloads";
+export type MarketSortDir = "asc" | "desc";
+
+export const MARKET_SORT_KEYS: MarketSortKey[] = [
+  "updated",
+  "created",
+  "name",
+  "kind",
+  "origin",
+  "version",
+  "size",
+  "downloads",
+];
+
+export const MARKET_SORT_DEFAULT_DIR: Record<MarketSortKey, MarketSortDir> = {
+  name: "asc",
+  kind: "asc",
+  origin: "asc",
+  version: "desc",
+  size: "desc",
+  created: "desc",
+  updated: "desc",
+  downloads: "desc",
+};
 
 export const MARKET_PAGE_SIZE_DEFAULT = 40;
 export const MARKET_PAGE_SIZE_OPTIONS = [20, 40, 60, 80, 100] as const;
@@ -65,7 +97,18 @@ export type MarketItem = {
   description: string;
   permissions: string[];
   needsUpdate: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+  /** GitHub Release asset 下载次数；bundled 通常为 null。 */
+  downloads: number | null;
+  /** 本机成功安装 / 更新次数。 */
+  localInstalls: number;
 };
+
+function optionalStamp(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
 
 export function officialToMarketItem(
   plugin: OfficialCatalogPlugin,
@@ -91,6 +134,10 @@ export function officialToMarketItem(
     description: plugin.description,
     permissions: plugin.permissions,
     needsUpdate,
+    createdAt: optionalStamp(plugin.createdAt),
+    updatedAt: optionalStamp(plugin.updatedAt),
+    downloads: plugin.downloads,
+    localInstalls: 0,
   };
 }
 
@@ -114,7 +161,107 @@ export function dbxToMarketItem(driver: DbxCatalogDriver, name: string): MarketI
     description: "",
     permissions: ["net:connect"],
     needsUpdate,
+    createdAt: optionalStamp(driver.createdAt),
+    updatedAt: optionalStamp(driver.updatedAt),
+    downloads: driver.downloads,
+    localInstalls: 0,
   };
+}
+
+export function withLocalStats(
+  item: MarketItem,
+  stats: { installs: number },
+): MarketItem {
+  return {
+    ...item,
+    localInstalls: stats.installs,
+  };
+}
+
+export function stampMs(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+export function effectiveDownloads(item: MarketItem): number | null {
+  if (item.downloads != null && item.downloads > 0) return item.downloads;
+  if (item.localInstalls > 0) return item.localInstalls;
+  return null;
+}
+
+function cmpNullableNumber(a: number | null, b: number | null, dir: MarketSortDir): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return dir === "asc" ? a - b : b - a;
+}
+
+function cmpString(a: string, b: string, dir: MarketSortDir): number {
+  const result = a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  return dir === "asc" ? result : -result;
+}
+
+export function sortMarketItems(
+  items: MarketItem[],
+  key: MarketSortKey,
+  dir: MarketSortDir,
+): MarketItem[] {
+  const next = [...items];
+  next.sort((left, right) => {
+    let result = 0;
+    switch (key) {
+      case "name":
+        result = cmpString(left.name, right.name, dir);
+        break;
+      case "kind":
+        result = cmpString(left.kind, right.kind, dir);
+        break;
+      case "origin":
+        result = cmpString(left.origin, right.origin, dir);
+        break;
+      case "version":
+        result = cmpString(left.version, right.version, dir);
+        break;
+      case "size":
+        result = cmpNullableNumber(left.size || null, right.size || null, dir);
+        break;
+      case "created":
+        result = cmpNullableNumber(stampMs(left.createdAt), stampMs(right.createdAt), dir);
+        break;
+      case "updated":
+        result = cmpNullableNumber(stampMs(left.updatedAt), stampMs(right.updatedAt), dir);
+        break;
+      case "downloads":
+        result = cmpNullableNumber(effectiveDownloads(left), effectiveDownloads(right), dir);
+        break;
+    }
+    if (result !== 0) return result;
+    return left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) || left.id.localeCompare(right.id);
+  });
+  return next;
+}
+
+export function formatPluginDate(iso: string | null, locale: string): string {
+  const ms = stampMs(iso);
+  if (ms == null) return "";
+  return new Date(ms).toLocaleDateString(locale === "zh-CN" ? "zh-CN" : "en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+export function formatPluginCount(value: number): string {
+  if (value >= 1_000_000) {
+    const n = value / 1_000_000;
+    return `${n >= 10 ? n.toFixed(0) : n.toFixed(1)}M`;
+  }
+  if (value >= 1000) {
+    const n = value / 1000;
+    return `${n >= 10 ? n.toFixed(0) : n.toFixed(1)}k`;
+  }
+  return String(value);
 }
 
 export function groupInstalledByKind(items: PluginListItem[]): { kind: PluginKind; items: PluginListItem[] }[] {

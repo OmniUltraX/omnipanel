@@ -6,7 +6,7 @@ import { openImporter } from "../importer/ImporterWizardDialog";
 import { importerEntries, listActiveImporters, resolveImporterText } from "../../lib/importerCatalog";
 import { pluginDisplayName } from "./pluginDisplayName";
 import { isDbxOrigin, originLabelKey, type PluginOrigin } from "./pluginOrigin";
-import { formatPluginSize, type MarketItem } from "./pluginCenterTypes";
+import { formatPluginDate, formatPluginSize, type MarketItem } from "./pluginCenterTypes";
 import { PluginGlyph } from "./pluginGlyph";
 
 const UNSUPPORTED_REASON_KEYS: Record<string, string> = {
@@ -44,7 +44,7 @@ export function PluginDetailPane({
   onOpenOverlay,
   onHomePin,
 }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const id = installed?.id ?? market?.id ?? null;
   if (!id) return null;
 
@@ -86,6 +86,17 @@ export function PluginDetailPane({
     (manifest?.contributes.overlays?.length ?? 0) > 0 &&
     Boolean(installed?.enabled) &&
     Boolean(installed?.activated);
+  const createdLabel = market ? formatPluginDate(market.createdAt, locale) : "";
+  const updatedLabel = market ? formatPluginDate(market.updatedAt, locale) : "";
+  const statsBits = [
+    createdLabel ? t("plugins.center.createdAt", { time: createdLabel }) : "",
+    updatedLabel ? t("plugins.center.updatedAt", { time: updatedLabel }) : "",
+    market?.downloads != null && market.downloads > 0
+      ? t("plugins.center.downloads", { count: String(market.downloads) })
+      : market && market.localInstalls > 0
+        ? t("plugins.center.downloadsLocal", { count: String(market.localInstalls) })
+        : "",
+  ].filter(Boolean);
 
   return (
     <div className="plugin-center-detail">
@@ -107,6 +118,11 @@ export function PluginDetailPane({
         {market && formatPluginSize(market.size) ? ` · ${formatPluginSize(market.size)}` : ""}
         {unsupported ? ` · ${unsupported}` : ""}
       </p>
+      {market ? (
+        <p className="plugin-center-detail__meta">
+          {statsBits.join(" · ") || t("plugins.center.statsEmpty")}
+        </p>
+      ) : null}
       {fromDbx ? (
         <aside className="plugin-center-detail__source">
           <p className="plugin-center-detail__source-label">{t("plugins.center.sourceDbx")}</p>

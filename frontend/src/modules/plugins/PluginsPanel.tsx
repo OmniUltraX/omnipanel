@@ -176,7 +176,7 @@ export function PluginsPanel() {
           catalogRefreshing={center.catalogRefreshing}
           onInstallMarket={(item) => void center.installMarket(item)}
           onOpenOverlay={(id) => void center.openOverlay(id)}
-          onRefreshMarket={() => void center.reloadMarket()}
+          onRefreshMarket={() => void center.reloadMarket(true)}
         />
       </div>
       {selected ? (

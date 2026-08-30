@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { commands, type OfficialCatalogPlugin, type PluginListItem } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { PLUGIN_OFFICIAL_CATALOG_UPDATED } from "../../ipc/events";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { useDbxCatalogStore } from "../../stores/dbxCatalogStore";
 import { usePluginHomePinStore } from "../../stores/pluginHomePinStore";
+import { usePluginMarketStatsStore } from "../../stores/pluginMarketStatsStore";
 import { useI18n } from "../../i18n";
 import { pluginDisplayName } from "./pluginDisplayName";
 import { firstPartyIdSet, originForInstalled, type PluginOrigin } from "./pluginOrigin";
@@ -13,6 +16,7 @@ import {
   dbxToMarketItem,
   officialToMarketItem,
   pluginMatchesQuery,
+  withLocalStats,
   type KindFilter,
   type MarketFilter,
   type MarketItem,
@@ -36,6 +40,8 @@ export function usePluginCenter() {
   const syncRuntime = usePluginRuntimeStore((s) => s.reload);
   const homeHiddenIds = usePluginHomePinStore((s) => s.hiddenIds);
   const setHomePinned = usePluginHomePinStore((s) => s.setPinned);
+  const statsById = usePluginMarketStatsStore((s) => s.byId);
+  const recordInstall = usePluginMarketStatsStore((s) => s.recordInstall);
 
   const reloadInstalled = useCallback(async () => {
     try {
@@ -48,18 +54,18 @@ export function usePluginCenter() {
     }
   }, [syncRuntime]);
 
-  const reloadOfficial = useCallback(async () => {
+  const reloadOfficial = useCallback(async (force = false) => {
     try {
-      const list = await unwrapCommand(commands.pluginOfficialCatalog());
+      const list = await unwrapCommand(commands.pluginOfficialCatalog(force));
       setOfficial(list);
     } catch (err) {
       setError(String(err));
     }
   }, []);
 
-  const reloadMarket = useCallback(async () => {
+  const reloadMarket = useCallback(async (force = false) => {
     try {
-      await Promise.all([reloadOfficial(), refreshDbx()]);
+      await Promise.all([reloadOfficial(force), refreshDbx()]);
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -68,8 +74,26 @@ export function usePluginCenter() {
 
   useEffect(() => {
     void reloadInstalled();
-    void reloadMarket();
+    void reloadMarket(false);
   }, [reloadInstalled, reloadMarket]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen(PLUGIN_OFFICIAL_CATALOG_UPDATED, () => {
+      void reloadOfficial(false);
+    }).then((fn) => {
+      if (disposed) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [reloadOfficial]);
 
   const officialIds = useMemo(() => {
     const ids = firstPartyIdSet();
@@ -94,8 +118,12 @@ export function usePluginCenter() {
     const dbxItems = catalog.map((driver) =>
       dbxToMarketItem(driver, pluginDisplayName(driver.pluginId, t, driver.label)),
     );
-    return [...officialItems, ...dbxItems];
-  }, [official, catalog, t]);
+    return [...officialItems, ...dbxItems].map((item) =>
+      withLocalStats(item, {
+        installs: statsById[item.id]?.installs ?? 0,
+      }),
+    );
+  }, [official, catalog, t, statsById]);
 
   const query = search.trim().toLowerCase();
   const matchesKind = useCallback(
@@ -221,6 +249,7 @@ export function usePluginCenter() {
       } else {
         await unwrapCommand(commands.pluginOfficialInstall(item.id));
       }
+      recordInstall(item.id);
       await reloadInstalled();
       await reloadMarket();
       setError(null);

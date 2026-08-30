@@ -28767,6 +28767,17 @@ body.quick-launcher-body {
   color: var(--accent);
 }
 
+.plugin-center-sort {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.plugin-center-sort .omni-select {
+  min-width: 108px;
+}
+
 .plugin-center-filters {
   display: flex;
   flex-wrap: wrap;
@@ -28883,6 +28894,12 @@ body.quick-launcher-body {
 .plugin-center-pager__info {
   font-size: 12px;
   color: var(--muted);
+}
+
+.plugin-center-row__meta,
+.plugin-center-card__meta {
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .plugin-center-row__status {
@@ -29086,24 +29103,13 @@ body.quick-launcher-body {
 }
 
 .plugin-center-pager__select {
-  height: 24px;
-  min-width: 92px;
-  padding: 0 22px 0 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--bg)
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
-    no-repeat right 6px center;
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  appearance: none;
-  cursor: pointer;
+  min-width: 108px;
 }
 
-.plugin-center-pager__select:hover {
-  border-color: var(--border-focus, var(--accent));
+.plugin-center-pager__select .omni-select-trigger {
+  height: 24px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .plugin-center-inspector {

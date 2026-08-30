@@ -8,14 +8,14 @@ use std::sync::{
     Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use omnipanel_error::OmniError;
 use omnipanel_plugin::{PluginKind, PluginListItem};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::plugin::install_plugin_from_path;
 use crate::state::AppState;
@@ -23,6 +23,8 @@ use crate::state::AppState;
 const REGISTRY_URL: &str =
     "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/plugin-registry.json";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
+const SILENT_REFRESH_COOLDOWN: Duration = Duration::from_secs(15);
+pub const OFFICIAL_CATALOG_UPDATED_EVENT: &str = "plugin://official-catalog-updated";
 const BUNDLED_REGISTRY: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../plugins/registry.json"
@@ -48,6 +50,12 @@ pub struct OfficialCatalogPlugin {
     pub installed: bool,
     pub installed_version: Option<String>,
     pub permissions: Vec<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub downloads: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +83,12 @@ struct RegistryPlugin {
     artifact: Option<RegistryArtifact>,
     #[serde(default)]
     permissions: Vec<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+    #[serde(default)]
+    downloads: Option<u64>,
 }
 
 impl Default for PluginDistribution {
@@ -101,8 +115,28 @@ fn bundled_registry() -> RegistryFile {
 }
 
 fn fill_first_party_gaps(registry: &mut RegistryFile) {
+    let seed = bundled_registry();
+    let seed_by_id: HashMap<&str, &RegistryPlugin> =
+        seed.plugins.iter().map(|item| (item.id.as_str(), item)).collect();
+    for plugin in &mut registry.plugins {
+        if let Some(seed_item) = seed_by_id.get(plugin.id.as_str()) {
+            if plugin.created_at.is_none() {
+                plugin.created_at = seed_item.created_at.clone();
+            }
+            if plugin.updated_at.is_none() {
+                plugin.updated_at = seed_item.updated_at.clone();
+            }
+            if plugin.downloads.is_none() {
+                plugin.downloads = seed_item.downloads;
+            }
+        }
+    }
     for manifest in omnipanel_plugin::first_party_manifests() {
         if registry.plugins.iter().any(|item| item.id == manifest.id) {
+            continue;
+        }
+        if let Some(seed_item) = seed_by_id.get(manifest.id.as_str()) {
+            registry.plugins.push((*seed_item).clone());
             continue;
         }
         registry.plugins.push(RegistryPlugin {
@@ -118,6 +152,9 @@ fn fill_first_party_gaps(registry: &mut RegistryFile) {
                 .iter()
                 .map(|p| p.as_str().to_string())
                 .collect(),
+            created_at: None,
+            updated_at: None,
+            downloads: None,
         });
     }
 }
@@ -154,6 +191,9 @@ fn to_catalog_items(
                 installed: installed_version.is_some(),
                 installed_version,
                 permissions: item.permissions.clone(),
+                created_at: item.created_at.clone(),
+                updated_at: item.updated_at.clone(),
+                downloads: item.downloads,
             }
         })
         .collect();
@@ -235,14 +275,60 @@ async fn fetch_registry(client: &reqwest::Client) -> Result<RegistryFile, OmniEr
     Ok(registry)
 }
 
-fn spawn_silent_registry_refresh(client: reqwest::Client, plugins_root: Option<PathBuf>) {
+fn registry_fingerprint(registry: &RegistryFile) -> String {
+    let mut keys: Vec<String> = registry
+        .plugins
+        .iter()
+        .map(|item| format!("{}:{}", item.id, item.version))
+        .collect();
+    keys.sort();
+    keys.join("|")
+}
+
+fn last_network_fetch() -> &'static Mutex<Option<Instant>> {
+    static LAST: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    LAST.get_or_init(|| Mutex::new(None))
+}
+
+fn mark_network_fetched() {
+    if let Ok(mut guard) = last_network_fetch().lock() {
+        *guard = Some(Instant::now());
+    }
+}
+
+fn silent_refresh_allowed() -> bool {
+    match last_network_fetch().lock() {
+        Ok(guard) => match *guard {
+            Some(at) if at.elapsed() < SILENT_REFRESH_COOLDOWN => false,
+            _ => true,
+        },
+        Err(_) => true,
+    }
+}
+
+fn spawn_silent_registry_refresh(
+    client: reqwest::Client,
+    plugins_root: Option<PathBuf>,
+    app: AppHandle,
+) {
     static BUSY: AtomicBool = AtomicBool::new(false);
+    if !silent_refresh_allowed() {
+        return;
+    }
     if BUSY.swap(true, Ordering::SeqCst) {
         return;
     }
     tokio::spawn(async move {
         if let Ok(registry) = fetch_registry(&client).await {
+            mark_network_fetched();
+            let before = load_cached_registry(plugins_root.as_deref())
+                .as_ref()
+                .map(registry_fingerprint);
+            let after = registry_fingerprint(&registry);
             store_cached_registry(plugins_root.as_deref(), &registry);
+            if before.as_deref() != Some(after.as_str()) {
+                let _ = app.emit(OFFICIAL_CATALOG_UPDATED_EVENT, ());
+            }
         }
         BUSY.store(false, Ordering::SeqCst);
     });
@@ -251,17 +337,37 @@ fn spawn_silent_registry_refresh(client: reqwest::Client, plugins_root: Option<P
 async fn registry_for_catalog(
     client: &reqwest::Client,
     plugins_root: Option<&Path>,
+    force: bool,
+    app: &AppHandle,
 ) -> RegistryFile {
-    if let Some(cached) = load_cached_registry(plugins_root) {
-        spawn_silent_registry_refresh(client.clone(), plugins_root.map(Path::to_path_buf));
-        return cached;
+    if !force {
+        if let Some(mut cached) = load_cached_registry(plugins_root) {
+            let before = registry_fingerprint(&cached);
+            fill_first_party_gaps(&mut cached);
+            if registry_fingerprint(&cached) != before {
+                store_cached_registry(plugins_root, &cached);
+            }
+            spawn_silent_registry_refresh(
+                client.clone(),
+                plugins_root.map(Path::to_path_buf),
+                app.clone(),
+            );
+            return cached;
+        }
     }
     match fetch_registry(client).await {
         Ok(fetched) => {
+            mark_network_fetched();
             store_cached_registry(plugins_root, &fetched);
             fetched
         }
-        Err(_) => seed_registry(),
+        Err(_) => {
+            if let Some(mut cached) = load_cached_registry(plugins_root) {
+                fill_first_party_gaps(&mut cached);
+                return cached;
+            }
+            seed_registry()
+        }
     }
 }
 
@@ -272,6 +378,7 @@ async fn registry_for_install(
     match fetch_registry(client).await {
         Ok(fetched) => {
             store_cached_registry(plugins_root, &fetched);
+            mark_network_fetched();
             Ok(fetched)
         }
         Err(error) => load_cached_registry(plugins_root)
@@ -281,13 +388,17 @@ async fn registry_for_install(
 }
 
 /// 列出官方插件（内置 bundled + 可下载包）。远程失败回退仓库种子。
+/// `force` 为 true 时等网络（市场「刷新」）；否则先返回缓存，后台静默拉新。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_official_catalog(
+    app: AppHandle,
     state: State<'_, AppState>,
+    force: bool,
 ) -> Result<Vec<OfficialCatalogPlugin>, OmniError> {
     let plugins_root = state.plugin_packages_dir.clone();
-    let registry = registry_for_catalog(&state.plugin_http, plugins_root.as_deref()).await;
+    let registry =
+        registry_for_catalog(&state.plugin_http, plugins_root.as_deref(), force, &app).await;
     let installed = {
         let guard = state.plugin_registry.lock().await;
         guard

@@ -30,6 +30,9 @@ function driver(partial: Partial<DbxCatalogDriver> & Pick<DbxCatalogDriver, "key
     installed: false,
     installedVersion: null,
     ...partial,
+    createdAt: partial.createdAt ?? null,
+    updatedAt: partial.updatedAt ?? null,
+    downloads: partial.downloads ?? null,
   };
 }
 

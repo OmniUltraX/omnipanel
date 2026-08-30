@@ -30,7 +30,9 @@ export function sameDbxCatalog(
       left.installed !== right.installed ||
       left.version !== right.version ||
       left.installedVersion !== right.installedVersion ||
-      left.label !== right.label
+      left.label !== right.label ||
+      left.downloads !== right.downloads ||
+      left.updatedAt !== right.updatedAt
     ) {
       return false;
     }

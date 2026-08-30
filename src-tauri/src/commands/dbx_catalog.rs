@@ -8,7 +8,7 @@ use std::sync::{
     Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_plugin::{PluginKind, PluginListItem};
@@ -23,7 +23,11 @@ use crate::state::AppState;
 
 const REGISTRY_URL: &str =
     "https://github.com/t8y2/dbx/releases/download/agents-latest/agent-registry.json";
+const GITHUB_RELEASE_API: &str =
+    "https://api.github.com/repos/t8y2/dbx/releases/tags/agents-latest";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
+const GITHUB_STATS_TIMEOUT: Duration = Duration::from_secs(8);
+const GITHUB_STATS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
 const WORKER_PROTOCOL: &[&str] = &["duckdb"];
 const QUEUE_OR_KV: &[&str] = &["kafka", "etcd", "rabbitmq", "rocketmq", "zookeeper"];
@@ -40,6 +44,12 @@ pub struct DbxCatalogDriver {
     pub artifact_kind: String,
     pub installed: bool,
     pub installed_version: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub downloads: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +90,36 @@ struct Artifact {
     sha256: String,
     #[serde(default)]
     size: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct GithubReleaseStats {
+    published_at: Option<String>,
+    downloads_by_url: HashMap<String, u64>,
+    downloads_by_name: HashMap<String, u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubReleaseDto {
+    published_at: Option<String>,
+    #[serde(default)]
+    assets: Vec<GithubAssetDto>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubAssetDto {
+    name: String,
+    download_count: u64,
+    #[serde(default)]
+    browser_download_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GithubStatsCache {
+    fetched_at_ms: u64,
+    published_at: Option<String>,
+    downloads_by_url: HashMap<String, u64>,
+    downloads_by_name: HashMap<String, u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,10 +256,36 @@ fn pick_artifact<'a>(
     }
 }
 
+fn artifact_file_name(url: &str) -> Option<&str> {
+    let bare = url.split('?').next().unwrap_or(url);
+    let name = bare.rsplit('/').next()?;
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn downloads_for(artifact: &Artifact, stats: &GithubReleaseStats) -> Option<u64> {
+    let url = artifact.url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    if let Some(count) = stats.downloads_by_url.get(url) {
+        return Some(*count);
+    }
+    let bare = url.split('?').next().unwrap_or(url);
+    if let Some(count) = stats.downloads_by_url.get(bare) {
+        return Some(*count);
+    }
+    artifact_file_name(bare).and_then(|name| stats.downloads_by_name.get(name).copied())
+}
+
 fn parse_installable(
     registry: &RegistryFile,
     platform: &str,
     installed: &HashMap<String, String>,
+    stats: &GithubReleaseStats,
 ) -> Vec<DbxCatalogDriver> {
     let reserved = reserved_engine_keys();
     let mut out = Vec::new();
@@ -247,10 +313,138 @@ fn parse_installable(
             artifact_kind: kind.as_str().to_string(),
             installed: installed_version.is_some(),
             installed_version,
+            created_at: None,
+            updated_at: stats.published_at.clone(),
+            downloads: downloads_for(artifact, stats),
         });
     }
     out.sort_by(|a, b| a.label.cmp(&b.label).then(a.key.cmp(&b.key)));
     out
+}
+
+fn github_stats_memory() -> &'static Mutex<Option<(Instant, GithubReleaseStats)>> {
+    static CACHE: OnceLock<Mutex<Option<(Instant, GithubReleaseStats)>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn github_stats_cache_path(plugins_root: Option<&Path>) -> Option<PathBuf> {
+    Some(plugins_root?.join(".dbx-github-stats.json"))
+}
+
+fn load_github_stats_disk(path: &Path) -> Option<GithubReleaseStats> {
+    let text = fs::read_to_string(path).ok()?;
+    let cache: GithubStatsCache = serde_json::from_str(&text).ok()?;
+    Some(GithubReleaseStats {
+        published_at: cache.published_at,
+        downloads_by_url: cache.downloads_by_url,
+        downloads_by_name: cache.downloads_by_name,
+    })
+}
+
+fn store_github_stats_disk(path: &Path, stats: &GithubReleaseStats) {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let cache = GithubStatsCache {
+        fetched_at_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+        published_at: stats.published_at.clone(),
+        downloads_by_url: stats.downloads_by_url.clone(),
+        downloads_by_name: stats.downloads_by_name.clone(),
+    };
+    if let Ok(text) = serde_json::to_string(&cache) {
+        let _ = fs::write(path, text);
+    }
+}
+
+fn store_github_stats_memory(stats: GithubReleaseStats) {
+    if let Ok(mut guard) = github_stats_memory().lock() {
+        *guard = Some((Instant::now(), stats));
+    }
+}
+
+fn load_cached_github_stats(plugins_root: Option<&Path>) -> Option<GithubReleaseStats> {
+    if let Ok(guard) = github_stats_memory().lock() {
+        if let Some((at, stats)) = guard.as_ref() {
+            if at.elapsed() < GITHUB_STATS_TTL {
+                return Some(stats.clone());
+            }
+        }
+    }
+    let path = github_stats_cache_path(plugins_root)?;
+    let disk = load_github_stats_disk(&path)?;
+    store_github_stats_memory(disk.clone());
+    Some(disk)
+}
+
+async fn fetch_github_release_stats(client: &reqwest::Client) -> Option<GithubReleaseStats> {
+    let response = client
+        .get(GITHUB_RELEASE_API)
+        .header("User-Agent", "OmniPanel-dbx-catalog")
+        .header("Accept", "application/vnd.github+json")
+        .timeout(GITHUB_STATS_TIMEOUT)
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let dto: GithubReleaseDto = response.json().await.ok()?;
+    let mut stats = GithubReleaseStats {
+        published_at: dto.published_at,
+        downloads_by_url: HashMap::new(),
+        downloads_by_name: HashMap::new(),
+    };
+    for asset in dto.assets {
+        stats
+            .downloads_by_name
+            .insert(asset.name.clone(), asset.download_count);
+        let url = asset.browser_download_url.trim();
+        if !url.is_empty() {
+            stats
+                .downloads_by_url
+                .insert(url.to_string(), asset.download_count);
+        }
+    }
+    Some(stats)
+}
+
+fn spawn_silent_github_stats_refresh(client: reqwest::Client, plugins_root: Option<PathBuf>) {
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    tokio::spawn(async move {
+        if let Some(stats) = fetch_github_release_stats(&client).await {
+            store_github_stats_memory(stats.clone());
+            if let Some(path) = github_stats_cache_path(plugins_root.as_deref()) {
+                store_github_stats_disk(&path, &stats);
+            }
+        }
+        BUSY.store(false, Ordering::SeqCst);
+    });
+}
+
+async fn github_stats_for_catalog(
+    client: &reqwest::Client,
+    plugins_root: Option<&Path>,
+) -> GithubReleaseStats {
+    if let Some(cached) = load_cached_github_stats(plugins_root) {
+        spawn_silent_github_stats_refresh(client.clone(), plugins_root.map(Path::to_path_buf));
+        return cached;
+    }
+    match fetch_github_release_stats(client).await {
+        Some(fetched) => {
+            store_github_stats_memory(fetched.clone());
+            if let Some(path) = github_stats_cache_path(plugins_root) {
+                store_github_stats_disk(&path, &fetched);
+            }
+            fetched
+        }
+        None => GithubReleaseStats::default(),
+    }
 }
 
 async fn fetch_registry(client: &reqwest::Client) -> Result<RegistryFile, OmniError> {
@@ -367,7 +561,10 @@ pub async fn plugin_dbx_catalog(
     state: State<'_, AppState>,
 ) -> Result<Vec<DbxCatalogDriver>, OmniError> {
     let plugins_root = state.plugin_packages_dir.clone();
-    let registry = registry_for_catalog(&state.plugin_http, plugins_root.as_deref()).await?;
+    let registry_fut = registry_for_catalog(&state.plugin_http, plugins_root.as_deref());
+    let stats_fut = github_stats_for_catalog(&state.plugin_http, plugins_root.as_deref());
+    let (registry, stats) = tokio::join!(registry_fut, stats_fut);
+    let registry = registry?;
     let installed = {
         let registry_guard = state.plugin_registry.lock().await;
         registry_guard
@@ -381,6 +578,7 @@ pub async fn plugin_dbx_catalog(
         &registry,
         &current_platform(),
         &installed,
+        &stats,
     ))
 }
 
@@ -1070,7 +1268,12 @@ mod tests {
             }
         }))
         .unwrap();
-        let list = parse_installable(&registry, "windows-x64", &HashMap::new());
+        let list = parse_installable(
+            &registry,
+            "windows-x64",
+            &HashMap::new(),
+            &GithubReleaseStats::default(),
+        );
         let keys: Vec<_> = list.iter().map(|d| d.key.as_str()).collect();
         assert!(keys.contains(&"oracle"));
         assert!(keys.contains(&"dameng"));
@@ -1084,6 +1287,38 @@ mod tests {
         let dameng = list.iter().find(|d| d.key == "dameng").unwrap();
         assert_eq!(dameng.artifact_kind, "jar");
         assert_eq!(dameng.plugin_id, "omni.engine.dameng");
+        assert!(dameng.downloads.is_none());
+    }
+
+    #[test]
+    fn github_asset_download_count_matches_url_or_name() {
+        let mut stats = GithubReleaseStats::default();
+        stats.published_at = Some("2026-03-01T00:00:00Z".into());
+        stats
+            .downloads_by_url
+            .insert("https://example/dameng.jar".into(), 42);
+        stats.downloads_by_name.insert("neo4j".into(), 9);
+        let registry: RegistryFile = serde_json::from_value(json!({
+            "drivers": {
+                "dameng": {
+                    "version": "0.1.56",
+                    "label": "达梦 DM8",
+                    "jar": { "url": "https://example/dameng.jar", "size": 4000 }
+                },
+                "neo4j": {
+                    "version": "0.1.56",
+                    "label": "Neo4j",
+                    "native": { "windows-x64": { "url": "https://cdn.example/neo4j", "size": 8 } }
+                }
+            }
+        }))
+        .unwrap();
+        let list = parse_installable(&registry, "windows-x64", &HashMap::new(), &stats);
+        let dameng = list.iter().find(|d| d.key == "dameng").unwrap();
+        assert_eq!(dameng.downloads, Some(42));
+        assert_eq!(dameng.updated_at.as_deref(), Some("2026-03-01T00:00:00Z"));
+        let neo4j = list.iter().find(|d| d.key == "neo4j").unwrap();
+        assert_eq!(neo4j.downloads, Some(9));
     }
 
     #[test]

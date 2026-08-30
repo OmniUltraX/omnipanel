@@ -3,6 +3,7 @@
  * 从 plugins 目录下各 plugin.json 生成官方目录种子 plugins/registry.json。
  * 第一方均为 bundled（随客户端安装）；download 条目可手工追加。
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,6 +79,36 @@ const META = {
   },
 };
 
+function gitIso(args) {
+  try {
+    const out = execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 用 plugin.json 的首次提交作创建时间、最近提交作更新时间。 */
+function fileDates(relPath) {
+  const updatedAt = gitIso(["log", "-1", "--format=%cI", "--", relPath]);
+  const createdLog = gitIso([
+    "log",
+    "--diff-filter=A",
+    "--follow",
+    "--format=%cI",
+    "--",
+    relPath,
+  ]);
+  const createdAt = createdLog
+    ? createdLog.split(/\r?\n/).filter(Boolean).at(-1)
+    : updatedAt;
+  return { createdAt: createdAt || undefined, updatedAt: updatedAt || undefined };
+}
+
 const dirs = fs
   .readdirSync(pluginsDir, { withFileTypes: true })
   .filter((d) => d.isDirectory())
@@ -90,6 +121,7 @@ for (const dir of dirs) {
   if (!fs.existsSync(file)) continue;
   const raw = JSON.parse(fs.readFileSync(file, "utf8"));
   const meta = META[raw.id] ?? { name: raw.id, description: "" };
+  const dates = fileDates(path.posix.join("plugins", dir, "plugin.json"));
   plugins.push({
     id: raw.id,
     kind: raw.kind,
@@ -98,6 +130,7 @@ for (const dir of dirs) {
     version: raw.version,
     distribution: "bundled",
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
+    ...dates,
   });
 }
 

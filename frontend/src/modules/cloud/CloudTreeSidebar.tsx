@@ -369,6 +369,7 @@ export function CloudTreeSidebar({
                           onChange={onSelectedRegionsChange}
                           emptyMeansAll
                           searchable
+                          panelMinWidth={280}
                           aria-label={t("cloud.filter.allRegions")}
                           placeholder={t("cloud.filter.allRegions")}
                           formatDisplayLabel={(labels, all) =>
