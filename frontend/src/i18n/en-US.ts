@@ -8116,7 +8116,8 @@ export const enUS: TranslationDict = {
       lastLogin: "Last sign-in",
       meta: {
         os: "OS",
-        ip: "IP",
+        ip: "Host IP",
+        tailscaleIp: "Private IP",
         app: "App",
         status: "Status",
       },
