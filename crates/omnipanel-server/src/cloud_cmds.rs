@@ -311,14 +311,25 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn require_prod_confirm(conn: &Connection, action: &CloudAction) -> Result<(), OmniError> {
+fn require_write_presence(
+    state: &ServerState,
+    connection_id: &str,
+    action: &CloudAction,
+) -> Result<(), OmniError> {
     if !is_write_action(&action.name) {
         return Ok(());
     }
-    if conn.env_tag.trim().eq_ignore_ascii_case("prod") && !action.confirmed {
-        return Err(OmniError::invalid_input("生产环境写操作需要确认"));
-    }
-    Ok(())
+    let target = omnipanel_presence::pipe_target(&[
+        connection_id,
+        &action.resource_id,
+        &action.name,
+    ]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        action.presence_token.as_deref(),
+        omnipanel_presence::ACTION_CLOUD_LIFECYCLE,
+        &target,
+    )
 }
 
 fn audit_cloud_action(
@@ -397,7 +408,7 @@ pub async fn cloud_invoke_action(
         access_key_secret: String::new(),
     });
     let plugin_id = plugin_id_of(&cfg).unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
-    if let Err(err) = require_prod_confirm(&conn, &action) {
+    if let Err(err) = require_write_presence(state, &connection_id, &action) {
         audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "blocked");
         return Err(err);
     }

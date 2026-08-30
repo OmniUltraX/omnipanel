@@ -9,7 +9,6 @@ import { commands, type CloudResourceRow } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { showToast } from "../../stores/toastStore";
-import { appConfirm } from "../../lib/appConfirm";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { capabilityI18nKey, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
 import { cloudCapabilityById, isGlobalCloudCapability } from "./cloudCapabilities";
@@ -88,11 +87,16 @@ export function CloudResourceListPanel({
 
   const invokePluginAction = useCallback(
     async (row: CloudResourceRow, action: string) => {
-      const isProd = account.envTag.trim().toLowerCase() === "prod";
-      if (isProd) {
-        const ok = await appConfirm(t("cloud.actions.confirmProd", { action: t(`cloud.actions.${action}`) }));
-        if (!ok) return;
-      }
+      const { ACTION_CLOUD_LIFECYCLE, pipeTarget } = await import("../../lib/presenceTargets");
+      const { requireStepUp } = await import("../../lib/stepUp");
+      const token = await requireStepUp({
+        action: ACTION_CLOUD_LIFECYCLE,
+        target: pipeTarget(account.id, row.id, action),
+        title: t(`cloud.actions.${action}`),
+        message: t("cloud.actions.confirmProd", { action: t(`cloud.actions.${action}`) }),
+        reason: action,
+      });
+      if (!token) return;
       setBusyId(row.id);
       try {
         await unwrapCommand(
@@ -101,7 +105,7 @@ export function CloudResourceListPanel({
             resourceId: row.id,
             capability,
             regionId: row.regionId,
-            confirmed: isProd,
+            presenceToken: token,
           }),
         );
         showToast(t("cloud.actions.submitted", { action: t(`cloud.actions.${action}`) }));

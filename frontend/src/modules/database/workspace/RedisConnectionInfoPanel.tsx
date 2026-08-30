@@ -54,8 +54,6 @@ import {
   RedisReplicationPanel,
 } from "./RedisConnectionOpsPanels";
 import { RedisOverviewCards } from "../redis/RedisOverviewCards";
-import { RedisOpsDangerDialog } from "../redis/RedisOpsDangerDialog";
-
 type ConnectionInfoSubTab =
   | "overview"
   | "databases"
@@ -336,8 +334,6 @@ export function RedisConnectionInfoPanel({
   const [overviewInfo, setOverviewInfo] = useState<RedisInfoResult | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
-  const [flushDbOpen, setFlushDbOpen] = useState(false);
-  const [killOpen, setKillOpen] = useState(false);
   const clientsTabEnteredRef = useRef(false);
   const configTabEnteredRef = useRef(false);
   const databasesTabEnteredRef = useRef(false);
@@ -903,7 +899,13 @@ export function RedisConnectionInfoPanel({
     return (
       <>
         <div className="redis-conn-toolbar">
-          <Button variant="ghost" size="sm" onClick={() => setFlushDbOpen(true)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              void redisFlushDb(connection).then(() => refreshDatabases());
+            }}
+          >
             FLUSHDB
           </Button>
         </div>
@@ -975,7 +977,10 @@ export function RedisConnectionInfoPanel({
             variant="ghost"
             size="sm"
             disabled={!selectedClientAddr}
-            onClick={() => setKillOpen(true)}
+            onClick={() => {
+              if (!selectedClientAddr) return;
+              void redisClientKill(connection, selectedClientAddr).then(() => refreshClients());
+            }}
           >
             {t("database.redisOps.killClient")}
           </Button>
@@ -1309,33 +1314,6 @@ export function RedisConnectionInfoPanel({
         logSubtitle={serviceLogSubtitle}
         connectionLabel={connectionLabel}
         onClose={closeServiceLog}
-      />
-      <RedisOpsDangerDialog
-        open={flushDbOpen}
-        title="FLUSHDB"
-        description={t("database.redisOps.flushDbDesc")}
-        command="FLUSHDB ASYNC"
-        confirmPhrase="FLUSHDB"
-        onCancel={() => setFlushDbOpen(false)}
-        onConfirm={() => {
-          setFlushDbOpen(false);
-          void redisFlushDb(connection).then(() => refreshDatabases());
-        }}
-      />
-      <RedisOpsDangerDialog
-        open={killOpen}
-        title={t("database.redisOps.killClient")}
-        description={t("database.redisOps.killClientDesc")}
-        command={`CLIENT KILL ADDR ${selectedClientAddr ?? ""}`}
-        confirmPhrase={selectedClientAddr ?? "KILL"}
-        onCancel={() => setKillOpen(false)}
-        onConfirm={() => {
-          setKillOpen(false);
-          if (!selectedClientAddr) {
-            return;
-          }
-          void redisClientKill(connection, selectedClientAddr).then(() => refreshClients());
-        }}
       />
     </>
   );

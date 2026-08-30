@@ -136,7 +136,7 @@ export const commands = {
 	/**  Redis `CLIENT LIST`：返回客户端连接列表。 */
 	dbRedisClientList: (connection: DbConnectionConfig) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_redis_client_list", { connection })),
 	/**  Redis `CLIENT KILL ADDR <ip:port>`：终止指定客户端连接，返回被杀掉的客户端数量。 */
-	dbRedisClientKill: (connection: DbConnectionConfig, addr: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_client_kill", { connection, addr })),
+	dbRedisClientKill: (connection: DbConnectionConfig, addr: string, presenceToken: string | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_client_kill", { connection, addr, presenceToken })),
 	/**  Redis 键搜索：SCAN + 类型过滤 + 值预览。 */
 	dbRedisSearchKeys: (args: RedisSearchKeysArgs) => typedError<RedisSearchKeysResult_Serialize, string>(__TAURI_INVOKE("db_redis_search_keys", { args })),
 	/**  Redis `DBSIZE`：当前逻辑库 key 总数。 */
@@ -162,9 +162,9 @@ export const commands = {
 	/**  Redis `CONFIG REWRITE`。 */
 	dbRedisConfigRewrite: (connection: DbConnectionConfig) => typedError<null, string>(__TAURI_INVOKE("db_redis_config_rewrite", { connection })),
 	/**  Redis `FLUSHDB`。 */
-	dbRedisFlushDb: (connection: DbConnectionConfig, async: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_db", { connection, async })),
+	dbRedisFlushDb: (connection: DbConnectionConfig, async: boolean | null, presenceToken: string | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_db", { connection, async, presenceToken })),
 	/**  Redis `FLUSHALL`。 */
-	dbRedisFlushAll: (connection: DbConnectionConfig, async: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_all", { connection, async })),
+	dbRedisFlushAll: (connection: DbConnectionConfig, async: boolean | null, presenceToken: string | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_all", { connection, async, presenceToken })),
 	/**  Redis Stream 范围查询。 */
 	dbRedisStreamRange: (connection: DbConnectionConfig, key: string, start: string | null, end: string | null, count: number | null, reverse: boolean | null) => typedError<RedisStreamRangeResult, string>(__TAURI_INVOKE("db_redis_stream_range", { connection, key, start, end, count, reverse })),
 	/**  Redis `XINFO GROUPS`。 */
@@ -292,15 +292,15 @@ export const commands = {
 	 *  通用 1Panel API 请求（由 Rust 后端发起，避免 WebView CORS）。
 	 *  `body` 为 JSON 字符串；返回 JSON 字符串。
 	 */
-	panel1panelRequest: (host: string, apiKey: string, method: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request", { host, apiKey, method, path, body })),
+	panel1panelRequest: (host: string, apiKey: string, method: string, path: string, body: string | null, presenceToken: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request", { host, apiKey, method, path, body, presenceToken })),
 	/**  1Panel 连通性测试。 */
 	panel1panelTestConnection: (host: string, apiKey: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_test_connection", { host, apiKey })),
 	/**  获取 1Panel 应用图标（GET /apps/icon/:key），返回 data URL 或绝对 URL。 */
 	panel1panelAppIcon: (host: string, apiKey: string, appKey: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_app_icon", { host, apiKey, appKey })),
 	/**  1Panel 原始文本请求（用于日志下载等）。 */
-	panel1panelRequestText: (host: string, apiKey: string, method: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request_text", { host, apiKey, method, path, body })),
+	panel1panelRequestText: (host: string, apiKey: string, method: string, path: string, body: string | null, presenceToken: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request_text", { host, apiKey, method, path, body, presenceToken })),
 	/**  1Panel 二进制请求（证书 zip 等）。返回 Base64，避免 IPC 损坏。 */
-	panel1panelRequestBytes: (host: string, apiKey: string, method: string, path: string, body: string | null) => typedError<OnePanelBinaryPayload, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request_bytes", { host, apiKey, method, path, body })),
+	panel1panelRequestBytes: (host: string, apiKey: string, method: string, path: string, body: string | null, presenceToken: string | null) => typedError<OnePanelBinaryPayload, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request_bytes", { host, apiKey, method, path, body, presenceToken })),
 	/**
 	 *  1Panel 文件上传（multipart：/files/upload 或分块 /files/chunkupload）。
 	 *  `content_base64` 为文件内容 Base64；`path` 为目标目录。
@@ -310,12 +310,12 @@ export const commands = {
 	 *  通用宝塔面板 API 请求（POST + 表单签名，由 Rust 后端发起并维护 Cookie）。
 	 *  `path` 含 query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串。
 	 */
-	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body })),
+	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null, presenceToken: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body, presenceToken })),
 	/**
 	 *  通用宝塔面板 GET 请求（query 签名，用于官方标注为 GET 的接口）。
 	 *  `query` 为额外 query 字段的 JSON 对象字符串。
 	 */
-	panelBtRequestGet: (host: string, apiSk: string, path: string, query: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request_get", { host, apiSk, path, query })),
+	panelBtRequestGet: (host: string, apiSk: string, path: string, query: string | null, presenceToken: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request_get", { host, apiSk, path, query, presenceToken })),
 	/**
 	 *  获取宝塔应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。
 	 *  `icon_file` 可选，软件商店一般为 `ico-xxx.png`；为空时按 app_name 推断 Docker/软件路径。
@@ -358,7 +358,7 @@ export const commands = {
 	/**  写入 Docker daemon.json 配置。 */
 	dockerWriteDaemonConfig: (connectionId: string, content: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_write_daemon_config", { connectionId, content })),
 	/**  重启 Docker 守护进程 / 服务。 */
-	dockerRestartDaemon: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_restart_daemon", { connectionId })),
+	dockerRestartDaemon: (connectionId: string, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_restart_daemon", { connectionId, presenceToken })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerGetSystemDiskUsage: (connectionId: string) => typedError<DockerSystemDiskUsage, OmniError_Serialize>(__TAURI_INVOKE("docker_get_system_disk_usage", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
@@ -368,7 +368,7 @@ export const commands = {
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerInspectContainer: (connectionId: string, containerId: string) => typedError<DockerContainerDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_container", { connectionId, containerId })),
 	/**  卷详情（`docker volume inspect`）。 */
-	dockerContainerAction: (connectionId: string, containerId: string, action: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_container_action", { connectionId, containerId, action })),
+	dockerContainerAction: (connectionId: string, containerId: string, action: string, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_container_action", { connectionId, containerId, action, presenceToken })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerContainerLogs: (connectionId: string, containerId: string, tail: number, since: string | null) => typedError<DockerLogLine[], OmniError_Serialize>(__TAURI_INVOKE("docker_container_logs", { connectionId, containerId, tail, since })),
 	/**  清空容器日志文件。 */
@@ -382,7 +382,7 @@ export const commands = {
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerListImages: (connectionId: string) => typedError<DockerImageSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_images", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
-	dockerRemoveImage: (connectionId: string, imageId: string, force: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_image", { connectionId, imageId, force })),
+	dockerRemoveImage: (connectionId: string, imageId: string, force: boolean, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_image", { connectionId, imageId, force, presenceToken })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerPruneImages: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_images", { connectionId })),
 	/**  搜索镜像仓库（`docker search`）。 */
@@ -422,12 +422,12 @@ export const commands = {
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerListComposeProjects: (connectionId: string) => typedError<DockerComposeProject[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_compose_projects", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
-	dockerComposeAction: (connectionId: string, action: DockerComposeAction, request: DockerComposeRequest) => typedError<DockerComposeResult, OmniError_Serialize>(__TAURI_INVOKE("docker_compose_action", { connectionId, action, request })),
+	dockerComposeAction: (connectionId: string, action: DockerComposeAction, request: DockerComposeRequest, presenceToken: string | null) => typedError<DockerComposeResult, OmniError_Serialize>(__TAURI_INVOKE("docker_compose_action", { connectionId, action, request, presenceToken })),
 	dockerReadComposeFiles: (connectionId: string, request: DockerComposeReadFilesRequest) => typedError<DockerComposeProjectFiles, OmniError_Serialize>(__TAURI_INVOKE("docker_read_compose_files", { connectionId, request })),
 	dockerWriteComposeFiles: (connectionId: string, request: DockerComposeWriteFilesRequest) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_write_compose_files", { connectionId, request })),
 	dockerListNetworks: (connectionId: string) => typedError<DockerNetworkSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_networks", { connectionId })),
 	dockerCreateNetwork: (connectionId: string, request: DockerCreateNetworkRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_network", { connectionId, request })),
-	dockerRemoveNetwork: (connectionId: string, name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_network", { connectionId, name })),
+	dockerRemoveNetwork: (connectionId: string, name: string, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_network", { connectionId, name, presenceToken })),
 	/**  清理未使用网络。 */
 	dockerPruneNetworks: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_networks", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
@@ -440,7 +440,7 @@ export const commands = {
 	dockerRemoveSidebarCache: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_sidebar_cache", { connectionId })),
 	dockerListSidebarCachePage: (connectionId: string, category: string, offset: number, limit: number) => typedError<DockerSidebarCachePage_Serialize, OmniError_Serialize>(__TAURI_INVOKE("docker_list_sidebar_cache_page", { connectionId, category, offset, limit })),
 	dockerCreateVolume: (connectionId: string, request: DockerCreateVolumeRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_volume", { connectionId, request })),
-	dockerRemoveVolume: (connectionId: string, name: string, force: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_volume", { connectionId, name, force })),
+	dockerRemoveVolume: (connectionId: string, name: string, force: boolean, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_volume", { connectionId, name, force, presenceToken })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerInspectVolume: (connectionId: string, name: string) => typedError<DockerVolumeDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_volume", { connectionId, name })),
 	dockerPruneVolumes: (connectionId: string) => typedError<DockerPruneVolumesResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_volumes", { connectionId })),
@@ -678,8 +678,8 @@ export const commands = {
 	/**  按 PID 深入查询远程进程详情（启动命令、cwd、exe、root、打开文件）。 */
 	sshPoolProcessDetail: (resourceId: string, pid: number) => typedError<SshProcessDetail_Serialize, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_process_detail", { resourceId, pid })),
 	/**  强制终止远程进程（默认 SIGKILL）。 */
-	sshPoolKillProcess: (resourceId: string, pid: number, signal: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_kill_process", { resourceId, pid, signal })),
-	sshPoolExecCommand: (resourceId: string, command: string) => typedError<SshExecOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_exec_command", { resourceId, command })),
+	sshPoolKillProcess: (resourceId: string, pid: number, signal: number | null, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_kill_process", { resourceId, pid, signal, presenceToken })),
+	sshPoolExecCommand: (resourceId: string, command: string, presenceToken: string | null) => typedError<SshExecOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_exec_command", { resourceId, command, presenceToken })),
 	sshPoolCreateRunScript: (resourceId: string, name: string, content: string, args: string[] | null, timeoutSecs: number | null) => typedError<SshCreateRunScriptOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_create_run_script", { resourceId, name, content, args, timeoutSecs })),
 	/**  对所有 SSH 主机重新进行端口可达性探测。 */
 	sshPoolProbeAll: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_all")),
@@ -793,7 +793,7 @@ export const commands = {
 	/**  重命名文件/目录。 */
 	fileRename: (connectionId: string, oldPath: string, newPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_rename", { connectionId, oldPath, newPath })),
 	/**  删除文件/目录。 */
-	fileDelete: (connectionId: string, path: string, entryKind: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_delete", { connectionId, path, entryKind })),
+	fileDelete: (connectionId: string, path: string, entryKind: string | null, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_delete", { connectionId, path, entryKind, presenceToken })),
 	/**  本机常用目录快捷路径。 */
 	fileLocalQuickPaths: () => typedError<FileQuickPaths, OmniError_Serialize>(__TAURI_INVOKE("file_local_quick_paths")),
 	/**  本机文件系统平台信息与卷/盘符列表。 */
@@ -1048,7 +1048,7 @@ export const commands = {
 	 */
 	discoveryRun: (probeId: string, scope: DiscoveryScope) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("discovery_run", { probeId, scope })),
 	/**  prod 确认回传：前端弹窗结果 → 唤醒等待中的桥调用。 */
-	pluginConfirmResolve: (requestId: string, allow: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_confirm_resolve", { requestId, allow })),
+	pluginConfirmResolve: (requestId: string, allow: boolean, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_confirm_resolve", { requestId, allow, presenceToken })),
 	/**  读取插件包内资产（L3 沙箱 UI / 首页图标）。仅限包目录或第一方嵌入、允许扩展、≤512KB。 */
 	pluginReadAsset: (pluginId: string, relPath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_read_asset", { pluginId, relPath })),
 	/**  沙箱 UI 专用的受限网络访问：与 L2 桥同源权限闸 + prod 确认。 */
@@ -1075,7 +1075,7 @@ export const commands = {
 	/**  安装金仓 / Vastbase / UXDB / OceanBase 等；目录无包则记原因，不阻断其余项。 */
 	pluginDbxInstallCatalogEngines: () => typedError<DbxInstallAttempt[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install_catalog_engines")),
 	/**  列出官方插件（内置 bundled + 可下载包）。远程失败回退仓库种子。 */
-	pluginOfficialCatalog: () => typedError<OfficialCatalogPlugin[], OmniError_Serialize>(__TAURI_INVOKE("plugin_official_catalog")),
+	pluginOfficialCatalog: (force: boolean) => typedError<OfficialCatalogPlugin[], OmniError_Serialize>(__TAURI_INVOKE("plugin_official_catalog", { force })),
 	/**  从官方目录下载 `.omni-plugin` 并安装。bundled 条目拒绝下载。 */
 	pluginOfficialInstall: (pluginId: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_official_install", { pluginId })),
 	/**  列出任务，可选按状态过滤。 */
@@ -2243,8 +2243,9 @@ export type CloudAction = {
 	resourceId?: string,
 	capability?: string,
 	regionId?: string,
-	/**  生产环境写操作必须为 true；取消确认不得打 API。 */
+	/**  已废弃：写操作改走 presenceToken。 */
 	confirmed?: boolean,
+	presenceToken?: string | null,
 };
 
 export type CloudActionResult = {
@@ -2713,6 +2714,9 @@ export type DbxCatalogDriver = {
 	artifactKind: string,
 	installed: boolean,
 	installedVersion: string | null,
+	createdAt: string | null,
+	updatedAt: string | null,
+	downloads: number | null,
 };
 
 export type DbxInstallAttempt = {
@@ -4327,6 +4331,9 @@ export type OfficialCatalogPlugin = {
 	installed: boolean,
 	installedVersion: string | null,
 	permissions: string[],
+	createdAt: string | null,
+	updatedAt: string | null,
+	downloads: number | null,
 };
 
 /**  Ollama 探测结果。 */

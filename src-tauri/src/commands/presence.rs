@@ -96,6 +96,15 @@ pub async fn presence_issue_typed(
     state.presence_tokens.issue(&action, &target)
 }
 
+pub(crate) fn consume_grant(
+    state: &crate::state::AppState,
+    token: Option<&str>,
+    action: &str,
+    target: &str,
+) -> Result<(), OmniError> {
+    omnipanel_presence::require_grant(&state.presence_tokens, token, action, target)
+}
+
 #[cfg(test)]
 mod tests {
     use omnipanel_presence::{ACTION_DB_RESTART, TokenStore, expected_typed};

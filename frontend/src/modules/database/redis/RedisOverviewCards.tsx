@@ -1,8 +1,6 @@
-import { useState } from "react";
 import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/primitives/Button";
 import { redisFlushAll } from "../api";
-import { RedisOpsDangerDialog } from "../redis/RedisOpsDangerDialog";
 import type { DbConnectionConfig } from "../api";
 import { formatBytesLabel, formatUptime, hitRate, infoValue } from "../redis/redisInfoHelpers";
 import type { RedisInfoResult } from "../api";
@@ -23,7 +21,6 @@ export function RedisOverviewCards({
   onRefresh,
 }: RedisOverviewPanelProps) {
   const { t } = useI18n();
-  const [flushOpen, setFlushOpen] = useState(false);
 
   const cards = [
     {
@@ -55,7 +52,13 @@ export function RedisOverviewCards({
         <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading}>
           {t("common.refresh")}
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setFlushOpen(true)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            void redisFlushAll(connection).then(() => onRefresh());
+          }}
+        >
           FLUSHALL
         </Button>
       </div>
@@ -68,18 +71,6 @@ export function RedisOverviewCards({
           </div>
         ))}
       </div>
-      <RedisOpsDangerDialog
-        open={flushOpen}
-        title="FLUSHALL"
-        description={t("database.redisOps.flushAllDesc")}
-        command="FLUSHALL ASYNC"
-        confirmPhrase="FLUSHALL"
-        onCancel={() => setFlushOpen(false)}
-        onConfirm={() => {
-          setFlushOpen(false);
-          void redisFlushAll(connection).then(() => onRefresh());
-        }}
-      />
     </div>
   );
 }

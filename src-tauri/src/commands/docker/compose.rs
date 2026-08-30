@@ -47,7 +47,20 @@ pub async fn docker_compose_action(
     connection_id: String,
     action: DockerComposeAction,
     request: DockerComposeRequest,
+    presence_token: Option<String>,
 ) -> Result<DockerComposeResult, OmniError> {
+    if matches!(
+        action,
+        DockerComposeAction::Down | DockerComposeAction::Rebuild
+    ) {
+        let target = omnipanel_presence::pipe_target(&[&connection_id, &request.project]);
+        omnipanel_presence::require_grant(
+            &state.presence_tokens,
+            presence_token.as_deref(),
+            omnipanel_presence::ACTION_DOCKER_COMPOSE_DOWN,
+            &target,
+        )?;
+    }
     resolve_adapter(&state, &connection_id)
         .await?
         .compose_action(action, &request)

@@ -34,7 +34,15 @@ pub async fn docker_remove_network(
     state: State<'_, AppState>,
     connection_id: String,
     name: String,
+    presence_token: Option<String>,
 ) -> Result<(), OmniError> {
+    let target = omnipanel_presence::pipe_target(&[&connection_id, &name]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        presence_token.as_deref(),
+        omnipanel_presence::ACTION_DOCKER_NETWORK_REMOVE,
+        &target,
+    )?;
     resolve_adapter(&state, &connection_id)
         .await?
         .remove_network(&name)

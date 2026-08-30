@@ -6,7 +6,7 @@
 
 ### 新增
 
-- **安全 · 在场验证**：重启 MySQL/Redis、删表/删库、SQL 编辑器 `DROP` 须先过 Windows Hello / Touch ID 或打字签发短命 token；后端按 action+target 一次性消费，无「点确认就放行」
+- **安全 · 在场验证**：危险操作须先过 Windows Hello / Touch ID 或打字签发短命 token，后端按 action+target 一次性消费。覆盖库（删表/库/用户/列、TRUNCATE、FLUSH、KILL）、Docker（守护进程、删容器/镜像/网络/卷、Compose down/rebuild）、云生命周期、SSH 高危命令与杀进程、远程文件删除、面板删除、插件 prod 闸与写方法
 - **云 · 能力工作台**：树为账户 → 能力 → 实例；阿里云迁入独立 crate，经插件能力合同分发（计算 / 轻量 / OSS / 域名 / 证书）
 - **插件中心**：左下角入口；已安装管理 + 官方 GitHub 目录 + 第三方 DBX 引擎市场
 - **数据库 · sidecar 引擎**：ClickHouse / MongoDB / SQL Server 走独立 sidecar；Redis 走进程内；DBX 插件（Oracle、达梦、Hive 等）可装即用

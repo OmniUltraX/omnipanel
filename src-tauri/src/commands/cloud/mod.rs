@@ -223,14 +223,25 @@ fn audit_cloud_action(
     }
 }
 
-fn require_prod_confirm(conn: &Connection, action: &CloudAction) -> Result<(), OmniError> {
+fn require_write_presence(
+    state: &AppState,
+    connection_id: &str,
+    action: &CloudAction,
+) -> Result<(), OmniError> {
     if !is_write_action(&action.name) {
         return Ok(());
     }
-    if conn.env_tag.trim().eq_ignore_ascii_case("prod") && !action.confirmed {
-        return Err(OmniError::invalid_input("生产环境写操作需要确认"));
-    }
-    Ok(())
+    let target = omnipanel_presence::pipe_target(&[
+        connection_id,
+        &action.resource_id,
+        &action.name,
+    ]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        action.presence_token.as_deref(),
+        omnipanel_presence::ACTION_CLOUD_LIFECYCLE,
+        &target,
+    )
 }
 
 /// 测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。
@@ -326,7 +337,7 @@ pub async fn cloud_invoke_action(
 ) -> Result<CloudActionResult, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
-    if let Err(err) = require_prod_confirm(&conn, &action) {
+    if let Err(err) = require_write_presence(&state, &connection_id, &action) {
         audit_cloud_action(
             &state,
             &conn,
@@ -442,53 +453,14 @@ pub async fn cloud_list_certs(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use omnipanel_presence::{ACTION_CLOUD_LIFECYCLE, TokenStore, pipe_target, require_grant};
 
     #[test]
-    fn prod_write_requires_confirm() {
-        let conn = Connection {
-            id: "c1".into(),
-            kind: ConnectionKind::Cloud,
-            name: "prod".into(),
-            group: String::new(),
-            env_tag: "prod".into(),
-            tags: vec![],
-            config: "{}".into(),
-            credential_ref: None,
-            created_at: 0,
-            updated_at: 0,
-        };
-        let mut action = CloudAction {
-            name: "stop".into(),
-            resource_id: "i-1".into(),
-            capability: "compute".into(),
-            region_id: "cn-hangzhou".into(),
-            confirmed: false,
-        };
-        assert!(require_prod_confirm(&conn, &action).is_err());
-        action.confirmed = true;
-        assert!(require_prod_confirm(&conn, &action).is_ok());
-    }
-
-    #[test]
-    fn non_prod_write_skips_confirm() {
-        let conn = Connection {
-            id: "c1".into(),
-            kind: ConnectionKind::Cloud,
-            name: "dev".into(),
-            group: String::new(),
-            env_tag: "dev".into(),
-            tags: vec![],
-            config: "{}".into(),
-            credential_ref: None,
-            created_at: 0,
-            updated_at: 0,
-        };
-        let action = CloudAction {
-            name: "stop".into(),
-            resource_id: "i-1".into(),
-            ..Default::default()
-        };
-        assert!(require_prod_confirm(&conn, &action).is_ok());
+    fn write_action_needs_presence_token() {
+        let store = TokenStore::system();
+        let target = pipe_target(&["c1", "i-1", "stop"]);
+        assert!(require_grant(&store, None, ACTION_CLOUD_LIFECYCLE, &target).is_err());
+        let issued = store.issue(ACTION_CLOUD_LIFECYCLE, &target).unwrap();
+        assert!(require_grant(&store, Some(&issued.token), ACTION_CLOUD_LIFECYCLE, &target).is_ok());
     }
 }

@@ -22,7 +22,15 @@ pub async fn docker_remove_image(
     connection_id: String,
     image_id: String,
     force: bool,
+    presence_token: Option<String>,
 ) -> Result<(), OmniError> {
+    let target = omnipanel_presence::pipe_target(&[&connection_id, &image_id]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        presence_token.as_deref(),
+        omnipanel_presence::ACTION_DOCKER_IMAGE_REMOVE,
+        &target,
+    )?;
     tracing::info!(connection = %connection_id, image = %image_id, force, "删除 Docker 镜像");
     resolve_adapter(&state, &connection_id)
         .await?

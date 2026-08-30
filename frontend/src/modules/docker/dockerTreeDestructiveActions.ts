@@ -1,4 +1,3 @@
-import { appConfirm } from "@/lib/appConfirm";
 import { useDockerPanelDockStore } from "@/stores/dockerPanelDockStore";
 import { invalidateComposeProjectMeta, getComposeProjectMeta, runComposeAction } from "./dockerComposeApi";
 import { runDockerContainerAction } from "./dockerContainerActions";
@@ -13,14 +12,11 @@ export async function confirmAndRemoveDockerContainer(options: {
   containerName: string;
   t: Translate;
 }): Promise<boolean> {
-  const { connectionId, containerId, containerName, t } = options;
-  const confirmed = await appConfirm(
-    t("docker.dockPanel.removeContainerConfirm", { name: containerName }),
-    t("docker.dockPanel.removeContainer"),
-    { kind: "warning", confirmLabel: t("docker.dockPanel.removeContainer") },
-  );
-  if (!confirmed) return false;
-  await runDockerContainerAction(connectionId, containerId, "remove");
+  const { connectionId, containerId, containerName } = options;
+  const ok = await runDockerContainerAction(connectionId, containerId, "remove", {
+    label: containerName,
+  });
+  if (!ok) return false;
   useDockerPanelDockStore.getState().removeContainerTabs(connectionId, containerId);
   refreshDockerConnectionSidebarCache(connectionId);
   return true;
@@ -33,13 +29,6 @@ export async function confirmAndDownComposeProject(options: {
   t: Translate;
 }): Promise<boolean> {
   const { connectionId, project, t } = options;
-  const confirmed = await appConfirm(
-    t("docker.composePanel.downConfirm", { project }),
-    t("docker.composePanel.down"),
-    { kind: "warning", confirmLabel: t("docker.composePanel.down") },
-  );
-  if (!confirmed) return false;
-
   const meta = await getComposeProjectMeta(connectionId, project);
   const configFile = meta?.configFiles?.split(",")[0]?.trim() || null;
   const result = await runComposeAction(connectionId, "down", {

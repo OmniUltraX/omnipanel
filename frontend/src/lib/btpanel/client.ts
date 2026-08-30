@@ -177,10 +177,27 @@ export class BtPanelClient {
     try {
       if (this.useTauri && canUseIpcBackend()) {
         const serialized = serializeParams(options.params);
+        const { ACTION_PANEL_DELETE, isPanelDestructive, panelDeleteTarget } = await import(
+          "../presenceTargets"
+        );
+        let presenceToken: string | null = null;
+        if (isPanelDestructive(path, serialized)) {
+          const { requireStepUp } = await import("../stepUp");
+          presenceToken = await requireStepUp({
+            action: ACTION_PANEL_DELETE,
+            target: panelDeleteTarget(this.baseUrl, path),
+            title: "删除面板资源",
+            message: `即将通过面板删除资源：${path}`,
+            reason: path,
+          });
+          if (!presenceToken) {
+            throw new BtPanelApiError("已取消", 0);
+          }
+        }
         const result =
           method === "GET"
-            ? await commands.panelBtRequestGet(this.baseUrl, apiSk, path, serialized)
-            : await commands.panelBtRequest(this.baseUrl, apiSk, path, serialized);
+            ? await commands.panelBtRequestGet(this.baseUrl, apiSk, path, serialized, presenceToken)
+            : await commands.panelBtRequest(this.baseUrl, apiSk, path, serialized, presenceToken);
         if (result.status === "error") {
           throw new BtPanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
         }

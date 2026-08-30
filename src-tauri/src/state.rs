@@ -159,8 +159,9 @@ pub struct AppState {
     /// L2 逻辑执行器；构建未启用 `plugin-wasm` feature 时为 None。
     pub plugin_logic_executor: Option<Arc<dyn omnipanel_plugin::PluginLogicExecutor>>,
     /// prod 确认等待表（request_id → 回传通道）。
-    pub plugin_pending_confirms:
-        Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    pub plugin_pending_confirms: Arc<
+        tokio::sync::Mutex<HashMap<String, crate::commands::plugin_bridge::PendingPluginConfirm>>,
+    >,
     /// L2 桥共享 HTTP 客户端（复用代理配置）。
     pub plugin_http: reqwest::Client,
     /// 已实例化的 L2 逻辑执行体（plugin_id → instance）。

@@ -2410,7 +2410,21 @@ pub async fn file_delete(
     connection_id: String,
     path: String,
     entry_kind: Option<String>,
+    presence_token: Option<String>,
 ) -> Result<(), OmniError> {
+    if connection_id != LOCAL_CONNECTION_ID {
+        let leaf = path
+            .rsplit(['/', '\\'])
+            .find(|s| !s.is_empty())
+            .unwrap_or(path.as_str());
+        let target = omnipanel_presence::pipe_target(&[&connection_id, leaf]);
+        omnipanel_presence::require_grant(
+            &state.presence_tokens,
+            presence_token.as_deref(),
+            omnipanel_presence::ACTION_FILES_DELETE,
+            &target,
+        )?;
+    }
     if connection_id == LOCAL_CONNECTION_ID {
         return local_delete(&path);
     }

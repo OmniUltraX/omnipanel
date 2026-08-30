@@ -13,6 +13,9 @@ export async function writeDockerDaemonConfig(connectionId: string, content: str
   await unwrap(commands.dockerWriteDaemonConfig(connectionId, content));
 }
 
-export async function restartDockerDaemon(connectionId: string): Promise<void> {
-  await unwrap(commands.dockerRestartDaemon(connectionId));
+export async function restartDockerDaemon(
+  connectionId: string,
+  presenceToken: string | null,
+): Promise<void> {
+  await unwrap(commands.dockerRestartDaemon(connectionId, presenceToken));
 }

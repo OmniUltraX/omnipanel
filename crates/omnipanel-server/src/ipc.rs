@@ -292,6 +292,15 @@ pub async fn dispatch(
                     Err(e) => return InvokeResponse::err(format!("解析 connection 失败: {e}")),
                 };
             let addr = get_str(&args, "addr").unwrap_or_default();
+            let target = omnipanel_presence::pipe_target(&[&connection.id, &addr]);
+            if let Err(e) = consume_presence(
+                state,
+                &args,
+                omnipanel_presence::ACTION_DB_KILL,
+                &target,
+            ) {
+                return InvokeResponse::err(e);
+            }
             respond(crate::db::db_redis_client_kill(connection, addr).await)
         }
         "db_redis_search_keys" => {
@@ -1052,6 +1061,17 @@ pub async fn dispatch(
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             let container_id = get_str(&args, "containerId").unwrap_or_default();
             let action = get_str(&args, "action").unwrap_or_default();
+            if matches!(action.as_str(), "remove" | "kill") {
+                let target = omnipanel_presence::pipe_target(&[&connection_id, &container_id]);
+                if let Err(e) = consume_presence(
+                    state,
+                    &args,
+                    omnipanel_presence::ACTION_DOCKER_CONTAINER_REMOVE,
+                    &target,
+                ) {
+                    return InvokeResponse::err(e);
+                }
+            }
             respond(
                 crate::docker_ops::docker_container_action(
                     state,
@@ -1110,6 +1130,15 @@ pub async fn dispatch(
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             let image_id = get_str(&args, "imageId").unwrap_or_default();
             let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+            let target = omnipanel_presence::pipe_target(&[&connection_id, &image_id]);
+            if let Err(e) = consume_presence(
+                state,
+                &args,
+                omnipanel_presence::ACTION_DOCKER_IMAGE_REMOVE,
+                &target,
+            ) {
+                return InvokeResponse::err(e);
+            }
             respond(
                 crate::docker_ops::docker_remove_image(state, connection_id, image_id, force).await,
             )
@@ -1200,6 +1229,15 @@ pub async fn dispatch(
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             let name = get_str(&args, "name").unwrap_or_default();
             let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+            let target = omnipanel_presence::pipe_target(&[&connection_id, &name]);
+            if let Err(e) = consume_presence(
+                state,
+                &args,
+                omnipanel_presence::ACTION_DOCKER_VOLUME_REMOVE,
+                &target,
+            ) {
+                return InvokeResponse::err(e);
+            }
             respond(
                 crate::docker_ops::docker_remove_volume(state, connection_id, name, force).await,
             )
@@ -1229,6 +1267,15 @@ pub async fn dispatch(
         "docker_remove_network" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
             let name = get_str(&args, "name").unwrap_or_default();
+            let target = omnipanel_presence::pipe_target(&[&connection_id, &name]);
+            if let Err(e) = consume_presence(
+                state,
+                &args,
+                omnipanel_presence::ACTION_DOCKER_NETWORK_REMOVE,
+                &target,
+            ) {
+                return InvokeResponse::err(e);
+            }
             respond(crate::docker_ops::docker_remove_network(state, connection_id, name).await)
         }
         "docker_prune_networks" => {
@@ -1284,6 +1331,21 @@ pub async fn dispatch(
                     Ok(r) => r,
                     Err(e) => return InvokeResponse::err(format!("解析 request 失败: {e}")),
                 };
+            if matches!(
+                action,
+                omnipanel_docker::DockerComposeAction::Down
+                    | omnipanel_docker::DockerComposeAction::Rebuild
+            ) {
+                let target = omnipanel_presence::pipe_target(&[&connection_id, &request.project]);
+                if let Err(e) = consume_presence(
+                    state,
+                    &args,
+                    omnipanel_presence::ACTION_DOCKER_COMPOSE_DOWN,
+                    &target,
+                ) {
+                    return InvokeResponse::err(e);
+                }
+            }
             respond(
                 crate::docker_ops::docker_compose_action(state, connection_id, action, request)
                     .await,
@@ -1324,6 +1386,15 @@ pub async fn dispatch(
         }
         "docker_restart_daemon" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let target = omnipanel_presence::pipe_target(&[&connection_id, "engine"]);
+            if let Err(e) = consume_presence(
+                state,
+                &args,
+                omnipanel_presence::ACTION_DOCKER_ENGINE_RESTART,
+                &target,
+            ) {
+                return InvokeResponse::err(e);
+            }
             respond(crate::docker_ops::docker_restart_daemon(state, connection_id).await)
         }
         "docker_start_local_engine" => {
@@ -1610,6 +1681,21 @@ pub async fn dispatch(
                 .get("entryKind")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
+            if connection_id != "__local__" {
+                let leaf = path
+                    .rsplit(['/', '\\'])
+                    .find(|s| !s.is_empty())
+                    .unwrap_or(path.as_str());
+                let target = omnipanel_presence::pipe_target(&[&connection_id, leaf]);
+                if let Err(e) = consume_presence(
+                    state,
+                    &args,
+                    omnipanel_presence::ACTION_FILES_DELETE,
+                    &target,
+                ) {
+                    return InvokeResponse::err(e);
+                }
+            }
             respond(crate::files::file_delete(state, connection_id, path, entry_kind).await)
         }
         "file_local_quick_paths" => respond(crate::files::file_local_quick_paths().await),
@@ -2240,6 +2326,18 @@ pub async fn dispatch(
         "ssh_pool_exec_command" => {
             let resource_id = get_str(&args, "resourceId").unwrap_or_default();
             let command = get_str(&args, "command").unwrap_or_default();
+            if omnipanel_presence::ssh_command_is_critical(&command) {
+                let verb = command.split_whitespace().next().unwrap_or("exec");
+                let target = omnipanel_presence::pipe_target(&[&resource_id, verb]);
+                if let Err(e) = consume_presence(
+                    state,
+                    &args,
+                    omnipanel_presence::ACTION_SSH_EXEC,
+                    &target,
+                ) {
+                    return InvokeResponse::err(e);
+                }
+            }
             respond_omni(crate::ssh_ops::ssh_pool_exec_command(state, resource_id, command).await)
         }
         "ssh_pool_process_detail" => {
@@ -2254,6 +2352,15 @@ pub async fn dispatch(
                 .get("signal")
                 .and_then(|v| v.as_u64())
                 .map(|n| n as u32);
+            let target = omnipanel_presence::pipe_target(&[&resource_id, &pid.to_string()]);
+            if let Err(e) = consume_presence(
+                state,
+                &args,
+                omnipanel_presence::ACTION_SSH_KILL,
+                &target,
+            ) {
+                return InvokeResponse::err(e);
+            }
             respond_omni(
                 crate::ssh_ops::ssh_pool_kill_process(state, resource_id, pid, signal).await,
             )
@@ -3539,6 +3646,21 @@ pub async fn dispatch(
             let method = get_str(&args, "method").unwrap_or_default();
             let path = get_str(&args, "path").unwrap_or_default();
             let body = get_str(&args, "body");
+            if omnipanel_presence::panel_request_is_destructive(&path, body.as_deref()) {
+                let leaf = path
+                    .rsplit(['/', '?', '&'])
+                    .find(|s| !s.is_empty())
+                    .unwrap_or(path.as_str());
+                let target = omnipanel_presence::pipe_target(&[&host, leaf]);
+                if let Err(e) = consume_presence(
+                    state,
+                    &args,
+                    omnipanel_presence::ACTION_PANEL_DELETE,
+                    &target,
+                ) {
+                    return InvokeResponse::err(e);
+                }
+            }
             respond_omni(
                 crate::panel_cmds::panel_1panel_request(host, api_key, method, path, body).await,
             )
@@ -3600,6 +3722,21 @@ pub async fn dispatch(
             let api_sk = get_str(&args, "apiSk").unwrap_or_default();
             let path = get_str(&args, "path").unwrap_or_default();
             let body = get_str(&args, "body");
+            if omnipanel_presence::panel_request_is_destructive(&path, body.as_deref()) {
+                let leaf = path
+                    .rsplit(['/', '?', '&'])
+                    .find(|s| !s.is_empty())
+                    .unwrap_or(path.as_str());
+                let target = omnipanel_presence::pipe_target(&[&host, leaf]);
+                if let Err(e) = consume_presence(
+                    state,
+                    &args,
+                    omnipanel_presence::ACTION_PANEL_DELETE,
+                    &target,
+                ) {
+                    return InvokeResponse::err(e);
+                }
+            }
             respond_omni(crate::panel_cmds::panel_bt_request(host, api_sk, path, body).await)
         }
         "panel_bt_request_get" => {
@@ -3607,6 +3744,21 @@ pub async fn dispatch(
             let api_sk = get_str(&args, "apiSk").unwrap_or_default();
             let path = get_str(&args, "path").unwrap_or_default();
             let query = get_str(&args, "query");
+            if omnipanel_presence::panel_request_is_destructive(&path, query.as_deref()) {
+                let leaf = path
+                    .rsplit(['/', '?', '&'])
+                    .find(|s| !s.is_empty())
+                    .unwrap_or(path.as_str());
+                let target = omnipanel_presence::pipe_target(&[&host, leaf]);
+                if let Err(e) = consume_presence(
+                    state,
+                    &args,
+                    omnipanel_presence::ACTION_PANEL_DELETE,
+                    &target,
+                ) {
+                    return InvokeResponse::err(e);
+                }
+            }
             respond_omni(crate::panel_cmds::panel_bt_request_get(host, api_sk, path, query).await)
         }
         "panel_bt_test_connection" => {
@@ -4325,6 +4477,21 @@ pub async fn dispatch(
         }
         other => InvokeResponse::ok(crate::soft_degrade::soft_degrade_value(other)),
     }
+}
+
+fn consume_presence(
+    state: &ServerState,
+    args: &serde_json::Value,
+    action: &str,
+    target: &str,
+) -> Result<(), String> {
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        get_str(args, "presenceToken").as_deref(),
+        action,
+        target,
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn get_str(args: &serde_json::Value, key: &str) -> Option<String> {

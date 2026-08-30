@@ -3,8 +3,8 @@ import { Button } from "../../components/ui/Button";
 import { IconRefresh } from "../../components/ui/Icons";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useI18n } from "../../i18n";
-import { appConfirm } from "../../lib/appConfirm";
-import { appPrompt } from "../../lib/appPrompt";
+import { ACTION_DOCKER_ENGINE_RESTART, pipeTarget } from "../../lib/presenceTargets";
+import { requireStepUp } from "../../lib/stepUp";
 import {
   commands,
   type DockerConnectionInfo,
@@ -41,8 +41,6 @@ export type ConnectionInfoSubTab =
   | "volumes";
 
 /** 二次确认后仍须在输入框原样输入该词，才真正执行重启 */
-const RESTART_CONFIRM_TOKEN = "RESTART";
-
 const DETAIL_TABS: readonly ConnectionInfoSubTab[] = [
   "containers",
   "images",
@@ -246,41 +244,19 @@ export function DockerConnectionInfoPanel({
     void (async () => {
       const target = connection.name || connection.hostLabel || connection.connectionId;
 
-      const firstOk = await appConfirm(
-        t("docker.connectionPanel.restartConfirmMessage", { target }),
-        t("docker.connectionPanel.restartConfirmTitle"),
-        {
-          confirmLabel: t("docker.connectionPanel.restartConfirmContinue"),
-        },
-      );
-      if (!firstOk) return;
-
-      const secondOk = await appConfirm(
-        t("docker.connectionPanel.restartConfirmMessage2", { target }),
-        t("docker.connectionPanel.restartConfirmTitle2"),
-        {
-          confirmLabel: t("docker.connectionPanel.restartConfirmContinue2"),
-        },
-      );
-      if (!secondOk) return;
-
-      const typed = await appPrompt(
-        t("docker.connectionPanel.restartTypePrompt", {
-          token: RESTART_CONFIRM_TOKEN,
-          target,
-        }),
-        "",
-        t("docker.connectionPanel.restartTypeTitle"),
-      );
-      if (typed == null) return;
-      if (typed.trim() !== RESTART_CONFIRM_TOKEN) {
-        showToast(t("docker.connectionPanel.restartTypeMismatch"));
-        return;
-      }
+      const token = await requireStepUp({
+        action: ACTION_DOCKER_ENGINE_RESTART,
+        target: pipeTarget(connection.connectionId, "engine"),
+        title: t("docker.connectionPanel.restartConfirmTitle"),
+        message: t("docker.connectionPanel.restartConfirmMessage", { target }),
+        reason: t("docker.connectionPanel.restartConfirmMessage2", { target }),
+        confirmLabel: t("docker.connectionPanel.restartConfirmContinue"),
+      });
+      if (!token) return;
 
       setRestartBusy(true);
       try {
-        await restartDockerDaemon(connection.connectionId);
+        await restartDockerDaemon(connection.connectionId, token);
         showToast(t("docker.connectionPanel.restartSuccess"));
         await refreshProbe();
         onReloadRef.current?.();

@@ -54,12 +54,6 @@ interface DockerInspectContainerInvokeArgs {
   containerId: string;
 }
 
-interface DockerContainerActionInvokeArgs {
-  connectionId: string;
-  containerId: string;
-  action: string;
-}
-
 interface DockerExecCommandInvokeArgs {
   connectionId: string;
   containerId: string;
@@ -188,11 +182,24 @@ async function dockerContainerAction(args: Record<string, unknown>): Promise<str
   }
 
   const run = async () => {
-    await invoke<void>("docker_container_action", {
-      connectionId: connection_id,
-      containerId: container_id,
-      action,
-    } satisfies DockerContainerActionInvokeArgs);
+    const { commands } = await import("../../../ipc/bindings");
+    const { unwrapCommand } = await import("../../../ipc/result");
+    let token: string | null = null;
+    if (action === "kill" || action === "remove") {
+      const { ACTION_DOCKER_CONTAINER_REMOVE, pipeTarget } = await import("../../../lib/presenceTargets");
+      const { requireStepUp } = await import("../../../lib/stepUp");
+      token = await requireStepUp({
+        action: ACTION_DOCKER_CONTAINER_REMOVE,
+        target: pipeTarget(connection_id, container_id),
+        title: action === "kill" ? "强制结束容器" : "删除容器",
+        message: `即将对容器执行 ${action}`,
+        reason: `${action} ${container_id}`,
+      });
+      if (!token) throw new Error("已取消");
+    }
+    await unwrapCommand(
+      commands.dockerContainerAction(connection_id, container_id, action, token),
+    );
     return JSON.stringify(
       {
         connectionId: connection_id,

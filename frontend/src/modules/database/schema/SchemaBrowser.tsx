@@ -36,6 +36,7 @@ import {
   connectionHasTableSchemaChildren,
 } from "../api";
 import { makeQueryRunId } from "../sql/queryRun";
+import { resolveSqlPresenceToken } from "../sql/sqlPresence";
 import { useDbSchemaFilterStore } from "../../../stores/dbSchemaFilterStore";
 import { useDbSqlFileStore, type DbSqlFileNode } from "../../../stores/dbSqlFileStore";
 import { useDbSchemaTreeExpandedStore } from "../../../stores/dbSchemaTreeExpandedStore";
@@ -78,7 +79,6 @@ import {
   isSchemaNodeDeletable,
   isSchemaNodeRefreshable,
   schemaNodeDeleteActionKey,
-  schemaNodeDeleteConfirmKey,
   schemaNodeDeleteLabelKey,
 } from "./schemaTreeNodeActions";
 import {
@@ -972,12 +972,15 @@ export function SchemaBrowser({
           source: "用户",
         });
         if (!options?.alreadyDropped) {
+          const presenceToken = await resolveSqlPresenceToken(connection, sql, t);
+          if (presenceToken === null) return false;
           await invoke("db_execute_query", {
             connection,
             sql,
             runId: makeQueryRunId(),
             limit: 1,
             offset: 0,
+            presenceToken: presenceToken ?? null,
           });
         }
 
@@ -1126,44 +1129,7 @@ export function SchemaBrowser({
       }
 
       if (targets.length === 1) {
-        const only = targets[0]!;
-        const dbName = only.dbName?.trim();
-        const tableName = only.tableName?.trim();
-        let objectName = only.label.trim();
-        let confirmParams: Record<string, string> = { name: objectName };
-        if (only.type === "column") {
-          objectName = (only.columnName ?? only.label).trim();
-          confirmParams = { name: objectName, table: tableName ?? "" };
-        } else if (only.type === "index") {
-          objectName = (only.indexName ?? only.label).trim();
-          confirmParams = { name: objectName, table: tableName ?? "" };
-        } else if (only.type === "database") {
-          objectName = parseDatabaseNodeId(only.id)?.dbName ?? dbName ?? objectName;
-          confirmParams = { name: objectName };
-        } else if (only.type === "table" || only.type === "view") {
-          const parsed =
-            only.type === "view" ? parseViewNodeId(only.id) : parseTableNodeId(only.id);
-          objectName =
-            only.type === "view"
-              ? (parsed?.tableName ?? only.tableName ?? only.label).trim()
-              : (parsed?.tableName ?? tableName ?? only.label).trim();
-          confirmParams = {
-            name: objectName,
-            database: parsed?.dbName ?? dbName ?? "",
-          };
-        } else if (only.type === "user") {
-          const parsed = parseUserNodeId(only.id);
-          if (parsed) {
-            objectName = parsed.host ? `${parsed.name}@${parsed.host}` : parsed.name;
-          }
-          confirmParams = { name: objectName };
-        }
-        const confirmed = await appConfirm(
-          t(schemaNodeDeleteConfirmKey(only.type), confirmParams),
-          t("database.schemaTree.confirmDeleteTitle"),
-        );
-        if (!confirmed) return;
-        await deleteOneSchemaNode(connection, only);
+        await deleteOneSchemaNode(connection, targets[0]!);
         return;
       }
 

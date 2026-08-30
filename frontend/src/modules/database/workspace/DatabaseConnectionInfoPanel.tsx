@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import { invoke } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../../i18n";
-import { appConfirm } from "../../../lib/appConfirm";
 import { appAlert } from "../../../lib/appAlert";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { Button } from "../../../components/ui/primitives/Button";
@@ -943,14 +942,10 @@ export function DatabaseConnectionInfoPanel({
         return;
       }
 
-      const user = formatProcessCell(row[processSortColumnKeys.user ?? "User"]);
-      const host = formatProcessCell(row[processSortColumnKeys.host ?? "Host"]);
-      const confirmed = await appConfirm(
-        t("database.connectionInfo.killConfirm", { id: String(id), user, host }),
-        t("database.connectionInfo.killConfirmTitle"),
-        { confirmLabel: t("database.connectionInfo.kill") },
-      );
-      if (!confirmed) {
+      const { resolveSqlPresenceToken } = await import("../sql/sqlPresence");
+      const sql = `KILL ${id};`;
+      const presenceToken = await resolveSqlPresenceToken(connection, sql, t);
+      if (presenceToken === null) {
         return;
       }
 
@@ -958,8 +953,9 @@ export function DatabaseConnectionInfoPanel({
       try {
         await invoke<QueryResult>("db_execute_query", {
           connection,
-          sql: `KILL ${id};`,
+          sql,
           runId: makeQueryRunId(),
+          presenceToken: presenceToken ?? null,
         });
         await refreshConnections({ silent: true });
       } catch (e) {
@@ -973,8 +969,6 @@ export function DatabaseConnectionInfoPanel({
       connection,
       idColumn,
       killingId,
-      processSortColumnKeys.host,
-      processSortColumnKeys.user,
       refreshConnections,
       t,
     ],

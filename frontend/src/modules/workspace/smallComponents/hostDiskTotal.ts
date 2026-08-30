@@ -84,6 +84,7 @@ export async function fetchHostDiskTotalBytes(
     const exec = await commands.sshPoolExecCommand(
       ssh.id,
       `df -kP ${shellQuote(dir)} 2>/dev/null | awk 'NR==2 {print $2}'`,
+      null,
     );
     if (exec.status !== "ok") return null;
     const kib = parsePositiveNumber(exec.data.stdout.trim().split(/\s+/)[0]);

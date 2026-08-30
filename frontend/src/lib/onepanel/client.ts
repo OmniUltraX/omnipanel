@@ -213,6 +213,26 @@ export class OnePanelClient {
     return this.resolvePromise;
   }
 
+  private async resolvePresenceToken(
+    path: string,
+    body: string | null,
+  ): Promise<string | null> {
+    const { ACTION_PANEL_DELETE, isPanelDestructive, panelDeleteTarget } = await import(
+      "../presenceTargets"
+    );
+    if (!isPanelDestructive(path, body)) return null;
+    const { requireStepUp } = await import("../stepUp");
+    const token = await requireStepUp({
+      action: ACTION_PANEL_DELETE,
+      target: panelDeleteTarget(this.baseUrl, path),
+      title: "删除面板资源",
+      message: `即将通过面板删除资源：${path}`,
+      reason: path,
+    });
+    if (!token) throw new OnePanelApiError("已取消", 0);
+    return token;
+  }
+
   /** 原始请求：path 不含 `/api/v2` 前缀，如 `/toolbox/device/base`。 */
   async request<T = unknown>(options: OnePanelRequestOptions): Promise<T> {
     const method = (options.method ?? "GET").toUpperCase();
@@ -221,12 +241,15 @@ export class OnePanelClient {
     const apiKey = await this.resolveApiKey();
 
     if (this.useTauri && canUseIpcBackend()) {
+      const body = serializeRequestBody(method, options.body);
+      const presenceToken = await this.resolvePresenceToken(pathWithQuery, body);
       const result = await commands.panel1panelRequest(
         this.baseUrl,
         apiKey,
         method,
         pathWithQuery,
-        serializeRequestBody(method, options.body),
+        body,
+        presenceToken,
       );
       if (result.status === "error") {
         throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
@@ -268,12 +291,15 @@ export class OnePanelClient {
     const apiKey = await this.resolveApiKey();
 
     if (this.useTauri && canUseIpcBackend()) {
+      const serialized = serializeRequestBody(upperMethod, body);
+      const presenceToken = await this.resolvePresenceToken(normalizedPath, serialized);
       const result = await commands.panel1panelRequestText(
         this.baseUrl,
         apiKey,
         upperMethod,
         normalizedPath,
-        serializeRequestBody(upperMethod, body),
+        serialized,
+        presenceToken,
       );
       if (result.status === "error") {
         throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
@@ -735,6 +761,7 @@ export class OnePanelClient {
         "POST",
         "/websites/ssl/download",
         serializeRequestBody("POST", { id }),
+        null,
       );
       if (result.status === "error") {
         throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);

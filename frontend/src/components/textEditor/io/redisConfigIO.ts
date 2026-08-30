@@ -134,7 +134,7 @@ async function sshExec(sshId: string, command: string, label?: string): Promise<
 
   redisConfigLog("ssh.exec", { label: label ?? "unnamed", sshId, command });
 
-  const res = await commands.sshPoolExecCommand(sshId, command);
+  const res = await commands.sshPoolExecCommand(sshId, command, null);
 
   if (res.status !== "ok") {
 

@@ -932,12 +932,22 @@ pub async fn db_redis_client_list(connection: DbConnectionConfig) -> Result<DbQu
 #[tauri::command]
 #[specta::specta]
 pub async fn db_redis_client_kill(
+    state: State<'_, AppState>,
     connection: DbConnectionConfig,
     addr: String,
+    presence_token: Option<String>,
 ) -> Result<f64, String> {
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CLIENT KILL".to_string());
     }
+    let target = omnipanel_presence::pipe_target(&[&connection.id, &addr]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        presence_token.as_deref(),
+        omnipanel_presence::ACTION_DB_KILL,
+        &target,
+    )
+    .map_err(|e| e.to_string())?;
     omnipanel_db::redis_client_kill_addr(&to_params(&connection), &addr)
         .await
         .map(|n| n as f64)
@@ -1132,12 +1142,22 @@ pub async fn db_redis_config_rewrite(connection: DbConnectionConfig) -> Result<(
 #[tauri::command]
 #[specta::specta]
 pub async fn db_redis_flush_db(
+    state: State<'_, AppState>,
     connection: DbConnectionConfig,
     r#async: Option<bool>,
+    presence_token: Option<String>,
 ) -> Result<(), String> {
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 FLUSHDB".to_string());
     }
+    let target = omnipanel_presence::pipe_target(&[&connection.id, "FLUSHDB"]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        presence_token.as_deref(),
+        omnipanel_presence::ACTION_DB_FLUSH,
+        &target,
+    )
+    .map_err(|e| e.to_string())?;
     omnipanel_db::redis_flush_db(&to_params(&connection), r#async.unwrap_or(true))
         .await
         .map_err(err_msg)
@@ -1147,12 +1167,22 @@ pub async fn db_redis_flush_db(
 #[tauri::command]
 #[specta::specta]
 pub async fn db_redis_flush_all(
+    state: State<'_, AppState>,
     connection: DbConnectionConfig,
     r#async: Option<bool>,
+    presence_token: Option<String>,
 ) -> Result<(), String> {
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 FLUSHALL".to_string());
     }
+    let target = omnipanel_presence::pipe_target(&[&connection.id, "FLUSHALL"]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        presence_token.as_deref(),
+        omnipanel_presence::ACTION_DB_FLUSH,
+        &target,
+    )
+    .map_err(|e| e.to_string())?;
     omnipanel_db::redis_flush_all(&to_params(&connection), r#async.unwrap_or(true))
         .await
         .map_err(err_msg)

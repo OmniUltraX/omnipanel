@@ -43,6 +43,7 @@ export const aiToolContributionSchema = z.object({
 export const pluginMethodSchema = z.object({
   name: z.string().min(1),
   permissions: z.array(pluginPermissionSchema).default([]),
+  dangerAction: z.string().min(1).optional(),
 });
 
 export type PluginMethod = z.infer<typeof pluginMethodSchema>;

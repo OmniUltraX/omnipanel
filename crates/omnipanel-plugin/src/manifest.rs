@@ -17,6 +17,9 @@ pub struct PluginMethodDecl {
     pub name: String,
     #[serde(default)]
     pub permissions: Vec<PluginPermission>,
+    /// 写方法：宿主消费 `presenceToken` / `presenceTarget`，插件不得自行签发。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub danger_action: Option<String>,
 }
 
 /// 插件逻辑 / sidecar 入口声明。缺省 = 纯 L1 声明式插件。

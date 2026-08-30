@@ -376,9 +376,26 @@ export async function runComposeAction(
   connectionId: string,
   action: "up" | "stop" | "down" | "restart" | "rebuild" | "pull" | "logs",
   request: DockerComposeRequest,
+  options?: { skipPresence?: boolean },
 ): Promise<DockerComposeResult> {
+  let token: string | null = null;
+  if ((action === "down" || action === "rebuild") && !options?.skipPresence) {
+    const { ACTION_DOCKER_COMPOSE_DOWN, pipeTarget } = await import("../../lib/presenceTargets");
+    const { requireStepUp } = await import("../../lib/stepUp");
+    const issued = await requireStepUp({
+      action: ACTION_DOCKER_COMPOSE_DOWN,
+      target: pipeTarget(connectionId, request.project),
+      title: action === "rebuild" ? "重建 Compose" : "Compose Down",
+      message: `即将对项目「${request.project}」执行 ${action}`,
+      reason: `${action} ${request.project}`,
+    });
+    if (!issued) {
+      throw new Error("已取消");
+    }
+    token = issued;
+  }
   return runWithDockerBoundSsh(connectionId, () =>
-    unwrap(commands.dockerComposeAction(connectionId, action, request)),
+    unwrap(commands.dockerComposeAction(connectionId, action, request, token)),
   );
 }
 

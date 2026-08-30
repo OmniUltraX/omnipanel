@@ -16,7 +16,7 @@ function shellQuote(value: string): string {
 }
 
 async function sshExec(sshId: string, command: string): Promise<string> {
-  const res = await commands.sshPoolExecCommand(sshId, command);
+  const res = await commands.sshPoolExecCommand(sshId, command, null);
   if (res.status !== "ok") {
     const err = res.error;
     const message =

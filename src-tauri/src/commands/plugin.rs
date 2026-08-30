@@ -693,6 +693,15 @@ pub async fn plugin_invoke(
             registry.require_permission(&plugin_id, *permission)?;
         }
     }
+    // 2b. 清单声明的写方法必须消费宿主签发的 token（插件不得自签）
+    if let Some(action) = decl.danger_action.as_deref().filter(|s| !s.is_empty()) {
+        let token = args.get("presenceToken").and_then(|v| v.as_str());
+        let target = args
+            .get("presenceTarget")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        crate::commands::presence::consume_grant(&state, token, action, target)?;
+    }
     // 3a. 原生网关优先
     let native = state
         .plugin_invoke
@@ -844,15 +853,24 @@ pub async fn plugin_confirm_resolve(
     state: State<'_, AppState>,
     request_id: String,
     allow: bool,
+    presence_token: Option<String>,
 ) -> Result<(), OmniError> {
-    let sender = state
+    let pending = state
         .plugin_pending_confirms
         .lock()
         .await
         .remove(&request_id);
-    match sender {
-        Some(tx) => {
-            let _ = tx.send(allow);
+    match pending {
+        Some(pending) => {
+            if allow {
+                crate::commands::presence::consume_grant(
+                    &state,
+                    presence_token.as_deref(),
+                    omnipanel_presence::ACTION_PLUGIN_HOST,
+                    &pending.grant_target,
+                )?;
+            }
+            let _ = pending.tx.send(allow);
             Ok(())
         }
         None => Err(OmniError::not_found(format!(

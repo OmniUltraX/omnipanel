@@ -97,9 +97,12 @@ pub struct CloudAction {
     pub capability: String,
     #[serde(default)]
     pub region_id: String,
-    /// 生产环境写操作必须为 true；取消确认不得打 API。
+    /// 已废弃：写操作改走 `presence_token`，前端不得再靠此字段放行。
     #[serde(default)]
     pub confirmed: bool,
+    /// 写操作短命在场 token（一次性消费）。
+    #[serde(default)]
+    pub presence_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

@@ -9,7 +9,11 @@
     { "name": "getAccount", "permissions": ["net:connect", "vault:read"] },
     { "name": "listResources", "permissions": ["net:connect", "vault:read"] },
     { "name": "getResource", "permissions": ["net:connect", "vault:read"] },
-    { "name": "invokeAction", "permissions": ["net:connect", "vault:read"] }
+    {
+      "name": "invokeAction",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "cloud.instance.lifecycle"
+    }
   ],
   "contributes": {
     "ui": {

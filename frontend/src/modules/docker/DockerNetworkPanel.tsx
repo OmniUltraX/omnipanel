@@ -261,15 +261,21 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
     (network: DockerNetworkSummary) => {
       if (!canRemoveNetwork(network)) return;
       void (async () => {
-        const confirmed = await appConfirm(
-          t("docker.networksPanel.removeConfirm", { name: network.name }),
-          t("docker.networksPanel.remove"),
-          { kind: "warning", confirmLabel: t("common.delete") },
-        );
-        if (!confirmed) return;
+        const { ACTION_DOCKER_NETWORK_REMOVE, pipeTarget } = await import("../../lib/presenceTargets");
+        const { requireStepUp } = await import("../../lib/stepUp");
+        const token = await requireStepUp({
+          action: ACTION_DOCKER_NETWORK_REMOVE,
+          target: pipeTarget(connection.connectionId, network.name),
+          title: t("docker.networksPanel.remove"),
+          message: t("docker.networksPanel.removeConfirm", { name: network.name }),
+          reason: network.name,
+        });
+        if (!token) return;
         setPendingRemove((current) => ({ ...current, [network.id]: true }));
         try {
-          await unwrapCommand(commands.dockerRemoveNetwork(connection.connectionId, network.name));
+          await unwrapCommand(
+            commands.dockerRemoveNetwork(connection.connectionId, network.name, token),
+          );
           showToast(t("docker.networksPanel.removeSuccess", { name: network.name }));
           await refresh();
         } catch (err) {

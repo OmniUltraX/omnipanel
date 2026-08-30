@@ -173,7 +173,7 @@ const SSH_EXEC_PROBE = "echo 1";
 
 async function probeSshPoolExec(sshConnectionId: string): Promise<boolean> {
   try {
-    const res = await commands.sshPoolExecCommand(sshConnectionId, SSH_EXEC_PROBE);
+    const res = await commands.sshPoolExecCommand(sshConnectionId, SSH_EXEC_PROBE, null);
     if (res.status !== "ok") {
       return false;
     }
@@ -386,7 +386,7 @@ function isConnectionEnabledForProbe(connection: DbConnectionConfig): boolean {
 }
 
 function sshExec(sshConnectionId: string, command: string): Promise<{ stdout: string; stderr: string }> {
-  return commands.sshPoolExecCommand(sshConnectionId, command).then((res) => {
+  return commands.sshPoolExecCommand(sshConnectionId, command, null).then((res) => {
     if (res.status !== "ok") {
       throw new Error(res.error.message);
     }

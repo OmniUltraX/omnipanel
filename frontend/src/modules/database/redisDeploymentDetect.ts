@@ -51,7 +51,7 @@ async function sshExec(
   sshConnectionId: string,
   command: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  const res = await commands.sshPoolExecCommand(sshConnectionId, command);
+  const res = await commands.sshPoolExecCommand(sshConnectionId, command, null);
   if (res.status !== "ok") {
     throw new Error(res.error.message);
   }

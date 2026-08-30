@@ -5,6 +5,7 @@ import { appConfirm } from "./appConfirm";
 import { appPrompt } from "./appPrompt";
 import { showToast } from "../stores/toastStore";
 import { useSettingsStore } from "../stores/settingsStore";
+import { typedExpectation } from "./presenceTargets";
 
 export type StepUpRequest = {
   action: string;
@@ -45,10 +46,7 @@ export async function requireStepUp(request: StepUpRequest): Promise<string | nu
     }
   }
 
-  const expected =
-    request.action === "db.service.restart"
-      ? "RESTART"
-      : (request.target.split("|").pop() ?? "").trim();
+  const expected = typedExpectation(request.action, request.target);
   const typed = await appPrompt(
     t("stepUp.typedPrompt", { token: expected }),
     "",

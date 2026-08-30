@@ -120,7 +120,12 @@ export function ProcessDetailDrawer({
     try {
       const res = isLocal
         ? await commands.localKillProcess(process.pid)
-        : await commands.sshPoolKillProcess(resourceId, process.pid, 9);
+        : await (async () => {
+            const { resolveSshKillToken } = await import("@/lib/sshPresence");
+            const token = await resolveSshKillToken(resourceId, process.pid);
+            if (!token) return { status: "ok" as const, data: null };
+            return commands.sshPoolKillProcess(resourceId, process.pid, 9, token);
+          })();
       if (res.status === "ok") {
         setConfirmKill(false);
         clearCachedProcessDetail(resourceId, process.pid);

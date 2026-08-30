@@ -3,7 +3,6 @@ import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/primitives/Button";
 import { commands } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
-import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -105,11 +104,16 @@ export function CloudResourceDetailPanel({
   }, [reload]);
 
   const invoke = async (action: string) => {
-    const isProd = account.envTag.trim().toLowerCase() === "prod";
-    if (isProd) {
-      const ok = await appConfirm(t("cloud.actions.confirmProd", { action: t(`cloud.actions.${action}`) }));
-      if (!ok) return;
-    }
+    const { ACTION_CLOUD_LIFECYCLE, pipeTarget } = await import("../../lib/presenceTargets");
+    const { requireStepUp } = await import("../../lib/stepUp");
+    const token = await requireStepUp({
+      action: ACTION_CLOUD_LIFECYCLE,
+      target: pipeTarget(account.id, resourceId, action),
+      title: t(`cloud.actions.${action}`),
+      message: t("cloud.actions.confirmProd", { action: t(`cloud.actions.${action}`) }),
+      reason: action,
+    });
+    if (!token) return;
     setBusy(true);
     try {
       await unwrapCommand(
@@ -118,7 +122,7 @@ export function CloudResourceDetailPanel({
           resourceId,
           capability,
           regionId,
-          confirmed: isProd,
+          presenceToken: token,
         }),
       );
       showToast(t("cloud.actions.submitted", { action: t(`cloud.actions.${action}`) }));

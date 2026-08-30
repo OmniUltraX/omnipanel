@@ -3,6 +3,7 @@ import { commands, type SshExecOutput } from "../../../../ipc/bindings";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
 import { useConnectionStore } from "../../../../stores/connectionStore";
 import { confirmBatchCommand } from "../utils/sshProdGuard";
+import { resolveSshExecToken } from "../../../../lib/sshPresence";
 
 export type BatchHostResult = {
   hostId: string;
@@ -25,6 +26,8 @@ export function useSshBatchCommand() {
 
       const ok = await confirmBatchCommand(trimmed, hosts, connections);
       if (!ok) return;
+      const presenceToken = await resolveSshExecToken(hosts[0]!.id, trimmed);
+      if (presenceToken === null) return;
 
       setRunning(true);
       const initial: BatchHostResult[] = hosts.map((h) => ({
@@ -41,7 +44,11 @@ export function useSshBatchCommand() {
             prev.map((r, i) => (i === index ? { ...r, status: "running" } : r)),
           );
           try {
-            const res = await commands.sshPoolExecCommand(host.id, trimmed);
+            const res = await commands.sshPoolExecCommand(
+              host.id,
+              trimmed,
+              presenceToken ?? null,
+            );
             const durationMs = Date.now() - started;
             if (res.status === "ok") {
               setResults((prev) =>

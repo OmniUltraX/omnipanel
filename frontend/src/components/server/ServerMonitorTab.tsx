@@ -230,7 +230,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
     let cancelled = false;
     setPublicIpLoading(true);
     void commands
-      .sshPoolExecCommand(sshConnection.id, "curl -s --connect-timeout 5 ip.sb")
+      .sshPoolExecCommand(sshConnection.id, "curl -s --connect-timeout 5 ip.sb", null)
       .then((res) => {
         if (cancelled) return;
         if (res.status !== "ok") {

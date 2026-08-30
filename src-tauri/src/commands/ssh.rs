@@ -587,7 +587,15 @@ pub async fn ssh_pool_kill_process(
     resource_id: String,
     pid: u32,
     signal: Option<u32>,
+    presence_token: Option<String>,
 ) -> Result<(), OmniError> {
+    let target = omnipanel_presence::pipe_target(&[&resource_id, &pid.to_string()]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        presence_token.as_deref(),
+        omnipanel_presence::ACTION_SSH_KILL,
+        &target,
+    )?;
     let session = pool_session(&state, &resource_id).await?;
     let sig = signal.unwrap_or(9);
     let cmd = format!("kill -s {sig} {pid} 2>/dev/null || kill -{sig} {pid}");
@@ -610,7 +618,18 @@ pub async fn ssh_pool_exec_command(
     state: State<'_, AppState>,
     resource_id: String,
     command: String,
+    presence_token: Option<String>,
 ) -> Result<SshExecOutput, OmniError> {
+    if omnipanel_presence::ssh_command_is_critical(&command) {
+        let verb = command.split_whitespace().next().unwrap_or("exec");
+        let target = omnipanel_presence::pipe_target(&[&resource_id, verb]);
+        omnipanel_presence::require_grant(
+            &state.presence_tokens,
+            presence_token.as_deref(),
+            omnipanel_presence::ACTION_SSH_EXEC,
+            &target,
+        )?;
+    }
     let session = pool_session(&state, &resource_id).await?;
     let output = session.exec_capture(&command).await?;
     Ok(SshExecOutput {

@@ -426,6 +426,7 @@ mod tests {
         manifest.methods = vec![crate::manifest::PluginMethodDecl {
             name: "search".into(),
             permissions: vec![PluginPermission::AiTools, PluginPermission::FsRead],
+            danger_action: None,
         }];
         if !activated {
             manifest.permissions = vec![];
@@ -467,6 +468,7 @@ mod tests {
         manifest.methods.push(crate::manifest::PluginMethodDecl {
             name: "search".into(),
             permissions: vec![],
+            danger_action: None,
         });
         assert!(manifest.validate().is_err());
 

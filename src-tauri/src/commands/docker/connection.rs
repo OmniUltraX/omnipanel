@@ -292,7 +292,15 @@ pub async fn docker_write_daemon_config(
 pub async fn docker_restart_daemon(
     state: State<'_, AppState>,
     connection_id: String,
+    presence_token: Option<String>,
 ) -> Result<(), OmniError> {
+    let target = omnipanel_presence::pipe_target(&[&connection_id, "engine"]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        presence_token.as_deref(),
+        omnipanel_presence::ACTION_DOCKER_ENGINE_RESTART,
+        &target,
+    )?;
     if connection_is_remote_engine(&state, &connection_id).await? {
         return Err(OmniError::new(
             ErrorCode::InvalidInput,

@@ -10,7 +10,6 @@ import type {
   DockerImageSummary,
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
-import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
 import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
@@ -238,21 +237,25 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
       const related = containersForImage(image, containerIndex);
       const force = related.length > 0;
       void (async () => {
-        const confirmed = await appConfirm(
-          force
+        const { ACTION_DOCKER_IMAGE_REMOVE, pipeTarget } = await import("../../lib/presenceTargets");
+        const { requireStepUp } = await import("../../lib/stepUp");
+        const token = await requireStepUp({
+          action: ACTION_DOCKER_IMAGE_REMOVE,
+          target: pipeTarget(connection.connectionId, image.id),
+          title: t("docker.imagesPanel.remove"),
+          message: force
             ? t("docker.imagesPanel.removeConfirmInUse", {
                 name: label,
                 count: related.length,
               })
             : t("docker.imagesPanel.removeConfirm", { name: label }),
-          t("docker.imagesPanel.remove"),
-          { kind: "warning", confirmLabel: t("common.delete") },
-        );
-        if (!confirmed) return;
+          reason: label,
+        });
+        if (!token) return;
         setPendingRemove((current) => ({ ...current, [image.id]: true }));
         try {
           await unwrapCommand(
-            commands.dockerRemoveImage(connection.connectionId, image.id, force),
+            commands.dockerRemoveImage(connection.connectionId, image.id, force, token),
           );
           showToast(t("docker.imagesPanel.removeSuccess", { name: label }));
           await refresh();

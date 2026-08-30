@@ -87,7 +87,21 @@ export async function deleteRemote(
   path: string,
   entryKind?: string | null,
 ): Promise<void> {
-  await unwrap(await commands.fileDelete(connectionId, path, entryKind ?? null));
+  let presenceToken: string | null = null;
+  if (connectionId !== "__local__") {
+    const { ACTION_FILES_DELETE, filesDeleteTarget } = await import("../../lib/presenceTargets");
+    const { requireStepUp } = await import("../../lib/stepUp");
+    const issued = await requireStepUp({
+      action: ACTION_FILES_DELETE,
+      target: filesDeleteTarget(connectionId, path),
+      title: "删除远程文件",
+      message: `即将删除远程路径：${path}`,
+      reason: path,
+    });
+    if (!issued) throw new Error("已取消");
+    presenceToken = issued;
+  }
+  await unwrap(await commands.fileDelete(connectionId, path, entryKind ?? null, presenceToken));
 }
 
 export async function uploadRemote(connectionId: string, path: string, data: number[]): Promise<void> {

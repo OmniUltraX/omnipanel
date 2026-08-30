@@ -434,7 +434,19 @@ export async function redisClientKill(
   connection: DbConnectionConfig,
   addr: string,
 ): Promise<number> {
-  return (await unwrapCommand(commands.dbRedisClientKill(ipcConn(connection), addr))) ?? 0;
+  const { ACTION_DB_KILL, pipeTarget } = await import("../../lib/presenceTargets");
+  const { requireStepUp } = await import("../../lib/stepUp");
+  const token = await requireStepUp({
+    action: ACTION_DB_KILL,
+    target: pipeTarget(connection.id, addr),
+    title: "终止 Redis 客户端",
+    message: `即将执行 CLIENT KILL ADDR ${addr}`,
+    reason: addr,
+  });
+  if (!token) throw new Error("已取消");
+  return (
+    (await unwrapCommand(commands.dbRedisClientKill(ipcConn(connection), addr, token))) ?? 0
+  );
 }
 
 export async function redisInfo(
@@ -471,11 +483,31 @@ export async function redisConfigRewrite(connection: DbConnectionConfig): Promis
 }
 
 export async function redisFlushDb(connection: DbConnectionConfig, async = true): Promise<void> {
-  await unwrapCommand(commands.dbRedisFlushDb(ipcConn(connection), async));
+  const { ACTION_DB_FLUSH, pipeTarget } = await import("../../lib/presenceTargets");
+  const { requireStepUp } = await import("../../lib/stepUp");
+  const token = await requireStepUp({
+    action: ACTION_DB_FLUSH,
+    target: pipeTarget(connection.id, "FLUSHDB"),
+    title: "FLUSHDB",
+    message: "即将清空当前逻辑库全部 key，不可恢复",
+    reason: "FLUSHDB",
+  });
+  if (!token) throw new Error("已取消");
+  await unwrapCommand(commands.dbRedisFlushDb(ipcConn(connection), async, token));
 }
 
 export async function redisFlushAll(connection: DbConnectionConfig, async = true): Promise<void> {
-  await unwrapCommand(commands.dbRedisFlushAll(ipcConn(connection), async));
+  const { ACTION_DB_FLUSH, pipeTarget } = await import("../../lib/presenceTargets");
+  const { requireStepUp } = await import("../../lib/stepUp");
+  const token = await requireStepUp({
+    action: ACTION_DB_FLUSH,
+    target: pipeTarget(connection.id, "FLUSHALL"),
+    title: "FLUSHALL",
+    message: "即将清空实例全部 key，不可恢复",
+    reason: "FLUSHALL",
+  });
+  if (!token) throw new Error("已取消");
+  await unwrapCommand(commands.dbRedisFlushAll(ipcConn(connection), async, token));
 }
 
 export async function redisStreamMonitor(

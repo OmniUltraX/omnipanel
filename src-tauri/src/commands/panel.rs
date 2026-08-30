@@ -5,6 +5,29 @@ use tauri::State;
 
 use crate::state::AppState;
 
+fn consume_panel_delete(
+    state: &AppState,
+    host: &str,
+    path: &str,
+    body: Option<&str>,
+    presence_token: Option<&str>,
+) -> Result<(), OmniError> {
+    if !omnipanel_presence::panel_request_is_destructive(path, body) {
+        return Ok(());
+    }
+    let leaf = path
+        .rsplit(['/', '?', '&'])
+        .find(|s| !s.is_empty())
+        .unwrap_or(path);
+    let target = omnipanel_presence::pipe_target(&[host, leaf]);
+    omnipanel_presence::require_grant(
+        &state.presence_tokens,
+        presence_token,
+        omnipanel_presence::ACTION_PANEL_DELETE,
+        &target,
+    )
+}
+
 /// 从 Vault 解析面板 API 密钥（config.key 落库时会被清空）。
 #[tauri::command]
 #[specta::specta]
@@ -51,12 +74,21 @@ pub async fn panel_resolve_api_key(
 #[tauri::command]
 #[specta::specta]
 pub async fn panel_1panel_request(
+    state: State<'_, AppState>,
     host: String,
     api_key: String,
     method: String,
     path: String,
     body: Option<String>,
+    presence_token: Option<String>,
 ) -> Result<String, OmniError> {
+    consume_panel_delete(
+        &state,
+        &host,
+        &path,
+        body.as_deref(),
+        presence_token.as_deref(),
+    )?;
     let body_val = match body {
         Some(raw) if !raw.trim().is_empty() => {
             Some(serde_json::from_str::<Value>(&raw).map_err(|e| {
@@ -97,12 +129,21 @@ pub async fn panel_1panel_app_icon(
 #[tauri::command]
 #[specta::specta]
 pub async fn panel_1panel_request_text(
+    state: State<'_, AppState>,
     host: String,
     api_key: String,
     method: String,
     path: String,
     body: Option<String>,
+    presence_token: Option<String>,
 ) -> Result<String, OmniError> {
+    consume_panel_delete(
+        &state,
+        &host,
+        &path,
+        body.as_deref(),
+        presence_token.as_deref(),
+    )?;
     let body_val = match body {
         Some(raw) if !raw.trim().is_empty() => {
             Some(serde_json::from_str::<Value>(&raw).map_err(|e| {
@@ -119,12 +160,21 @@ pub async fn panel_1panel_request_text(
 #[tauri::command]
 #[specta::specta]
 pub async fn panel_1panel_request_bytes(
+    state: State<'_, AppState>,
     host: String,
     api_key: String,
     method: String,
     path: String,
     body: Option<String>,
+    presence_token: Option<String>,
 ) -> Result<crate::panel::onepanel::OnePanelBinaryPayload, OmniError> {
+    consume_panel_delete(
+        &state,
+        &host,
+        &path,
+        body.as_deref(),
+        presence_token.as_deref(),
+    )?;
     let body_val = match body {
         Some(raw) if !raw.trim().is_empty() => {
             Some(serde_json::from_str::<Value>(&raw).map_err(|e| {
@@ -165,11 +215,20 @@ pub async fn panel_1panel_upload_file(
 #[tauri::command]
 #[specta::specta]
 pub async fn panel_bt_request(
+    state: State<'_, AppState>,
     host: String,
     api_sk: String,
     path: String,
     body: Option<String>,
+    presence_token: Option<String>,
 ) -> Result<String, OmniError> {
+    consume_panel_delete(
+        &state,
+        &host,
+        &path,
+        body.as_deref(),
+        presence_token.as_deref(),
+    )?;
     let body_map = match body {
         Some(raw) if !raw.trim().is_empty() => {
             let value = serde_json::from_str::<Value>(&raw).map_err(|e| {
@@ -196,11 +255,20 @@ pub async fn panel_bt_request(
 #[tauri::command]
 #[specta::specta]
 pub async fn panel_bt_request_get(
+    state: State<'_, AppState>,
     host: String,
     api_sk: String,
     path: String,
     query: Option<String>,
+    presence_token: Option<String>,
 ) -> Result<String, OmniError> {
+    consume_panel_delete(
+        &state,
+        &host,
+        &path,
+        query.as_deref(),
+        presence_token.as_deref(),
+    )?;
     let query_map = match query {
         Some(raw) if !raw.trim().is_empty() => {
             let value = serde_json::from_str::<Value>(&raw).map_err(|e| {

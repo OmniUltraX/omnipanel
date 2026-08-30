@@ -54,17 +54,19 @@ pub async fn docker_container_action(
     connection_id: String,
     container_id: String,
     action: String,
+    presence_token: Option<String>,
 ) -> Result<(), OmniError> {
     let parsed = DockerContainerAction::parse(&action).ok_or_else(|| {
         OmniError::new(ErrorCode::InvalidInput, format!("未知容器操作: {action}"))
     })?;
     if parsed.is_destructive() {
-        tracing::info!(
-            connection = %connection_id,
-            container = %container_id,
-            action = %action,
-            "请先连接 Docker 引擎"
-        );
+        let target = omnipanel_presence::pipe_target(&[&connection_id, &container_id]);
+        omnipanel_presence::require_grant(
+            &state.presence_tokens,
+            presence_token.as_deref(),
+            omnipanel_presence::ACTION_DOCKER_CONTAINER_REMOVE,
+            &target,
+        )?;
     }
     resolve_adapter(&state, &connection_id)
         .await?
