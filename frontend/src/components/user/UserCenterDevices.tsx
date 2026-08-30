@@ -10,6 +10,7 @@ import {
 import { appConfirm } from "../../lib/appConfirm";
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { startTeamMesh } from "../../lib/auth/teamMesh";
 import { useAuthStore } from "../../stores/authStore";
 import { selectWechatBound, useUserProfileStore } from "../../stores/userProfileStore";
 import { showToast } from "../../stores/toastStore";
@@ -51,6 +52,8 @@ function DeviceList({
   localDeviceId,
   localSyncAuthenticated,
   deletingId,
+  tailnetIps,
+  tailnetReady,
   onDelete,
   t,
   locale,
@@ -60,6 +63,10 @@ function DeviceList({
   /** 本机是否已有 SyncMasterKey（与服务端 syncTrusted 互补） */
   localSyncAuthenticated: boolean;
   deletingId: string | null;
+  /** deviceId → Tailscale 内网 IPv4（当前团队 mesh 解析结果） */
+  tailnetIps: Record<string, string>;
+  /** 是否有可用的 mesh 解析数据；false 时不渲染 Tailscale 行 */
+  tailnetReady: boolean;
   onDelete: (device: AuthDevice) => void;
   t: (key: string, params?: Record<string, string | number>) => string;
   locale: string;
@@ -122,6 +129,14 @@ function DeviceList({
                 <dt>{t("userCenter.devices.meta.ip")}</dt>
                 <dd>{device.ip.trim() || t("userCenter.devices.unknownIp")}</dd>
               </div>
+              {tailnetReady ? (
+                <div className="user-center-device-card__meta-row">
+                  <dt>{t("userCenter.devices.meta.tailscaleIp")}</dt>
+                  <dd title={tailnetIps[device.deviceId]}>
+                    {tailnetIps[device.deviceId]?.trim() || "—"}
+                  </dd>
+                </div>
+              ) : null}
               {device.appId.trim() ? (
                 <div className="user-center-device-card__meta-row">
                   <dt>{t("userCenter.devices.meta.app")}</dt>
@@ -175,6 +190,8 @@ export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean
   const [refreshKey, setRefreshKey] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [bindOpen, setBindOpen] = useState(false);
+  const [tailnetIps, setTailnetIps] = useState<Record<string, string>>({});
+  const [tailnetReady, setTailnetReady] = useState(false);
 
   const refresh = useCallback(() => {
     setRefreshKey((key) => key + 1);
@@ -227,6 +244,34 @@ export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean
         setLocalDeviceId(identity.deviceId);
         setLocalSyncAuthenticated(Boolean(keyStatus.hasKey));
         setDevices(list);
+
+        setTailnetIps({});
+        setTailnetReady(false);
+        const resolveTeamId = teamId ?? 0;
+        if (resolveTeamId > 0 && list.length > 0) {
+          void (async () => {
+            try {
+              await startTeamMesh();
+              const resolved = await unwrapCommand(
+                commands.meshPeerIps(
+                  resolveTeamId,
+                  list.map((d) => d.deviceId),
+                ),
+                { quiet: true },
+              );
+              if (abort.signal.aborted) return;
+              const map: Record<string, string> = {};
+              for (const item of resolved) {
+                map[item.deviceId] = item.ipv4;
+              }
+              setTailnetIps(map);
+              setTailnetReady(Object.values(map).some((ip) => ip.trim() !== ""));
+            } catch {
+              if (abort.signal.aborted) return;
+              setTailnetReady(false);
+            }
+          })();
+        }
       } catch (error) {
         if (abort.signal.aborted) return;
         const message = error instanceof Error ? error.message : String(error);
@@ -241,6 +286,8 @@ export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean
             ? t("userCenter.devices.networkHint")
             : null;
         setDevices([]);
+        setTailnetIps({});
+        setTailnetReady(false);
         setErrorMessage(networkHint ?? message);
         setSessionExpired(isAuthSessionError(error));
       } finally {
@@ -359,6 +406,8 @@ export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean
             localDeviceId={localDeviceId}
             localSyncAuthenticated={localSyncAuthenticated}
             deletingId={deletingId}
+            tailnetIps={tailnetIps}
+            tailnetReady={tailnetReady}
             onDelete={(device) => void handleDelete(device)}
             t={t}
             locale={locale}
@@ -413,6 +462,8 @@ export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean
             localDeviceId={localDeviceId}
             localSyncAuthenticated={localSyncAuthenticated}
             deletingId={deletingId}
+            tailnetIps={tailnetIps}
+            tailnetReady={tailnetReady}
             onDelete={(device) => void handleDelete(device)}
             t={t}
             locale={locale}

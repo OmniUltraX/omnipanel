@@ -8050,7 +8050,8 @@ export const zhCN = {
       lastLogin: "最近登录",
       meta: {
         os: "系统",
-        ip: "IP",
+        ip: "主机IP",
+        tailscaleIp: "内网IP",
         app: "应用",
         status: "状态",
       },

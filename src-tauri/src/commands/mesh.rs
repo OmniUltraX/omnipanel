@@ -29,6 +29,13 @@ pub struct MeshStatus {
     pub listen_port: u16,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshPeerIp {
+    pub device_id: String,
+    pub ipv4: String,
+}
+
 pub struct MeshHandle {
     pub team_id: i64,
     pub hostname: String,
@@ -303,6 +310,62 @@ pub async fn mesh_request_sync_key(
         OmniError::new(ErrorCode::Io, "读取 mesh 对端响应失败").with_cause(e.to_string())
     })
     .and_then(|resp| parse_wrapped_key(&resp))
+}
+
+/// 查询一批设备的 Tailscale 内网 IP（同团队 mesh；本机取 self_node，对端按 hostname 查）。
+#[tauri::command]
+#[specta::specta]
+pub async fn mesh_peer_ips(
+    state: State<'_, AppState>,
+    team_id: i64,
+    device_ids: Vec<String>,
+) -> Result<Vec<MeshPeerIp>, OmniError> {
+    if team_id <= 0 {
+        return Err(OmniError::invalid_input("团队 ID 无效"));
+    }
+    let device = {
+        let guard = state.mesh.lock().await;
+        let cur = guard.as_ref().ok_or_else(|| {
+            OmniError::new(ErrorCode::Connection, "本机尚未加入团队 mesh")
+        })?;
+        if cur.team_id != team_id {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                "当前 mesh 团队与请求不一致",
+            ));
+        }
+        cur.device.clone()
+    };
+
+    let self_node = device.self_node().await.ok();
+
+    let mut out = Vec::with_capacity(device_ids.len());
+    for raw in device_ids {
+        let device_id = raw.trim().to_string();
+        if device_id.is_empty() {
+            continue;
+        }
+        let hostname = mesh_hostname(&device_id);
+        let ipv4 = match &self_node {
+            Some(node) if node.matches_name(&hostname) => node_ip(node)
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
+            _ => peer_ipv4(&device, &hostname).await,
+        };
+        out.push(MeshPeerIp { device_id, ipv4 });
+    }
+    Ok(out)
+}
+
+async fn peer_ipv4(device: &tailscale::Device, hostname: &str) -> String {
+    match device.peer_by_name(hostname).await {
+        Ok(Some(node)) => node_ip(&node).map(|ip| ip.to_string()).unwrap_or_default(),
+        Ok(None) => String::new(),
+        Err(e) => {
+            warn!(error = %e, hostname, "mesh 对端查询失败");
+            String::new()
+        }
+    }
 }
 
 async fn mesh_stop_inner(state: &AppState) {

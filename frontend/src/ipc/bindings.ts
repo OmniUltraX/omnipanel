@@ -1260,6 +1260,8 @@ export const commands = {
 	meshStart: (teamId: number, authKey: string, controlServerUrl: string, hostname: string) => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_start", { teamId, authKey, controlServerUrl, hostname })),
 	meshStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("mesh_stop")),
 	meshStatus: () => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_status")),
+	/**  查询一批设备的 Tailscale 内网 IP（同团队 mesh；本机取 self_node，对端按 hostname 查）。 */
+	meshPeerIps: (teamId: number, deviceIds: string[]) => typedError<MeshPeerIp[], OmniError_Serialize>(__TAURI_INVOKE("mesh_peer_ips", { teamId, deviceIds })),
 	/**  向对端 hostname 请求封装后的团队同步密钥。 */
 	meshRequestSyncKey: (teamId: number, peerHostname: string, ephemeralPubkey: string, requestId: string, requesterDeviceId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("mesh_request_sync_key", { teamId, peerHostname, ephemeralPubkey, requestId, requesterDeviceId })),
 	/**  将自定义面板分享给团队成员（写入团队 OSS + 更新索引 + 通知）。 */
@@ -4204,6 +4206,11 @@ export type MemoryStats_Serialize = {
 	swapAvailable: number | null,
 	cached?: number | null,
 	buffers?: number | null,
+};
+
+export type MeshPeerIp = {
+	deviceId: string,
+	ipv4: string,
 };
 
 export type MeshStatus = {
