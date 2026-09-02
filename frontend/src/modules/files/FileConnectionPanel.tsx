@@ -262,6 +262,8 @@ export function FileConnectionPanel({
     return readStoredFilesDetailVisible();
   });
   const [selected, setSelected] = useState<FileEntry | null>(null);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [anchorPath, setAnchorPath] = useState<string | null>(null);
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
   const [copyToast, setCopyToast] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
@@ -336,6 +338,8 @@ export function FileConnectionPanel({
       setHasMoreEntries(result.truncated);
       setCurrentPath(resolvedPath);
       setSelected(null);
+      setSelectedPaths(new Set());
+      setAnchorPath(null);
       setPreviewText(null);
       if (connId !== LOCAL_CONNECTION_ID) {
         onPatchStatus(connId, "online");
@@ -703,24 +707,31 @@ export function FileConnectionPanel({
     [connId],
   );
 
+  const getSelectedEntries = useCallback((): FileEntry[] => {
+    if (selectedPaths.size > 0) {
+      return displayEntries.filter((e) => selectedPaths.has(e.path));
+    }
+    return selected ? [selected] : [];
+  }, [selectedPaths, displayEntries, selected]);
+
   const handleClipboardCopy = useCallback(
     (entry?: FileEntry | null) => {
-      const target = entry ?? selected;
-      if (!target) return;
-      clipboardCopy(clipboardFromEntry(target));
+      const items = entry ? [entry] : getSelectedEntries();
+      if (items.length === 0) return;
+      clipboardCopy(items.flatMap((it) => clipboardFromEntry(it)));
       showToast(t("files.clipboard.copied"));
     },
-    [clipboardCopy, clipboardFromEntry, selected, t],
+    [clipboardCopy, clipboardFromEntry, getSelectedEntries, t],
   );
 
   const handleClipboardCut = useCallback(
     (entry?: FileEntry | null) => {
-      const target = entry ?? selected;
-      if (!target) return;
-      clipboardCut(clipboardFromEntry(target));
+      const items = entry ? [entry] : getSelectedEntries();
+      if (items.length === 0) return;
+      clipboardCut(items.flatMap((it) => clipboardFromEntry(it)));
       showToast(t("files.clipboard.cut"));
     },
-    [clipboardCut, clipboardFromEntry, selected, t],
+    [clipboardCut, clipboardFromEntry, getSelectedEntries, t],
   );
 
   const resolveConflictPolicy = useCallback(
@@ -911,15 +922,19 @@ export function FileConnectionPanel({
 
   const handleEntryDragStart = useCallback(
     (e: React.DragEvent, entry: FileEntry) => {
-      const target =
-        selected && selected.path === entry.path ? selected : entry;
+      let items: FileEntry[];
+      if (selectedPaths.has(entry.path) && selectedPaths.size > 1) {
+        items = displayEntries.filter((en) => selectedPaths.has(en.path));
+      } else {
+        items = [entry];
+      }
       writeFilesDrag(e.dataTransfer, {
         connectionId: connId,
-        items: clipboardFromEntry(target),
+        items: items.flatMap((it) => clipboardFromEntry(it)),
         mode: "copy",
       });
     },
-    [clipboardFromEntry, connId, selected],
+    [clipboardFromEntry, connId, displayEntries, selectedPaths],
   );
 
   const handleEntryDragOver = useCallback((e: React.DragEvent, entry: FileEntry) => {
@@ -1113,31 +1128,6 @@ export function FileConnectionPanel({
     return () => window.removeEventListener("omnipanel-files-tab-drop", flush);
   }, [isActive, connId, currentPath, enqueueClipboardLike, protocol, quickPaths?.home]);
 
-  useEffect(() => {
-    if (!isActive) return;
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
-        return;
-      }
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      const key = e.key.toLowerCase();
-      if (key === "c") {
-        e.preventDefault();
-        handleClipboardCopy();
-      } else if (key === "x") {
-        e.preventDefault();
-        handleClipboardCut();
-      } else if (key === "v") {
-        e.preventDefault();
-        void handleClipboardPaste();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [handleClipboardCopy, handleClipboardCut, handleClipboardPaste, isActive]);
-
   const handleMkdir = useCallback(async () => {
     const name = await quickInput({
       title: t("files.actions.mkdir"),
@@ -1179,14 +1169,39 @@ export function FileConnectionPanel({
     try {
       await deleteRemote(connId, entry.path, entry.kind);
       setSelected(null);
+      setSelectedPaths(new Set());
       void loadDir(currentPath);
     } catch (e) {
       setError(fmtError(e));
     }
   }, [connId, currentPath, loadDir, protocol, t]);
 
+  const handleDeleteMulti = useCallback(async (items: FileEntry[]) => {
+    if (items.length === 0) return;
+    if (items.length === 1) {
+      return handleDelete(items[0]!);
+    }
+    if (!(await appConfirm(t("files.actions.deleteMultiConfirm", { count: items.length })))) return;
+    let failed = 0;
+    for (const item of items) {
+      try {
+        await deleteRemote(connId, item.path, item.kind);
+      } catch {
+        failed++;
+      }
+    }
+    setSelectedPaths(new Set());
+    setSelected(null);
+    void loadDir(currentPath);
+    if (failed > 0) {
+      setError(t("files.actions.deleteSomeFailed", { failed, total: items.length }));
+    }
+  }, [connId, currentPath, handleDelete, loadDir, t]);
+
   const handleOpenFile = useCallback((entry: FileEntry) => {
     if (entry.kind !== "file") return;
+    setSelectedPaths(new Set([entry.path]));
+    setAnchorPath(entry.path);
     setSelected(entry);
     setPreviewEntry(entry);
   }, []);
@@ -1208,13 +1223,80 @@ export function FileConnectionPanel({
     window.setTimeout(() => setCopyToast(null), 2200);
   }, [protocol, storedConnection?.config, t]);
 
-  const handleEnter = useCallback((entry: FileEntry) => {
+  const handleActivate = useCallback((entry: FileEntry) => {
     if (entry.kind === "dir") {
       navigateTo(entry.path);
     } else {
-      setSelected(entry);
+      handleOpenFile(entry);
     }
-  }, [navigateTo]);
+  }, [navigateTo, handleOpenFile]);
+
+  const handleSelect = useCallback((entry: FileEntry, e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedPaths((prev) => {
+        const next = new Set(prev);
+        if (next.has(entry.path)) next.delete(entry.path);
+        else next.add(entry.path);
+        return next;
+      });
+    } else if (e.shiftKey && anchorPath) {
+      const paths = displayEntries.map((en) => en.path);
+      const startIdx = paths.indexOf(anchorPath);
+      const endIdx = paths.indexOf(entry.path);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const from = Math.min(startIdx, endIdx);
+        const to = Math.max(startIdx, endIdx);
+        setSelectedPaths(new Set(paths.slice(from, to + 1)));
+      } else {
+        setSelectedPaths(new Set([entry.path]));
+      }
+    } else {
+      setSelectedPaths(new Set([entry.path]));
+    }
+    setAnchorPath(entry.path);
+    setSelected(entry);
+  }, [anchorPath, displayEntries]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === "a") {
+        e.preventDefault();
+        setSelectedPaths(new Set(displayEntries.map((entry) => entry.path)));
+        return;
+      }
+      if (mod && key === "c") {
+        e.preventDefault();
+        handleClipboardCopy();
+        return;
+      }
+      if (mod && key === "x") {
+        e.preventDefault();
+        handleClipboardCut();
+        return;
+      }
+      if (mod && key === "v") {
+        e.preventDefault();
+        void handleClipboardPaste();
+        return;
+      }
+      if (e.key === "Delete") {
+        const items = getSelectedEntries();
+        if (items.length > 0) {
+          e.preventDefault();
+          void handleDeleteMulti(items);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [displayEntries, getSelectedEntries, handleClipboardCopy, handleClipboardCut, handleClipboardPaste, handleDeleteMulti, isActive]);
 
   const currentFavorite = useMemo(
     () =>
@@ -1250,7 +1332,11 @@ export function FileConnectionPanel({
 
   const handleFileContextMenu = (e: React.MouseEvent, entry: FileEntry) => {
     e.preventDefault();
-    setSelected(entry);
+    if (!selectedPaths.has(entry.path)) {
+      setSelectedPaths(new Set([entry.path]));
+      setAnchorPath(entry.path);
+      setSelected(entry);
+    }
     setCtxMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
@@ -1261,7 +1347,7 @@ export function FileConnectionPanel({
       {
         id: "open",
         label: t("files.context.open"),
-        onClick: () => (entry.kind === "file" ? handleOpenFile(entry) : handleEnter(entry)),
+        onClick: () => handleActivate(entry),
       },
     ];
     if (entry.kind === "dir") {
@@ -1321,7 +1407,7 @@ export function FileConnectionPanel({
         id: "delete",
         label: t("files.actions.delete"),
         danger: true,
-        onClick: () => void handleDelete(entry),
+        onClick: () => void handleDeleteMulti(getSelectedEntries()),
       },
       { id: "sep2", separator: true, label: "" },
       {
@@ -1336,14 +1422,14 @@ export function FileConnectionPanel({
     connId,
     ctxMenu,
     favorites,
+    getSelectedEntries,
+    handleActivate,
     handleClipboardCopy,
     handleClipboardCut,
     handleClipboardPaste,
     handleCopyS3Link,
-    handleDelete,
+    handleDeleteMulti,
     handleDownload,
-    handleEnter,
-    handleOpenFile,
     handleRename,
     protocol,
     t,
@@ -1662,11 +1748,11 @@ export function FileConnectionPanel({
             ) : viewMode === "list" ? (
               <VirtualFileList
                 entries={displayEntries}
-                selected={selected}
+                selectedPaths={selectedPaths}
                 scrollResetSignal={`${currentPath}|${connId}|${search.trim()}`}
-                onActivate={handleEnter}
+                onSelect={handleSelect}
+                onActivate={handleActivate}
                 onContextMenu={handleFileContextMenu}
-                onOpenFile={handleOpenFile}
                 onEntryDragStart={handleEntryDragStart}
                 onEntryDragOver={handleEntryDragOver}
                 onEntryDragLeave={handleEntryDragLeave}
@@ -1676,12 +1762,12 @@ export function FileConnectionPanel({
             ) : (
               <VirtualFileGrid
                 entries={displayEntries}
-                selected={selected}
+                selectedPaths={selectedPaths}
                 connectionId={connId}
                 scrollResetSignal={`${currentPath}|${connId}|${search.trim()}`}
-                onActivate={handleEnter}
+                onSelect={handleSelect}
+                onActivate={handleActivate}
                 onContextMenu={handleFileContextMenu}
-                onOpenFile={handleOpenFile}
                 onEntryDragStart={handleEntryDragStart}
                 onEntryDragOver={handleEntryDragOver}
                 onEntryDragLeave={handleEntryDragLeave}
@@ -1694,6 +1780,8 @@ export function FileConnectionPanel({
           <aside className={`fm-detail${selected ? "" : " empty"}`}>
             {!selected ? (
               <p>{t("files.detail.empty")}</p>
+            ) : selectedPaths.size > 1 ? (
+              <p>{t("files.detail.multiSelected", { count: selectedPaths.size })}</p>
             ) : (
               <>
                 <div className="fm-detail-header">

@@ -1,6 +1,7 @@
 import { useI18n } from "../../../../i18n";
+import { StatusDot } from "../../../../components/ui/primitives/StatusDot";
 import {
-  hostStatusDotClass,
+  hostStatusDotStatus,
   useHostConnectionIndicatorStatus,
   useHostReachabilityStatus,
 } from "../../../../stores/sshConnectionStore";
@@ -31,23 +32,24 @@ export function HostStatusIndicator({ resourceId, showLabel = false, className }
         : null;
   const title = reachabilityHint ? `${label} · ${reachabilityHint}` : label;
 
-  const dotClass = hostStatusDotClass(status);
-  const connectingClass = status === "connecting" ? " host-status--pulse" : "";
+  const dot = (
+    <StatusDot
+      status={hostStatusDotStatus(status)}
+      title={title}
+      label={label}
+      size="sm"
+      className={showLabel ? undefined : className}
+    />
+  );
 
   if (showLabel) {
     return (
       <span className={`ssh-detail-status ssh-detail-status--${status}${className ? ` ${className}` : ""}`}>
-        <span className={`host-status ${dotClass}${connectingClass}`} title={title} aria-label={label} />
+        {dot}
         {label}
       </span>
     );
   }
 
-  return (
-    <span
-      className={`host-status ${dotClass}${connectingClass}${className ? ` ${className}` : ""}`}
-      title={title}
-      aria-label={label}
-    />
-  );
+  return dot;
 }

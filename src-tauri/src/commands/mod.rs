@@ -69,6 +69,7 @@ pub mod system;
 pub mod tag;
 pub mod task;
 pub mod team_sync;
+pub mod team_share_inbox;
 pub mod teams;
 pub mod terminal;
 pub mod terminal_history;

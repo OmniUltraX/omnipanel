@@ -33,6 +33,10 @@ import { useSshHostStore } from "../../stores/sshHostStore";
 import { usePanelProbeStore } from "../../modules/server/ssh/stores/panelProbeStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { GLOBAL_SHARE_MENU_ID } from "../ui/menu/withGlobalShareMenuItem";
+import { useShareUiStore } from "../../stores/shareUiStore";
+import { buildSshConnectionSharePayload } from "../../modules/share/resourceShare";
+import hostIcon from "../../assets/icons/host.svg";
 import { SshConnectionDialog } from "../../modules/server/ssh/components/SshConnectionDialog";
 import { SshConfigImportDialog } from "../../modules/server/ssh/components/SshConfigImportDialog";
 import {
@@ -266,6 +270,21 @@ function FolderIcon() {
   );
 }
 
+/** SSH 主机条目图标（assets/icons/host.svg） */
+function HostTreeIcon() {
+  return (
+    <img
+      src={hostIcon}
+      alt=""
+      width={14}
+      height={14}
+      className="ssh-tree-host-icon"
+      aria-hidden
+      draggable={false}
+    />
+  );
+}
+
 const PANEL_ICON_ORDER: PanelBrandIconKind[] = ["bt", "1panel"];
 
 function HostPanelIcons({ sshId }: { sshId: string }) {
@@ -344,6 +363,7 @@ export function HostListPanel({
   const setActivePath = useWorkspaceStore((s) => s.setActivePath);
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
+  const openShareDialog = useShareUiStore((s) => s.openShareDialog);
   const activeHostId = activeHostIdProp ?? selectedResourceByPath[SSH_PATH];
   const { isExpanded, toggle, ensureExpanded } = usePersistedSshTreeExpanded();
 
@@ -822,6 +842,16 @@ export function HostListPanel({
         onClick: () => handleDuplicateHost(host),
       },
       {
+        id: GLOBAL_SHARE_MENU_ID,
+        label: t("share.menu"),
+        onClick: () => {
+          const conn = connections.find((c) => c.id === host.id);
+          if (conn) {
+            openShareDialog(buildSshConnectionSharePayload(conn));
+          }
+        },
+      },
+      {
         id: "host-copy-cmd",
         label: t("ssh.context.copySshCommand"),
         onClick: () => void handleCopySshCommand(host),
@@ -957,6 +987,7 @@ export function HostListPanel({
           module="ssh"
           nodeType="host"
           treeKey={treeKey}
+          icon={<HostTreeIcon />}
           className={`${dragOverKey === dragKey ? "ssh-tree-drop-target" : ""}${selected ? " selected" : ""}`}
           prefix={
             selectionMode ? (
@@ -976,11 +1007,11 @@ export function HostListPanel({
             <span className="host-info ssh-tree-host-label">
               <span className="host-row-1">
                 <span className="host-name">{host.name}</span>
+                <span className="host-row-2">{host.subtitle}</span>
                 <span className="host-row-1-meta">
                   <HostMonitoringBadge resourceId={host.id} />
                 </span>
               </span>
-              <span className="host-row-2">{host.subtitle}</span>
             </span>
           }
           trailing={<HostPanelIcons sshId={host.id} />}

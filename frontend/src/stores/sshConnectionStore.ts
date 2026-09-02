@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type PoolStatusEvent } from "../ipc/bindings";
+import type { StatusDotStatus } from "../components/ui/primitives/StatusDot";
 import { useHostOverviewPhase } from "./sshHostStore";
 import { useTerminalStore, type TerminalPane } from "./terminalStore";
 
@@ -205,11 +206,12 @@ export function useHostReachabilityStatus(
   return "unknown";
 }
 
-/** 获取状态点的 CSS 类名 */
-export function hostStatusDotClass(
+/** 获取状态点的通用状态（StatusDot）；SSH 离线为中性灰（idle）而非红色错误 */
+export function hostStatusDotStatus(
   status: "online" | "connecting" | "offline" | "unknown",
-): string {
-  if (status === "online" || status === "connecting") return "host-status--online";
-  if (status === "offline") return "host-status--offline";
-  return "host-status--unknown";
+): StatusDotStatus {
+  if (status === "online") return "online";
+  if (status === "connecting") return "connecting";
+  if (status === "offline") return "idle";
+  return "unknown";
 }

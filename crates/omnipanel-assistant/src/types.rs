@@ -121,6 +121,24 @@ pub struct SnapshotOverviewModules {
     pub ai_models: OverviewModuleEntry,
 }
 
+impl SnapshotOverviewModules {
+    pub fn section_mut(&mut self, module_id: &str) -> Option<&mut OverviewModuleEntry> {
+        match module_id {
+            "terminal" => Some(&mut self.terminal),
+            "database" => Some(&mut self.database),
+            "docker" => Some(&mut self.docker),
+            "files" => Some(&mut self.files),
+            "server" => Some(&mut self.server),
+            "knowledge" => Some(&mut self.knowledge),
+            "protocol" => Some(&mut self.protocol),
+            "tasks" => Some(&mut self.tasks),
+            "assistant" => Some(&mut self.assistant),
+            "aiModels" => Some(&mut self.ai_models),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OverviewModuleEntry {
@@ -130,6 +148,9 @@ pub struct OverviewModuleEntry {
     pub object_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// 该模块文件是否已加密（true = 需用团队同步密钥解密）
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub encrypted: bool,
 }
 
 /// 单模块列表文件 `modules/{id}.json`。
@@ -208,6 +229,7 @@ pub fn build_snapshot_bundle(
             count: section.item_count() as u32,
             object_key: module_key,
             error: section.error,
+            ..Default::default()
         };
         match *module_id {
             "terminal" => overview_modules.terminal = entry,

@@ -188,13 +188,25 @@ pub struct TeamShareIndexItem {
     pub created_at: String,
     #[serde(default)]
     pub recipient_union_ids: Vec<String>,
+    /// 快照内资源类型（custom-panel / knowledge-entry / http-request / ssh-connection /
+    /// database-connection）；旧索引缺省视为 custom-panel。
+    #[serde(default = "default_share_resource_kind")]
+    pub resource_kind: String,
+}
+
+fn default_share_resource_kind() -> String {
+    "custom-panel".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamShareIndex {
+    /// 旧索引可能缺省；缺省时由 parse_team_share_index 回填。
+    #[serde(default)]
     pub schema_version: u32,
+    #[serde(default)]
     pub kind: String,
+    #[serde(default)]
     pub updated_at: String,
     #[serde(default)]
     pub items: Vec<TeamShareIndexItem>,
@@ -274,7 +286,8 @@ pub fn validate_team_share_bundle_json(body: &[u8]) -> OmniResult<()> {
         ));
     }
     let kind = value.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-    if kind != "team-custom-panel-share" {
+    // team-custom-panel-share 为旧版自定义面板专用；team-resource-share 为通用资源分享
+    if kind != "team-custom-panel-share" && kind != "team-resource-share" {
         return Err(map_assistant_error(
             AssistantErrorKind::Encode,
             "团队分享 kind 无效",

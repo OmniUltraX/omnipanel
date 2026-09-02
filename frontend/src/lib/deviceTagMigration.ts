@@ -5,6 +5,7 @@ import { unwrapCommand } from "../ipc/result";
 import { useAuthStore } from "../stores/authStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
+import { uniqueTags } from "./resourceTags";
 
 let migratePromise: Promise<boolean> | null = null;
 
@@ -83,7 +84,7 @@ function migrateTags(
     ? null
     : original.find((t) => names.has(t.trim()))?.trim() ?? null;
 
-  const next = original.filter((t) => !names.has(t.trim()));
+  const next = uniqueTags(original.filter((t) => !names.has(t.trim())));
   if (!hasCreator) {
     const creator = matchedCreator ?? fallbackCreator.trim();
     if (creator) {

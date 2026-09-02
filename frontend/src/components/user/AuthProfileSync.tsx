@@ -15,6 +15,7 @@ import {
   startAssistantChatInbox,
   startAssistantTerminalCmdInbox,
 } from "../../modules/assistant";
+import { startShareInbox, stopShareInbox } from "../../modules/share/shareInbox";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { useSyncDeviceAuthStore } from "../../stores/syncDeviceAuthStore";
@@ -54,6 +55,7 @@ export function AuthProfileSync() {
     scheduleAssistantSnapshotSync();
     void startAssistantChatInbox();
     void startAssistantTerminalCmdInbox();
+    void startShareInbox();
   }, [authHydrated, token]);
 
   // 登录后维持 Redis presence 心跳；登出 / token 清空时停止
@@ -62,6 +64,7 @@ export function AuthProfileSync() {
       stopPresenceHeartbeat();
       stopSyncKeyRelayAutoWrap();
       void stopTeamMesh();
+      void stopShareInbox();
       return;
     }
     startPresenceHeartbeat({

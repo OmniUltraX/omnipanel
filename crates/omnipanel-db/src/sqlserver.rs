@@ -356,7 +356,7 @@ impl DbDriver for SqlServerDriver {
 }
 
 #[cfg(test)]
-mod tests {
+mod quote_tests {
     use super::quote_ident;
 
     #[test]

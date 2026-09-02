@@ -20,3 +20,4 @@ export {
 export { Avatar, AvatarFallback, AvatarImage } from "./avatar";
 export { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./collapsible";
 export { Skeleton } from "./skeleton";
+export { StatusDot, type StatusDotProps, type StatusDotSize, type StatusDotStatus } from "./StatusDot";

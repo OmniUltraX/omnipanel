@@ -42,10 +42,29 @@ export function upsertResourceTag(
   return rest;
 }
 
-/** 展示用：已知键优先，其余按原序。 */
+/** 保序去重（区分大小写，按原串去重）。 */
+export function uniqueTags(tags: string[] | undefined | null): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const tag of tags ?? []) {
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+  }
+  return out;
+}
+
+/** 展示用：去重 + 已知键优先，其余按原序。 */
 export function sortTagsForDisplay(tags: string[]): string[] {
   const knownOrder = Object.values(RESOURCE_TAG_KEYS);
-  return [...tags].sort((a, b) => {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const tag of tags) {
+    if (seen.has(tag)) continue;
+    seen.add(tag);
+    unique.push(tag);
+  }
+  return unique.sort((a, b) => {
     const ak = parseResourceTag(a).key;
     const bk = parseResourceTag(b).key;
     const ai = knownOrder.indexOf(ak as (typeof knownOrder)[number]);

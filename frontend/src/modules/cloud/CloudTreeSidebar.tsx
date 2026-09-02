@@ -4,6 +4,7 @@ import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
 import { IconPlus } from "@/components/ui/Icons";
 import { MultiSelect } from "@/components/ui/form/MultiSelect";
+import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
@@ -49,6 +50,15 @@ type CloudTreeCtxTarget =
 type CloudTreeContextHandler = (event: TreeRowMouseEvent, target: CloudTreeCtxTarget) => void;
 
 export type CloudSidebarNavigate = (target: CloudSidebarNavTarget, mode?: CloudDockOpenMode) => void;
+
+/** 账户任意资源清单拉取失败 → offline（红）；存在成功记录 → online；否则 idle。 */
+function accountStatusDotStatus(
+  listEntries: Array<{ error?: string | null; fetchedAt?: number }>,
+): StatusDotStatus {
+  if (listEntries.some((entry) => entry.error)) return "offline";
+  if (listEntries.some((entry) => entry.fetchedAt)) return "online";
+  return "idle";
+}
 
 type CloudAccountBranchProps = {
   account: CloudAccount;
@@ -321,6 +331,7 @@ export function CloudTreeSidebar({
   const { t } = useI18n();
   usePluginRuntimeStore((s) => s.items);
   usePluginRuntimeStore((s) => s.hydrated);
+  const inventoryByAccount = useCloudInventoryStore((s) => s.byAccount);
   const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxTarget, setCtxTarget] = useState<CloudTreeCtxTarget | null>(null);
@@ -486,6 +497,14 @@ export function CloudTreeSidebar({
           {visibleAccounts.map((account) => {
             const accountKey = makeCloudTreeKey({ kind: "account", accountId: account.id });
             const expanded = isExpanded(accountKey);
+            const listEntries = Object.values(inventoryByAccount[account.id]?.lists ?? {});
+            const accountStatus = accountStatusDotStatus(listEntries);
+            const failedEntry = listEntries.find((entry) => entry.error);
+            const accountStatusTitle = failedEntry
+              ? `${t("common.statusOffline")}：${failedEntry.error}`
+              : accountStatus === "online"
+                ? t("common.statusOnline")
+                : t("common.statusIdle");
             return (
               <div key={account.id}>
                 <SidebarTreeNode
@@ -495,6 +514,7 @@ export function CloudTreeSidebar({
                   treeKey={accountKey}
                   label={account.name}
                   icon={<ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />}
+                  prefix={<StatusDot status={accountStatus} title={accountStatusTitle} />}
                   className={serverTreeNodeClassName(cloudBrandKind(account.pluginId))}
                   hasChildren
                   expanded={expanded}

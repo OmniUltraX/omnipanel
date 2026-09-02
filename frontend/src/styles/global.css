@@ -7159,6 +7159,74 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
+.sidebar-miniapp-assistant-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 0;
+    min-width: 240px;
+}
+
+.sidebar-miniapp-key-qr {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 0;
+}
+
+.sidebar-miniapp-assistant-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
+    background: var(--surface-2, var(--surface));
+    border: 1px solid var(--border);
+}
+
+.sidebar-miniapp-assistant-name {
+    font-size: 13px;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sidebar-miniapp-assistant-unbind {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--danger, #e53e3e);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--r-xs);
+    transition: background 0.15s ease;
+}
+
+.sidebar-miniapp-assistant-unbind:hover {
+    background: rgba(229, 62, 62, 0.12);
+}
+
+.sidebar-miniapp-assistant-bind-new,
+.sidebar-miniapp-assistant-back {
+    font-size: 12px;
+    color: var(--accent, var(--fg));
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px 0;
+    text-align: center;
+    width: 100%;
+}
+
+.sidebar-miniapp-assistant-bind-new:hover,
+.sidebar-miniapp-assistant-back:hover {
+    text-decoration: underline;
+}
+
 .sidebar-user-btn {
     position: relative;
     overflow: visible;
@@ -7643,6 +7711,43 @@ button.omni-btn-tool[aria-pressed="true"] {
 
 /* 鈹€鈹€鈹€ Component Classes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
 @layer components {
+
+    /* 通用资源状态点（StatusDot 组件）：SSH / 数据库 / Docker / 第三方服务 / 文件 / 云侧边栏共用 */
+    .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: inline-block;
+        background: var(--meta);
+    }
+
+    .status-dot--sm {
+        width: 8px;
+        height: 8px;
+    }
+
+    .status-dot--online {
+        background: var(--success);
+        box-shadow: 0 0 0 2px var(--success-soft);
+    }
+
+    .status-dot--connecting {
+        background: var(--warn);
+        animation: pulse-dot 1.2s ease-in-out infinite;
+    }
+
+    .status-dot--offline {
+        background: var(--danger);
+    }
+
+    .status-dot--idle {
+        background: var(--meta);
+    }
+
+    .status-dot--unknown {
+        background: var(--border);
+    }
 
     /* Buttons */
     .btn {
@@ -23436,6 +23541,13 @@ button.omni-btn-tool[aria-pressed="true"] {
     background: var(--bg);
 }
 
+.fm-sidebar-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
 .fm-connections {
     flex: 1;
     min-height: 0;
@@ -23500,6 +23612,17 @@ button.omni-btn-tool[aria-pressed="true"] {
     opacity: 0.92;
 }
 
+.fm-conn-item--selected,
+.fm-favorite-item--selected {
+    background: var(--accent-soft);
+    color: var(--fg);
+}
+
+.fm-conn-item--selected.active,
+.fm-favorite-item--selected.fm-favorite-item--pinned {
+    background: var(--accent-soft);
+}
+
 .fm-conn-item .conn-icon {
     width: 16px;
     height: 16px;
@@ -23540,22 +23663,6 @@ button.omni-btn-tool[aria-pressed="true"] {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.fm-conn-item .conn-status {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    margin-left: auto;
-}
-
-.conn-status.online {
-    background: var(--success);
-}
-
-.conn-status.offline {
-    background: var(--meta);
 }
 
 .fm-conn-empty {
@@ -23773,6 +23880,10 @@ button.omni-btn-tool[aria-pressed="true"] {
     border-radius: var(--r-sm);
     background: var(--surface-2, var(--surface));
     border: 1px dashed var(--border);
+}
+
+.fm-sidebar-row .status-dot {
+    flex-shrink: 0;
 }
 
 .fm-favorite-label {

@@ -19,6 +19,7 @@ use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::SshSession;
 use serde::{Deserialize, Serialize};
 
+use crate::onepanel_version::OnePanelVersion;
 use crate::ssh::SshDockerAdapter;
 use crate::{
     ContainerFilter, DockerAdapter, DockerBuildContext, DockerBuildResult, DockerComposeAction,
@@ -48,6 +49,24 @@ pub struct OnePanelClient {
     entrance: String,
     api_key: String,
     insecure: bool,
+}
+
+/// 容器终端端点代际（按面板版本路由）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerTerminalEndpoint {
+    /// v2.2+ `/api/v2/hosts/terminal/container`（`operateNode=local`）
+    HostsTerminal,
+    /// v2.0–v2.1 `/api/v2/containers/exec`
+    ContainersExecV2,
+    /// v1 `/api/v1/containers/exec`
+    ContainersExecV1,
+}
+
+/// 从 OS 信息响应的 `data` 中提取面板版本（`version` 字段，如 `v2.0.5`）。
+fn extract_panel_version(data: &serde_json::Value) -> Option<OnePanelVersion> {
+    data.get("version")
+        .and_then(|v| v.as_str())
+        .and_then(OnePanelVersion::parse)
 }
 
 /// 1Panel 标准响应包装（`{ code, message, data }`）。
@@ -121,8 +140,7 @@ fn map_http_send_error(detail: &str, url: &str) -> OmniError {
         )
         .with_cause(format!("{detail} | {url}"));
     }
-    OmniError::new(ErrorCode::Connection, "1Panel 请求失败")
-        .with_cause(format!("{detail} | {url}"))
+    OmniError::new(ErrorCode::Connection, "1Panel 请求失败").with_cause(format!("{detail} | {url}"))
 }
 
 fn non_json_response_error(text: &str) -> OmniError {
@@ -134,8 +152,7 @@ fn non_json_response_error(text: &str) -> OmniError {
         } else {
             "1Panel 返回了 HTML 页面而非 JSON（请检查面板地址、安全入口或 API 授权 IP）"
         };
-        return OmniError::new(ErrorCode::Connection, hint)
-            .with_cause(truncate_text(trimmed, 300));
+        return OmniError::new(ErrorCode::Connection, hint).with_cause(truncate_text(trimmed, 300));
     }
     OmniError::new(ErrorCode::Internal, "1Panel 响应不是合法 JSON")
         .with_cause(truncate_text(trimmed, 300))
@@ -153,6 +170,20 @@ fn api_path_candidates(path: &str) -> Vec<String> {
             format!("/{path}")
         };
         vec![format!("/api/v2{p}"), format!("/api/v1{p}")]
+    }
+}
+
+/// 归一化为唯一的 v2 API 路径（不做 v1 候选）。
+/// v2.1+ 专属端点回退 v1 只会命中 1Panel 的安全入口拦截页，掩盖真实错误。
+fn ensure_v2_api_path(path: &str) -> String {
+    if path.starts_with("/api/v2/") {
+        path.to_string()
+    } else if path.starts_with("/api/v1/") {
+        path.replacen("/api/v1/", "/api/v2/", 1)
+    } else if path.starts_with('/') {
+        format!("/api/v2{path}")
+    } else {
+        format!("/api/v2/{path}")
     }
 }
 
@@ -196,9 +227,7 @@ fn is_retryable_onepanel_envelope(message: &str) -> bool {
     // v2 端点明确存在（只是参数不对），回退到 v1 只会命中不存在的路径，
     // 1Panel 会返回安全入口拦截页，掩盖真正的参数错误。
     // orderBy 回退由 post_search_values 在同一 API 版本内处理。
-    lower.contains("not found")
-        || lower.contains("404")
-        || lower.contains("route")
+    lower.contains("not found") || lower.contains("404") || lower.contains("route")
 }
 
 /// 1Panel API 根地址与安全入口（API 走 `/api/v2`，入口经 `EntranceCode` 头传递）。
@@ -212,14 +241,20 @@ pub struct OnePanelEndpoint {
 
 fn strip_accidental_api_suffix(path: &str) -> String {
     let p = path.trim_end_matches('/');
-    if let Some(s) = p.strip_suffix("/api/v2").or_else(|| p.strip_suffix("/api/v1")) {
+    if let Some(s) = p
+        .strip_suffix("/api/v2")
+        .or_else(|| p.strip_suffix("/api/v1"))
+    {
         return s.trim_end_matches('/').to_string();
     }
     p.to_string()
 }
 
 fn normalize_entrance_segment(raw: &str) -> String {
-    raw.trim().trim_start_matches('/').trim_end_matches('/').to_string()
+    raw.trim()
+        .trim_start_matches('/')
+        .trim_end_matches('/')
+        .to_string()
 }
 
 /// 从面板地址解析 API origin 与安全入口。
@@ -257,11 +292,7 @@ pub fn resolve_onepanel_endpoint(host: &str, explicit_entrance: Option<&str>) ->
     if let Some(i) = slash_idx {
         let path = strip_accidental_api_suffix(&normalized[i..]);
         if !path.is_empty() && path != "/" {
-            let segment = path
-                .trim_start_matches('/')
-                .split('/')
-                .next()
-                .unwrap_or("");
+            let segment = path.trim_start_matches('/').split('/').next().unwrap_or("");
             let segment = normalize_entrance_segment(segment);
             if !segment.is_empty() {
                 entrance = segment;
@@ -457,10 +488,15 @@ impl OnePanelClient {
         T: for<'de> Deserialize<'de>,
     {
         let text = self.request_raw(method, path, body, query, timeout).await?;
-        if !status_is_json_payload(&text) {
-            return Err(non_json_response_error(&text));
+        Self::parse_data_response(&text)
+    }
+
+    /// 解析 1Panel 标准响应信封并提取 `data`。
+    fn parse_data_response<T: for<'de> Deserialize<'de>>(text: &str) -> OmniResult<T> {
+        if !status_is_json_payload(text) {
+            return Err(non_json_response_error(text));
         }
-        let parsed: OnePanelResponse<T> = serde_json::from_str(&text).map_err(|e| {
+        let parsed: OnePanelResponse<T> = serde_json::from_str(text).map_err(|e| {
             OmniError::new(ErrorCode::Internal, "解析 1Panel 响应失败").with_cause(format!(
                 "{}; body: {}",
                 e,
@@ -476,6 +512,29 @@ impl OnePanelClient {
         parsed
             .data
             .ok_or_else(|| OmniError::new(ErrorCode::Internal, "1Panel 响应缺少 data 字段"))
+    }
+
+    /// POST 仅走 v2 路径的请求（不做 v1 回退）。
+    /// 用于 v2.2+ 专属端点：旧版面板上回退 v1 只会命中安全入口拦截页，掩盖真实错误。
+    async fn post_json_v2_only<B: serde::Serialize, T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        body: B,
+    ) -> OmniResult<T> {
+        let body_value = serde_json::to_value(&body).map_err(|e| {
+            OmniError::new(ErrorCode::InvalidInput, "1Panel 请求体序列化失败")
+                .with_cause(e.to_string())
+        })?;
+        let text = self
+            .request_raw_candidates(
+                reqwest::Method::POST,
+                vec![ensure_v2_api_path(path)],
+                Some(&body_value),
+                None,
+                DEFAULT_HTTP_TIMEOUT,
+            )
+            .await?;
+        Self::parse_data_response(&text)
     }
 
     async fn request_raw<B>(
@@ -497,8 +556,21 @@ impl OnePanelClient {
             None => None,
         };
         let paths = api_path_candidates(path);
+        self.request_raw_candidates(method, paths, body_value.as_ref(), query, timeout)
+            .await
+    }
+
+    /// 依次请求候选路径（含 HTTP→HTTPS 回退）；候选列表用于 v1/v2 版本兼容。
+    async fn request_raw_candidates(
+        &self,
+        method: reqwest::Method,
+        paths: Vec<String>,
+        body: Option<&serde_json::Value>,
+        query: Option<&[(&str, &str)]>,
+        timeout: std::time::Duration,
+    ) -> OmniResult<String> {
         match self
-            .request_raw_with_paths(method.clone(), &paths, body_value.as_ref(), query, timeout)
+            .request_raw_with_paths(method.clone(), &paths, body, query, timeout)
             .await
         {
             Ok(v) => Ok(v),
@@ -514,7 +586,7 @@ impl OnePanelClient {
                     };
                     let https_client = Self::new(&https_base, &self.api_key, self.insecure);
                     match https_client
-                        .request_raw_with_paths(method, &paths, body_value.as_ref(), query, timeout)
+                        .request_raw_with_paths(method, &paths, body, query, timeout)
                         .await
                     {
                         Ok(v) => Ok(v),
@@ -627,20 +699,66 @@ impl OnePanelClient {
             .replace("http://", "ws://")
     }
 
-    /// 构造容器终端 WebSocket URL（`/api/v2/hosts/terminal/container`）。
+    /// 探测面板版本（进程级缓存；探测失败不缓存，下次重试）。
+    ///
+    /// 版本决定端点路由（终端 / 容器文件等代际差异见 [`crate::onepanel_version`]），
+    /// 探测结果按 base_url|entrance 缓存，供同一面板的后续调用直接复用。
+    pub async fn detect_version(&self) -> Option<OnePanelVersion> {
+        let key = self.version_cache_key();
+        if let Some(version) = crate::onepanel_version::cached_version(&key) {
+            return Some(version);
+        }
+        let detected = self.detect_version_uncached().await;
+        if let Some(version) = detected {
+            crate::onepanel_version::remember_version(&key, version);
+        }
+        detected
+    }
+
+    fn version_cache_key(&self) -> String {
+        format!("{}|{}", self.base_url, self.entrance)
+    }
+
+    /// 探测一次面板版本：先试 v2 OS 端点，失败再试 v1 OS 端点。
+    /// 端点可达但缺少 `version` 字段时按端点代际给保守下限。
+    async fn detect_version_uncached(&self) -> Option<OnePanelVersion> {
+        if let Ok(data) = self
+            .get_json::<serde_json::Value>("/api/v2/dashboard/base/os")
+            .await
+        {
+            return Some(extract_panel_version(&data).unwrap_or(OnePanelVersion::new(2, 0, 0)));
+        }
+        if let Ok(data) = self
+            .post_json::<serde_json::Value, serde_json::Value>(
+                "/api/v1/dashboard/current/os",
+                serde_json::json!({}),
+            )
+            .await
+        {
+            return Some(extract_panel_version(&data).unwrap_or(OnePanelVersion::new(1, 0, 0)));
+        }
+        None
+    }
+
+    /// 构造容器终端 WebSocket URL（端点按面板版本路由，见 [`ContainerTerminalEndpoint`]）。
     pub fn container_terminal_ws_url(
         &self,
         container_id: &str,
         command: &str,
         cols: u16,
         rows: u16,
+        endpoint: ContainerTerminalEndpoint,
     ) -> OmniResult<String> {
         let ws_base = self.terminal_ws_base();
-        let mut url = reqwest::Url::parse(&format!("{ws_base}/api/v2/hosts/terminal/container"))
-            .map_err(|e| {
-                OmniError::new(ErrorCode::Connection, "构造 1Panel 终端 URL 失败")
-                    .with_cause(e.to_string())
-            })?;
+        let (path, operate_node) = match endpoint {
+            ContainerTerminalEndpoint::HostsTerminal => ("/api/v2/hosts/terminal/container", true),
+            ContainerTerminalEndpoint::ContainersExecV2 => ("/api/v2/containers/exec", false),
+            ContainerTerminalEndpoint::ContainersExecV1 => ("/api/v1/containers/exec", false),
+        };
+        let mut url = reqwest::Url::parse(&format!("{ws_base}{path}")).map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "构造 1Panel 终端 URL 失败")
+                .with_cause(e.to_string())
+        })?;
         {
             let mut pairs = url.query_pairs_mut();
             pairs.append_pair("cols", &cols.to_string());
@@ -649,7 +767,9 @@ impl OnePanelClient {
             pairs.append_pair("containerid", container_id.trim());
             pairs.append_pair("user", "");
             pairs.append_pair("command", command.trim());
-            pairs.append_pair("operateNode", "local");
+            if operate_node {
+                pairs.append_pair("operateNode", "local");
+            }
         }
         Ok(url.to_string())
     }
@@ -795,9 +915,13 @@ impl OnePanelAdapter {
         Ok((crate::local::DockerExecSession::OnePanel(session), output))
     }
 
-    /// 探测：调用 `GET /api/v2/dashboard/base/os` 等轻量端点。
+    /// 探测：调用 `GET /api/v2/dashboard/base/os` 等轻量端点，顺手缓存面板版本。
     pub async fn probe_raw(&self) -> OmniResult<serde_json::Value> {
-        self.client.get_json("/api/v2/dashboard/base/os").await
+        let data: serde_json::Value = self.client.get_json("/api/v2/dashboard/base/os").await?;
+        if let Some(version) = extract_panel_version(&data) {
+            crate::onepanel_version::remember_version(&self.client.version_cache_key(), version);
+        }
+        Ok(data)
     }
 
     /// 探测为统一的 DockerProbe。
@@ -805,8 +929,7 @@ impl OnePanelAdapter {
         match self.probe_raw().await {
             Ok(v) => {
                 let version = v
-                    .get("data")
-                    .and_then(|d| d.get("os"))
+                    .get("version")
                     .and_then(|s| s.as_str())
                     .map(|s| s.to_string());
                 DockerProbe {
@@ -824,6 +947,15 @@ impl OnePanelAdapter {
                 capabilities: DockerCapabilities::onepanel(),
                 warning_message: Some(e.message),
             },
+        }
+    }
+
+    /// 容器文件 API（v2.1+ 专属）在当前面板版本上是否可用。
+    /// 版本未知时保守返回 true（保留先试面板 API 的原行为）。
+    pub(crate) async fn container_files_api_available(&self) -> bool {
+        match self.client.detect_version().await {
+            Some(version) => version.is_at_least(2, 1),
+            None => true,
         }
     }
 }
@@ -2844,29 +2976,61 @@ impl DockerAdapter for OnePanelAdapter {
         container_id: &str,
         path: &str,
     ) -> OmniResult<Vec<DockerFileEntry>> {
-        // 文档：POST /containers/files/search，body = dto.ContainerFileReq。
+        // v2.1+ 文档：POST /containers/files/search，body = dto.ContainerFileReq。
+        // v1 / v2.0 无该 API：按版本探测直接跳过面板路径，
+        // 回退绑定 SSH `docker exec ls -lan`，再退 1Panel 容器终端执行。
         let path = if path.trim().is_empty() { "/" } else { path };
-        let data: serde_json::Value = self
-            .client
-            .post_json(
-                "/api/v2/containers/files/search",
-                serde_json::json!({
-                    "containerID": container_id,
-                    "path": path,
+        let api_result: OmniResult<Vec<DockerFileEntry>> =
+            if self.container_files_api_available().await {
+                async {
+                    let data: serde_json::Value = self
+                        .client
+                        .post_json_v2_only(
+                            "/api/v2/containers/files/search",
+                            serde_json::json!({
+                                "containerID": container_id,
+                                "path": path,
+                            }),
+                        )
+                        .await
+                        .map_err(|e| e.with_cause("1Panel 列出容器目录失败"))?;
+                    let raw = extract_search_items(data)
+                        .map_err(|e| e.with_cause("1Panel 列出容器目录失败"))?;
+                    let mut entries: Vec<DockerFileEntry> =
+                        raw.iter().filter_map(parse_onepanel_file_entry).collect();
+                    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                    });
+                    Ok(entries)
+                }
+                .await
+            } else {
+                Err(OmniError::new(
+                    ErrorCode::Internal,
+                    "面板版本低于 v2.1（无容器文件 API），已跳过面板路径",
+                ))
+            };
+        match api_result {
+            Ok(entries) => Ok(entries),
+            Err(api_err) => match self.ssh().list_container_dir(container_id, path).await {
+                Ok(entries) => Ok(entries),
+                Err(ssh_err) => crate::onepanel_container_files::list_container_dir_via_exec(
+                    &self.client,
+                    container_id,
+                    path,
+                )
+                .await
+                .map_err(|exec_err| {
+                    exec_err.with_cause(format!(
+                        "面板 API: {} | SSH: {}",
+                        api_err.user_message(),
+                        ssh_err.user_message()
+                    ))
                 }),
-            )
-            .await
-            .map_err(|e| e.with_cause("1Panel 列出容器目录失败"))?;
-        let raw =
-            extract_search_items(data).map_err(|e| e.with_cause("1Panel 列出容器目录失败"))?;
-        let mut entries: Vec<DockerFileEntry> =
-            raw.iter().filter_map(parse_onepanel_file_entry).collect();
-        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        });
-        Ok(entries)
+            },
+        }
     }
 
     async fn read_container_file(
@@ -2875,40 +3039,78 @@ impl DockerAdapter for OnePanelAdapter {
         path: &str,
         max_bytes: i64,
     ) -> OmniResult<Vec<u8>> {
-        // 文档：POST /containers/files/content → dto.ContainerFileContent。
-        let data: serde_json::Value = self
-            .client
-            .post_json(
-                "/api/v2/containers/files/content",
-                serde_json::json!({
-                    "containerID": container_id,
-                    "path": path,
-                }),
-            )
+        // v2.1+ 文档：POST /containers/files/content → dto.ContainerFileContent。
+        // v1 / v2.0 无该 API：按版本探测直接跳过面板路径，
+        // 回退绑定 SSH `docker cp`，再退 1Panel 容器终端 `cat`。
+        let api_result: OmniResult<Vec<u8>> = if self.container_files_api_available().await {
+            async {
+                let data: serde_json::Value = self
+                    .client
+                    .post_json_v2_only(
+                        "/api/v2/containers/files/content",
+                        serde_json::json!({
+                            "containerID": container_id,
+                            "path": path,
+                        }),
+                    )
+                    .await
+                    .map_err(|e| e.with_cause("1Panel 读取容器文件失败"))?;
+                if data
+                    .get("isBinary")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false)
+                {
+                    return Err(OmniError::new(
+                        ErrorCode::InvalidInput,
+                        "该文件为二进制，暂不支持预览",
+                    ));
+                }
+                let content = data
+                    .get("content")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or_default();
+                let bytes = content.as_bytes().to_vec();
+                if max_bytes > 0 && (bytes.len() as i64) > max_bytes {
+                    return Err(OmniError::new(
+                        ErrorCode::InvalidInput,
+                        format!("文件超过 {} 字节限制", max_bytes),
+                    ));
+                }
+                Ok(bytes)
+            }
             .await
-            .map_err(|e| e.with_cause("1Panel 读取容器文件失败"))?;
-        if data
-            .get("isBinary")
-            .and_then(|x| x.as_bool())
-            .unwrap_or(false)
-        {
-            return Err(OmniError::new(
-                ErrorCode::InvalidInput,
-                "该文件为二进制，暂不支持预览",
-            ));
+        } else {
+            Err(OmniError::new(
+                ErrorCode::Internal,
+                "面板版本低于 v2.1（无容器文件 API），已跳过面板路径",
+            ))
+        };
+        match api_result {
+            Ok(bytes) => Ok(bytes),
+            Err(api_err) => {
+                match self
+                    .ssh()
+                    .read_container_file(container_id, path, max_bytes)
+                    .await
+                {
+                    Ok(bytes) => Ok(bytes),
+                    Err(ssh_err) => crate::onepanel_container_files::read_container_file_via_exec(
+                        &self.client,
+                        container_id,
+                        path,
+                        max_bytes,
+                    )
+                    .await
+                    .map_err(|exec_err| {
+                        exec_err.with_cause(format!(
+                            "面板 API: {} | SSH: {}",
+                            api_err.user_message(),
+                            ssh_err.user_message()
+                        ))
+                    }),
+                }
+            }
         }
-        let content = data
-            .get("content")
-            .and_then(|x| x.as_str())
-            .unwrap_or_default();
-        let bytes = content.as_bytes().to_vec();
-        if max_bytes > 0 && (bytes.len() as i64) > max_bytes {
-            return Err(OmniError::new(
-                ErrorCode::InvalidInput,
-                format!("文件超过 {} 字节限制", max_bytes),
-            ));
-        }
-        Ok(bytes)
     }
 
     async fn write_container_file(
@@ -3163,9 +3365,7 @@ pub fn adapter_from_config(
 
 #[cfg(test)]
 mod normalize_tests {
-    use super::{
-        build_onepanel_auth_headers, resolve_onepanel_endpoint, OnePanelClient,
-    };
+    use super::{OnePanelClient, build_onepanel_auth_headers, resolve_onepanel_endpoint};
     use base64::Engine as _;
 
     #[test]
@@ -3177,10 +3377,7 @@ mod normalize_tests {
 
     #[test]
     fn appends_entrance_from_explicit_param() {
-        let endpoint = resolve_onepanel_endpoint(
-            "http://192.168.1.2:9999",
-            Some("/ca8b44c8e4"),
-        );
+        let endpoint = resolve_onepanel_endpoint("http://192.168.1.2:9999", Some("/ca8b44c8e4"));
         assert_eq!(endpoint.base_url, "http://192.168.1.2:9999");
         assert_eq!(endpoint.entrance, "ca8b44c8e4");
     }
@@ -3202,11 +3399,7 @@ mod normalize_tests {
 
     #[test]
     fn client_sends_entrance_code_header() {
-        let client = OnePanelClient::new(
-            "http://59.110.152.23:17182/ca8b44c8e4",
-            "key",
-            true,
-        );
+        let client = OnePanelClient::new("http://59.110.152.23:17182/ca8b44c8e4", "key", true);
         assert_eq!(client.base_url(), "http://59.110.152.23:17182");
         assert_eq!(client.entrance(), "ca8b44c8e4");
         let headers = client.auth_headers();

@@ -3,6 +3,7 @@ import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
 import { IconRefresh } from "@/components/ui/Icons";
+import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import { appConfirm } from "@/lib/appConfirm";
 import { showToast } from "@/stores/toastStore";
 import {
@@ -162,9 +163,10 @@ export function ServerPanelTreeSidebar({
   const refreshAllResources = useServerPanelCacheStore((s) => s.refreshAllResources);
   const refreshServer = useServerPanelCacheStore((s) => s.refreshServer);
   const refreshServerApps = useServerPanelCacheStore((s) => s.refreshServerApps);
-  const isServerRefreshing = useServerPanelCacheStore((s) => s.isServerRefreshing);
-  const isServerAppsRefreshing = useServerPanelCacheStore((s) => s.isServerAppsRefreshing);
   const cacheRefreshing = useServerPanelCacheStore((s) => s.refreshing);
+  const resourcesByServerId = useServerPanelCacheStore((s) => s.resourcesByServerId);
+  const refreshingServerIds = useServerPanelCacheStore((s) => s.refreshingServerIds);
+  const refreshingAppsServerIds = useServerPanelCacheStore((s) => s.refreshingAppsServerIds);
   const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
@@ -408,7 +410,22 @@ export function ServerPanelTreeSidebar({
             const iconKind = serverTreeIconKindForPanel(server.serviceType);
             const supportsResources = serverSupportsResources(server);
             const serverRefreshing =
-              isServerRefreshing(server.id) || isServerAppsRefreshing(server.id);
+              Boolean(refreshingServerIds[server.id]) || Boolean(refreshingAppsServerIds[server.id]);
+            const resources = resourcesByServerId[server.id];
+            const serverStatus: StatusDotStatus = serverRefreshing
+              ? "connecting"
+              : resources?.error
+                ? "offline"
+                : resources?.refreshedAt
+                  ? "online"
+                  : "idle";
+            const serverStatusTitle = serverRefreshing
+              ? t("common.statusConnecting")
+              : resources?.error
+                ? `${t("common.statusOffline")}：${resources.error}`
+                : serverStatus === "online"
+                  ? t("common.statusOnline")
+                  : t("common.statusIdle");
             return (
               <div key={server.id} className="server-tree-server">
                 <SidebarTreeNode
@@ -417,6 +434,7 @@ export function ServerPanelTreeSidebar({
                   nodeType="server"
                   treeKey={serverKey}
                   icon={<ServerTreeIcon kind={iconKind} />}
+                  prefix={<StatusDot status={serverStatus} title={serverStatusTitle} />}
                   className={serverTreeNodeClassName(
                     iconKind,
                     isBtPanelService(server.serviceType)

@@ -136,7 +136,7 @@ export function officialToMarketItem(
     needsUpdate,
     createdAt: optionalStamp(plugin.createdAt),
     updatedAt: optionalStamp(plugin.updatedAt),
-    downloads: plugin.downloads,
+    downloads: plugin.downloads ?? null,
     localInstalls: 0,
   };
 }
@@ -163,7 +163,7 @@ export function dbxToMarketItem(driver: DbxCatalogDriver, name: string): MarketI
     needsUpdate,
     createdAt: optionalStamp(driver.createdAt),
     updatedAt: optionalStamp(driver.updatedAt),
-    downloads: driver.downloads,
+    downloads: driver.downloads ?? null,
     localInstalls: 0,
   };
 }

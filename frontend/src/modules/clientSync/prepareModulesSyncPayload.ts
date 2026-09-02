@@ -8,6 +8,7 @@ import {
 import { collectFolderTreesJson } from "./folderTrees";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
 import { serializeCustomPanelsJson } from "../workspace/useDashboardStore";
+import { uniqueTags } from "../../lib/resourceTags";
 
 /** 上传前对齐各模块侧栏布局与本机连接列表，避免快照与 UI 不一致。 */
 export function prepareLayoutStoresForModuleSync(): void {
@@ -32,7 +33,7 @@ function collectWorkspacesJson(): string {
     description: w.description ?? "",
     windowForm: w.windowForm ?? null,
     updatedAt: Date.now(),
-    tags: w.tags ?? [],
+    tags: uniqueTags(w.tags),
   }));
   return JSON.stringify(payload);
 }

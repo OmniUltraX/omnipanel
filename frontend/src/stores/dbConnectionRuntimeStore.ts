@@ -15,13 +15,6 @@ interface DbConnectionRuntimeState {
   clear: () => void;
 }
 
-export function dbConnectionStatusDotClass(status: DbConnectionRuntimeStatus): string {
-  if (status === "online") return "online";
-  if (status === "connecting") return "connecting";
-  if (status === "offline") return "offline";
-  return "idle";
-}
-
 export const useDbConnectionRuntimeStore = create<DbConnectionRuntimeState>((set, get) => ({
   statusByConnId: {},
 

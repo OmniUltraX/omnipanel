@@ -620,6 +620,11 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                                     <span className="host-name" title={key.name}>
                                       {key.name}
                                     </span>
+                                    {subtitle ? (
+                                      <span className="host-row-2" title={subtitle}>
+                                        {subtitle}
+                                      </span>
+                                    ) : null}
                                     {hostUsageCount > 0 ? (
                                       <span className="host-row-1-meta">
                                         <span
@@ -631,11 +636,6 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                                       </span>
                                     ) : null}
                                   </span>
-                                  {subtitle ? (
-                                    <span className="host-row-2" title={subtitle}>
-                                      {subtitle}
-                                    </span>
-                                  ) : null}
                                 </span>
                               }
                               trailing={

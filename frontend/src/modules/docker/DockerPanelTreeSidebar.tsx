@@ -12,6 +12,7 @@ import {
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
+import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
@@ -64,7 +65,7 @@ import {
   type DockerSidebarFolder,
 } from "@/stores/dockerSidebarTreeStore";
 
-function statusDotClass(status: DockerConnectionInfo["status"]): string {
+function statusDotStatus(status: DockerConnectionInfo["status"]): StatusDotStatus {
   if (status === "online") return "online";
   if (status === "degraded") return "connecting";
   return "offline";
@@ -567,8 +568,8 @@ export function DockerPanelTreeSidebar({
           }}
           onDragEnd={() => setDragOverKey(null)}
           prefix={
-            <span
-              className={`topbar-tab-dot ${statusDotClass(connection.status)}`}
+            <StatusDot
+              status={statusDotStatus(connection.status)}
               title={
                 connection.status === "online"
                   ? t("docker.sidebar.statusOnline")
@@ -576,7 +577,6 @@ export function DockerPanelTreeSidebar({
                     ? t("docker.sidebar.statusDegraded")
                     : t("docker.sidebar.statusOffline")
               }
-              aria-hidden
             />
           }
           label={

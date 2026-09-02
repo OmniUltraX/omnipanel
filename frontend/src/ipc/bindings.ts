@@ -1076,7 +1076,10 @@ export const commands = {
 	pluginDbxInstall: (key: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install", { key })),
 	/**  安装金仓 / Vastbase / UXDB / OceanBase 等；目录无包则记原因，不阻断其余项。 */
 	pluginDbxInstallCatalogEngines: () => typedError<DbxInstallAttempt[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install_catalog_engines")),
-	/**  列出官方插件（内置 bundled + 可下载包）。远程失败回退仓库种子。 */
+	/**
+	 *  列出官方插件（内置 bundled + 可下载包）。远程失败回退仓库种子。
+	 *  `force` 为 true 时等网络（市场「刷新」）；否则先返回缓存，后台静默拉新。
+	 */
 	pluginOfficialCatalog: (force: boolean) => typedError<OfficialCatalogPlugin[], OmniError_Serialize>(__TAURI_INVOKE("plugin_official_catalog", { force })),
 	/**  从官方目录下载 `.omni-plugin` 并安装。bundled 条目拒绝下载。 */
 	pluginOfficialInstall: (pluginId: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_official_install", { pluginId })),
@@ -1280,6 +1283,10 @@ export const commands = {
 	teamSyncPeekModules: (request: TeamSyncPeekModulesRequest) => typedError<TeamSyncPeekResult_Serialize, OmniError_Serialize>(__TAURI_INVOKE("team_sync_peek_modules", { request })),
 	/**  从团队云端快照删除指定资源（仅改云端；本机与成员设备在下次同步拉取时移除对应数据）。 */
 	teamSyncDeleteResources: (request: TeamSyncDeleteResourcesRequest) => typedError<TeamSyncDeleteResourcesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_delete_resources", { request })),
+	/**  启动团队分享收件箱：SSE 等待 `team.share.created`，新分享经 App Event 推送前端。 */
+	teamShareInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_share_inbox_start", { token })),
+	/**  停止团队分享收件箱 SSE 循环。 */
+	teamShareInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_share_inbox_stop")),
 	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
 	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */
@@ -1703,6 +1710,7 @@ export type AssistantPushRequest = {
 	token: string,
 	dryRun?: boolean,
 	bindId?: string | null,
+	teamId?: number | null,
 	/**  前端注入的 AI 会话列表元数据（不含消息正文）。 */
 	conversations?: AssistantConversationSnapshotItem[],
 	/**  前端注入的终端会话列表（与 AI 会话分离）。 */
@@ -2247,8 +2255,9 @@ export type CloudAction = {
 	resourceId?: string,
 	capability?: string,
 	regionId?: string,
-	/**  已废弃：写操作改走 presenceToken。 */
+	/**  已废弃：写操作改走 `presence_token`，前端不得再靠此字段放行。 */
 	confirmed?: boolean,
+	/**  写操作短命在场 token（一次性消费）。 */
 	presenceToken?: string | null,
 	params?: { [key in string]: string },
 };
@@ -2798,9 +2807,9 @@ export type DbxCatalogDriver = {
 	artifactKind: string,
 	installed: boolean,
 	installedVersion: string | null,
-	createdAt: string | null,
-	updatedAt: string | null,
-	downloads: number | null,
+	createdAt?: string | null,
+	updatedAt?: string | null,
+	downloads?: number | null,
 };
 
 export type DbxInstallAttempt = {
@@ -4420,9 +4429,9 @@ export type OfficialCatalogPlugin = {
 	installed: boolean,
 	installedVersion: string | null,
 	permissions: string[],
-	createdAt: string | null,
-	updatedAt: string | null,
-	downloads: number | null,
+	createdAt?: string | null,
+	updatedAt?: string | null,
+	downloads?: number | null,
 };
 
 /**  Ollama 探测结果。 */
@@ -5816,6 +5825,8 @@ export type TeamShareSummary = {
 	panelLabel: string,
 	createdAt: string,
 	recipientUnionIds: string[],
+	/**  快照内资源类型；旧分享缺省为 custom-panel。 */
+	resourceKind: string,
 };
 
 export type TeamShareTarget = {

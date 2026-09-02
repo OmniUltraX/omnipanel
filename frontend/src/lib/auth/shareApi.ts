@@ -1,4 +1,4 @@
-import type { CustomPanelShareSnapshot } from "../../modules/workspace/smallComponents/customPanelShare";
+import type { ResourceShareSnapshot } from "../../modules/share/resourceShare";
 import type { TeamSharePushResult } from "../../ipc/bindings";
 import { pushTeamShare } from "./teamSyncApi";
 
@@ -11,10 +11,10 @@ export type ShareTargetMember = {
 
 export type ShareToMembersRequest = {
   targets: ShareTargetMember[];
-  snapshot: CustomPanelShareSnapshot;
+  snapshot: ResourceShareSnapshot;
 };
 
-/** 将自定义面板快照写入各目标团队的 OSS，并通知成员。 */
+/** 将资源分享快照写入各目标团队的 OSS，并通知成员。 */
 export async function shareToTeamMembers(
   token: string,
   request: ShareToMembersRequest,
