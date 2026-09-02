@@ -1,8 +1,10 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type MouseEvent,
 } from "react";
 import { Button } from "../../components/ui/Button";
@@ -18,6 +20,7 @@ import {
   VerticalSplitSidebarSection,
 } from "../../components/ui/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
+import { StatusDot } from "../../components/ui/primitives/StatusDot";
 import type { FileManagerConnectionInfo } from "../../ipc/bindings";
 import type { FileFavorite } from "../../stores/filesFavoritesStore";
 import type { FileProtocol } from "./FileConnectionDialog";
@@ -65,56 +68,96 @@ function ConnectionRow({
   conn,
   active,
   inTab,
+  selected,
   onPreview,
   onPin,
   onContextMenu,
+  onSelect,
 }: {
   conn: FileManagerConnectionInfo;
   active: boolean;
   inTab: boolean;
+  selected: boolean;
   onPreview: (conn: FileManagerConnectionInfo) => void;
   onPin: (conn: FileManagerConnectionInfo) => void;
   onContextMenu: (e: MouseEvent, conn: FileManagerConnectionInfo) => void;
+  onSelect: (conn: FileManagerConnectionInfo, e: TreeRowMouseEvent) => void;
 }) {
+  const { t } = useI18n();
   const { onRowClick, onRowDoubleClick } = useTreeClickDelay({
     onClick: () => onPreview(conn),
     onDoubleClick: () => onPin(conn),
   });
+  const online = conn.status === "online";
 
   return (
     <div
-      className={`fm-sidebar-row fm-conn-item${active ? " active" : ""}${inTab && !active ? " fm-conn-item--in-tab" : ""}`}
-      onClick={(e) => onRowClick(e as TreeRowMouseEvent)}
+      className={`fm-sidebar-row fm-conn-item${active ? " active" : ""}${selected ? " fm-conn-item--selected" : ""}${inTab && !active ? " fm-conn-item--in-tab" : ""}`}
+      onClick={(e) => {
+        const ev = e as TreeRowMouseEvent;
+        if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          onSelect(conn, ev);
+          return;
+        }
+        onSelect(conn, ev);
+        onRowClick(ev);
+      }}
       onDoubleClick={(e) => onRowDoubleClick(e as TreeRowMouseEvent)}
-      onContextMenu={(e) => onContextMenu(e, conn)}
+      onContextMenu={(e) => {
+        if (!selected) {
+          onSelect(conn, e as TreeRowMouseEvent);
+        }
+        onContextMenu(e, conn);
+      }}
     >
       <ConnProtocolIcon protocol={conn.protocol} />
+      <StatusDot
+        status={online ? "online" : "idle"}
+        title={online ? t("common.statusOnline") : t("common.statusIdle")}
+        className="fm-conn-item__status"
+      />
       <span className="conn-name">{conn.name}</span>
-      <span className={`conn-status ${conn.status === "online" ? "online" : "offline"}`} />
     </div>
   );
+}
+
+type SidebarDotStatus = "online" | "idle" | "unknown";
+
+function connectionDotStatus(conn?: FileManagerConnectionInfo): SidebarDotStatus {
+  if (!conn) return "unknown";
+  return conn.status === "online" ? "online" : "idle";
 }
 
 function FavoriteRow({
   favorite,
   protocol,
+  dotStatus,
+  dotTitle,
   displayLabel,
   showPin,
   pinTitle,
   unpinTitle,
+  selected,
   onOpen,
   onContextMenu,
   onTogglePin,
+  onSelect,
 }: {
   favorite: FileFavorite;
   protocol?: string;
+  dotStatus?: SidebarDotStatus;
+  dotTitle?: string;
   displayLabel?: string;
   showPin?: boolean;
   pinTitle?: string;
   unpinTitle?: string;
+  selected: boolean;
   onOpen: (favorite: FileFavorite, mode: "preview" | "permanent") => void;
   onContextMenu: (e: MouseEvent, favorite: FileFavorite) => void;
   onTogglePin?: (favorite: FileFavorite) => void;
+  onSelect: (favorite: FileFavorite, e: TreeRowMouseEvent) => void;
 }) {
   const pinned = favorite.pinned === true;
   const { onRowClick, onRowDoubleClick } = useTreeClickDelay({
@@ -124,17 +167,37 @@ function FavoriteRow({
 
   return (
     <div
-      className={`fm-sidebar-row fm-quick-item fm-favorite-item${pinned ? " fm-favorite-item--pinned" : ""}`}
+      className={`fm-sidebar-row fm-quick-item fm-favorite-item${pinned ? " fm-favorite-item--pinned" : ""}${selected ? " fm-favorite-item--selected" : ""}`}
       title={favorite.path || "/"}
-      onClick={(e) => onRowClick(e as TreeRowMouseEvent)}
+      onClick={(e) => {
+        const ev = e as TreeRowMouseEvent;
+        if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          onSelect(favorite, ev);
+          return;
+        }
+        onSelect(favorite, ev);
+        onRowClick(ev);
+      }}
       onDoubleClick={(e) => onRowDoubleClick(e as TreeRowMouseEvent)}
-      onContextMenu={(e) => onContextMenu(e, favorite)}
+      onContextMenu={(e) => {
+        if (!selected) {
+          onSelect(favorite, e as TreeRowMouseEvent);
+        }
+        onContextMenu(e, favorite);
+      }}
     >
       {protocol ? (
         <ConnProtocolIcon protocol={protocol} />
       ) : (
         <span className="conn-icon conn-icon--missing" aria-hidden />
       )}
+      <StatusDot
+        status={dotStatus ?? "unknown"}
+        title={dotTitle}
+        className="fm-favorite-item__status"
+      />
       <span className="fm-favorite-label">{displayLabel ?? favorite.label}</span>
       {showPin && onTogglePin ? (
         <div className="tree-node-actions">
@@ -178,6 +241,8 @@ export interface FilesSidebarProps {
   onFavoriteOpen: (favorite: FileFavorite, mode: "preview" | "permanent") => void;
   onFavoriteContextMenu: (e: MouseEvent, favorite: FileFavorite) => void;
   onToggleFavoritePin: (favorite: FileFavorite) => void;
+  onDeleteConnections?: (conns: FileManagerConnectionInfo[]) => void;
+  onDeleteFavorites?: (favs: FileFavorite[]) => void;
 }
 
 export function FilesSidebar({
@@ -196,6 +261,8 @@ export function FilesSidebar({
   onFavoriteOpen,
   onFavoriteContextMenu,
   onToggleFavoritePin,
+  onDeleteConnections,
+  onDeleteFavorites,
 }: FilesSidebarProps) {
   const { t } = useI18n();
   const { sections, toggleSection, setSectionExpanded } = usePersistedVerticalSplitSections<SectionKey>(
@@ -217,6 +284,12 @@ export function FilesSidebar({
   }, [connections]);
 
   const isLocalActive = activeId === LOCAL_CONNECTION_ID;
+  const dotTitleFor = (conn?: FileManagerConnectionInfo) => {
+    const status = connectionDotStatus(conn);
+    if (status === "online") return t("common.statusOnline");
+    if (status === "idle") return t("common.statusIdle");
+    return t("common.statusUnknown");
+  };
   const normalFavorites = useMemo(
     () => favorites.filter((fav) => fav.connectionId === activeId),
     [activeId, favorites],
@@ -225,6 +298,96 @@ export function FilesSidebar({
     () => favorites.filter((fav) => fav.pinned === true),
     [favorites],
   );
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  const hoveredRef = useRef(false);
+
+  const handleSelectConn = useCallback((conn: FileManagerConnectionInfo, e: TreeRowMouseEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(conn.id)) next.delete(conn.id);
+        else next.add(conn.id);
+        return next;
+      });
+    } else if (e.shiftKey && anchorId) {
+      const ids = sortedConnections.map((c) => c.id);
+      const startIdx = ids.indexOf(anchorId);
+      const endIdx = ids.indexOf(conn.id);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const from = Math.min(startIdx, endIdx);
+        const to = Math.max(startIdx, endIdx);
+        setSelectedIds(new Set(ids.slice(from, to + 1)));
+      } else {
+        setSelectedIds(new Set([conn.id]));
+      }
+    } else {
+      setSelectedIds(new Set([conn.id]));
+    }
+    setAnchorId(conn.id);
+  }, [anchorId, sortedConnections]);
+
+  const handleSelectFav = useCallback((fav: FileFavorite, e: TreeRowMouseEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(fav.id)) next.delete(fav.id);
+        else next.add(fav.id);
+        return next;
+      });
+    } else if (e.shiftKey && anchorId) {
+      const allFavs = [...normalFavorites, ...globalFavorites];
+      const favIds = allFavs.map((f) => f.id);
+      const startIdx = favIds.indexOf(anchorId);
+      const endIdx = favIds.indexOf(fav.id);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const from = Math.min(startIdx, endIdx);
+        const to = Math.max(startIdx, endIdx);
+        setSelectedIds(new Set(favIds.slice(from, to + 1)));
+      } else {
+        setSelectedIds(new Set([fav.id]));
+      }
+    } else {
+      setSelectedIds(new Set([fav.id]));
+    }
+    setAnchorId(fav.id);
+  }, [anchorId, globalFavorites, normalFavorites]);
+
+  useEffect(() => {
+    if (!onDeleteConnections && !onDeleteFavorites) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!hoveredRef.current) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === "a") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const allIds = new Set<string>();
+        sortedConnections.forEach((c) => { if (c.id !== LOCAL_CONNECTION_ID) allIds.add(c.id); });
+        favorites.forEach((f) => allIds.add(f.id));
+        setSelectedIds(allIds);
+        setAnchorId(null);
+        return;
+      }
+      if (e.key === "Delete" && selectedIds.size > 0) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const conns = sortedConnections.filter((c) => selectedIds.has(c.id));
+        const favs = favorites.filter((f) => selectedIds.has(f.id));
+        setSelectedIds(new Set());
+        setAnchorId(null);
+        if (conns.length > 0 && onDeleteConnections) onDeleteConnections(conns);
+        if (favs.length > 0 && onDeleteFavorites) onDeleteFavorites(favs);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [sortedConnections, favorites, selectedIds, onDeleteConnections, onDeleteFavorites]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -292,6 +455,11 @@ export function FilesSidebar({
   );
 
   return (
+    <div
+      className="fm-sidebar-wrapper"
+      onMouseEnter={() => { hoveredRef.current = true; }}
+      onMouseLeave={() => { hoveredRef.current = false; }}
+    >
     <VerticalSplitSidebar className="fm-sidebar">
       <VerticalSplitSidebarSection
         title={t("files.sidebar.connections")}
@@ -309,9 +477,11 @@ export function FilesSidebar({
                 conn={conn}
                 active={conn.id === activeId}
                 inTab={openSet.has(conn.id)}
+                selected={selectedIds.has(conn.id)}
                 onPreview={onPreviewConnection}
                 onPin={onPinConnection}
                 onContextMenu={onConnContextMenu}
+                onSelect={handleSelectConn}
               />
             ))}
           </div>
@@ -380,19 +550,26 @@ export function FilesSidebar({
             <p className="fm-conn-empty">{t("files.sidebar.normalFavoritesEmpty")}</p>
           ) : (
             <div className="fm-quick-section">
-              {normalFavorites.map((fav) => (
-                <FavoriteRow
-                  key={fav.id}
-                  favorite={fav}
-                  protocol={connectionById.get(fav.connectionId)?.protocol}
-                  showPin
-                  pinTitle={t("files.sidebar.pinFavorite")}
-                  unpinTitle={t("files.sidebar.unpinFavorite")}
-                  onOpen={onFavoriteOpen}
-                  onContextMenu={onFavoriteContextMenu}
-                  onTogglePin={onToggleFavoritePin}
-                />
-              ))}
+              {normalFavorites.map((fav) => {
+                const conn = connectionById.get(fav.connectionId);
+                return (
+                  <FavoriteRow
+                    key={fav.id}
+                    favorite={fav}
+                    protocol={conn?.protocol}
+                    dotStatus={connectionDotStatus(conn)}
+                    dotTitle={dotTitleFor(conn)}
+                    showPin
+                    pinTitle={t("files.sidebar.pinFavorite")}
+                    unpinTitle={t("files.sidebar.unpinFavorite")}
+                    selected={selectedIds.has(fav.id)}
+                    onOpen={onFavoriteOpen}
+                    onContextMenu={onFavoriteContextMenu}
+                    onTogglePin={onToggleFavoritePin}
+                    onSelect={handleSelectFav}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -424,13 +601,17 @@ export function FilesSidebar({
                     key={fav.id}
                     favorite={fav}
                     protocol={conn?.protocol}
+                    dotStatus={connectionDotStatus(conn)}
+                    dotTitle={dotTitleFor(conn)}
                     displayLabel={displayLabel}
                     showPin
                     pinTitle={t("files.sidebar.pinFavorite")}
                     unpinTitle={t("files.sidebar.unpinFavorite")}
+                    selected={selectedIds.has(fav.id)}
                     onOpen={onFavoriteOpen}
                     onContextMenu={onFavoriteContextMenu}
                     onTogglePin={onToggleFavoritePin}
+                    onSelect={handleSelectFav}
                   />
                 );
               })}
@@ -439,5 +620,6 @@ export function FilesSidebar({
         </div>
       </VerticalSplitSidebarSection>
     </VerticalSplitSidebar>
+    </div>
   );
 }

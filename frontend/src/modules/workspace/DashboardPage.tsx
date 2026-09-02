@@ -15,6 +15,7 @@ import { DASHBOARD_PATH } from "../../lib/paths";
 import { quickInput } from "../../lib/quickInput";
 import { useI18n } from "../../i18n";
 import { useShareUiStore } from "../../stores/shareUiStore";
+import { buildCustomPanelSharePayload } from "../share/resourceShare";
 import { HomeBoardView } from "./HomeBoardView";
 import { HomeCustomPanelView } from "./HomeCustomPanelView";
 import {
@@ -23,7 +24,6 @@ import {
   isHomeCustomPanelId,
   isHomeDashboardTabId,
   useDashboardStore,
-  type HomeCustomPanelId,
   type HomeCustomPanelMeta,
   type HomeDashboardTabId,
 } from "./useDashboardStore";
@@ -208,9 +208,6 @@ export function DashboardPage() {
       },
     );
     if (!isHomeCustomPanelId(tabId)) return closeItems;
-    const panel = customPanels[tabId as HomeCustomPanelId];
-    const label =
-      panel?.label ?? t("homeWorkspace.customPanel.defaultTitle");
     return [
       ...closeItems,
       { id: "tab-sep-share", separator: true, label: "" },
@@ -218,11 +215,7 @@ export function DashboardPage() {
         id: GLOBAL_SHARE_MENU_ID,
         label: t("share.menu"),
         onClick: () =>
-          openShareDialog({
-            kind: "custom-panel",
-            panelId: tabId,
-            label,
-          }),
+          openShareDialog(buildCustomPanelSharePayload(tabId)),
       },
       { id: "tab-sep-delete", separator: true, label: "" },
       {

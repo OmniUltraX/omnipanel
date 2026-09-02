@@ -28,6 +28,7 @@ import { quickInput } from "../../../lib/quickInput";
 import { useActionStore } from "../../../stores/actionStore";
 import { Button } from "../../../components/ui/Button";
 import { IconDropdownButton } from "../../../components/ui/IconDropdownButton";
+import { StatusDot } from "../../../components/ui/primitives/StatusDot";
 import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/search";
 import {
   type DbConnectionConfig,
@@ -43,7 +44,6 @@ import { useDbSchemaTreeExpandedStore } from "../../../stores/dbSchemaTreeExpand
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import {
   useDbConnectionRuntimeStore,
-  dbConnectionStatusDotClass,
   resolveDbConnectionRuntimeStatus,
 } from "../../../stores/dbConnectionRuntimeStore";
 import {
@@ -127,6 +127,9 @@ import {
 import type { SchemaSidebarSectionConfig } from "./SchemaSidebarSection";
 import { SchemaSidebarSection } from "./SchemaSidebarSection";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/ContextMenu";
+import { GLOBAL_SHARE_MENU_ID } from "../../../components/ui/menu/withGlobalShareMenuItem";
+import { useShareUiStore } from "../../../stores/shareUiStore";
+import { buildDatabaseConnectionSharePayload } from "../../share/resourceShare";
 import type { SchemaCacheConnectionEntry } from "./schemaCache";
 import {
   createLayoutDragGhost,
@@ -502,8 +505,8 @@ const TreeNode = memo(
       icon={iconNode}
       prefix={
         isConnection ? (
-          <span
-            className={`topbar-tab-dot ${dbConnectionStatusDotClass(runtimeStatus)}`}
+          <StatusDot
+            status={runtimeStatus}
             title={
               !connectionEnabled
                 ? t("database.sidebar.connectionDisabled")
@@ -515,7 +518,6 @@ const TreeNode = memo(
                       ? t("database.sidebar.connectionDisabled")
                       : t("database.sidebar.connectionDisconnected")
             }
-            aria-hidden
           />
         ) : undefined
       }
@@ -725,6 +727,7 @@ export function SchemaBrowser({
   connectionsReady,
 }: SchemaBrowserProps) {
   const { t } = useI18n();
+  const openShareDialog = useShareUiStore((s) => s.openShareDialog);
   const sqlFileNodes = useDbSqlFileStore((s) => s.nodes);
   const resolvedTheme = useSettingsStore((s) => s.resolved);
   const showTableSchemaChildren = useSettingsStore((s) => s.databaseSchemaTreeShowTableChildren);
@@ -1525,10 +1528,27 @@ export function SchemaBrowser({
     const trailingItems: ContextMenuItem[] = deleteItem
       ? [deleteItem, { id: "sep-delete", label: "", separator: true }, refreshItem]
       : [refreshItem];
+    const shareItems: ContextMenuItem[] =
+      item.type === "connection" && connection
+        ? [
+            { id: "sep-share-db", label: "", separator: true },
+            {
+              id: GLOBAL_SHARE_MENU_ID,
+              label: t("share.menu"),
+              onClick: () =>
+                openShareDialog(buildDatabaseConnectionSharePayload(connection)),
+            },
+          ]
+        : [];
     if (extra.length === 0) {
-      return trailingItems;
+      return [...trailingItems, ...shareItems];
     }
-    return [...extra, { id: "sep-refresh", label: "", separator: true }, ...trailingItems];
+    return [
+      ...extra,
+      { id: "sep-refresh", label: "", separator: true },
+      ...trailingItems,
+      ...shareItems,
+    ];
   }, [
     buildSchemaContextMenuItems,
     deletingNodeIds,
@@ -1537,6 +1557,7 @@ export function SchemaBrowser({
     handleRenameLayoutFolder,
     handleDeleteSchemaNode,
     handleRefreshSchemaNode,
+    openShareDialog,
     refreshingNodeIds,
     schemaCtxMenu,
     t,

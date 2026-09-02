@@ -3,7 +3,10 @@ import { useI18n } from "../../i18n";
 import { formatTeamError, fetchTeamMembers, fetchTeams } from "../../lib/auth/teamApi";
 import { shareToTeamMembers } from "../../lib/auth/shareApi";
 import { isAuthSessionError } from "../../lib/auth/loginApi";
-import { buildCustomPanelShareSnapshot } from "../../modules/workspace/smallComponents/customPanelShare";
+import {
+  shareResourceKindLabelKey,
+  type ResourceShareSnapshot,
+} from "../../modules/share/resourceShare";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { useShareUiStore, type SharePayload } from "../../stores/shareUiStore";
@@ -26,7 +29,7 @@ function memberKey(teamId: number, email: string): string {
 
 export interface TeamShareDialogProps {
   open: boolean;
-  payload: SharePayload;
+  payload: SharePayload | null;
   onClose: () => void;
 }
 
@@ -41,9 +44,9 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [sharing, setSharing] = useState(false);
 
-  const sharingPanel = payload?.kind === "custom-panel";
-  const panelLabel =
-    sharingPanel && payload?.kind === "custom-panel" ? payload.label : "";
+  const hasShareTarget = payload !== null;
+  const resourceLabel = hasShareTarget ? t(shareResourceKindLabelKey(payload.kind)) : "";
+  const resourceTitle = hasShareTarget ? payload.label : "";
 
   const loadMembers = useCallback(async () => {
     if (!token || !open) return;
@@ -128,14 +131,10 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
   };
 
   const handleShare = async () => {
-    if (!sharingPanel || payload?.kind !== "custom-panel" || sharing || selectedCount === 0) {
+    if (!payload || sharing || selectedCount === 0) {
       return;
     }
-    const snapshot = buildCustomPanelShareSnapshot(payload.panelId);
-    if (!snapshot) {
-      showToast(t("share.panelMissing"));
-      return;
-    }
+    const snapshot: ResourceShareSnapshot = payload.snapshot;
 
     const targets = members
       .filter((row) => selected.has(row.key))
@@ -162,7 +161,7 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
     }
   };
 
-  const canShare = sharingPanel && selectedCount > 0 && !loading && !sharing;
+  const canShare = hasShareTarget && selectedCount > 0 && !loading && !sharing;
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -176,11 +175,13 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
         <div className="team-share-dialog__header">
           <div>
             <h3 id="team-share-dialog-title">
-              {sharingPanel ? t("share.titleWithPanel", { panel: panelLabel }) : t("share.title")}
+              {hasShareTarget
+                ? t("share.titleWithPanel", { panel: resourceTitle })
+                : t("share.title")}
             </h3>
             <p className="team-share-dialog__desc">
-              {sharingPanel
-                ? t("share.descWithPanel", { panel: panelLabel })
+              {hasShareTarget
+                ? t("share.descWithPanel", { panel: `${resourceLabel} · ${resourceTitle}` })
                 : t("share.descGeneric")}
             </p>
           </div>
@@ -194,7 +195,7 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
           </button>
         </div>
 
-        {!sharingPanel ? (
+        {!hasShareTarget ? (
           <p className="team-share-dialog__warn">{t("share.needPanelContext")}</p>
         ) : null}
 
@@ -235,7 +236,7 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
                       <input
                         type="checkbox"
                         checked={checked}
-                        disabled={!sharingPanel || sharing}
+                        disabled={!hasShareTarget || sharing}
                         onChange={() => toggleMember(row.key)}
                       />
                       <span className="team-share-dialog__item-body">

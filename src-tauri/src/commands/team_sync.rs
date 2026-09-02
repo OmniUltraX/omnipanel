@@ -66,6 +66,8 @@ pub struct TeamShareSummary {
     pub panel_label: String,
     pub created_at: String,
     pub recipient_union_ids: Vec<String>,
+    /// 快照内资源类型；旧分享缺省为 custom-panel。
+    pub resource_kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -222,13 +224,26 @@ fn unique_share_id() -> String {
     format!("{millis:x}-{:x}", std::process::id())
 }
 
-fn panel_label_from_snapshot(snapshot: &Value) -> String {
+/// 从分享快照提取展示名：label → name → title 逐级回退。
+fn share_label_from_snapshot(snapshot: &Value) -> String {
+    for key in ["label", "name", "title"] {
+        if let Some(label) = snapshot.get(key).and_then(|v| v.as_str()).map(str::trim) {
+            if !label.is_empty() {
+                return label.to_string();
+            }
+        }
+    }
+    "Shared".to_string()
+}
+
+/// 快照内资源类型；缺省视为旧版自定义面板。
+fn share_resource_kind_from_snapshot(snapshot: &Value) -> String {
     snapshot
-        .get("label")
+        .get("kind")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("Custom Panel")
+        .unwrap_or("custom-panel")
         .to_string()
 }
 
@@ -921,7 +936,8 @@ pub async fn team_share_push(
     let snapshot: Value = serde_json::from_str(&request.snapshot_json).map_err(|e| {
         OmniError::new(ErrorCode::InvalidInput, "分享快照 JSON 无效").with_cause(e.to_string())
     })?;
-    let panel_label = panel_label_from_snapshot(&snapshot);
+    let panel_label = share_label_from_snapshot(&snapshot);
+    let resource_kind = share_resource_kind_from_snapshot(&snapshot);
 
     let identity = auth_device_identity().await?;
     let me = auth_get_me(state.clone(), token.clone()).await?;
@@ -967,7 +983,7 @@ pub async fn team_share_push(
 
         let envelope = json!({
             "schemaVersion": TEAM_SYNC_SCHEMA_VERSION,
-            "kind": "team-custom-panel-share",
+            "kind": "team-resource-share",
             "shareId": share_id,
             "teamId": team_id,
             "fromUnionId": from_union_id,
@@ -992,6 +1008,7 @@ pub async fn team_share_push(
             panel_label: panel_label.clone(),
             created_at: created_at.clone(),
             recipient_union_ids: recipient_union_ids.clone(),
+            resource_kind: resource_kind.clone(),
         });
         save_team_share_index(&auth, team_id, &index).await?;
 
@@ -1044,6 +1061,7 @@ pub async fn team_sync_list_shares(
             panel_label: item.panel_label,
             created_at: item.created_at,
             recipient_union_ids: item.recipient_union_ids,
+            resource_kind: item.resource_kind,
         })
         .collect())
 }

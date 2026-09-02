@@ -1,22 +1,16 @@
 import { create } from "zustand";
+import type { ShareDialogPayload } from "../modules/share/resourceShare";
 
-/** 右键「分享」带入的业务载荷；null 表示无具体分享对象。 */
-export type SharePayload =
-  | {
-      kind: "custom-panel";
-      panelId: string;
-      label: string;
-    }
-  | null;
+export type { ShareDialogPayload as SharePayload };
 
 type ShareUiState = {
   open: boolean;
-  payload: SharePayload;
-  openShareDialog: (payload?: SharePayload) => void;
+  payload: ShareDialogPayload | null;
+  openShareDialog: (payload?: ShareDialogPayload | null) => void;
   closeShareDialog: () => void;
 };
 
-/** 团队分享弹窗（选择成员后发送；接口后续接入）。 */
+/** 团队分享弹窗（快照由入口构建完成，弹窗只负责选成员与发送）。 */
 export const useShareUiStore = create<ShareUiState>((set) => ({
   open: false,
   payload: null,

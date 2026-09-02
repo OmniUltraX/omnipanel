@@ -9,6 +9,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
+import { useShareUiStore } from "../../stores/shareUiStore";
+import { buildHttpRequestSharePayload } from "../share/resourceShare";
 import {
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
@@ -167,6 +170,7 @@ function ProtocolTreeHotkeys({
 
 export function ProtocolHttpSidebar() {
   const { t } = useI18n();
+  const openShareDialog = useShareUiStore((s) => s.openShareDialog);
   const http = useProtocolHttpOptional();
   const openSessionTab = useProtocolWorkspaceStore((s) => s.openSessionTab);
   const activeWorkspaceTabId = useProtocolWorkspaceStore((s) => s.activeTabId);
@@ -838,6 +842,15 @@ export function ProtocolHttpSidebar() {
         },
       });
       items.push({
+        id: GLOBAL_SHARE_MENU_ID,
+        label: t("share.menu"),
+        onClick: () => {
+          const req = savedRequests.find((entry) => entry.id === target.requestId);
+          if (!req) return;
+          openShareDialog(buildHttpRequestSharePayload(req));
+        },
+      });
+      items.push({
         id: "delete-request",
         label: t("protocol.sidebar.deleteRequest"),
         danger: true,
@@ -965,6 +978,7 @@ export function ProtocolHttpSidebar() {
     deleteFoldersCascade,
     http,
     savedRequests,
+    openShareDialog,
     labEntries,
     requestHistory,
     environments,

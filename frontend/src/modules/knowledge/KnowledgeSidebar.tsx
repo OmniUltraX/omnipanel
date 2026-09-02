@@ -25,6 +25,9 @@ import { appConfirm } from "../../lib/appConfirm";
 import { publishModuleStatusLog } from "../../lib/moduleStatusLog";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { useKnowledgeWorkspaceStore } from "../../stores/knowledgeWorkspaceStore";
+import { useShareUiStore } from "../../stores/shareUiStore";
+import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
+import { buildKnowledgeEntrySharePayload } from "../share/resourceShare";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { KnowledgeEntry } from "../../ipc/bindings";
 import {
@@ -261,6 +264,7 @@ function renderTreeNodes(
 
 export function KnowledgeSidebar() {
   const { t } = useI18n();
+  const openShareDialog = useShareUiStore((s) => s.openShareDialog);
   const { openEntry, openEntryChunks } = useKnowledgeOpenEntry();
 
   const entries = useKnowledgeStore((s) => s.entries);
@@ -715,6 +719,12 @@ export function KnowledgeSidebar() {
               label: t("knowledge.export.pdf"),
               onClick: () => void handleExportPdf(ctxEntry),
             },
+            {
+              id: GLOBAL_SHARE_MENU_ID,
+              label: t("share.menu"),
+              onClick: () =>
+                openShareDialog(buildKnowledgeEntrySharePayload(ctxEntry)),
+            },
             { id: "sep-vectorize", separator: true, label: "" } as ContextMenuItem,
             {
               id: "vectorize",
@@ -776,6 +786,7 @@ export function KnowledgeSidebar() {
     ctxVectorized,
     openEntry,
     openEntryChunks,
+    openShareDialog,
     parentForNew,
     setExpanded,
     t,

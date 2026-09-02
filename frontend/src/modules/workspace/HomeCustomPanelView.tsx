@@ -12,6 +12,7 @@ import { useI18n } from "../../i18n";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDbConnectionListStore } from "../../stores/dbConnectionListStore";
 import { useShareUiStore } from "../../stores/shareUiStore";
+import { buildCustomPanelSharePayload } from "../share/resourceShare";
 import {
   BtJavaProjectTargetSelect,
   DatabaseSchemaTargetSelect,
@@ -112,9 +113,6 @@ export function HomeCustomPanelView({ panelId }: HomeCustomPanelViewProps) {
     null,
   );
   const openShareDialog = useShareUiStore((s) => s.openShareDialog);
-  const panelLabel =
-    useDashboardStore((s) => s.customPanels[panelId]?.label) ??
-    t("homeWorkspace.customPanel.defaultTitle");
 
   const handleCanvasContextMenu = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement | null;
@@ -138,14 +136,10 @@ export function HomeCustomPanelView({ panelId }: HomeCustomPanelViewProps) {
         id: GLOBAL_SHARE_MENU_ID,
         label: t("share.menu"),
         onClick: () =>
-          openShareDialog({
-            kind: "custom-panel",
-            panelId,
-            label: panelLabel,
-          }),
+          openShareDialog(buildCustomPanelSharePayload(panelId)),
       },
     ];
-  }, [openShareDialog, panelId, panelLabel, t]);
+  }, [openShareDialog, panelId, t]);
 
   return (
     <div className="dashboard-page dashboard-page--custom-panel">

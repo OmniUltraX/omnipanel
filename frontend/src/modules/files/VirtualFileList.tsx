@@ -34,12 +34,12 @@ function useNearEndScroll(
 
 export interface VirtualFileListProps {
   entries: FileEntry[];
-  selected: FileEntry | null;
+  selectedPaths: Set<string>;
   /** Change this value (e.g. `${path}|${connId}`) to reset scroll to top. */
   scrollResetSignal?: string;
+  onSelect: (entry: FileEntry, e: React.MouseEvent) => void;
   onActivate: (entry: FileEntry) => void;
   onContextMenu: (e: React.MouseEvent, entry: FileEntry) => void;
-  onOpenFile: (entry: FileEntry) => void;
   onLoadMore?: () => void;
   loadingMore?: boolean;
   loadMoreLabel?: string;
@@ -51,11 +51,11 @@ export interface VirtualFileListProps {
 
 export function VirtualFileList({
   entries,
-  selected,
+  selectedPaths,
   scrollResetSignal,
+  onSelect,
   onActivate,
   onContextMenu,
-  onOpenFile,
   onLoadMore,
   loadingMore,
   loadMoreLabel,
@@ -92,15 +92,15 @@ export function VirtualFileList({
       return (
         <div
           key={entry.path}
-          className={`fm-file-row${selected?.path === entry.path ? " selected" : ""}`}
+          className={`fm-file-row${selectedPaths.has(entry.path) ? " selected" : ""}`}
           draggable={Boolean(onEntryDragStart)}
           onDragStart={(e) => onEntryDragStart?.(e, entry)}
           onDragOver={(e) => onEntryDragOver?.(e, entry)}
           onDragLeave={(e) => onEntryDragLeave?.(e, entry)}
           onDrop={(e) => onEntryDrop?.(e, entry)}
-          onClick={() => onActivate(entry)}
+          onClick={(e) => onSelect(entry, e)}
           onContextMenu={(e) => onContextMenu(e, entry)}
-          onDoubleClick={() => (isDir ? onActivate(entry) : onOpenFile(entry))}
+          onDoubleClick={() => onActivate(entry)}
         >
           <span className={`fm-file-icon${isDir ? " folder" : ""}`}>
             <FileEntryIcon type={isDir ? "dir" : "file"} fileName={isDir ? undefined : entry.name} />
@@ -115,10 +115,10 @@ export function VirtualFileList({
     },
     [
       entries,
-      selected?.path,
+      selectedPaths,
+      onSelect,
       onActivate,
       onContextMenu,
-      onOpenFile,
       onEntryDragStart,
       onEntryDragOver,
       onEntryDrop,
@@ -149,13 +149,13 @@ export function VirtualFileList({
 
 export interface VirtualFileGridProps {
   entries: FileEntry[];
-  selected: FileEntry | null;
+  selectedPaths: Set<string>;
   connectionId: string;
   /** Change this value (e.g. `${path}|${connId}`) to reset scroll to top. */
   scrollResetSignal?: string;
+  onSelect: (entry: FileEntry, e: React.MouseEvent) => void;
   onActivate: (entry: FileEntry) => void;
   onContextMenu: (e: React.MouseEvent, entry: FileEntry) => void;
-  onOpenFile: (entry: FileEntry) => void;
   onLoadMore?: () => void;
   loadingMore?: boolean;
   loadMoreLabel?: string;
@@ -167,12 +167,12 @@ export interface VirtualFileGridProps {
 
 export function VirtualFileGrid({
   entries,
-  selected,
+  selectedPaths,
   connectionId,
   scrollResetSignal,
+  onSelect,
   onActivate,
   onContextMenu,
-  onOpenFile,
   onLoadMore,
   loadingMore,
   loadMoreLabel,
@@ -237,15 +237,15 @@ export function VirtualFileGrid({
             return (
               <div
                 key={entry.path}
-                className={`fm-grid-item${selected?.path === entry.path ? " selected" : ""}`}
+                className={`fm-grid-item${selectedPaths.has(entry.path) ? " selected" : ""}`}
                 draggable={Boolean(onEntryDragStart)}
                 onDragStart={(e) => onEntryDragStart?.(e, entry)}
                 onDragOver={(e) => onEntryDragOver?.(e, entry)}
                 onDragLeave={(e) => onEntryDragLeave?.(e, entry)}
                 onDrop={(e) => onEntryDrop?.(e, entry)}
-                onClick={() => onActivate(entry)}
+                onClick={(e) => onSelect(entry, e)}
                 onContextMenu={(e) => onContextMenu(e, entry)}
-                onDoubleClick={() => (isDir ? onActivate(entry) : onOpenFile(entry))}
+                onDoubleClick={() => onActivate(entry)}
               >
                 <span className={`grid-icon${isDir ? " folder" : ""}`}>
                   <FileGridThumbnail connectionId={connectionId} entry={entry} />
@@ -262,10 +262,10 @@ export function VirtualFileGrid({
       columns,
       connectionId,
       entries,
-      selected?.path,
+      selectedPaths,
+      onSelect,
       onActivate,
       onContextMenu,
-      onOpenFile,
       onEntryDragStart,
       onEntryDragOver,
       onEntryDrop,

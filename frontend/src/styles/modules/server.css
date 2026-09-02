@@ -99,11 +99,6 @@
         background: var(--accent-soft);
     }
 
-    .host-item-row .host-item {
-        flex: 1;
-        min-width: 0;
-    }
-
     .host-connect-btn {
         flex-shrink: 0;
         align-self: center;
@@ -196,12 +191,56 @@
         background: color-mix(in srgb, var(--accent) 12%, transparent);
     }
 
+    .ssh-tree-host-icon {
+        display: block;
+        width: 14px;
+        height: 14px;
+        object-fit: contain;
+        flex-shrink: 0;
+    }
+
     .ssh-tree-host-label {
         min-width: 0;
         flex: 1;
+        display: flex;
+        align-items: center;
+        overflow: hidden;
     }
 
-    .ssh-tree-host .host-row-2 {
+    .ssh-tree-host-label .host-row-1 {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        width: 100%;
+        min-width: 0;
+    }
+
+    .ssh-tree-host-label .host-row-1-meta {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--sp-1);
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: none;
+    }
+
+    .ssh-tree-host-label .host-row-1-meta .resource-tags {
+        flex-shrink: 1;
+        min-width: 0;
+        /* 避免 flex-end + overflow 从左侧裁切标签文字 */
+        justify-content: flex-start;
+    }
+
+    .ssh-tree-host-label .host-row-1-meta .resource-tag {
+        min-width: 0;
+    }
+
+    .ssh-tree-host-label .host-row-2 {
+        /* 副标题（user@host 等）：与主机名同行，占位并收缩省略 */
+        flex: 1 1 auto;
+        min-width: 0;
         font-size: 11px;
         color: var(--muted);
         overflow: hidden;
@@ -294,75 +333,13 @@
         color: var(--muted);
     }
 
-    .host-item {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
-        padding: var(--sp-2) var(--sp-3);
-        border-radius: var(--r-sm);
-        cursor: pointer;
-        width: 100%;
-        min-width: 0;
-        text-align: left;
-        border: none;
-        background: transparent;
-        font: inherit;
-        color: inherit;
-    }
-
-    .host-item .host-info {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-    }
-
-    .host-item .host-row-1 {
-        display: flex;
-        align-items: center;
-        gap: var(--sp-2);
-        width: 100%;
-        min-width: 0;
-    }
-
-    .host-item .host-name {
+    .ssh-tree-host-label .host-name {
         /* 按内容占宽；空间不足时优先收缩标题，给标签让路 */
         flex: 0 2 auto;
         min-width: 3ch;
         font-size: var(--font-size-sm, 13px);
         font-weight: 500;
         color: var(--fg);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .host-item .host-row-1-meta {
-        margin-left: auto;
-        display: inline-flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: var(--sp-1);
-        flex: 0 1 auto;
-        min-width: 0;
-        max-width: none;
-    }
-
-    .host-item .host-row-1-meta .resource-tags {
-        flex-shrink: 1;
-        min-width: 0;
-        /* 避免 flex-end + overflow 从左侧裁切标签文字 */
-        justify-content: flex-start;
-    }
-
-    .host-item .host-row-1-meta .resource-tag {
-        min-width: 0;
-    }
-
-    .host-item .host-row-2 {
-        font-size: var(--font-size-xs, 12px);
-        color: var(--muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -381,39 +358,6 @@
         height: 14px;
         object-fit: contain;
         flex-shrink: 0;
-    }
-
-    .host-status {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        flex-shrink: 0;
-    }
-
-    .host-status--online {
-        background: var(--success);
-        box-shadow: 0 0 0 2px var(--success-soft);
-    }
-
-    .host-status--offline {
-        background: var(--muted);
-    }
-
-    .host-status--connecting {
-        background: var(--success);
-        box-shadow: 0 0 0 2px var(--success-soft);
-    }
-
-    .host-status--pulse {
-        animation: pulse-dot 1.2s ease-in-out infinite;
-    }
-
-    .host-status--error {
-        background: var(--muted);
-    }
-
-    .host-status--unknown {
-        background: var(--border);
     }
 
     .host-monitoring-badge {
@@ -453,7 +397,7 @@
         flex-shrink: 0;
     }
 
-    .ssh-detail-status .host-status {
+    .ssh-detail-status .status-dot {
         width: 7px;
         height: 7px;
     }

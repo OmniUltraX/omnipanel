@@ -611,6 +611,42 @@ function FilesBrowserView() {
     }
   }, [handleCloseTab, loadConnections, openConnIds, removeConnection, removeFavorite, t]);
 
+  const handleDeleteConnections = useCallback(async (conns: FileManagerConnectionInfo[]) => {
+    if (conns.length === 0) return;
+    const deletable = conns.filter((c) => c.id !== LOCAL_CONNECTION_ID);
+    if (deletable.length === 0) return;
+    if (deletable.length === 1) {
+      return handleDeleteConnection(deletable[0]!);
+    }
+    if (!(await appConfirm(t("files.context.deleteMultiConnConfirm", { count: deletable.length })))) return;
+    for (const conn of deletable) {
+      try {
+        await removeConnection(conn.id);
+        const orphanFavIds = useFilesFavoritesStore
+          .getState()
+          .favorites.filter((item) => item.connectionId === conn.id)
+          .map((item) => item.id);
+        for (const id of orphanFavIds) {
+          removeFavorite(id);
+        }
+        if (openConnIds.includes(conn.id)) {
+          handleCloseTab(fileConnPanelId(conn.id));
+        }
+      } catch (e) {
+        console.error("Failed to delete connection:", conn.id, e);
+      }
+    }
+    await loadConnections();
+  }, [handleCloseTab, handleDeleteConnection, loadConnections, openConnIds, removeConnection, removeFavorite, t]);
+
+  const handleDeleteFavorites = useCallback((favs: FileFavorite[]) => {
+    if (favs.length === 0) return;
+    for (const fav of favs) {
+      removeFavorite(fav.id);
+    }
+    showToast(t("files.sidebar.favoriteRemoved"));
+  }, [removeFavorite, t]);
+
   const handleTestConnection = useCallback(async (connId: string) => {
     try {
       const msg = await testFileConnection(connId);
@@ -1018,6 +1054,8 @@ function FilesBrowserView() {
             onFavoriteOpen={handleFavoriteOpen}
             onFavoriteContextMenu={handleFavoriteContextMenu}
             onToggleFavoritePin={handleToggleFavoritePin}
+            onDeleteConnections={handleDeleteConnections}
+            onDeleteFavorites={handleDeleteFavorites}
           />
         }
         footer={

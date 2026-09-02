@@ -1051,27 +1051,6 @@
         white-space: nowrap;
     }
 
-    .schema-tree .topbar-tab-dot {
-        flex-shrink: 0;
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--meta);
-    }
-
-    .schema-tree .topbar-tab-dot.online,
-    .schema-tree .topbar-tab-dot.connected {
-        background: var(--success);
-    }
-
-    .schema-tree .topbar-tab-dot.connecting {
-        background: var(--warn);
-    }
-
-    .schema-tree .topbar-tab-dot.offline {
-        background: var(--danger);
-    }
-
     .schema-tree:focus {
         outline: none;
     }

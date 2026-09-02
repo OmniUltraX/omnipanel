@@ -80,6 +80,9 @@ export const ASSISTANT_CHAT_SET_MODEL = "assistant-chat-set-model" as const;
 export const ASSISTANT_TERMINAL_OPEN_OR_FOCUS =
   "assistant-terminal-open-or-focus" as const;
 
+/** 团队成员 → 本机分享创建通知（payload: teamId / shareId / objectKey） */
+export const TEAM_SHARE_INBOUND = "team-share-inbound" as const;
+
 /** 任一窗口切换插件启用状态后广播，各窗口 reload plugin_list */
 export const PLUGIN_CHANGED = "plugin://changed" as const;
 
@@ -116,6 +119,7 @@ export type IpcEventName =
   | typeof ASSISTANT_CHAT_INBOUND
   | typeof ASSISTANT_CHAT_SET_MODEL
   | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS
+  | typeof TEAM_SHARE_INBOUND
   | typeof PLUGIN_CHANGED
   | typeof PLUGIN_OFFICIAL_CATALOG_UPDATED
   | typeof PLUGIN_DISCOVERY_CANCELLED

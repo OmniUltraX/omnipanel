@@ -257,7 +257,7 @@ mod tests {
         .expect("dry_run");
         assert!(result.dry_run);
         assert!(result.bytes > 0.0);
-        assert_eq!(result.file_count, 10.0);
+        assert_eq!(result.file_count, 11.0);
         assert!(result.object_key.contains("dev-1"));
         assert!(result.object_key.ends_with("/overview.json"));
     }

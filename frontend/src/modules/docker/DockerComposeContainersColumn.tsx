@@ -19,7 +19,7 @@ import {
   composeLogServiceKey,
   isComposeLogServiceEnabled,
 } from "./dockerComposePanelCache";
-import { containerRowLabel } from "./dockerResourceLabels";
+import { containerRowLabel, containerUptimeLabel } from "./dockerResourceLabels";
 import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
 import { useComposeProjectContainers } from "./hooks/useComposeProjectContainers";
 import { LogsIcon, PlayIcon, RestartIcon, StopIcon, TrashIcon } from "./icons";
@@ -177,6 +177,7 @@ const ComposeContainerRow = memo(function ComposeContainerRow({
 }: ComposeContainerRowProps) {
   const phase = getContainerLifecyclePhase(container, busy);
   const statusLabel = lifecycleStatusLabel(container, phase, t);
+  const uptimeLabel = containerUptimeLabel(container, t);
   const cpu = container.running ? (stats?.cpuPercent ?? 0) : 0;
   const memory = container.running ? (stats?.memoryPercent ?? 0) : 0;
   const name = container.composeService?.trim() || containerRowLabel(container);
@@ -201,6 +202,14 @@ const ComposeContainerRow = memo(function ComposeContainerRow({
           >
             {statusLabel}
           </span>
+          {uptimeLabel ? (
+            <span
+              className="docker-compose-panel__container-uptime"
+              title={t("docker.composePanel.uptimeLabel")}
+            >
+              {uptimeLabel}
+            </span>
+          ) : null}
           <ComposeContainerActions
             phase={phase}
             busy={busy}

@@ -348,27 +348,6 @@
         flex-shrink: 0;
     }
 
-    .docker-sidebar-tree .topbar-tab-dot {
-        flex-shrink: 0;
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--meta);
-    }
-
-    .docker-sidebar-tree .topbar-tab-dot.online,
-    .docker-sidebar-tree .topbar-tab-dot.connected {
-        background: var(--success);
-    }
-
-    .docker-sidebar-tree .topbar-tab-dot.connecting {
-        background: var(--warn);
-    }
-
-    .docker-sidebar-tree .topbar-tab-dot.offline {
-        background: var(--danger);
-    }
-
     .docker-sidebar-tree .docker-tree-node--images .tree-icon {
         color: var(--info, var(--accent));
     }
@@ -1783,6 +1762,17 @@
 
     .docker-compose-panel__container-status--stopped {
         color: var(--fg-muted);
+    }
+
+    .docker-compose-panel__container-uptime {
+        flex-shrink: 0;
+        font-size: var(--text-xs);
+        padding: 1px 6px;
+        border-radius: var(--r-xs);
+        background: var(--bg-muted);
+        color: var(--fg-subtle);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
     }
 
     .docker-compose-panel__container-status--transitional {

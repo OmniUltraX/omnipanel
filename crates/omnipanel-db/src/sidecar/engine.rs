@@ -408,10 +408,31 @@ fn env_dbx_cmd() -> Option<EngineLaunch> {
     if trimmed.is_empty() {
         return None;
     }
-    let mut parts = trimmed.split_whitespace();
-    let program = PathBuf::from(parts.next()?);
-    let args = parts.map(str::to_string).collect();
+    let (head, rest) = split_command_head(trimmed)?;
+    if head.is_empty() {
+        return None;
+    }
+    let program = PathBuf::from(head);
+    let args = rest.split_whitespace().map(str::to_string).collect();
     Some(EngineLaunch::External { program, args })
+}
+
+/// 拆出命令首个 token（program）：支持 `"C:\path with space\dbx.exe"` 引号包裹
+/// （Windows 路径常含空格），未加引号时按首个空白切分；引号未闭合视为无法解析。
+fn split_command_head(raw: &str) -> Option<(&str, &str)> {
+    let first = raw.chars().next()?;
+    if first == '"' || first == '\'' {
+        let inner = &raw[first.len_utf8()..];
+        let end = inner.find(first)?;
+        let head = &inner[..end];
+        let rest = inner[end + first.len_utf8()..].trim_start();
+        Some((head, rest))
+    } else {
+        match raw.find(char::is_whitespace) {
+            Some(idx) => Some((&raw[..idx], &raw[idx..])),
+            None => Some((raw, "")),
+        }
+    }
 }
 
 fn path_looks_like_builtin(path: &Path, kind: EngineKind) -> bool {
@@ -533,6 +554,25 @@ mod tests {
         }
         assert!(launch_for_params(&dummy("sqlite")).is_none());
         assert!(launch_for_params(&dummy("qdrant")).is_none());
+    }
+
+    #[test]
+    fn dbx_cmd_head_supports_quoted_program() {
+        assert_eq!(
+            split_command_head(r#""C:\Program Files\dbx\dbx.exe" --lang zh"#),
+            Some((r#"C:\Program Files\dbx\dbx.exe"#, "--lang zh"))
+        );
+        assert_eq!(
+            split_command_head("'C:/sp ace/dbx.exe' a b"),
+            Some(("C:/sp ace/dbx.exe", "a b"))
+        );
+        assert_eq!(
+            split_command_head("dbx.exe --lang zh"),
+            Some(("dbx.exe", "--lang zh"))
+        );
+        assert_eq!(split_command_head("dbx.exe"), Some(("dbx.exe", "")));
+        assert_eq!(split_command_head(r#""unclosed path"#), None);
+        assert_eq!(split_command_head(r#""""#), Some(("", "")));
     }
 
     struct ClearPluginLaunches;

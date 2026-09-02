@@ -27,9 +27,10 @@ import {
   type TeamSyncPeekResult,
 } from "../../lib/auth/teamSyncApi";
 import {
-  importCustomPanelShareSnapshot,
-  type CustomPanelShareSnapshot,
-} from "../../modules/workspace/smallComponents/customPanelShare";
+  importResourceShareSnapshot,
+  shareResourceKindLabelKey,
+  type ResourceShareSnapshot,
+} from "../../modules/share/resourceShare";
 import { isAuthSessionError } from "../../lib/auth/loginApi";
 import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
 import { quickInput } from "../../lib/quickInput";
@@ -636,18 +637,18 @@ export function UserCenterTeams({
       if (teamId === null) return;
       const fetched = await fetchTeamShare(token, teamId, share.shareId);
       const envelope = JSON.parse(fetched.bodyJson) as {
-        snapshot?: CustomPanelShareSnapshot;
+        snapshot?: ResourceShareSnapshot;
       };
       if (!envelope.snapshot) {
         showToast(t("userCenter.teams.shareImportInvalid"));
         return;
       }
-      const panelId = importCustomPanelShareSnapshot(envelope.snapshot);
-      if (!panelId) {
+      const imported = await importResourceShareSnapshot(envelope.snapshot);
+      if (!imported) {
         showToast(t("userCenter.teams.shareImportInvalid"));
         return;
       }
-      showToast(t("userCenter.teams.shareImportSuccess", { panel: share.panelLabel }));
+      showToast(t("userCenter.teams.shareImportSuccess", { panel: imported.name }));
     } catch (e) {
       if (isAuthSessionError(e)) {
         handleSessionExpired();
@@ -1090,7 +1091,12 @@ export function UserCenterTeams({
                       return (
                         <li key={share.shareId} className="user-center-team-share">
                           <div className="user-center-team-share__main">
-                            <span className="user-center-team-share__name">{share.panelLabel}</span>
+                            <span className="user-center-team-share__name">
+                              <span className="badge badge-muted">
+                                {t(shareResourceKindLabelKey(share.resourceKind))}
+                              </span>
+                              {share.panelLabel}
+                            </span>
                             <span className="user-center-team-share__meta">
                               {t("userCenter.teams.shareFrom", { name: fromName })} ·{" "}
                               {formatTime(share.createdAt, locale)}

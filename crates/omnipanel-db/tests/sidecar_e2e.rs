@@ -323,7 +323,7 @@ async fn test_dbx_cmd_whitespace() {
     let script = workspace_root().join("scripts/mock-dbx-agent.mjs");
     set_env(
         "OMNIPANEL_DBX_CMD",
-        &format!("{} {}", node.display(), script.display()),
+        &format!("\"{}\" {}", node.display(), script.display()),
     );
     let p = params("db2", "127.0.0.1", 50000, "db2inst1", "x", "SAMPLE");
     let launch = launch_for_params(&p).expect("DBX_CMD 应命中未知引擎");
