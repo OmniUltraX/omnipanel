@@ -9,6 +9,8 @@ export interface ServerEntry {
   key: string;
   serviceType: string;
   createdAt: number;
+  /** 旧版 1Panel JWT 登录用户名 */
+  panelUser?: string;
 }
 
 export interface PanelConfigJson {
@@ -16,6 +18,8 @@ export interface PanelConfigJson {
   key: string;
   serviceType: string;
   sshConnectionId?: string;
+  /** 旧版 1Panel JWT 登录用户名，默认 admin */
+  panelUser?: string;
 }
 
 export type AuthType = "password" | "privateKey";

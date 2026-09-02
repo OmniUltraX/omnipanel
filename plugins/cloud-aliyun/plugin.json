@@ -13,7 +13,9 @@
       "name": "invokeAction",
       "permissions": ["net:connect", "vault:read"],
       "dangerAction": "cloud.instance.lifecycle"
-    }
+    },
+    { "name": "getMetrics", "permissions": ["net:connect", "vault:read"] },
+    { "name": "queryLogs", "permissions": ["net:connect", "vault:read"] }
   ],
   "contributes": {
     "ui": {
@@ -31,6 +33,7 @@
         {
           "id": "compute",
           "scope": "region",
+          "detailSlots": ["overview", "metrics", "security", "backups"],
           "columns": [
             { "key": "name" },
             { "key": "status" },
@@ -48,13 +51,16 @@
             { "id": "start", "kind": "plugin" },
             { "id": "stop", "kind": "plugin" },
             { "id": "reboot", "kind": "plugin" },
+            { "id": "attach", "kind": "plugin" },
+            { "id": "detach", "kind": "plugin" },
             { "id": "addSsh", "kind": "host" },
-            { "id": "openConsole", "kind": "link" }
+            { "id": "createSnapshot", "kind": "plugin" }
           ]
         },
         {
           "id": "compute.lite",
           "scope": "region",
+          "detailSlots": ["overview", "metrics", "rules", "backups"],
           "columns": [
             { "key": "name" },
             { "key": "status" },
@@ -69,13 +75,141 @@
             { "id": "start", "kind": "plugin" },
             { "id": "stop", "kind": "plugin" },
             { "id": "reboot", "kind": "plugin" },
+            { "id": "authorizeRule", "kind": "plugin" },
+            { "id": "revokeRule", "kind": "plugin" },
             { "id": "addSsh", "kind": "host" },
-            { "id": "openConsole", "kind": "link" }
+            { "id": "createSnapshot", "kind": "plugin" }
+          ]
+        },
+        {
+          "id": "network.securityGroup",
+          "scope": "region",
+          "detailSlots": ["overview", "rules", "members"],
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "vpcId" },
+            { "key": "instanceCount" },
+            { "key": "description" },
+            { "key": "creationTime" }
+          ],
+          "actions": [
+            { "id": "authorizeRule", "kind": "plugin" },
+            { "id": "revokeRule", "kind": "plugin" }
+          ]
+        },
+        {
+          "id": "network.eip",
+          "scope": "region",
+          "detailSlots": ["overview", "metrics"],
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "publicIp" },
+            { "key": "bandwidth" },
+            { "key": "instanceId" },
+            { "key": "chargeType" }
+          ],
+          "actions": [
+            { "id": "attach", "kind": "plugin" },
+            { "id": "detach", "kind": "plugin" },
+            { "id": "modifyBandwidth", "kind": "plugin" }
+          ]
+        },
+        {
+          "id": "network.loadBalancer",
+          "scope": "region",
+          "detailSlots": ["overview", "metrics", "members"],
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "publicIp" },
+            { "key": "addressType" },
+            { "key": "instanceClass" }
+          ],
+          "actions": [
+            { "id": "start", "kind": "plugin" },
+            { "id": "stop", "kind": "plugin" }
+          ]
+        },
+        {
+          "id": "database",
+          "scope": "region",
+          "detailSlots": ["overview", "metrics", "logs", "rules", "members", "backups"],
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "engine" },
+            { "key": "engineVersion" },
+            { "key": "instanceClass" },
+            { "key": "storage" },
+            { "key": "connectionString" },
+            { "key": "port" },
+            { "key": "expiredTime" },
+            { "key": "chargeType" }
+          ],
+          "actions": [
+            { "id": "start", "kind": "plugin" },
+            { "id": "stop", "kind": "plugin" },
+            { "id": "reboot", "kind": "plugin" },
+            { "id": "authorizeRule", "kind": "plugin" },
+            { "id": "revokeRule", "kind": "plugin" },
+            { "id": "addToDatabase", "kind": "host" }
+          ]
+        },
+        {
+          "id": "database.cache",
+          "scope": "region",
+          "detailSlots": ["overview", "metrics", "logs", "rules"],
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "engine" },
+            { "key": "engineVersion" },
+            { "key": "instanceClass" },
+            { "key": "capacity" },
+            { "key": "connectionString" },
+            { "key": "port" },
+            { "key": "expiredTime" }
+          ],
+          "actions": [
+            { "id": "start", "kind": "plugin" },
+            { "id": "stop", "kind": "plugin" },
+            { "id": "reboot", "kind": "plugin" },
+            { "id": "authorizeRule", "kind": "plugin" },
+            { "id": "revokeRule", "kind": "plugin" },
+            { "id": "addToDatabase", "kind": "host" }
+          ]
+        },
+        {
+          "id": "storage.disk",
+          "scope": "region",
+          "detailSlots": ["overview", "backups"],
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "size" },
+            { "key": "category" },
+            { "key": "type" },
+            { "key": "instanceId" },
+            { "key": "zone" }
+          ],
+          "actions": [
+            { "id": "attach", "kind": "plugin" },
+            { "id": "detach", "kind": "plugin" },
+            { "id": "createSnapshot", "kind": "plugin" }
           ]
         },
         {
           "id": "objectStorage",
           "scope": "region",
+          "detailSlots": ["overview"],
           "columns": [
             { "key": "name" },
             { "key": "region" },
@@ -84,25 +218,31 @@
             { "key": "endpoint" }
           ],
           "actions": [
-            { "id": "addToFiles", "kind": "host" },
-            { "id": "openConsole", "kind": "link" }
+            { "id": "addToFiles", "kind": "host" }
           ]
         },
         {
           "id": "domains",
           "scope": "global",
+          "detailSlots": ["overview", "records"],
           "columns": [
             { "key": "name" },
             { "key": "status" },
             { "key": "type" },
             { "key": "registrationDate" },
-            { "key": "expirationDate" }
+            { "key": "expirationDate" },
+            { "key": "recordCount" }
           ],
-          "actions": [{ "id": "openConsole", "kind": "link" }]
+          "actions": [
+            { "id": "addRecord", "kind": "plugin" },
+            { "id": "updateRecord", "kind": "plugin" },
+            { "id": "deleteRecord", "kind": "plugin" }
+          ]
         },
         {
           "id": "certs",
           "scope": "global",
+          "detailSlots": ["overview"],
           "columns": [
             { "key": "name" },
             { "key": "domain" },
@@ -111,7 +251,7 @@
             { "key": "certType" },
             { "key": "endDate" }
           ],
-          "actions": [{ "id": "openConsole", "kind": "link" }]
+          "actions": []
         }
       ]
     }

@@ -22,15 +22,14 @@ import {
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import {
-  mergePanelsIntoLayout,
   collectPanelIds,
   canApplyDockLayoutIncrementally,
   normalizeDockLayout,
   enrichLayoutWithTabMeta,
   isLayoutUsable,
   describeDockLayout,
-  reorderLayoutViews,
   layoutStructureFingerprint,
+  safeLayoutForFromJson,
 } from "./dockViewLayout";
 import { DockErrorBoundary } from "./DockErrorBoundary";
 import { DockPanelErrorBoundary } from "./DockPanelErrorBoundary";
@@ -1433,38 +1432,30 @@ export function DockableWorkspace({
     }
 
     const pending = pendingSavedLayoutRef.current;
-    const desired = mergePanelsIntoLayout(
-      pending,
-      tabsRef.current.map((t) => t.id),
-      activeTabIdRef.current,
-    );
-    if (desired) {
-      // 二次校验：mergePanelsIntoLayout 通过只能说明 panel↔view 数量一致，
-      // 不代表 dockview 的 _deserializer.fromJSON 一定能消化（外部脏数据
-      // 可能在 panel 字典里塞入非法的 contentComponent / params 等）。这里
-      // 再加一层白名单检查 + try/catch 兜底；任何失败都把 api 完全清空，
-      // 让后续 addPanel 兜底路径接管。
-      const normalized = normalizeDockLayout(desired) ?? desired;
-      if (!isLayoutUsable(normalized)) {
+    const tabIds = tabsRef.current.map((t) => t.id);
+    const desired = safeLayoutForFromJson(pending, tabIds, activeTabIdRef.current);
+    // 二次校验：safeLayoutForFromJson 已洗过 tabGroups / 重复 view / 重复 group。
+    // 仍可能遇到非法 contentComponent 等，失败则清空后走 addPanel 兜底。
+    const normalized = normalizeDockLayout(desired) ?? desired;
+    if (!isLayoutUsable(normalized)) {
+      pendingSavedLayoutRef.current = null;
+      onSavedLayoutChangeRef.current(null);
+      try {
+        api.clear();
+      } catch {
+        // 忽略：清空失败时下面的 addPanel 路径仍会重建
+      }
+    } else {
+      try {
+        api.fromJSON(normalized);
+      } catch (err) {
+        console.warn("[DockableWorkspace] fromJSON failed, resetting", err);
         pendingSavedLayoutRef.current = null;
         onSavedLayoutChangeRef.current(null);
         try {
           api.clear();
         } catch {
-          // 忽略：清空失败时下面的 addPanel 路径仍会重建
-        }
-      } else {
-        try {
-          api.fromJSON(normalized);
-        } catch (err) {
-          console.warn("[DockableWorkspace] fromJSON failed, resetting", err);
-          pendingSavedLayoutRef.current = null;
-          onSavedLayoutChangeRef.current(null);
-          try {
-            api.clear();
-          } catch {
-            // 忽略
-          }
+          // 忽略
         }
       }
     }
@@ -1638,27 +1629,33 @@ export function DockableWorkspace({
         }
         const existing = new Set(api.panels.map((p) => p.id));
         for (const tab of currentTabs) {
-          if (!existing.has(tab.id)) {
-            const firstPanel = api.panels.find((p) => desiredIds.has(p.id));
-            const options: Parameters<typeof api.addPanel>[0] = {
-              id: tab.id,
-              component: COMPONENT_NAME,
-              params: tabParamsFromDockableTab(tab),
-              title: tab.label,
-              inactive: tab.id !== activeTabIdRef.current,
+          if (existing.has(tab.id) || api.getPanel(tab.id)) {
+            syncPanelTabParams(api, tab);
+            existing.add(tab.id);
+            continue;
+          }
+          const firstPanel = api.panels.find((p) => desiredIds.has(p.id));
+          const options: Parameters<typeof api.addPanel>[0] = {
+            id: tab.id,
+            component: COMPONENT_NAME,
+            params: tabParamsFromDockableTab(tab),
+            title: tab.label,
+            inactive: tab.id !== activeTabIdRef.current,
+          };
+          if (firstPanel) {
+            options.position = {
+              referencePanel: firstPanel.id,
+              direction: "within",
             };
-            if (firstPanel) {
-              options.position = {
-                referencePanel: firstPanel.id,
-                direction: "within",
-              };
-            }
+          }
+          try {
             api.addPanel(options);
             syncPanelTabParams(api, tab);
+            existing.add(tab.id);
             layoutChanged = true;
             addedPanel = true;
-          } else {
-            syncPanelTabParams(api, tab);
+          } catch (err) {
+            console.warn("[DockableWorkspace] addPanel failed for", tab.id, err);
           }
         }
         const tabIds = currentTabs.map((tab) => tab.id);
@@ -1671,15 +1668,8 @@ export function DockableWorkspace({
           addedPanel &&
           actualOrder.join("\0") !== expectedOrder.join("\0")
         ) {
-          try {
-            const raw = api.toJSON();
-            const normalized = normalizeDockLayout(raw) ?? raw;
-            const reordered = reorderLayoutViews(normalized, tabIds);
-            api.fromJSON(enrichLayoutWithTabMeta(reordered, currentTabs));
-            layoutChanged = true;
-          } catch (err) {
-            console.warn("[DockableWorkspace] reorder tabs failed", err);
-          }
+          // 新增 Tab 后不再 fromJSON 整树重排：脏布局会打 invalid location。
+          layoutChanged = true;
         }
         syncTabGroups(api, false);
       } finally {
@@ -1984,8 +1974,18 @@ export function DockableWorkspace({
 
     let needsPanelResync = false;
     if (savedLayout) {
-      const normalized = normalizeDockLayout(savedLayout) ?? savedLayout;
-      if (!isLayoutUsable(normalized)) {
+      const currentFp = layoutStructureFingerprint(
+        normalizeDockLayout(api.toJSON()) ?? api.toJSON(),
+      );
+      const incoming = safeLayoutForFromJson(savedLayout, tabIds, activeTabIdRef.current);
+      const incomingFp = incoming ? layoutStructureFingerprint(incoming) : "";
+      if (incoming && currentFp && currentFp === incomingFp) {
+        lastWrittenLayoutRef.current = savedLayout;
+        prevSavedLayoutPropRef.current = savedLayout;
+        return;
+      }
+      const normalized = incoming ?? normalizeDockLayout(savedLayout) ?? savedLayout;
+      if (!normalized || !isLayoutUsable(normalized)) {
         pendingSavedLayoutRef.current = null;
         onSavedLayoutChangeRef.current(null);
         try {

@@ -52,6 +52,9 @@ export function findExistingCandidate(
         sshConnectionId?: string;
         boundSshConnectionId?: string;
         serviceType?: string;
+        pluginId?: string;
+        host?: string;
+        port?: number | string;
       };
       if (cfg.externalSource?.pluginId && cfg.externalSource.remoteId) {
         return (
@@ -69,6 +72,14 @@ export function findExistingCandidate(
       }
       if (candidate.remoteKind === "docker" && conn.kind === "docker") {
         return cfg.boundSshConnectionId === candidate.accountId;
+      }
+      if (candidate.remoteKind === "service" && conn.kind === "service") {
+        const host = typeof cfg.host === "string" ? cfg.host : "";
+        const port = typeof cfg.port === "number" ? cfg.port : Number(cfg.port || 0);
+        return (
+          String(cfg.pluginId ?? "") === candidate.pluginId &&
+          `${host}${port ? `:${port}` : ""}` === candidate.remoteId
+        );
       }
     } catch {
       return false;
@@ -289,6 +300,32 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       envTag: existing?.envTag || "unknown",
       tags: Array.from(new Set([...(existing?.tags ?? []), ...asStringList(cfg.importTags)])),
       config: JSON.stringify(withExternalSource({ ...dockerCfg }, candidate)),
+      createdAt: existing?.createdAt ?? ts,
+      updatedAt: ts,
+    });
+    return;
+  }
+
+  if (candidate.remoteKind === "service") {
+    await saveConnection({
+      id: existing?.id ?? "",
+      kind: "service",
+      name: candidate.name,
+      group: existing?.group || asString(cfg.importGroup) || "",
+      envTag: existing?.envTag || "dev",
+      tags: Array.from(new Set([...(existing?.tags ?? []), ...asStringList(cfg.importTags)])),
+      config: JSON.stringify(
+        withExternalSource(
+          {
+            pluginId: candidate.pluginId,
+            host: asString(cfg.host),
+            port: asNumber(cfg.port, 0),
+            contextPath: asString(cfg.contextPath) || undefined,
+            useHttps: Boolean(cfg.useHttps),
+          },
+          candidate,
+        ),
+      ),
       createdAt: existing?.createdAt ?? ts,
       updatedAt: ts,
     });

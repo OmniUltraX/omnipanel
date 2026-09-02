@@ -13,7 +13,7 @@ import { appConfirm } from "../../lib/appConfirm";
 import { CloudConnectionDialog } from "./CloudConnectionDialog";
 import { CloudDockPanel } from "./CloudDockPanel";
 import { CloudTreeSidebar } from "./CloudTreeSidebar";
-import { capabilityI18nKey, connectionToCloudAccount, type CloudAccount } from "./cloudForm";
+import { capabilityI18nKey, cloudBrandKind, connectionToCloudAccount, type CloudAccount } from "./cloudForm";
 import { makeCloudTreeKey, type CloudSidebarNavTarget } from "./cloudWorkspaceTabs";
 import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
@@ -238,7 +238,7 @@ export function CloudPanel() {
             id: tab.id,
             label,
             panelType: "cloud-panel",
-            icon: "aliyun" as DockHeaderIconKind,
+            icon: cloudBrandKind(account.pluginId) as DockHeaderIconKind,
             closable: true,
             preview: tab.preview,
             tooltip: account.accessKeyId,

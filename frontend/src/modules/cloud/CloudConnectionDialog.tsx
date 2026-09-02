@@ -11,16 +11,19 @@ import { unwrapCommand, formatIpcError } from "../../ipc/result";
 import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../tags/tagKinds";
 import {
-  ALIYUN_REGION_OPTIONS,
   EMPTY_CLOUD_FORM,
   buildCloudConnection,
   cloudConnectionToForm,
+  cloudRegionOptions,
+  isTencentCloud,
   type CloudFormData,
 } from "./cloudForm";
 import { invalidateCloudAccountRegions } from "./cloudRegionDiscovery";
 import { listPluginManifests } from "../../lib/pluginManifests";
 import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { pluginDisplayName } from "../plugins/pluginDisplayName";
 import aliyunIcon from "../../assets/icons/Aliyun.svg";
+import tencentIcon from "../../assets/icons/Tencent.svg";
 
 interface CloudConnectionDialogProps {
   open: boolean;
@@ -31,6 +34,7 @@ interface CloudConnectionDialogProps {
 
 const PLUGIN_ICONS: Record<string, string> = {
   "omni.cloud.aliyun": aliyunIcon,
+  "omni.cloud.tencent": tencentIcon,
 };
 
 export function CloudConnectionDialog({
@@ -83,7 +87,6 @@ export function CloudConnectionDialog({
 
   const validate = (): string | null => {
     if (!form.name.trim()) return t("server.cloud.create.nameRequired");
-    if (form.regions.length === 0) return t("server.cloud.create.regionRequired");
     if (!form.accessKeyId.trim()) return t("server.cloud.create.akRequired");
     if (!isEdit && !form.accessKeySecret.trim()) return t("server.cloud.create.skRequired");
     if (!form.pluginId.trim()) return t("cloud.dialog.pluginRequired");
@@ -147,7 +150,7 @@ export function CloudConnectionDialog({
   };
 
   const footerStatus = error ? { kind: "error" as const, message: error } : status;
-  const regionOptions = ALIYUN_REGION_OPTIONS.map((r) => ({
+  const regionOptions = cloudRegionOptions(form.pluginId).map((r) => ({
     value: r.value,
     label: `${r.label} (${r.value})`,
   }));
@@ -198,7 +201,12 @@ export function CloudConnectionDialog({
                   key={plugin.id}
                   type="button"
                   className={`engine-chip${active ? " engine-chip--active" : ""}`}
-                  onClick={() => update("pluginId", plugin.id)}
+                  onClick={() => {
+                    if (plugin.id === form.pluginId) return;
+                    setError(null);
+                    setStatus(null);
+                    setForm((prev) => ({ ...prev, pluginId: plugin.id, regions: [] }));
+                  }}
                 >
                   <span className="engine-chip-icon">
                     {icon ? (
@@ -207,7 +215,7 @@ export function CloudConnectionDialog({
                       <span>☁</span>
                     )}
                   </span>
-                  <span className="engine-chip-label">{t("server.cloud.providers.aliyun")}</span>
+                  <span className="engine-chip-label">{pluginDisplayName(plugin.id, t)}</span>
                 </button>
               );
             })}
@@ -215,28 +223,32 @@ export function CloudConnectionDialog({
         )}
       </div>
 
-      <div className="form-field">
-        <label className="form-label">{t("server.cloud.create.regions")}</label>
-        <MultiSelect
-          values={form.regions}
-          options={regionOptions}
-          onChange={(regions) => update("regions", regions)}
-          emptyMeansAll={false}
-          searchable
-          placeholder={t("server.cloud.create.regionsPlaceholder")}
-          formatDisplayLabel={(labels, _all) =>
-            labels.length === 0
-              ? t("server.cloud.create.regionsPlaceholder")
-              : t("server.cloud.create.regionsSelected", { count: String(labels.length) })
-          }
-        />
-        <p className="form-hint">{t("cloud.dialog.regionsHint")}</p>
-      </div>
+      {isEdit ? (
+        <div className="form-field">
+          <label className="form-label">{t("server.cloud.create.regions")}</label>
+          <MultiSelect
+            values={form.regions}
+            options={regionOptions}
+            onChange={(regions) => update("regions", regions)}
+            emptyMeansAll
+            searchable
+            placeholder={t("server.cloud.create.regionsPlaceholder")}
+            formatDisplayLabel={(labels, _all) =>
+              labels.length === 0
+                ? t("cloud.filter.allRegions")
+                : t("server.cloud.create.regionsSelected", { count: String(labels.length) })
+            }
+          />
+          <p className="form-hint">{t("cloud.dialog.regionsHint")}</p>
+        </div>
+      ) : null}
 
       <div className="form-field">
-        <label className="form-label">{t("server.cloud.create.accessKeyId")}</label>
+        <label className="form-label">
+          {t(isTencentCloud(form.pluginId) ? "server.cloud.create.secretId" : "server.cloud.create.accessKeyId")}
+        </label>
         <TextInput
-          placeholder="LTAI..."
+          placeholder={isTencentCloud(form.pluginId) ? "AKI..." : "LTAI..."}
           value={form.accessKeyId}
           onChange={(value) => update("accessKeyId", value)}
           autoComplete="off"
@@ -244,7 +256,9 @@ export function CloudConnectionDialog({
       </div>
 
       <div className="form-field">
-        <label className="form-label">{t("server.cloud.create.accessKeySecret")}</label>
+        <label className="form-label">
+          {t(isTencentCloud(form.pluginId) ? "server.cloud.create.secretKey" : "server.cloud.create.accessKeySecret")}
+        </label>
         <PasswordInput
           copyable
           value={form.accessKeySecret}

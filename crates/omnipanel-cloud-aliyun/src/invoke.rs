@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::client::AliyunCredentials;
 use crate::driver::{AliyunCloudDriver, CloudProviderDriver};
-use crate::types::{CloudAction, CloudResourceFilter};
+use crate::types::{CloudAction, CloudLogQuery, CloudMetricQuery, CloudResourceFilter};
 
 const INVOKE_METHODS: &[&str] = &[
     "testAccount",
@@ -14,6 +14,8 @@ const INVOKE_METHODS: &[&str] = &[
     "listResources",
     "getResource",
     "invokeAction",
+    "getMetrics",
+    "queryLogs",
 ];
 
 pub fn is_declared_method(method: &str) -> bool {
@@ -131,6 +133,38 @@ pub async fn handle_invoke(method: &str, args: Value) -> Result<Value, OmniError
             .map_err(|e| OmniError::invalid_input(e.to_string()))?;
             let result = driver.invoke_action(&creds, &http, &action).await?;
             serde_json::to_value(result).map_err(|e| OmniError::internal(e.to_string()))
+        }
+        "getMetrics" => {
+            let capability = arg_str(&args, "capability");
+            let resource_id = arg_str(&args, "resourceId");
+            let region_id = arg_str(&args, "regionId");
+            let query: CloudMetricQuery = args
+                .get("query")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|e| OmniError::invalid_input(e.to_string()))?
+                .unwrap_or_default();
+            let series = driver
+                .get_metrics(&creds, &http, &capability, &resource_id, &region_id, &query)
+                .await?;
+            serde_json::to_value(series).map_err(|e| OmniError::internal(e.to_string()))
+        }
+        "queryLogs" => {
+            let capability = arg_str(&args, "capability");
+            let resource_id = arg_str(&args, "resourceId");
+            let region_id = arg_str(&args, "regionId");
+            let query: CloudLogQuery = args
+                .get("query")
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|e| OmniError::invalid_input(e.to_string()))?
+                .unwrap_or_default();
+            let page = driver
+                .query_logs(&creds, &http, &capability, &resource_id, &region_id, &query)
+                .await?;
+            serde_json::to_value(page).map_err(|e| OmniError::internal(e.to_string()))
         }
         other => Err(OmniError::invalid_input(format!("未声明方法: {other}"))),
     }

@@ -1,16 +1,18 @@
 import type { PluginHost, PluginModule } from "@omnipanel/plugin-sdk";
 import { getPluginManifest } from "./pluginManifests";
+import { syncModuleLauncherProviders } from "./moduleLauncher";
 import everythingAddon from "../../../plugins/addon-everything/src/index";
 import panel1Panel from "../../../plugins/panel-1panel/src/index";
 import panelBt from "../../../plugins/panel-bt/src/index";
+import moduleNacos from "../../../plugins/module-nacos/src/index";
 
 /**
  * 第一方插件运行时装载器（阶段 A 过渡形态：静态 import map）。
  * 唯一允许 import `plugins/*` 逻辑源的宿主模块；阶段 B 换磁盘包/WASM 装载时仅替换本文件，合同不变。
  *
  * 生命周期：`syncPluginLifecycles` 按 enabled+activated 差量驱动
- * activate/deactivate（先卸后启）。需要 TS 登记的贡献（面板探测等）在 activate 内完成；
- * importer 只读清单 `contributes.importers[]`，不必进入本表。
+ * activate/deactivate（先卸后启）。需要 TS 登记的贡献（面板探测、L2 driver 等）
+ * 在 activate 内完成；importer 只读清单 `contributes.importers[]`，不必进入本表。
  */
 
 type LifecycleItem = { id: string; enabled: boolean; activated: boolean };
@@ -19,6 +21,7 @@ const PLUGIN_MODULES: Record<string, PluginModule> = {
   "omni.addon.everything": everythingAddon,
   "omni.panel.1panel": panel1Panel,
   "omni.panel.bt": panelBt,
+  "omni.module.nacos": moduleNacos,
 };
 
 let catalogReady = false;
@@ -47,6 +50,7 @@ export async function syncPluginLifecycles(
   items: LifecycleItem[],
   hostFactory: PluginHostFactory = defaultHostFactory,
 ): Promise<void> {
+  syncModuleLauncherProviders(items);
   const next = new Set(
     items
       .filter((item) => item.enabled && item.activated && PLUGIN_MODULES[item.id])
@@ -79,6 +83,7 @@ export async function syncPluginLifecycles(
 
 /** 仅测试：重置生命周期状态。 */
 export function resetPluginLifecycleForTests(): void {
+  syncModuleLauncherProviders([]);
   for (const id of [...activeIds]) {
     try {
       PLUGIN_MODULES[id]?.deactivate?.();

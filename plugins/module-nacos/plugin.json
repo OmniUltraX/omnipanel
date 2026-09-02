@@ -1,12 +1,200 @@
 {
   "id": "omni.module.nacos",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "kind": "module",
-  "permissions": ["ui:sidebar"],
+  "permissions": [
+    "ui:sidebar",
+    "net:connect",
+    "vault:read",
+    "connections:write",
+    "ssh:exec",
+    "ai:tools"
+  ],
+  "entry": {
+    "logic": "logic.js"
+  },
+  "methods": [
+    { "name": "testConnection", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getServerInfo", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listNamespaces", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "createNamespace",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.namespace.write"
+    },
+    {
+      "name": "updateNamespace",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.namespace.write"
+    },
+    {
+      "name": "deleteNamespace",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.namespace.write"
+    },
+    { "name": "listConfigs", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getConfig", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "publishConfig",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.config.publish"
+    },
+    {
+      "name": "deleteConfig",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.config.delete"
+    },
+    { "name": "listConfigHistory", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getConfigHistory", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "rollbackConfig",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.config.rollback"
+    },
+    { "name": "listServices", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getService", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listInstances", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "updateInstance",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.discovery.update"
+    },
+    { "name": "listNodes", "permissions": ["net:connect", "vault:read"] },
+    { "name": "probeHealth", "permissions": ["net:connect"] },
+    { "name": "omni_nacos_list_namespaces", "permissions": ["net:connect", "vault:read", "ai:tools"] },
+    { "name": "omni_nacos_get_config", "permissions": ["net:connect", "vault:read", "ai:tools"] },
+    { "name": "omni_nacos_search_configs", "permissions": ["net:connect", "vault:read", "ai:tools"] },
+    { "name": "omni_nacos_list_services", "permissions": ["net:connect", "vault:read", "ai:tools"] }
+  ],
   "contributes": {
     "ui": {
       "sidebar": true,
-      "moduleKey": "nacos"
+      "moduleKey": "nacos",
+      "connectionForm": {
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "contextPath", "type": "text" },
+          { "key": "useHttps", "type": "checkbox" },
+          { "key": "username", "type": "text", "optional": true },
+          { "key": "password", "type": "password", "optional": true },
+          { "key": "namespaceId", "type": "text", "optional": true },
+          { "key": "dialect", "type": "text", "optional": true }
+        ]
+      }
+    },
+    "module": {
+      "capabilities": [
+        {
+          "id": "namespace",
+          "columns": [{ "key": "name" }, { "key": "namespaceId" }],
+          "actions": [{ "id": "create", "kind": "plugin" }, { "id": "delete", "kind": "plugin" }]
+        },
+        {
+          "id": "config",
+          "columns": [
+            { "key": "dataId" },
+            { "key": "group" },
+            { "key": "type" },
+            { "key": "appName" }
+          ],
+          "actions": [
+            { "id": "publish", "kind": "plugin" },
+            { "id": "delete", "kind": "plugin" },
+            { "id": "rollback", "kind": "plugin" }
+          ]
+        },
+        {
+          "id": "discovery",
+          "columns": [
+            { "key": "serviceName" },
+            { "key": "ip" },
+            { "key": "port" },
+            { "key": "healthy" },
+            { "key": "weight" },
+            { "key": "enabled" }
+          ],
+          "actions": [{ "id": "updateInstance", "kind": "plugin" }]
+        },
+        {
+          "id": "cluster",
+          "columns": [{ "key": "address" }, { "key": "state" }],
+          "actions": []
+        }
+      ],
+      "probe": {
+        "ports": [8848],
+        "healthPath": "/v1/console/server/state",
+        "contextPath": "/nacos"
+      }
+    },
+    "discovery": [{ "probeId": "module-http" }],
+    "launcher": { "prefix": "nacos" },
+    "ai": {
+      "tools": [
+        {
+          "name": "omni_nacos_list_namespaces",
+          "description": "List Nacos namespaces for a saved service connection.",
+          "execKind": "native",
+          "moduleKey": "nacos",
+          "crossModule": false,
+          "externalExposed": false,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "connectionId": { "type": "string" }
+            }
+          }
+        },
+        {
+          "name": "omni_nacos_get_config",
+          "description": "Read a Nacos config by dataId and group.",
+          "execKind": "native",
+          "moduleKey": "nacos",
+          "crossModule": false,
+          "externalExposed": false,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "connectionId": { "type": "string" },
+              "dataId": { "type": "string" },
+              "group": { "type": "string" },
+              "namespaceId": { "type": "string" }
+            }
+          }
+        },
+        {
+          "name": "omni_nacos_search_configs",
+          "description": "Search Nacos configs by dataId or group fragment.",
+          "execKind": "native",
+          "moduleKey": "nacos",
+          "crossModule": false,
+          "externalExposed": false,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "connectionId": { "type": "string" },
+              "keyword": { "type": "string" },
+              "namespaceId": { "type": "string" }
+            }
+          }
+        },
+        {
+          "name": "omni_nacos_list_services",
+          "description": "List Nacos naming services.",
+          "execKind": "native",
+          "moduleKey": "nacos",
+          "crossModule": false,
+          "externalExposed": false,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "connectionId": { "type": "string" },
+              "namespaceId": { "type": "string" }
+            }
+          }
+        }
+      ]
     }
   }
 }

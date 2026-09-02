@@ -38,6 +38,9 @@ impl AppModuleStatus {
     }
 }
 
+/// 插件 `kind=module` 在侧栏的默认排序（内核模块占 0–10）。
+pub const PLUGIN_MODULE_SORT_ORDER: i32 = 80;
+
 /// 默认模块清单：(module_key, sort_order, status)
 pub const DEFAULT_APP_MODULES: &[(&str, i32, AppModuleStatus)] = &[
     ("terminal", 0, AppModuleStatus::Open),
@@ -92,7 +95,7 @@ impl Storage {
         Ok(())
     }
 
-    /// 插件模块补种：已存在行不覆盖用户状态。`kind=module` 默认 `closed`。
+    /// 插件模块补种：已存在行不覆盖用户状态。
     pub fn seed_app_module(
         &self,
         module_key: &str,
@@ -106,6 +109,24 @@ impl Storage {
             )
             .map_err(map_sqlite)?;
         Ok(())
+    }
+
+    /// 启用 module 插件时打开侧栏入口：缺行则种 `open`，已有非 disabled 行提升为 `open`。
+    pub fn open_plugin_module(
+        &self,
+        module_key: &str,
+        sort_order: i32,
+    ) -> OmniResult<AppModule> {
+        let key = module_key.trim();
+        if key.is_empty() {
+            return Err(OmniError::new(ErrorCode::InvalidInput, "模块 key 不能为空"));
+        }
+        self.seed_app_module(key, sort_order, AppModuleStatus::Open)?;
+        let current = self.app_module_get(key)?;
+        if current.status == AppModuleStatus::Disabled || current.status == AppModuleStatus::Open {
+            return Ok(current);
+        }
+        self.app_module_set_status(key, AppModuleStatus::Open)
     }
 
     pub fn repair_app_modules_with_plugins(
@@ -158,6 +179,10 @@ impl Storage {
         }
 
         self.repair_app_modules()?;
+        if self.app_module_get(module_key).is_err() {
+            self.seed_app_module(module_key, PLUGIN_MODULE_SORT_ORDER, status)?;
+            return self.app_module_get(module_key);
+        }
         let current = self.app_module_get(module_key)?;
 
         if current.status == AppModuleStatus::Disabled {
@@ -225,26 +250,58 @@ mod tests {
     }
 
     #[test]
-    fn seeds_cloud_and_plugin_module_closed() {
+    fn seeds_cloud_and_plugin_module_without_overwriting() {
         let storage = Storage::open_in_memory().unwrap();
         let modules = storage.app_module_list().unwrap();
         let cloud = modules.iter().find(|m| m.module_key == "cloud").unwrap();
         assert_eq!(cloud.status, AppModuleStatus::Open);
 
         storage
-            .seed_app_module("nacos", 80, AppModuleStatus::Closed)
+            .seed_app_module("nacos", PLUGIN_MODULE_SORT_ORDER, AppModuleStatus::Open)
             .unwrap();
         let again = storage.app_module_list().unwrap();
         let nacos = again.iter().find(|m| m.module_key == "nacos").unwrap();
-        assert_eq!(nacos.status, AppModuleStatus::Closed);
+        assert_eq!(nacos.status, AppModuleStatus::Open);
 
         storage
-            .app_module_set_status("nacos", AppModuleStatus::Open)
+            .app_module_set_status("nacos", AppModuleStatus::Closed)
             .unwrap();
         storage
-            .repair_app_modules_with_plugins(&[("nacos", 80, AppModuleStatus::Closed)])
+            .repair_app_modules_with_plugins(&[(
+                "nacos",
+                PLUGIN_MODULE_SORT_ORDER,
+                AppModuleStatus::Open,
+            )])
             .unwrap();
         let kept = storage.app_module_get("nacos").unwrap();
-        assert_eq!(kept.status, AppModuleStatus::Open);
+        assert_eq!(kept.status, AppModuleStatus::Closed);
+    }
+
+    #[test]
+    fn open_plugin_module_inserts_and_reopens_closed() {
+        let storage = Storage::open_in_memory().unwrap();
+        let created = storage
+            .open_plugin_module("nacos", PLUGIN_MODULE_SORT_ORDER)
+            .unwrap();
+        assert_eq!(created.status, AppModuleStatus::Open);
+
+        storage
+            .app_module_set_status("nacos", AppModuleStatus::Closed)
+            .unwrap();
+        let reopened = storage
+            .open_plugin_module("nacos", PLUGIN_MODULE_SORT_ORDER)
+            .unwrap();
+        assert_eq!(reopened.status, AppModuleStatus::Open);
+    }
+
+    #[test]
+    fn set_status_upserts_unknown_plugin_module() {
+        let storage = Storage::open_in_memory().unwrap();
+        let created = storage
+            .app_module_set_status("starter", AppModuleStatus::Open)
+            .unwrap();
+        assert_eq!(created.module_key, "starter");
+        assert_eq!(created.status, AppModuleStatus::Open);
+        assert_eq!(created.sort_order, PLUGIN_MODULE_SORT_ORDER);
     }
 }

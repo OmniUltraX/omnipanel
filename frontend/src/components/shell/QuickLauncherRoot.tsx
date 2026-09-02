@@ -197,6 +197,12 @@ function rowToAction(row: QuickLaunchMatchRow): QuickLauncherAction {
       };
     case "everything-path":
       return { kind: "open-path", path: row.path };
+    case "module-service":
+      return {
+        kind: "module-service",
+        connectionId: row.connectionId,
+        moduleKey: row.moduleKey,
+      };
   }
 }
 
@@ -233,6 +239,8 @@ function rowToRecentTarget(row: QuickLaunchMatchRow): QuickLaunchRecentTarget {
         table: row.table,
       };
     case "everything-path":
+      return { type: "ssh-connection", connectionId: "" };
+    case "module-service":
       return { type: "ssh-connection", connectionId: "" };
   }
 }

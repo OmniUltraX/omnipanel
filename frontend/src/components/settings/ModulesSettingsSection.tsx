@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useI18n } from "../../i18n";
 import { Select } from "../ui/form/Select";
 import { isKernelModuleKey, type ModuleKey } from "../../lib/paths";
-import { getPluginModule } from "../../lib/pluginModuleRegistry";
+import {
+  getPluginModule,
+  listPluginModuleCatalog,
+} from "../../lib/pluginModuleRegistry";
 import {
   type UserAppModuleStatus,
   useAppModuleStore,
@@ -37,13 +40,20 @@ export function ModulesSettingsSection() {
     }
   }, [hydrate, modules.length]);
 
-  const sorted = useMemo(
-    () =>
-      [...modules].sort(
-        (a, b) => a.sort_order - b.sort_order || a.module_key.localeCompare(b.module_key),
-      ),
-    [modules],
-  );
+  const sorted = useMemo(() => {
+    const merged = [...modules];
+    for (const item of listPluginModuleCatalog()) {
+      if (merged.some((mod) => mod.module_key === item.moduleKey)) continue;
+      merged.push({
+        module_key: item.moduleKey,
+        status: getStatus(item.moduleKey),
+        sort_order: item.sortOrder,
+      });
+    }
+    return merged.sort(
+      (a, b) => a.sort_order - b.sort_order || a.module_key.localeCompare(b.module_key),
+    );
+  }, [getStatus, modules]);
 
   const handleStatusChange = useCallback(
     async (key: string, status: UserAppModuleStatus) => {

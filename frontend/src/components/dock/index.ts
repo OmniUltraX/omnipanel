@@ -26,6 +26,7 @@ export {
   canApplyDockLayoutIncrementally,
   createDefaultLayout,
   mergePanelsIntoLayout,
+  safeLayoutForFromJson,
   removePanelFromLayout,
   removePanelsFromLayout,
   diffRemovedPanelIds,

@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+import { parsePluginManifest } from "@omnipanel/plugin-sdk";
+import { setInstalledPluginManifests } from "./pluginManifests";
+import { syncModuleLauncherProviders } from "./moduleLauncher";
+import { parseQuickLaunchQuery } from "./quickLauncherMatch";
+
+describe("syncModuleLauncherProviders", () => {
+  it("启用时登记前缀，禁用后卸除", () => {
+    const manifest = parsePluginManifest({
+      id: "omni.module.demo",
+      version: "0.1.0",
+      kind: "module",
+      contributes: {
+        ui: { moduleKey: "demo" },
+        launcher: { prefix: "demo" },
+      },
+    });
+    setInstalledPluginManifests([manifest]);
+    syncModuleLauncherProviders([{ id: "omni.module.demo", enabled: true, activated: true }]);
+    expect(parseQuickLaunchQuery("demo foo")).toMatchObject({
+      kind: "module",
+      filter: "foo",
+      pluginId: "omni.module.demo",
+      moduleKey: "demo",
+    });
+    syncModuleLauncherProviders([{ id: "omni.module.demo", enabled: false, activated: false }]);
+    expect(parseQuickLaunchQuery("demo foo").kind).toBe("plain");
+    setInstalledPluginManifests([]);
+  });
+});

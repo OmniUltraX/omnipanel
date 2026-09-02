@@ -221,9 +221,21 @@ impl AppState {
         };
         {
             let extras = plugin_registry.module_seeds();
+            let activated: HashSet<String> = plugin_registry
+                .activated_module_seeds()
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect();
             let pairs: Vec<(&str, i32, AppModuleStatus)> = extras
                 .iter()
-                .map(|(key, order)| (key.as_str(), *order, AppModuleStatus::Closed))
+                .map(|(key, order)| {
+                    let status = if activated.contains(key) {
+                        AppModuleStatus::Open
+                    } else {
+                        AppModuleStatus::Closed
+                    };
+                    (key.as_str(), *order, status)
+                })
                 .collect();
             let store = storage.lock().await;
             let _ = store.repair_app_modules_with_plugins(&pairs);

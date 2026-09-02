@@ -235,11 +235,22 @@ pub fn resolve_onepanel_endpoint(host: &str, explicit_entrance: Option<&str>) ->
         normalized = format!("http://{normalized}");
     }
     let rest_start = normalized.find("://").map(|i| i + 3).unwrap_or(0);
-    let slash_idx = normalized[rest_start..].find('/').map(|i| rest_start + i);
-    let origin = match slash_idx {
-        Some(i) => normalized[..i].trim_end_matches('/').to_string(),
-        None => normalized.trim_end_matches('/').to_string(),
+    let after_scheme = &normalized[rest_start..];
+    let host_and_path = match after_scheme.find('@') {
+        Some(at) if !after_scheme[..at].contains('/') => &after_scheme[at + 1..],
+        _ => after_scheme,
     };
+    let slash_rel = host_and_path.find('/');
+    let hostport = match slash_rel {
+        Some(i) => &host_and_path[..i],
+        None => host_and_path,
+    };
+    let scheme = &normalized[..rest_start];
+    let origin = format!("{}{}", scheme, hostport.trim_end_matches('/'));
+    let slash_idx = slash_rel.map(|i| {
+        // 绝对下标：scheme + 可能的 userinfo@ + hostport 后的 '/'
+        normalized.len() - after_scheme.len() + (after_scheme.len() - host_and_path.len()) + i
+    });
     let mut entrance = explicit_entrance
         .map(normalize_entrance_segment)
         .unwrap_or_default();
@@ -260,6 +271,30 @@ pub fn resolve_onepanel_endpoint(host: &str, explicit_entrance: Option<&str>) ->
     OnePanelEndpoint {
         base_url: origin,
         entrance,
+    }
+}
+
+/// 地址里的 `user@host` 作为旧版 JWT 登录用户名（默认空，调用方回退 admin）。
+pub fn extract_onepanel_username(host: &str) -> String {
+    let mut normalized = host.trim().to_string();
+    if normalized.is_empty() {
+        return String::new();
+    }
+    if !normalized.starts_with("http://") && !normalized.starts_with("https://") {
+        normalized = format!("http://{normalized}");
+    }
+    let rest_start = normalized.find("://").map(|i| i + 3).unwrap_or(0);
+    let after_scheme = &normalized[rest_start..];
+    match after_scheme.find('@') {
+        Some(at) if !after_scheme[..at].contains('/') => {
+            after_scheme[..at]
+                .split(':')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        }
+        _ => String::new(),
     }
 }
 
@@ -3155,6 +3190,14 @@ mod normalize_tests {
         let endpoint = resolve_onepanel_endpoint("http://host:9999/ent/api/v2", None);
         assert_eq!(endpoint.base_url, "http://host:9999");
         assert_eq!(endpoint.entrance, "ent");
+    }
+
+    #[test]
+    fn strips_userinfo_from_origin_and_extracts_username() {
+        let endpoint = super::resolve_onepanel_endpoint("http://admin@host:7777/ent", None);
+        assert_eq!(endpoint.base_url, "http://host:7777");
+        assert_eq!(endpoint.entrance, "ent");
+        assert_eq!(super::extract_onepanel_username("http://admin@host:7777/ent"), "admin");
     }
 
     #[test]

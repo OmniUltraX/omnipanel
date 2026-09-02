@@ -1,13 +1,56 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use hmac::{Hmac, Mac};
 use omnipanel_error::{ErrorCode, OmniError};
 use reqwest::Method;
 use serde_json::Value;
+use sha2::Sha256;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ApiFlavor {
+    prefix: &'static str,
+    entrance_in_path: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TokenAlgo {
+    Md5,
+    HmacSha256,
+}
+
+#[derive(Clone)]
+enum AuthStyle {
+    ApiToken { algo: TokenAlgo },
+    Jwt { token: String },
+}
+
+#[derive(Clone)]
+struct HostSession {
+    flavor: ApiFlavor,
+    auth: AuthStyle,
+}
+
+static SESSION_CACHE: LazyLock<Mutex<HashMap<String, HostSession>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// 生成 1Panel-Token：`md5('1panel' + API-Key + UnixTimestamp)`（小写 hex）。
 pub fn build_token(api_key: &str, timestamp: i64) -> String {
     let payload = format!("1panel{api_key}{timestamp}");
     format!("{:x}", md5::compute(payload))
+}
+
+/// 官方 v2 推荐：`hmac_sha256(API-Key, '1panel:' + UnixTimestamp)`。
+pub fn build_hmac_token(api_key: &str, timestamp: i64) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(api_key.as_bytes())
+        .expect("HMAC-SHA256 accepts any key length");
+    mac.update(format!("1panel:{timestamp}").as_bytes());
+    hex_lower(&mac.finalize().into_bytes())
+}
+
+fn hex_lower(bytes: impl AsRef<[u8]>) -> String {
+    bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// 规范化 1Panel API 根地址（仅 origin，不含 `/api/v2` 与安全入口路径）。
@@ -31,10 +74,27 @@ fn apply_auth_headers(
     req: reqwest::RequestBuilder,
     api_key: &str,
     entrance: &str,
+    auth: &AuthStyle,
 ) -> reqwest::RequestBuilder {
     let mut req = req;
-    for (key, value) in omnipanel_docker::build_onepanel_auth_headers(api_key, entrance) {
-        req = req.header(key, value);
+    match auth {
+        AuthStyle::ApiToken { algo } => {
+            let ts = current_timestamp();
+            let token = match algo {
+                TokenAlgo::Md5 => build_token(api_key, ts),
+                TokenAlgo::HmacSha256 => build_hmac_token(api_key, ts),
+            };
+            req = req
+                .header("1Panel-Token", token)
+                .header("1Panel-Timestamp", ts.to_string());
+        }
+        AuthStyle::Jwt { token } => {
+            req = req.header("PanelAuthorization", token);
+        }
+    }
+    let ent = entrance.trim().trim_start_matches('/').trim_end_matches('/');
+    if !ent.is_empty() {
+        req = req.header("EntranceCode", STANDARD.encode(ent.as_bytes()));
     }
     req
 }
@@ -159,7 +219,111 @@ async fn send_request(
     }
 }
 
-/// 优先 `/api/v2`，遇 HTML/路由不存在时回退 `/api/v1`（1Panel 1.x）。
+fn flavor_cache_key(host: &str) -> String {
+    resolve_endpoint(host)
+        .map(|e| e.base_url)
+        .unwrap_or_else(|_| host.trim().to_string())
+}
+
+fn cached_session(host: &str) -> Option<HostSession> {
+    SESSION_CACHE.lock().ok()?.get(&flavor_cache_key(host)).cloned()
+}
+
+fn remember_session(host: &str, session: HostSession) {
+    if let Ok(mut guard) = SESSION_CACHE.lock() {
+        guard.insert(flavor_cache_key(host), session);
+    }
+}
+
+fn forget_session(host: &str) {
+    if let Ok(mut guard) = SESSION_CACHE.lock() {
+        guard.remove(&flavor_cache_key(host));
+    }
+}
+
+fn flavor_candidates(has_entrance: bool, cached: Option<ApiFlavor>) -> Vec<ApiFlavor> {
+    let mut all = vec![
+        ApiFlavor {
+            prefix: "/api/v2",
+            entrance_in_path: false,
+        },
+        ApiFlavor {
+            prefix: "/api/v1",
+            entrance_in_path: false,
+        },
+    ];
+    if has_entrance {
+        all.push(ApiFlavor {
+            prefix: "/api/v2",
+            entrance_in_path: true,
+        });
+        all.push(ApiFlavor {
+            prefix: "/api/v1",
+            entrance_in_path: true,
+        });
+    }
+    if let Some(hit) = cached {
+        all.retain(|item| *item != hit);
+        all.insert(0, hit);
+    }
+    all
+}
+
+fn sanitize_route_miss(err: OmniError) -> OmniError {
+    let hay = format!(
+        "{} {}",
+        err.message,
+        err.cause.as_deref().unwrap_or("")
+    )
+    .to_ascii_lowercase();
+    if hay.contains("<html") || hay.contains("<!doctype") || hay.contains("404") {
+        return OmniError::new(
+            ErrorCode::Connection,
+            "1Panel 鉴权或入口失败（已尝试官方 MD5 / HMAC-SHA256 / JWT 登录，以及 v1/v2）。请把安全入口写进地址，API 白名单放行本机 IP；无 API 接口的老版本请把面板登录密码填进密钥、用户名默认 admin。",
+        )
+        .with_cause(err.cause.unwrap_or(err.message));
+    }
+    err
+}
+
+fn auth_candidates(cached: Option<&HostSession>) -> Vec<AuthStyle> {
+    let mut all = vec![
+        AuthStyle::ApiToken {
+            algo: TokenAlgo::Md5,
+        },
+        AuthStyle::ApiToken {
+            algo: TokenAlgo::HmacSha256,
+        },
+    ];
+    if let Some(hit) = cached {
+        match &hit.auth {
+            AuthStyle::Jwt { token } => {
+                all.insert(0, AuthStyle::Jwt { token: token.clone() });
+            }
+            other => {
+                all.retain(|item| match (item, other) {
+                    (
+                        AuthStyle::ApiToken { algo: a },
+                        AuthStyle::ApiToken { algo: b },
+                    ) => a != b,
+                    _ => true,
+                });
+                all.insert(0, other.clone());
+            }
+        }
+    }
+    all
+}
+
+fn looks_like_html_bytes(bytes: &[u8]) -> bool {
+    let trimmed = String::from_utf8_lossy(bytes);
+    let trimmed = trimmed.trim_start_matches('\u{feff}').trim();
+    let lower = trimmed.to_ascii_lowercase();
+    lower.starts_with("<!doctype") || lower.starts_with("<html")
+}
+
+/// 官方鉴权：MD5 Token → HMAC-SHA256 Token → JWT 登录（`PanelAuthorization`）。
+/// URL：`/api/v2` → `/api/v1`，必要时 `/{entrance}/api/v*`。
 async fn send_request_with_api_fallback(
     host: &str,
     api_key: &str,
@@ -167,29 +331,196 @@ async fn send_request_with_api_fallback(
     path: &str,
     body: Option<Value>,
 ) -> Result<(reqwest::StatusCode, String, Vec<u8>, Option<String>), OmniError> {
+    let endpoint = resolve_endpoint(host)?;
+    let has_entrance = !endpoint.entrance.is_empty();
+    let cached = cached_session(host);
     let mut last_err: Option<OmniError> = None;
-    for api_prefix in ["/api/v2", "/api/v1"] {
-        match send_request_once(host, api_key, method, path, body.clone(), api_prefix).await {
-            Ok(v) => {
-                // 某些错误路径会以 HTTP 200 + HTML 伪装（入口页），需换 API 版本再试
-                let text = String::from_utf8_lossy(&v.2);
-                let trimmed = text.trim_start_matches('\u{feff}').trim();
-                let lower = trimmed.to_ascii_lowercase();
-                if lower.starts_with("<!doctype") || lower.starts_with("<html") {
-                    last_err = Some(
-                        OmniError::internal("1Panel 返回了 HTML 页面而非 JSON")
-                            .with_cause(truncate_text(trimmed, 300)),
-                    );
-                    continue;
+    let mut jwt_token: Option<String> = cached.as_ref().and_then(|s| match &s.auth {
+        AuthStyle::Jwt { token } => Some(token.clone()),
+        _ => None,
+    });
+
+    for flavor in flavor_candidates(has_entrance, cached.as_ref().map(|s| s.flavor)) {
+        let mut auths = auth_candidates(cached.as_ref());
+        if jwt_token.is_none() {
+            // 占位：真正 token 在循环里按 flavor 登录
+            auths.push(AuthStyle::Jwt {
+                token: String::new(),
+            });
+        }
+        for auth in auths {
+            let auth = match auth {
+                AuthStyle::Jwt { token } if token.is_empty() => {
+                    match jwt_login(host, api_key, flavor).await {
+                        Ok(token) => {
+                            jwt_token = Some(token.clone());
+                            AuthStyle::Jwt { token }
+                        }
+                        Err(err) => {
+                            last_err = Some(err);
+                            continue;
+                        }
+                    }
                 }
-                return Ok(v);
-            }
-            Err(err) => {
-                last_err = Some(err);
+                AuthStyle::Jwt { token } => AuthStyle::Jwt { token },
+                other => other,
+            };
+            match send_request_once(host, api_key, method, path, body.clone(), flavor, &auth).await
+            {
+                Ok(v) => {
+                    if looks_like_html_bytes(&v.2) {
+                        forget_session(host);
+                        last_err = Some(
+                            OmniError::internal("1Panel 返回了 HTML 页面而非 JSON").with_cause(
+                                truncate_text(&String::from_utf8_lossy(&v.2), 300),
+                            ),
+                        );
+                        continue;
+                    }
+                    remember_session(host, HostSession { flavor, auth });
+                    return Ok(v);
+                }
+                Err(err) => {
+                    forget_session(host);
+                    if matches!(auth, AuthStyle::Jwt { .. }) {
+                        jwt_token = None;
+                    }
+                    last_err = Some(err);
+                }
             }
         }
     }
-    Err(last_err.unwrap_or_else(|| OmniError::internal("1Panel 请求失败")))
+    Err(sanitize_route_miss(
+        last_err.unwrap_or_else(|| OmniError::internal("1Panel 请求失败")),
+    ))
+}
+
+async fn jwt_login(host: &str, api_key: &str, flavor: ApiFlavor) -> Result<String, OmniError> {
+    let endpoint = resolve_endpoint(host)?;
+    let username = {
+        let raw = omnipanel_docker::extract_onepanel_username(host);
+        if raw.is_empty() {
+            "admin".to_string()
+        } else {
+            raw
+        }
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .danger_accept_invalid_certs(true)
+        .no_proxy()
+        .build()
+        .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
+
+    let bodies = [
+        serde_json::json!({
+            "name": username,
+            "password": api_key,
+            "authMethod": "jwt",
+            "ignoreCaptcha": true,
+            "language": "zh"
+        }),
+        serde_json::json!({
+            "name": username,
+            "password": api_key,
+            "language": "zh"
+        }),
+    ];
+    let paths = ["/core/auth/login", "/auth/login"];
+    let mut last_err: Option<OmniError> = None;
+    for path in paths {
+        let url = build_api_url(
+            &endpoint.base_url,
+            &endpoint.entrance,
+            flavor.prefix,
+            path,
+            flavor.entrance_in_path,
+        );
+        for body in &bodies {
+            let mut req = client
+                .post(&url)
+                .header("Accept", "application/json")
+                .json(body);
+            let ent = endpoint.entrance.trim();
+            if !ent.is_empty() {
+                req = req.header("EntranceCode", STANDARD.encode(ent.as_bytes()));
+            }
+            let resp = match req.send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    last_err = Some(
+                        OmniError::new(ErrorCode::Connection, "1Panel 登录失败")
+                            .with_cause(e.to_string()),
+                    );
+                    continue;
+                }
+            };
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            if looks_like_html_bytes(text.as_bytes()) || !status.is_success() {
+                last_err = Some(
+                    OmniError::new(
+                        ErrorCode::Auth,
+                        format!("1Panel JWT 登录失败 ({status})"),
+                    )
+                    .with_cause(truncate_text(&text, 300)),
+                );
+                continue;
+            }
+            let value: Value = match serde_json::from_str(&text) {
+                Ok(v) => v,
+                Err(e) => {
+                    last_err = Some(
+                        OmniError::internal("1Panel 登录响应不是合法 JSON")
+                            .with_cause(e.to_string()),
+                    );
+                    continue;
+                }
+            };
+            if let Some(code) = value.get("code").and_then(|v| v.as_i64())
+                && code != 200
+            {
+                last_err = Some(OmniError::new(
+                    ErrorCode::Auth,
+                    value
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("1Panel 登录失败")
+                        .to_string(),
+                ));
+                continue;
+            }
+            let data = value.get("data").cloned().unwrap_or(value);
+            if data
+                .get("mfaStatus")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| s.eq_ignore_ascii_case("enable"))
+            {
+                return Err(OmniError::new(
+                    ErrorCode::Auth,
+                    "此 1Panel 开启了 MFA，请改用 API 接口密钥，或关闭 MFA 后再用用户名密码接入",
+                ));
+            }
+            if let Some(token) = data.get("token").and_then(|v| v.as_str())
+                && !token.is_empty()
+            {
+                return Ok(token.to_string());
+            }
+            last_err = Some(OmniError::new(
+                ErrorCode::Auth,
+                "1Panel 登录成功但未返回 JWT，请在面板开启 API 接口",
+            ));
+        }
+    }
+    Err(last_err.unwrap_or_else(|| OmniError::new(ErrorCode::Auth, "1Panel JWT 登录失败")))
+}
+
+fn build_api_url(base_url: &str, entrance: &str, prefix: &str, path: &str, entrance_in_path: bool) -> String {
+    if entrance_in_path && !entrance.is_empty() {
+        format!("{base_url}/{entrance}{prefix}{path}")
+    } else {
+        format!("{base_url}{prefix}{path}")
+    }
 }
 
 async fn send_request_once(
@@ -198,7 +529,8 @@ async fn send_request_once(
     method: &str,
     path: &str,
     body: Option<Value>,
-    api_prefix: &str,
+    flavor: ApiFlavor,
+    auth: &AuthStyle,
 ) -> Result<(reqwest::StatusCode, String, Vec<u8>, Option<String>), OmniError> {
     let endpoint = resolve_endpoint(host)?;
 
@@ -211,7 +543,13 @@ async fn send_request_once(
     } else {
         format!("/{path}")
     };
-    let url = format!("{}{api_prefix}{path}", endpoint.base_url);
+    let url = build_api_url(
+        &endpoint.base_url,
+        &endpoint.entrance,
+        flavor.prefix,
+        &path,
+        flavor.entrance_in_path,
+    );
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -227,6 +565,7 @@ async fn send_request_once(
             .header("Accept", "application/json, text/plain, */*"),
         api_key,
         &endpoint.entrance,
+        auth,
     );
 
     match body {
@@ -327,7 +666,7 @@ pub async fn request_text(
 }
 
 /// 二进制响应（证书 zip 下载等）。
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct OnePanelBinaryPayload {
     pub content_base64: String,
@@ -436,8 +775,14 @@ async fn send_multipart(
     };
 
     let mut last_err: Option<OmniError> = None;
-    for api_prefix in ["/api/v2", "/api/v1"] {
-        let url = format!("{}{api_prefix}{url_path}", endpoint.base_url);
+    for flavor in flavor_candidates(!endpoint.entrance.is_empty(), cached_session(host).map(|s| s.flavor)) {
+        let url = build_api_url(
+            &endpoint.base_url,
+            &endpoint.entrance,
+            flavor.prefix,
+            &url_path,
+            flavor.entrance_in_path,
+        );
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(timeout_secs))
@@ -456,6 +801,11 @@ async fn send_multipart(
                 ),
             api_key,
             &endpoint.entrance,
+            &cached_session(host)
+                .map(|s| s.auth)
+                .unwrap_or(AuthStyle::ApiToken {
+                    algo: TokenAlgo::Md5,
+                }),
         )
         .body(body.clone())
         .send()
@@ -715,8 +1065,14 @@ pub async fn fetch_app_icon(host: &str, api_key: &str, app_key: &str) -> Result<
 
     let endpoint = resolve_endpoint(host)?;
     let mut last_err: Option<OmniError> = None;
-    for api_prefix in ["/api/v2", "/api/v1"] {
-        let url = format!("{}{api_prefix}/apps/icon/{key}", endpoint.base_url);
+    for flavor in flavor_candidates(!endpoint.entrance.is_empty(), cached_session(host).map(|s| s.flavor)) {
+        let url = build_api_url(
+            &endpoint.base_url,
+            &endpoint.entrance,
+            flavor.prefix,
+            &format!("/apps/icon/{key}"),
+            flavor.entrance_in_path,
+        );
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -731,6 +1087,11 @@ pub async fn fetch_app_icon(host: &str, api_key: &str, app_key: &str) -> Result<
                 .header("Accept", "application/json, image/*, */*"),
             api_key,
             &endpoint.entrance,
+            &cached_session(host)
+                .map(|s| s.auth)
+                .unwrap_or(AuthStyle::ApiToken {
+                    algo: TokenAlgo::Md5,
+                }),
         )
         .send()
         .await
@@ -803,5 +1164,36 @@ mod tests {
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
         );
+    }
+
+    #[test]
+    fn build_api_url_header_only_and_entrance_path() {
+        assert_eq!(
+            build_api_url("http://a:7777", "ent", "/api/v2", "/apps/search", false),
+            "http://a:7777/api/v2/apps/search"
+        );
+        assert_eq!(
+            build_api_url("http://a:7777", "ent", "/api/v1", "/apps/search", true),
+            "http://a:7777/ent/api/v1/apps/search"
+        );
+    }
+
+    #[test]
+    fn flavor_candidates_prioritize_cache_and_entrance() {
+        let cached = ApiFlavor {
+            prefix: "/api/v1",
+            entrance_in_path: true,
+        };
+        let list = flavor_candidates(true, Some(cached));
+        assert_eq!(list[0], cached);
+        assert_eq!(list.len(), 4);
+    }
+
+    #[test]
+    fn hmac_token_matches_official_v2_formula() {
+        let token = build_hmac_token("test-key", 1_700_000_000);
+        assert_eq!(token.len(), 64);
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert_ne!(token, build_token("test-key", 1_700_000_000));
     }
 }

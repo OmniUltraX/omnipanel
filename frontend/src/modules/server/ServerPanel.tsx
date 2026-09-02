@@ -20,6 +20,7 @@ import { ServerDockPanel } from "./panel/ServerDockPanel";
 import { ServerWebsitesTab } from "./panel/tabs/ServerWebsitesTab";
 import { ServerCertificatesTab } from "./panel/tabs/ServerCertificatesTab";
 import { ServerCronjobsTab } from "./panel/tabs/ServerCronjobsTab";
+import { ServerDatabasesTab } from "./panel/tabs/ServerDatabasesTab";
 import {
   isCloudOverviewTab,
   isServerOverviewTab,
@@ -235,7 +236,9 @@ export function ServerPanel() {
                 ? t("server.tabs.certificates")
                 : tab.kind === "cronjobs"
                   ? t("server.tabs.cronjobs")
-                  : t("server.tabs.panel");
+                  : tab.kind === "databases"
+                    ? t("server.tabs.databases")
+                    : t("server.tabs.panel");
           const panelBrand = resolvePanelBrandIcon(server.serviceType);
           const icon: DockHeaderIconKind =
             tab.kind === "websites"
@@ -244,7 +247,9 @@ export function ServerPanel() {
                 ? "certificates"
                 : tab.kind === "cronjobs"
                   ? "cronjobs"
-                  : panelBrand ?? "server";
+                  : tab.kind === "databases"
+                    ? "databases"
+                    : panelBrand ?? "server";
           return {
             id: tab.id,
             label: `${featureLabel}@${server.name}`,
@@ -331,6 +336,7 @@ export function ServerPanel() {
             {tab.kind === "websites" ? <ServerWebsitesTab server={server} /> : null}
             {tab.kind === "certificates" ? <ServerCertificatesTab server={server} /> : null}
             {tab.kind === "cronjobs" ? <ServerCronjobsTab server={server} /> : null}
+            {tab.kind === "databases" ? <ServerDatabasesTab server={server} /> : null}
           </div>
         </div>
       );

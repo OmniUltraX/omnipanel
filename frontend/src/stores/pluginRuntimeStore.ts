@@ -51,6 +51,8 @@ export const usePluginRuntimeStore = create<PluginRuntimeStore>((set, get) => ({
       }
       set({ items, hydrated: true });
       await syncPluginLifecycles(items);
+      const { useAppModuleStore } = await import("./appModuleStore");
+      await useAppModuleStore.getState().refresh();
     } catch {
       set({ hydrated: true });
     }

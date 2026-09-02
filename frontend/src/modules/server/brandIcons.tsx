@@ -1,10 +1,11 @@
 import onePanelIcon from "../../assets/icons/1Panel.svg";
 import baotaIcon from "../../assets/icons/Baota.svg";
 import aliyunIcon from "../../assets/icons/Aliyun.svg";
+import tencentIcon from "../../assets/icons/Tencent.svg";
 import dockerIcon from "../../assets/icons/docker.svg";
 
 /** 第三方 / 面板品牌图标（侧栏树、引擎选择等复用）。 */
-export type BrandIconKind = "bt" | "1panel" | "aliyun" | "docker";
+export type BrandIconKind = "bt" | "1panel" | "aliyun" | "tencent" | "docker";
 
 /** 面板侧栏 / Dock 用的品牌子集（不含 docker）。 */
 export type PanelBrandIconKind = Exclude<BrandIconKind, "docker">;
@@ -13,6 +14,7 @@ const BRAND_ICONS: Record<BrandIconKind, string> = {
   bt: baotaIcon,
   "1panel": onePanelIcon,
   aliyun: aliyunIcon,
+  tencent: tencentIcon,
   docker: dockerIcon,
 };
 

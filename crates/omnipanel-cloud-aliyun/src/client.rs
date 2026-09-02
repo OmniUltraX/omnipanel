@@ -237,7 +237,7 @@ fn collect_xml_blocks<'a>(xml: &'a str, tag: &str) -> Vec<&'a str> {
     out
 }
 
-fn json_arr(v: &Value, keys: &[&str]) -> Vec<Value> {
+pub(crate) fn json_arr(v: &Value, keys: &[&str]) -> Vec<Value> {
     for key in keys {
         if let Some(arr) = v.get(*key).and_then(|x| x.as_array()) {
             return arr.clone();
@@ -262,8 +262,29 @@ fn json_arr(v: &Value, keys: &[&str]) -> Vec<Value> {
     Vec::new()
 }
 
-fn json_total_count(v: &Value) -> u64 {
-    for key in ["TotalCount", "totalCount"] {
+pub(crate) fn json_list(v: &Value, wrapper: &str, item: &str) -> Vec<Value> {
+    if let Some(arr) = v.get(wrapper).and_then(|x| x.as_array()) {
+        return arr.clone();
+    }
+    if let Some(obj) = v.get(wrapper).and_then(|x| x.as_object()) {
+        if let Some(arr) = obj.get(item).and_then(|x| x.as_array()) {
+            return arr.clone();
+        }
+        if let Some(one) = obj.get(item) {
+            if one.is_null() || one.as_object().is_some_and(|o| o.is_empty()) {
+                return Vec::new();
+            }
+            if let Some(arr) = one.as_array() {
+                return arr.clone();
+            }
+            return vec![one.clone()];
+        }
+    }
+    Vec::new()
+}
+
+pub(crate) fn json_total_count(v: &Value) -> u64 {
+    for key in ["TotalCount", "totalCount", "TotalItemNum", "TotalNum", "TotalRecordCount"] {
         if let Some(n) = v.get(key).and_then(|x| x.as_u64()) {
             return n;
         }
@@ -279,7 +300,7 @@ fn json_total_count(v: &Value) -> u64 {
     json_arr(v, &["Instances", "Instance"]).len() as u64
 }
 
-fn str_field(v: &Value, keys: &[&str]) -> String {
+pub(crate) fn str_field(v: &Value, keys: &[&str]) -> String {
     for key in keys {
         if let Some(s) = v.get(*key).and_then(|x| x.as_str()) {
             return s.to_string();
@@ -324,6 +345,15 @@ fn str_field(v: &Value, keys: &[&str]) -> String {
             if let Some(s) = obj.get("IpAddress").and_then(|x| x.as_str()) {
                 return s.to_string();
             }
+            if let Some(arr) = obj.get("DnsServer").and_then(|x| x.as_array()) {
+                let joined: Vec<String> = arr
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect();
+                if !joined.is_empty() {
+                    return joined.join(",");
+                }
+            }
             if let Some(nested) = obj.get("PrivateIpAddress") {
                 let inner = str_field(nested, &["IpAddress"]);
                 if !inner.is_empty() {
@@ -336,6 +366,64 @@ fn str_field(v: &Value, keys: &[&str]) -> String {
         }
     }
     String::new()
+}
+
+fn looks_like_date(value: &str) -> bool {
+    value.contains('-') || value.contains('/') || value.contains('T')
+}
+
+fn format_epoch_millis(raw: &str) -> Option<String> {
+    let n: i64 = raw.parse().ok()?;
+    let ms = if n > 1_000_000_000_000 {
+        n
+    } else if n > 1_000_000_000 {
+        n.saturating_mul(1000)
+    } else {
+        return None;
+    };
+    chrono::DateTime::from_timestamp_millis(ms).map(|dt| dt.format("%Y-%m-%d").to_string())
+}
+
+/// 优先可读日期，避免把 ExpirationDateLong 这类毫秒时间戳原样塞给前端。
+pub(crate) fn aliyun_date_field(v: &Value, text_keys: &[&str], long_keys: &[&str]) -> String {
+    let text = str_field(v, text_keys);
+    if looks_like_date(&text) {
+        return text;
+    }
+    let long = if text.chars().all(|c| c.is_ascii_digit()) && text.len() >= 10 {
+        text.clone()
+    } else {
+        str_field(v, long_keys)
+    };
+    format_epoch_millis(&long).unwrap_or(text)
+}
+
+fn parse_domain_item(item: &Value) -> CloudDomainItem {
+    CloudDomainItem {
+        domain_name: str_field(item, &["DomainName"]),
+        instance_id: str_field(item, &["InstanceId"]),
+        registration_date: aliyun_date_field(
+            item,
+            &["RegistrationDate"],
+            &["RegistrationDateLong"],
+        ),
+        expiration_date: aliyun_date_field(item, &["ExpirationDate"], &["ExpirationDateLong"]),
+        domain_status: str_field(item, &["DomainStatus", "Status"]),
+        domain_type: str_field(item, &["DomainType", "ProductId"]),
+    }
+}
+
+fn parse_certificate_item(item: &Value) -> CloudCertificateItem {
+    CloudCertificateItem {
+        order_id: str_field(item, &["OrderId", "CertificateId", "InstanceId"]),
+        name: str_field(item, &["Name", "CertName"]),
+        domain: str_field(item, &["Domain", "Sans"]),
+        status: str_field(item, &["Status", "CertStatus"]),
+        product_name: str_field(item, &["ProductName", "ProductCode"]),
+        cert_type: str_field(item, &["CertType", "CertificateType"]),
+        buy_date: aliyun_date_field(item, &["BuyDate", "StartDate"], &[]),
+        end_date: aliyun_date_field(item, &["EndDate", "ExpiredTime"], &[]),
+    }
 }
 
 fn instance_private_ip(item: &Value) -> String {
@@ -651,30 +739,65 @@ impl AliyunCredentials {
     }
 
     pub async fn list_domains(&self, http: &Client) -> Result<Vec<CloudDomainItem>, OmniError> {
+        let mut out = Vec::new();
+        let mut page: u32 = 1;
+        loop {
+            let mut params = BTreeMap::new();
+            params.insert("PageNum".into(), page.to_string());
+            params.insert("PageSize".into(), "50".into());
+            let body = self
+                .rpc_call(
+                    http,
+                    "https://domain.aliyuncs.com/",
+                    "2018-01-29",
+                    "QueryDomainList",
+                    params,
+                )
+                .await?;
+            let domains = json_arr(&body, &["Data", "Domain"]);
+            let count = domains.len();
+            out.extend(domains.iter().map(parse_domain_item));
+            let total = json_total_count(&body);
+            if count == 0 || (total > 0 && out.len() as u64 >= total) || count < 50 || page >= 20 {
+                break;
+            }
+            page += 1;
+        }
+        Ok(out)
+    }
+
+    pub async fn get_registered_domain(
+        &self,
+        http: &Client,
+        id: &str,
+    ) -> Result<Option<CloudDomainItem>, OmniError> {
+        let id = id.trim();
+        if id.is_empty() {
+            return Ok(None);
+        }
         let mut params = BTreeMap::new();
-        params.insert("PageNum".into(), "1".into());
-        params.insert("PageSize".into(), "50".into());
+        let action = if id.contains('.') {
+            params.insert("DomainName".into(), id.to_string());
+            "QueryDomainByDomainName"
+        } else {
+            params.insert("InstanceId".into(), id.to_string());
+            "QueryDomainByInstanceId"
+        };
         let body = self
             .rpc_call(
                 http,
                 "https://domain.aliyuncs.com/",
                 "2018-01-29",
-                "QueryDomainList",
+                action,
                 params,
             )
             .await?;
-        let domains = json_arr(&body, &["Data", "Domain"]);
-        Ok(domains
-            .iter()
-            .map(|item| CloudDomainItem {
-                domain_name: str_field(item, &["DomainName"]),
-                instance_id: str_field(item, &["InstanceId"]),
-                registration_date: str_field(item, &["RegistrationDate", "RegistrationDateLong"]),
-                expiration_date: str_field(item, &["ExpirationDate", "ExpirationDateLong"]),
-                domain_status: str_field(item, &["DomainStatus", "Status"]),
-                domain_type: str_field(item, &["DomainType", "ProductId"]),
-            })
-            .collect())
+        let item = parse_domain_item(&body);
+        if item.domain_name.is_empty() && item.instance_id.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(item))
+        }
     }
 
     pub async fn list_ecs_instances(
@@ -817,34 +940,33 @@ impl AliyunCredentials {
         &self,
         http: &Client,
     ) -> Result<Vec<CloudCertificateItem>, OmniError> {
-        let mut params = BTreeMap::new();
-        params.insert("CurrentPage".into(), "1".into());
-        params.insert("ShowSize".into(), "50".into());
-        // 1=上传证书订单；也可不传 Status 拉全部（视产品权限而定）
-        params.insert("OrderType".into(), "CERT".into());
-        let body = self
-            .rpc_call(
-                http,
-                "https://cas.aliyuncs.com/",
-                "2020-04-07",
-                "ListUserCertificateOrder",
-                params,
-            )
-            .await?;
-        let orders = json_arr(&body, &["CertificateOrderList", "CertificateOrder"]);
-        Ok(orders
-            .iter()
-            .map(|item| CloudCertificateItem {
-                order_id: str_field(item, &["OrderId", "CertificateId", "InstanceId"]),
-                name: str_field(item, &["Name", "CertName"]),
-                domain: str_field(item, &["Domain", "Sans"]),
-                status: str_field(item, &["Status", "CertStatus"]),
-                product_name: str_field(item, &["ProductName", "ProductCode"]),
-                cert_type: str_field(item, &["CertType", "CertificateType"]),
-                buy_date: str_field(item, &["BuyDate", "StartDate"]),
-                end_date: str_field(item, &["EndDate", "ExpiredTime"]),
-            })
-            .collect())
+        let mut out = Vec::new();
+        let mut page: u32 = 1;
+        loop {
+            let mut params = BTreeMap::new();
+            params.insert("CurrentPage".into(), page.to_string());
+            params.insert("ShowSize".into(), "50".into());
+            // CERT=证书订单；不传 Status，尽量拉全量
+            params.insert("OrderType".into(), "CERT".into());
+            let body = self
+                .rpc_call(
+                    http,
+                    "https://cas.aliyuncs.com/",
+                    "2020-04-07",
+                    "ListUserCertificateOrder",
+                    params,
+                )
+                .await?;
+            let orders = json_arr(&body, &["CertificateOrderList", "CertificateOrder"]);
+            let count = orders.len();
+            out.extend(orders.iter().map(parse_certificate_item));
+            let total = json_total_count(&body);
+            if count == 0 || (total > 0 && out.len() as u64 >= total) || count < 50 || page >= 20 {
+                break;
+            }
+            page += 1;
+        }
+        Ok(out)
     }
 
     pub async fn get_ecs_instance(
@@ -929,7 +1051,7 @@ impl AliyunCredentials {
         Ok(())
     }
 
-    async fn rpc_call(
+    pub(crate) async fn rpc_call(
         &self,
         http: &Client,
         endpoint: &str,
@@ -1041,6 +1163,38 @@ mod tests {
         let items = json_arr(&body, &["Instances", "Instance"]);
         assert_eq!(items.len(), 2);
         assert_eq!(json_total_count(&body), 2);
+        assert_eq!(
+            json_total_count(&json!({ "TotalItemNum": "80" })),
+            80
+        );
+    }
+
+    #[test]
+    fn str_field_reads_dns_servers_object() {
+        let item = json!({
+            "DnsServers": { "DnsServer": ["dns9.hichina.com", "dns10.hichina.com"] }
+        });
+        assert_eq!(
+            str_field(&item, &["DnsServers"]),
+            "dns9.hichina.com,dns10.hichina.com"
+        );
+    }
+
+    #[test]
+    fn prefers_readable_date_over_epoch_millis() {
+        let item = json!({
+            "ExpirationDate": "2027-01-01 00:00:00",
+            "ExpirationDateLong": 1798761600000u64
+        });
+        assert_eq!(
+            aliyun_date_field(&item, &["ExpirationDate"], &["ExpirationDateLong"]),
+            "2027-01-01 00:00:00"
+        );
+        let only_long = json!({ "ExpirationDateLong": 1798761600000u64 });
+        assert_eq!(
+            aliyun_date_field(&only_long, &["ExpirationDate"], &["ExpirationDateLong"]),
+            "2027-01-01"
+        );
     }
 
     #[test]

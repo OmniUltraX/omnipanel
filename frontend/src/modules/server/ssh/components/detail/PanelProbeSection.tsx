@@ -2,11 +2,13 @@ import { useCallback, useMemo, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import { useI18n } from "@/i18n";
-import { type Connection, type PanelProbeItem } from "@/ipc/bindings";
+import { commands, type Connection, type PanelProbeItem } from "@/ipc/bindings";
+import { formatIpcError, unwrapCommand } from "@/ipc/result";
 import { showToast } from "@/stores/toastStore";
 import { IconLink } from "@/components/ui/icons/Icons";
 import { parseSshConfig } from "../../../panel/serverConnection";
 import { panelProbeReachableAddress, panelProbeBrowserUrl } from "../../../panel/panelAddress";
+import { isUsablePanelApiKey } from "../../../panel/panelApiKey";
 import { ServerConnectionDialog } from "../../../panel/ServerConnectionDialog";
 import type { PanelFormData } from "../../../panel/panelForm";
 import { PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT } from "../../../panel/panelPlugin";
@@ -59,6 +61,7 @@ export function PanelProbeSection({ resourceId, connection, embedded = false }: 
     form: Partial<PanelFormData>;
     sshId: string;
   } | null>(null);
+  const [enablingKind, setEnablingKind] = useState<string | null>(null);
 
   // 从 SSH connection 提取真实 host，替换探测结果里的 127.0.0.1
   const sshHost = useMemo(() => {
@@ -100,22 +103,39 @@ export function PanelProbeSection({ resourceId, connection, embedded = false }: 
   );
 
   const handleQuickManage = useCallback(
-    (panel: PanelProbeItem) => {
+    async (panel: PanelProbeItem) => {
       if (!connection) return;
       const serviceType = panel.kind === "bt" ? PLUGIN_ID_PANEL_BT : PLUGIN_ID_PANEL_1PANEL;
       const typeLabel = panel.kind === "bt" ? "宝塔" : "1Panel";
       const hostLabel = connection.name?.trim() || sshHost || "host";
+      let panelKey = panel.apiKey?.trim() || "";
+      if (!panel.apiEnabled || !isUsablePanelApiKey(panel.kind, panelKey)) {
+        setEnablingKind(panel.kind);
+        try {
+          const enabled = await unwrapCommand(
+            commands.sshPoolEnablePanelApi(connection.id, panel.kind, true),
+          );
+          if (isUsablePanelApiKey(panel.kind, enabled.apiKey)) {
+            panelKey = enabled.apiKey.trim();
+            showToast(t("ssh.panelProbe.enableApiOk", { message: enabled.message || "" }));
+          }
+        } catch (e) {
+          showToast(t("ssh.panelProbe.enableApiFailed", { error: formatIpcError(e) }));
+        } finally {
+          setEnablingKind(null);
+        }
+      }
       setManageDraft({
         sshId: connection.id,
         form: {
           name: `${hostLabel} · ${typeLabel}`,
           panelAddress: realAddress(panel),
-          panelKey: panel.apiKey?.trim() || "",
+          panelKey,
           serviceType,
         },
       });
     },
-    [connection, realAddress, sshHost],
+    [connection, realAddress, sshHost, t],
   );
 
   const installedCount = useMemo(() => {
@@ -213,10 +233,13 @@ export function PanelProbeSection({ resourceId, connection, embedded = false }: 
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
-                  onClick={() => handleQuickManage(panel)}
+                  onClick={() => void handleQuickManage(panel)}
+                  disabled={enablingKind === panel.kind}
                   title={t("ssh.panelProbe.quickManageHint")}
                 >
-                  {t("ssh.toolCapabilities.quickManage")}
+                  {enablingKind === panel.kind
+                    ? t("ssh.panelProbe.enablingApi")
+                    : t("ssh.toolCapabilities.quickManage")}
                 </button>
               ) : null}
             </div>

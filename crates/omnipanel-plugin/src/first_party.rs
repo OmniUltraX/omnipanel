@@ -3,6 +3,7 @@ use crate::manifest::PluginManifest;
 pub const PLUGIN_ID_THEME_DEFAULT: &str = "omni.theme.default";
 pub const PLUGIN_ID_ADDON_EVERYTHING: &str = "omni.addon.everything";
 pub const PLUGIN_ID_CLOUD_ALIYUN: &str = "omni.cloud.aliyun";
+pub const PLUGIN_ID_CLOUD_TENCENT: &str = "omni.cloud.tencent";
 pub const PLUGIN_ID_PANEL_1PANEL: &str = "omni.panel.1panel";
 pub const PLUGIN_ID_PANEL_BT: &str = "omni.panel.bt";
 pub const PLUGIN_ID_ENGINE_QDRANT: &str = "omni.engine.qdrant";
@@ -40,6 +41,10 @@ pub fn addon_everything() -> PluginManifest {
 
 pub fn cloud_aliyun() -> PluginManifest {
     first_party_manifest!("cloud-aliyun")
+}
+
+pub fn cloud_tencent() -> PluginManifest {
+    first_party_manifest!("cloud-tencent")
 }
 
 pub fn panel_1panel() -> PluginManifest {
@@ -106,6 +111,14 @@ pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u
             .as_bytes()
             .to_vec(),
         ),
+        (PLUGIN_ID_MODULE_NACOS, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/module-nacos/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
         _ => None,
     }
 }
@@ -146,6 +159,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         theme_default(),
         addon_everything(),
         cloud_aliyun(),
+        cloud_tencent(),
         panel_1panel(),
         panel_bt(),
         engine_qdrant(),
@@ -171,6 +185,7 @@ mod tests {
         assert_eq!(theme_default().id, PLUGIN_ID_THEME_DEFAULT);
         assert_eq!(addon_everything().id, PLUGIN_ID_ADDON_EVERYTHING);
         assert_eq!(cloud_aliyun().id, PLUGIN_ID_CLOUD_ALIYUN);
+        assert_eq!(cloud_tencent().id, PLUGIN_ID_CLOUD_TENCENT);
         assert_eq!(panel_1panel().id, PLUGIN_ID_PANEL_1PANEL);
         assert_eq!(panel_bt().id, PLUGIN_ID_PANEL_BT);
         assert_eq!(engine_qdrant().id, PLUGIN_ID_ENGINE_QDRANT);
@@ -182,6 +197,19 @@ mod tests {
         assert_eq!(engine_sqlite().id, PLUGIN_ID_ENGINE_SQLITE);
         assert_eq!(engine_sqlserver().id, PLUGIN_ID_ENGINE_SQLSERVER);
         assert_eq!(module_nacos().id, PLUGIN_ID_MODULE_NACOS);
+        let nacos = module_nacos();
+        nacos.validate().expect("nacos 清单应通过校验");
+        assert_eq!(nacos.logic_entry(), Some("logic.js"));
+        let caps: Vec<_> = nacos
+            .contributes
+            .module
+            .as_ref()
+            .expect("module.capabilities")
+            .capabilities
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(caps, vec!["namespace", "config", "discovery", "cluster"]);
         assert_eq!(importer_warpgate().id, PLUGIN_ID_IMPORTER_WARPGATE);
         assert_eq!(importer_docker_db().id, PLUGIN_ID_IMPORTER_DOCKER_DB);
     }
@@ -203,9 +231,51 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             caps,
-            vec!["compute", "compute.lite", "objectStorage", "domains", "certs"]
+            vec![
+                "compute",
+                "compute.lite",
+                "network.securityGroup",
+                "network.eip",
+                "network.loadBalancer",
+                "database",
+                "database.cache",
+                "storage.disk",
+                "objectStorage",
+                "domains",
+                "certs"
+            ]
         );
         assert!(manifest.contributes.ui.panel_tabs.is_empty());
+    }
+
+    #[test]
+    fn cloud_tencent_declares_same_capability_ids() {
+        let manifest = cloud_tencent();
+        let caps: Vec<_> = manifest
+            .contributes
+            .cloud
+            .as_ref()
+            .expect("cloud.capabilities")
+            .capabilities
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(
+            caps,
+            vec![
+                "compute",
+                "compute.lite",
+                "network.securityGroup",
+                "network.eip",
+                "network.loadBalancer",
+                "database",
+                "database.cache",
+                "storage.disk",
+                "objectStorage",
+                "domains",
+                "certs"
+            ]
+        );
     }
 
     #[test]
@@ -309,6 +379,17 @@ mod tests {
             .and_then(|v| v.as_bool());
         assert_eq!(supported, Some(true));
         manifest.validate().expect("sqlserver 清单应通过校验");
+    }
+
+    #[test]
+    fn nacos_embeds_logic_js() {
+        let bytes = first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "logic.js")
+            .expect("应嵌入 nacos logic.js");
+        let src = String::from_utf8(bytes).unwrap();
+        assert!(src.contains("publishConfig"));
+        assert!(src.contains("rollbackConfig"));
+        assert!(src.contains("probeHealth"));
+        assert!(first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "other.js").is_none());
     }
 
     #[test]

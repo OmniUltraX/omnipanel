@@ -97,7 +97,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
     async (options?: { silent?: boolean }): Promise<"ok" | "auth" | "error"> => {
       try {
         if (isOnePanelService(server.serviceType)) {
-          const op = createOnePanelClient(server.address, server.key, server.id);
+          const op = createOnePanelClient(server.address, server.key, server.id, server.panelUser);
           const current = await op.getDashboardCurrent();
           setDashboard((prev) =>
             prev ? { ...prev, currentInfo: current } : { currentInfo: current },
@@ -158,7 +158,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
         return "error";
       }
     },
-    [server.address, server.id, server.key, server.serviceType],
+    [server.address, server.id, server.key, server.panelUser, server.serviceType],
   );
 
   const load = useCallback(async () => {
@@ -166,11 +166,9 @@ export function ServerMonitorTab({ server, active = true }: Props) {
       setError(null);
       try {
         if (isOnePanelService(server.serviceType)) {
-          const op = createOnePanelClient(server.address, server.key, server.id);
-          const [base, current] = await Promise.all([
-            op.getDashboardBase(),
-            op.getDashboardCurrent(),
-          ]);
+          const op = createOnePanelClient(server.address, server.key, server.id, server.panelUser);
+          const base = await op.getDashboardBase().catch(() => op.getOsInfo());
+          const current = await op.getDashboardCurrent().catch(() => base.currentInfo);
           setDashboard({ ...base, currentInfo: current ?? base.currentInfo });
         } else {
           await refreshDashboardCurrent();
@@ -182,7 +180,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
         setLoading(false);
       }
     },
-    [refreshDashboardCurrent, server.address, server.key, server.serviceType],
+    [refreshDashboardCurrent, server.address, server.key, server.panelUser, server.serviceType],
   );
 
   useEffect(() => {

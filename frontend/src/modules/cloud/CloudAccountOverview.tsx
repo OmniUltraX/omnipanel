@@ -6,17 +6,48 @@ import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { ServerTreeIcon } from "../server/panel/serverTreeIcons";
+import { pluginDisplayName } from "../plugins/pluginDisplayName";
 import {
   capabilityI18nKey,
+  cloudBrandKind,
   cloudRegionLabel,
   maskCloudAccessKey,
   type CloudAccount,
 } from "./cloudForm";
 import { cloudCapabilitiesForPlugin, isGlobalCloudCapability } from "./cloudCapabilities";
 import { listLinkedCloudFiles, listLinkedCloudSsh } from "./cloudResourceLinks";
-import { cloudListSlotKey } from "./cloudInventory";
+import { cloudListSlotKey, type CloudAccountInventory } from "./cloudInventory";
 import { cloudAccountRefreshKey, cloudListRefreshKey, useCloudInventoryStore } from "../../stores/cloudInventoryStore";
 import type { CloudDockOpenMode } from "./cloudWorkspaceTabs";
+import { copyCloudText } from "./cloudDetailUi";
+import { collectExpiringCloudRows, formatCloudExpiryDate } from "./cloudExpiry";
+import { CloudPager } from "./CloudListPager";
+import { useCloudPaging } from "./cloudPaging";
+
+function parseAmount(raw: string | undefined): number | null {
+  const value = (raw ?? "").replace(/,/g, "").trim();
+  if (!value) return null;
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function accountAlerts(
+  inventory: CloudAccountInventory | undefined,
+  selectedRegions: string[],
+): { kind: "warn" | "info"; key: string; count?: number; amount?: string }[] {
+  const out: { kind: "warn" | "info"; key: string; count?: number; amount?: string }[] = [];
+  const amount = parseAmount(inventory?.snapshot?.snapshot?.availableAmount);
+  if (amount != null && amount < 100 && !inventory?.snapshot?.snapshot?.balanceError) {
+    out.push({ kind: "warn", key: "lowBalance", amount: String(amount) });
+  }
+  const computeRows = [
+    ...(inventory?.lists[cloudListSlotKey("compute", selectedRegions)]?.rows ?? []),
+    ...(inventory?.lists[cloudListSlotKey("compute.lite", selectedRegions)]?.rows ?? []),
+  ];
+  const stopped = computeRows.filter((row) => /stop/i.test(row.status ?? "")).length;
+  if (stopped > 0) out.push({ kind: "info", key: "stoppedInstances", count: stopped });
+  return out;
+}
 
 function envLabel(tag: string): string {
   const key = tag.trim().toLowerCase();
@@ -30,10 +61,12 @@ export function CloudAccountOverview({
   account,
   selectedRegions,
   onOpenCapability,
+  onOpenResource,
 }: {
   account: CloudAccount;
   selectedRegions: string[];
   onOpenCapability: (capability: string, mode?: CloudDockOpenMode) => void;
+  onOpenResource: (capability: string, resourceId: string, regionId: string) => void;
 }) {
   const { t } = useI18n();
   const connections = useConnectionStore((s) => s.connections);
@@ -63,12 +96,12 @@ export function CloudAccountOverview({
     const caps = cloudCapabilitiesForPlugin(account.pluginId);
     if (caps.length === 0) return;
     for (const cap of caps) {
-      void useCloudInventoryStore.getState().ensureList(
-        account.id,
-        cap.id,
-        isGlobalCloudCapability(cap) ? [] : selectedRegions,
-        { quiet: true },
-      );
+      void useCloudInventoryStore
+        .getState()
+        .ensureList(account.id, cap.id, isGlobalCloudCapability(cap) ? [] : selectedRegions, {
+          quiet: true,
+        })
+        .catch(() => undefined);
     }
   }, [account.id, account.pluginId, selectedRegions]);
 
@@ -88,6 +121,16 @@ export function CloudAccountOverview({
     }
     return next;
   }, [capabilities, inventory, selectedRegions]);
+
+  const alerts = useMemo(() => accountAlerts(inventory, selectedRegions), [inventory, selectedRegions]);
+  const expiring = useMemo(
+    () => collectExpiringCloudRows(inventory, selectedRegions, capabilities),
+    [capabilities, inventory, selectedRegions],
+  );
+  const expiryPaging = useCloudPaging(
+    expiring,
+    `${account.id}:${expiring.map((item) => item.row.id).join(",")}`,
+  );
 
   const countsLoading = capabilities.some((cap) => {
     const regions = isGlobalCloudCapability(cap) ? [] : selectedRegions;
@@ -121,11 +164,11 @@ export function CloudAccountOverview({
     <div className="cloud-overview">
       <header className="db-tables-panel-header db-connection-info-header">
         <span className="cloud-overview__brand" aria-hidden>
-          <ServerTreeIcon kind="aliyun" />
+          <ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />
         </span>
         <span className="db-tables-panel-header-label">{account.name}</span>
         <div className="db-tables-panel-header-tags">
-          <span className="db-tables-panel-header-tag">{t("plugins.names.aliyun")}</span>
+          <span className="db-tables-panel-header-tag">{pluginDisplayName(account.pluginId, t)}</span>
           <span className="db-tables-panel-header-tag">{envLabel(account.envTag)}</span>
           <span className="db-tables-panel-header-tag" title={account.accessKeyId}>
             {maskCloudAccessKey(account.accessKeyId)}
@@ -140,6 +183,7 @@ export function CloudAccountOverview({
           </Button>
         </div>
       </header>
+      <div className="cloud-overview__body">
       {testMessage ? (
         <p className={`cloud-overview__test cloud-overview__test--${testState}`}>{testMessage}</p>
       ) : null}
@@ -154,21 +198,29 @@ export function CloudAccountOverview({
         {snapshotError ? (
           <p className="form-hint">{snapshotError}</p>
         ) : (
-          <div className="cloud-overview__grid">
-            <div className="cloud-overview__card cloud-overview__card--static">
-              <span className="cloud-overview__card-label">{t("cloud.account.callerId")}</span>
-              <strong className="cloud-overview__card-value cloud-overview__card-value--sm">
+          <div className="cloud-overview__facts">
+            <div className="cloud-overview__fact">
+              <span className="cloud-overview__fact-label">{t("cloud.account.callerId")}</span>
+              <button
+                type="button"
+                className="cloud-overview__fact-value cloud-overview__fact-value--mono"
+                title={t("common.copy")}
+                disabled={!snapshot?.callerId}
+                onClick={() => {
+                  if (snapshot?.callerId) void copyCloudText(snapshot.callerId);
+                }}
+              >
                 {snapshot?.callerId || "…"}
-              </strong>
+              </button>
               {snapshot?.arn ? (
-                <span className="cloud-overview__card-hint" title={snapshot.arn}>
+                <span className="cloud-overview__fact-hint" title={snapshot.arn}>
                   {snapshot.arn}
                 </span>
               ) : null}
             </div>
-            <div className="cloud-overview__card cloud-overview__card--static">
-              <span className="cloud-overview__card-label">{t("cloud.account.available")}</span>
-              <strong className="cloud-overview__card-value">
+            <div className="cloud-overview__fact">
+              <span className="cloud-overview__fact-label">{t("cloud.account.available")}</span>
+              <strong className="cloud-overview__fact-value">
                 {snapshot?.balanceError
                   ? "—"
                   : snapshot
@@ -176,16 +228,100 @@ export function CloudAccountOverview({
                     : "…"}
               </strong>
               {snapshot?.balanceError ? (
-                <span className="cloud-overview__card-hint" title={snapshot.balanceError}>
+                <span className="cloud-overview__fact-hint" title={snapshot.balanceError}>
                   {t("cloud.account.noBalance")}
                 </span>
               ) : (
-                <span className="cloud-overview__card-hint">
+                <span className="cloud-overview__fact-hint">
                   {t("cloud.account.cash")} {snapshot?.cashAmount || "—"}
-                  {snapshot?.creditAmount ? ` · ${t("cloud.account.credit")} ${snapshot.creditAmount}` : ""}
+                  {" · "}
+                  {t("cloud.account.credit")} {snapshot?.creditAmount || "—"}
                 </span>
               )}
             </div>
+          </div>
+        )}
+      </section>
+
+      {alerts.length > 0 ? (
+        <section className="cloud-overview__section">
+          <h3 className="cloud-overview__title">{t("cloud.alerts.title")}</h3>
+          <ul className="cloud-overview__alerts">
+            {alerts.map((item) => (
+              <li key={item.key} className={`cloud-overview__alert cloud-overview__alert--${item.kind}`}>
+                {item.key === "lowBalance"
+                  ? t("cloud.alerts.lowBalance", { amount: item.amount ?? "—" })
+                  : t("cloud.alerts.stoppedInstances", { count: item.count ?? 0 })}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="cloud-overview__section">
+        <h3 className="cloud-overview__title">
+          {t("cloud.expiry.title")}
+          {expiring.length > 0 ? (
+            <span className="cloud-overview__card-hint"> · {t("cloud.expiry.count", { count: String(expiring.length) })}</span>
+          ) : null}
+        </h3>
+        {expiring.length === 0 ? (
+          <p className="form-hint">
+            {countsLoading ? t("cloud.expiry.scanning") : t("cloud.expiry.empty")}
+          </p>
+        ) : (
+          <div className="cloud-overview__expiry">
+            <div className="cloud-table-wrap">
+              <table className="cloud-table">
+                <thead>
+                  <tr>
+                    <th>{t("cloud.expiry.kind")}</th>
+                    <th>{t("cloud.expiry.name")}</th>
+                    <th>{t("cloud.expiry.date")}</th>
+                    <th>{t("cloud.expiry.left")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expiryPaging.slice.map((item) => (
+                    <tr
+                      key={`${item.capability}:${item.row.id}:${item.field}`}
+                      className="cloud-overview__expiry-row"
+                      onClick={() =>
+                        onOpenResource(item.capability, item.row.id, item.row.regionId ?? "")
+                      }
+                    >
+                      <td>{t(capabilityI18nKey(item.capability))}</td>
+                      <td>
+                        <strong>{item.row.name || item.row.id}</strong>
+                        {item.row.regionId ? (
+                          <span className="cloud-overview__fact-hint"> {cloudRegionLabel(item.row.regionId)}</span>
+                        ) : null}
+                      </td>
+                      <td className="cloud-table__mono">{formatCloudExpiryDate(item.expireAt)}</td>
+                      <td>
+                        <span className={`cloud-pill cloud-pill--${item.tone}`}>
+                          {item.daysLeft < 0
+                            ? t("cloud.expiry.expired")
+                            : item.daysLeft === 0
+                              ? t("cloud.expiry.today")
+                              : t("cloud.expiry.daysLeft", { days: String(item.daysLeft) })}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <CloudPager
+              page={expiryPaging.page}
+              pageSize={expiryPaging.pageSize}
+              total={expiryPaging.total}
+              totalPages={expiryPaging.totalPages}
+              from={expiryPaging.from}
+              to={expiryPaging.to}
+              onPageChange={expiryPaging.setPage}
+              onPageSizeChange={expiryPaging.setPageSize}
+            />
           </div>
         )}
       </section>
@@ -241,6 +377,7 @@ export function CloudAccountOverview({
             </ul>
           )}
         </section>
+      </div>
       </div>
     </div>
   );

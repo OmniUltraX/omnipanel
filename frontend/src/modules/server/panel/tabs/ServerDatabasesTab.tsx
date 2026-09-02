@@ -7,12 +7,15 @@ import {
   type DbTablesPanelGridColumn,
   type DbTablesPanelGridSortDirection,
 } from "../../../database/workspace/DbTablesPanelGrid";
-import { createOnePanelClient } from "../../../../lib/onepanel";
-import { createBtPanelClient } from "../../../../lib/btpanel";
 import { appConfirm } from "../../../../lib/appConfirm";
+import {
+  getPanelDriver,
+  panelConnectionCtx,
+  type PanelDatabaseItem,
+} from "../../../../lib/panelDriverRegistry";
 import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
-import { isOnePanelService, panelHasCapability } from "../panelPlugin";
+import { panelHasCapability } from "../panelPlugin";
 import { CreateDatabaseDialog } from "../CreateDatabaseDialog";
 
 interface Props {
@@ -21,14 +24,7 @@ interface Props {
 
 type DbSortColumn = "name" | "user" | "type" | "remark";
 
-type DbGridRow = {
-  id: string;
-  dbId: number | null;
-  name: string;
-  user: string;
-  type: string;
-  remark: string;
-};
+type DbGridRow = PanelDatabaseItem & { rowKey: string };
 
 function compareText(a: string, b: string, direction: DbTablesPanelGridSortDirection): number {
   const cmp = a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
@@ -40,61 +36,37 @@ function formatError(err: unknown): string {
   return String(err);
 }
 
-function rowName(row: Record<string, unknown>): string {
-  return String(row.name ?? row.database ?? row.dbName ?? "—");
-}
-
-function rowUser(row: Record<string, unknown>): string {
-  return String(row.username ?? row.user ?? row.db_user ?? row.name ?? "—");
-}
-
-function rowType(row: Record<string, unknown>): string {
-  return String(row.type ?? row.dbType ?? "MySQL");
-}
-
-function rowRemark(row: Record<string, unknown>): string {
-  return String(row.ps ?? row.remark ?? row.description ?? "");
-}
-
-function rowId(row: Record<string, unknown>): number | null {
-  const raw = row.id;
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  if (typeof raw === "string" && /^\d+$/.test(raw.trim())) return Number(raw.trim());
-  return null;
-}
-
 export function ServerDatabasesTab({ server }: Props) {
   const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const [rows, setRows] = useState<PanelDatabaseItem[]>([]);
   const [sortColumn, setSortColumn] = useState<DbSortColumn>("name");
   const [sortDirection, setSortDirection] = useState<DbTablesPanelGridSortDirection>("asc");
   const [createOpen, setCreateOpen] = useState(false);
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
 
-  const canManage = panelHasCapability(server.serviceType, "databases");
+  const driver = getPanelDriver(server.serviceType);
+  const canManage = panelHasCapability(server.serviceType, "databases") && driver != null;
+  const canCreate = canManage && typeof driver.createDatabase === "function";
+  const canDelete = canManage && typeof driver.deleteDatabase === "function";
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      if (isOnePanelService(server.serviceType)) {
-        const client = createOnePanelClient(server.address, server.key, server.id);
-        const items = await client.searchDatabases();
-        setRows(items as Record<string, unknown>[]);
-      } else {
-        const client = createBtPanelClient(server.address, server.key, server.id);
-        const result = await client.getDatabaseList({ limit: 100 });
-        setRows(result.data);
+      const next = getPanelDriver(server.serviceType);
+      if (!next) {
+        throw new Error(t("server.create.panelOnly"));
       }
+      setRows(await next.listDatabases(panelConnectionCtx(server)));
     } catch (e) {
       setError(formatError(e));
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [server.address, server.key, server.serviceType]);
+  }, [server.address, server.id, server.key, server.serviceType, t]);
 
   useEffect(() => {
     void load();
@@ -103,12 +75,8 @@ export function ServerDatabasesTab({ server }: Props) {
   const gridRows = useMemo<DbGridRow[]>(
     () =>
       rows.map((row, index) => ({
-        id: String(row.id ?? index),
-        dbId: rowId(row),
-        name: rowName(row),
-        user: rowUser(row),
-        type: rowType(row),
-        remark: rowRemark(row),
+        ...row,
+        rowKey: String(row.id ?? index),
       })),
     [rows],
   );
@@ -131,19 +99,20 @@ export function ServerDatabasesTab({ server }: Props) {
 
   const handleDelete = useCallback(
     async (row: DbGridRow) => {
-      if (!canManage || row.dbId == null || actionBusyId != null) return;
+      const next = getPanelDriver(server.serviceType);
+      if (!canDelete || !next?.deleteDatabase || row.id == null || actionBusyId != null) return;
       const confirmed = await appConfirm(
         t("server.databases.deleteConfirm", { name: row.name }),
       );
       if (!confirmed) return;
-      setActionBusyId(row.dbId);
+      setActionBusyId(row.id);
       setError(null);
       try {
-        const client = createBtPanelClient(server.address, server.key, server.id);
-        await client.deleteDatabase({
-          id: row.dbId,
+        await next.deleteDatabase(panelConnectionCtx(server), {
+          id: row.id,
           name: row.name,
           dbUser: row.user === "—" ? row.name : row.user,
+          type: row.type,
         });
         showToast(t("server.databases.deleteSuccess"));
         await load();
@@ -153,7 +122,7 @@ export function ServerDatabasesTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, canManage, load, server.address, server.key, t],
+    [actionBusyId, canDelete, load, server, t],
   );
 
   const columns = useMemo((): DbTablesPanelGridColumn<DbGridRow>[] => {
@@ -212,8 +181,8 @@ export function ServerDatabasesTab({ server }: Props) {
         defaultWidth: 72,
         minWidth: 64,
         render: (row) => {
-          const canAct = canManage && row.dbId != null;
-          const busy = actionBusyId === row.dbId;
+          const canAct = canDelete && row.id != null;
+          const busy = actionBusyId === row.id;
           return (
             <div
               className="db-tables-panel-grid__row-actions"
@@ -235,7 +204,7 @@ export function ServerDatabasesTab({ server }: Props) {
         },
       },
     ];
-  }, [actionBusyId, canManage, handleDelete, t]);
+  }, [actionBusyId, canDelete, handleDelete, t]);
 
   return (
     <div className="server-panel-tab">
@@ -260,9 +229,9 @@ export function ServerDatabasesTab({ server }: Props) {
             type="button"
             variant="icon"
             size="icon-xs"
-            disabled={!canManage || loading}
-            title={canManage ? t("server.databases.create") : t("server.create.panelOnly")}
-            aria-label={canManage ? t("server.databases.create") : t("server.create.panelOnly")}
+            disabled={!canCreate || loading}
+            title={canCreate ? t("server.databases.create") : t("server.create.panelOnly")}
+            aria-label={canCreate ? t("server.databases.create") : t("server.create.panelOnly")}
             onClick={() => setCreateOpen(true)}
           >
             <IconPlus size={14} />
@@ -280,7 +249,7 @@ export function ServerDatabasesTab({ server }: Props) {
             variant="processlist"
             columns={columns}
             rows={sortedRows}
-            rowKey={(row) => row.id}
+            rowKey={(row) => row.rowKey}
             sortColumnId={sortColumn}
             sortDirection={sortDirection}
             onSortColumn={toggleSort}

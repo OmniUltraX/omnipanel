@@ -6,10 +6,8 @@ import { usePluginRuntimeStore } from "@/stores/pluginRuntimeStore";
 import type { ServerEntry } from "./serverConnection";
 import type { ServerSidebarNavTarget } from "./serverSidebarNav";
 import { ServerTreeIcon } from "./serverTreeIcons";
-import { listPanelDockTabs, type PanelDockTabId } from "./panelTabSlots";
-import { ServerAppsTab } from "./tabs/ServerAppsTab";
-import { ServerCertificatesTab } from "./tabs/ServerCertificatesTab";
-import { ServerCronjobsTab } from "./tabs/ServerCronjobsTab";
+import { listPanelDockTabs, type PanelDockTabId } from "./panelTabIds";
+import { PANEL_DOCK_TAB_SLOTS } from "./panelTabSlots";
 import { ServerWebsitesTab } from "./tabs/ServerWebsitesTab";
 
 interface ServerDockPanelProps {
@@ -48,14 +46,7 @@ export function ServerDockPanel({ server, isActive, moduleLive, navTarget = null
     }
   }, [navTarget, server.id, setDetailTab, visibleTabs]);
 
-  const ActiveTab =
-    detailTab === "apps"
-      ? ServerAppsTab
-      : detailTab === "certificates"
-        ? ServerCertificatesTab
-        : detailTab === "cronjobs"
-          ? ServerCronjobsTab
-          : null;
+  const ActiveTab = PANEL_DOCK_TAB_SLOTS[detailTab];
 
   return (
     <div className="server-dock-panel">

@@ -19,7 +19,7 @@
       "id": "omni.cloud.aliyun",
       "kind": "cloud",
       "name": "Alibaba Cloud",
-      "description": "Discover ECS and Simple Application Server resources.",
+      "description": "Manage ECS, security groups, RDS, metrics, and other Alibaba Cloud resources.",
       "version": "0.1.0",
       "distribution": "bundled",
       "permissions": [
@@ -28,7 +28,20 @@
         "vault:read"
       ],
       "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-29T18:22:11+08:00"
+      "updatedAt": "2026-08-30T10:16:35+08:00"
+    },
+    {
+      "id": "omni.cloud.tencent",
+      "kind": "cloud",
+      "name": "Tencent Cloud",
+      "description": "Manage CVM, Lighthouse, security groups, TencentDB, COS, DNSPod, and other Tencent Cloud resources.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
     },
     {
       "id": "omni.engine.clickhouse",
@@ -167,10 +180,15 @@
       "kind": "module",
       "name": "Nacos module shell",
       "description": "Host shell for the Nacos console plugin.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "distribution": "bundled",
       "permissions": [
-        "ui:sidebar"
+        "ui:sidebar",
+        "net:connect",
+        "vault:read",
+        "connections:write",
+        "ssh:exec",
+        "ai:tools"
       ],
       "createdAt": "2026-08-21T19:08:54+08:00",
       "updatedAt": "2026-08-21T19:08:54+08:00"

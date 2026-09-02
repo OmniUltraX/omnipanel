@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "kind": "panel",
   "permissions": ["connections:write", "net:connect", "vault:read"],
+  "methods": [
+    { "name": "testConnection", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listDatabases", "permissions": ["net:connect", "vault:read"] },
+    { "name": "createDatabase", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "deleteDatabase",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "panel.database.delete"
+    }
+  ],
   "contributes": {
     "ui": {
       "panelTabs": [
@@ -10,7 +20,8 @@
         { "id": "websites" },
         { "id": "apps" },
         { "id": "certificates" },
-        { "id": "cronjobs" }
+        { "id": "cronjobs" },
+        { "id": "databases" }
       ]
     },
     "discovery": [{ "probeId": "ssh-panel" }]

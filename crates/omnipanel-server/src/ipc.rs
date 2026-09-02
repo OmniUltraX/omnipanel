@@ -3855,6 +3855,48 @@ pub async fn dispatch(
                 crate::cloud_cmds::cloud_invoke_action(state, connection_id, action).await,
             )
         }
+        "cloud_get_metrics" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let capability = get_str(&args, "capability").unwrap_or_default();
+            let resource_id = get_str(&args, "resourceId").unwrap_or_default();
+            let region_id = get_str(&args, "regionId");
+            let query = args
+                .get("query")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok());
+            respond_omni(
+                crate::cloud_cmds::cloud_get_metrics(
+                    state,
+                    connection_id,
+                    capability,
+                    resource_id,
+                    region_id,
+                    query,
+                )
+                .await,
+            )
+        }
+        "cloud_query_logs" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            let capability = get_str(&args, "capability").unwrap_or_default();
+            let resource_id = get_str(&args, "resourceId").unwrap_or_default();
+            let region_id = get_str(&args, "regionId");
+            let query = args
+                .get("query")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok());
+            respond_omni(
+                crate::cloud_cmds::cloud_query_logs(
+                    state,
+                    connection_id,
+                    capability,
+                    resource_id,
+                    region_id,
+                    query,
+                )
+                .await,
+            )
+        }
 
         /* ---------------- 文件索引 / 连接 ---------------- */
         "file_save_connection" => {

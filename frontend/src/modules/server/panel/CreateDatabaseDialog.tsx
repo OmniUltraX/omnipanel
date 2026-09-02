@@ -2,10 +2,9 @@ import { useCallback, useMemo, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
 import { TextInput } from "@/components/ui/form/TextInput";
-import { createBtPanelClient } from "@/lib/btpanel";
+import { getPanelDriver, panelConnectionCtx } from "@/lib/panelDriverRegistry";
 import { showToast } from "@/stores/toastStore";
 import type { ServerEntry } from "./serverConnection";
-import { isBtPanelService } from "./panelPlugin";
 
 type Props = {
   open: boolean;
@@ -19,7 +18,7 @@ function formatError(err: unknown): string {
   return String(err);
 }
 
-/** 宝塔面板数据库创建。 */
+/** 面板数据库创建（走插件 L2 `createDatabase`）。 */
 export function CreateDatabaseDialog({ open, server, onClose, onCreated }: Props) {
   const { t } = useI18n();
   const [name, setName] = useState("");
@@ -54,7 +53,8 @@ export function CreateDatabaseDialog({ open, server, onClose, onCreated }: Props
   );
 
   const handleSubmit = async () => {
-    if (!isBtPanelService(server.serviceType)) {
+    const driver = getPanelDriver(server.serviceType);
+    if (!driver?.createDatabase) {
       setError(t("server.create.panelOnly"));
       return;
     }
@@ -65,14 +65,13 @@ export function CreateDatabaseDialog({ open, server, onClose, onCreated }: Props
     setBusy(true);
     setError(null);
     try {
-      const client = createBtPanelClient(server.address, server.key, server.id);
-      await client.addDatabase({
+      await driver.createDatabase(panelConnectionCtx(server), {
         name: name.trim(),
         dbUser: dbUser.trim() || name.trim(),
         password,
         address: address.trim() || "127.0.0.1",
-        codeing,
-        ps: remark.trim(),
+        charset: codeing,
+        remark: remark.trim(),
       });
       showToast(t("server.create.database.success"));
       reset();

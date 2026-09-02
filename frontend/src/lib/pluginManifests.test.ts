@@ -10,8 +10,8 @@ import {
 describe("pluginManifests 单源目录", () => {
   it("解析全部第一方清单且 id 唯一", () => {
     const ids = FIRST_PARTY_PLUGIN_MANIFESTS.map((m) => m.id);
-    expect(ids).toHaveLength(16);
-    expect(new Set(ids).size).toBe(16);
+    expect(ids).toHaveLength(17);
+    expect(new Set(ids).size).toBe(17);
   });
 
   it("kind 分布与仓库样板一致", () => {
@@ -27,7 +27,7 @@ describe("pluginManifests 单源目录", () => {
     ]);
     expect(listPluginManifests("panel")).toHaveLength(2);
     expect(listPluginManifests("module")).toHaveLength(1);
-    expect(listPluginManifests("cloud")).toHaveLength(1);
+    expect(listPluginManifests("cloud")).toHaveLength(2);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(1);
     expect(listPluginManifests("importer")).toHaveLength(2);
@@ -86,7 +86,24 @@ describe("pluginManifests 单源目录", () => {
       "cronjobs",
       "databases",
     ]);
+    expect(manifestPanelTabIds(getPluginManifest("omni.panel.1panel"))).toEqual([
+      "overview",
+      "websites",
+      "apps",
+      "certificates",
+      "cronjobs",
+      "databases",
+    ]);
     expect(manifestPanelTabIds(null)).toEqual([]);
+  });
+
+  it("面板插件声明 L2 数据库方法", () => {
+    for (const id of ["omni.panel.1panel", "omni.panel.bt"] as const) {
+      const methods = getPluginManifest(id)?.methods?.map((item) => item.name) ?? [];
+      expect(methods).toEqual(
+        expect.arrayContaining(["testConnection", "listDatabases", "createDatabase", "deleteDatabase"]),
+      );
+    }
   });
 
   it("示例 importer 用清单声明向导与首页入口", () => {
@@ -138,6 +155,12 @@ describe("pluginManifests 单源目录", () => {
     expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
       "compute",
       "compute.lite",
+      "network.securityGroup",
+      "network.eip",
+      "network.loadBalancer",
+      "database",
+      "database.cache",
+      "storage.disk",
       "objectStorage",
       "domains",
       "certs",
@@ -147,9 +170,58 @@ describe("pluginManifests 单源目录", () => {
     );
   });
 
+  it("腾讯云声明相同 capabilities", () => {
+    const manifest = getPluginManifest("omni.cloud.tencent");
+    expect(manifest?.kind).toBe("cloud");
+    expect(manifestPanelTabIds(manifest)).toEqual([]);
+    expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
+      "compute",
+      "compute.lite",
+      "network.securityGroup",
+      "network.eip",
+      "network.loadBalancer",
+      "database",
+      "database.cache",
+      "storage.disk",
+      "objectStorage",
+      "domains",
+      "certs",
+    ]);
+  });
+
+  it("Nacos module 声明 methods、logic 与四种 capability", () => {
+    const manifest = getPluginManifest("omni.module.nacos");
+    expect(manifest?.kind).toBe("module");
+    expect(manifest?.entry?.logic).toBe("logic.js");
+    expect(manifest?.contributes.ui?.moduleKey).toBe("nacos");
+    expect(manifest?.contributes.module?.capabilities.map((item) => item.id)).toEqual([
+      "namespace",
+      "config",
+      "discovery",
+      "cluster",
+    ]);
+    expect(manifest?.methods?.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "testConnection",
+        "publishConfig",
+        "rollbackConfig",
+        "listServices",
+        "probeHealth",
+        "omni_nacos_list_namespaces",
+      ]),
+    );
+    expect(manifest?.contributes.launcher?.prefix).toBe("nacos");
+    expect(manifest?.contributes.discovery?.some((item) => item.probeId === "module-http")).toBe(true);
+    const writeTools = (manifest?.contributes.ai?.tools ?? []).map((item) => item.name);
+    expect(writeTools).not.toEqual(expect.arrayContaining(["publishConfig", "rollbackConfig"]));
+    expect(writeTools).toHaveLength(4);
+  });
+
   it("legacy 别名解析到插件 id", () => {
     expect(resolveLegacyPluginId("aliyun")).toBe("omni.cloud.aliyun");
     expect(resolveLegacyPluginId(" omni.cloud.aliyun ")).toBe("omni.cloud.aliyun");
+    expect(resolveLegacyPluginId("tencent")).toBe("omni.cloud.tencent");
+    expect(resolveLegacyPluginId("qcloud")).toBe("omni.cloud.tencent");
     expect(resolveLegacyPluginId("unknown-provider")).toBeNull();
     expect(resolveLegacyPluginId("")).toBeNull();
   });

@@ -5,6 +5,12 @@ export {
   normalizeOnePanelBaseUrl,
 } from "./auth";
 export {
+  expandOnePanelRequestUrls,
+  expandOnePanelRoutes,
+  isOnePanelRouteMiss,
+  polishOnePanelError,
+} from "./compat";
+export {
   OnePanelApiError,
   type OnePanelAcmeAccount,
   type OnePanelApiEnvelope,

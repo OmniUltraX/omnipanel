@@ -715,6 +715,10 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL
     );
     "#,
+    // v37 — 历史：kind=module 一律按 closed 补种，启用后侧栏仍不出现。一次性打开。
+    r#"
+    UPDATE app_modules SET status = 'open' WHERE sort_order = 80 AND status = 'closed';
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

@@ -6,12 +6,14 @@ export type SegmentTabIconKind =
   | "bt"
   | "1panel"
   | "aliyun"
+  | "tencent"
   | "monitor"
   | "processes"
   | "apps"
   | "websites"
   | "certificates"
   | "cronjobs"
+  | "databases"
   /** @deprecated 使用 apps */
   | "services"
   | "logs";
@@ -21,12 +23,14 @@ const SEGMENT_TAB_ICON_KINDS = new Set<string>([
   "bt",
   "1panel",
   "aliyun",
+  "tencent",
   "monitor",
   "processes",
   "apps",
   "websites",
   "certificates",
   "cronjobs",
+  "databases",
   "services",
   "logs",
 ]);
@@ -34,7 +38,7 @@ const SEGMENT_TAB_ICON_KINDS = new Set<string>([
 type SegmentBrandIconKind = Extract<BrandIconKind, SegmentTabIconKind>;
 
 function isBrandSegmentIcon(icon: SegmentTabIconKind): icon is SegmentBrandIconKind {
-  return icon === "bt" || icon === "1panel" || icon === "aliyun";
+  return icon === "bt" || icon === "1panel" || icon === "aliyun" || icon === "tencent";
 }
 
 export function isSegmentTabIconKind(icon: string): icon is SegmentTabIconKind {
@@ -121,6 +125,14 @@ export function SegmentTabIcon({
         <svg {...props}>
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
+        </svg>
+      );
+    case "databases":
+      return (
+        <svg {...props}>
+          <ellipse cx="12" cy="6" rx="7" ry="2.4" />
+          <path d="M5 6v8c0 1.3 3.1 2.4 7 2.4s7-1.1 7-2.4V6" />
+          <path d="M5 10c0 1.3 3.1 2.4 7 2.4s7-1.1 7-2.4" />
         </svg>
       );
     case "logs":

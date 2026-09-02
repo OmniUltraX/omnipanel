@@ -9,7 +9,10 @@ use omnipanel_plugin::{
     InvokeGateway, PluginKind, PluginListItem, PluginLogicExecutor, PluginMethodDecl,
     PluginPermission, PluginPlatform, PluginRegistry, PluginSource, load_installed,
 };
-use omnipanel_store::{plugin_secret_ref, AuditEntry, Storage, Vault};
+use omnipanel_store::{
+    plugin_secret_ref, AppModuleStatus, AuditEntry, ConnectionKind, PLUGIN_MODULE_SORT_ORDER,
+    Storage, Vault,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -79,9 +82,12 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
     for method in [
         "testAccount",
         "listRegions",
+        "getAccount",
         "listResources",
         "getResource",
         "invokeAction",
+        "getMetrics",
+        "queryLogs",
     ] {
         let method_name = method.to_string();
         gateway.register(
@@ -91,6 +97,19 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
                 let method_name = method_name.clone();
                 Box::pin(async move {
                     omnipanel_cloud_aliyun::handle_invoke(&method_name, args)
+                        .await
+                        .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))
+                })
+            }),
+        );
+        let tencent_method = method.to_string();
+        gateway.register(
+            omnipanel_plugin::PLUGIN_ID_CLOUD_TENCENT,
+            method,
+            Arc::new(move |args| {
+                let method_name = tencent_method.clone();
+                Box::pin(async move {
+                    omnipanel_cloud_tencent::handle_invoke(&method_name, args)
                         .await
                         .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))
                 })
@@ -254,6 +273,7 @@ pub(crate) async fn rebuild_and_sync(state: &State<'_, AppState>) -> Result<(), 
     }
     sync_native_plugin_tools_with_state(state).await;
     sync_plugin_logic(state).await;
+    sync_plugin_app_modules(state).await;
     let _ = state.app_handle.emit(
         PLUGIN_CHANGED_EVENT,
         PluginChangedPayload {
@@ -263,6 +283,31 @@ pub(crate) async fn rebuild_and_sync(state: &State<'_, AppState>) -> Result<(), 
         },
     );
     Ok(())
+}
+
+/// 已激活的 module 插件补种为 open；未激活的仅补种缺行（closed），不覆盖用户状态。
+pub(crate) async fn sync_plugin_app_modules(state: &State<'_, AppState>) {
+    let seeds: Vec<(String, i32, bool)> = {
+        let registry = state.plugin_registry.lock().await;
+        registry
+            .list()
+            .into_iter()
+            .filter(|item| item.kind == PluginKind::Module)
+            .filter_map(|item| {
+                let key = registry.module_key_of(&item.id)?;
+                Some((key, PLUGIN_MODULE_SORT_ORDER, item.enabled && item.activated))
+            })
+            .collect()
+    };
+    let store = state.storage.lock().await;
+    for (key, order, activated) in seeds {
+        let status = if activated {
+            AppModuleStatus::Open
+        } else {
+            AppModuleStatus::Closed
+        };
+        let _ = store.seed_app_module(&key, order, status);
+    }
 }
 
 /// L2 逻辑执行体生命周期：activated 且声明 entry.logic 的插件实例化，
@@ -646,6 +691,18 @@ pub async fn plugin_set_enabled(
         sync_native_plugin_tools(&registry, &mcp.tool_registry, &state.plugin_invoke);
     }
     sync_plugin_logic(&state).await;
+    if enabled {
+        let module_key = {
+            let registry = state.plugin_registry.lock().await;
+            registry.module_key_of(&plugin_id)
+        };
+        if let Some(module_key) = module_key {
+            let store = state.storage.lock().await;
+            let _ = store.open_plugin_module(&module_key, PLUGIN_MODULE_SORT_ORDER);
+        }
+    } else {
+        sync_plugin_app_modules(&state).await;
+    }
     let item = {
         let registry = state.plugin_registry.lock().await;
         let entry = registry
@@ -672,6 +729,38 @@ pub async fn plugin_set_enabled(
     Ok(item)
 }
 
+/// 若 args 含 connectionId，把对应 `kind=service` 连接的 config 合并进去（AI / 扫描只传 id）。
+fn merge_service_connection_args(args: &mut Value, plugin_id: &str, conn: &omnipanel_store::Connection) {
+    if conn.kind != ConnectionKind::Service {
+        return;
+    }
+    let parsed: Value = serde_json::from_str(&conn.config)
+        .unwrap_or_else(|_| Value::Object(Default::default()));
+    let cfg_plugin = parsed
+        .get("pluginId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !cfg_plugin.is_empty() && cfg_plugin != plugin_id {
+        return;
+    }
+    let Value::Object(map) = args else {
+        return;
+    };
+    if let Value::Object(cfg) = parsed {
+        for (key, value) in cfg {
+            map.entry(key).or_insert(value);
+        }
+    }
+    map.entry("passwordKey")
+        .or_insert(Value::String(conn.id.clone()));
+    map.entry("connectionId")
+        .or_insert(Value::String(conn.id.clone()));
+    if !conn.env_tag.is_empty() {
+        map.entry("envTag")
+            .or_insert(Value::String(conn.env_tag.clone()));
+    }
+}
+
 /// 第一方/第三方统一命令网关：清单 `methods[]` 白名单 + 权限注解强制 + 审计。
 #[tauri::command]
 #[specta::specta]
@@ -681,6 +770,17 @@ pub async fn plugin_invoke(
     method: String,
     args: Value,
 ) -> Result<Value, OmniError> {
+    let mut args = args;
+    if let Some(connection_id) = args
+        .get("connectionId")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+    {
+        let storage = state.storage.lock().await;
+        if let Ok(Some(conn)) = storage.get_connection(&connection_id) {
+            merge_service_connection_args(&mut args, &plugin_id, &conn);
+        }
+    }
     // 1. 白名单：未声明 method 一律拒绝（含未激活插件）
     let decl: PluginMethodDecl = {
         let registry = state.plugin_registry.lock().await;

@@ -26,6 +26,8 @@ pub struct PluginContributes {
     pub workspace: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud: Option<CloudContributes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module: Option<ModuleContributes>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
@@ -33,6 +35,36 @@ pub struct PluginContributes {
 pub struct CloudContributes {
     #[serde(default)]
     pub capabilities: Vec<CloudCapabilityDecl>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleContributes {
+    #[serde(default)]
+    pub capabilities: Vec<ModuleCapabilityDecl>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe: Option<ModuleProbeDecl>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleCapabilityDecl {
+    pub id: String,
+    #[serde(default)]
+    pub columns: Vec<Value>,
+    #[serde(default)]
+    pub actions: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleProbeDecl {
+    #[serde(default)]
+    pub ports: Vec<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -45,6 +77,9 @@ pub struct CloudCapabilityDecl {
     pub columns: Vec<Value>,
     #[serde(default)]
     pub actions: Vec<Value>,
+    /// 详情插槽：`overview` / `metrics` / `rules` / `logs` / `security` / `records` / `members` / `backups`。
+    #[serde(default)]
+    pub detail_slots: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]

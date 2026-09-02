@@ -19,16 +19,18 @@ export type ServerTreeIconKind =
   | "bt"
   | "1panel"
   | "aliyun"
+  | "tencent"
   | "apps"
   | "websites"
   | "certificates"
   | "cronjobs"
+  | "databases"
   | "website";
 
 type ServerTreeBrandIconKind = Extract<BrandIconKind, ServerTreeIconKind>;
 
 function isBrandKind(kind: ServerTreeIconKind): kind is ServerTreeBrandIconKind {
-  return kind === "bt" || kind === "1panel" || kind === "aliyun";
+  return kind === "bt" || kind === "1panel" || kind === "aliyun" || kind === "tencent";
 }
 
 export function serverTreeIconKindForPanel(
@@ -84,6 +86,14 @@ export function ServerTreeIcon({ kind }: { kind: ServerTreeIconKind }) {
         <svg {...iconProps}>
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
+        </svg>
+      );
+    case "databases":
+      return (
+        <svg {...iconProps}>
+          <ellipse cx="12" cy="6" rx="7" ry="2.4" />
+          <path d="M5 6v8c0 1.3 3.1 2.4 7 2.4s7-1.1 7-2.4V6" />
+          <path d="M5 10c0 1.3 3.1 2.4 7 2.4s7-1.1 7-2.4" />
         </svg>
       );
     case "website":
