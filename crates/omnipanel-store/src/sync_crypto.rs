@@ -31,6 +31,7 @@ pub const SYNC_BLOB_SCHEME: &str = "omnipanel-sync-e2e-v1";
 pub const SYNC_BLOB_SCHEME_V2: &str = "omnipanel-sync-e2e-v2";
 pub const SYNC_KIND_MODULES: &str = "modules";
 pub const SYNC_KIND_CONVERSATIONS: &str = "ai-conversations";
+pub const SYNC_KIND_ASSISTANT_SNAPSHOT: &str = "assistant-snapshot";
 
 /// v2：HMAC-SHA256(sync_key, "omnipanel.sync.v2.blob:{team_id}:{kind}") → base64 作为 key_material。
 pub fn derive_sync_blob_key_material_v2(

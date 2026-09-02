@@ -9,28 +9,17 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
-import { fetchPublicQrcodes } from "../../lib/auth/loginApi";
+import { appConfirm } from "../../lib/appConfirm";
+import { deleteDevice, fetchDevices, fetchPublicQrcodes, type AuthDevice } from "../../lib/auth/loginApi";
+import { ensureSyncTeamKey } from "../../lib/auth/syncTeamKeyApi";
+import { showToast } from "../../stores/toastStore";
+import { useAuthStore } from "../../stores/authStore";
 import { useUserCenterUiStore } from "../../stores/userCenterUiStore";
-import { IconClose, IconMonitor, IconPhone } from "../ui/icons/Icons";
+import { IconClose, IconMonitor, IconPhone, IconGlobe } from "../ui/icons/Icons";
 import { Modal } from "../ui/overlay/Modal";
+import { LocalQrCode } from "../user/LocalQrCode";
 
-type QrKind = "miniapp" | "h5" | "feedback";
-type MenuAction = "assistant" | "client";
-
-const QR_META: Record<QrKind, { titleKey: string; altKey: string }> = {
-  miniapp: {
-    titleKey: "shell.miniapp.title",
-    altKey: "shell.miniapp.qrAlt",
-  },
-  h5: {
-    titleKey: "shell.miniapp.h5Title",
-    altKey: "shell.miniapp.h5QrAlt",
-  },
-  feedback: {
-    titleKey: "shell.miniapp.feedbackTitle",
-    altKey: "shell.miniapp.feedbackQrAlt",
-  },
-};
+type MenuAction = "assistant" | "client" | "miniapp";
 
 function isMiniappMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-miniapp-menu"));
@@ -39,17 +28,19 @@ function isMiniappMenuNode(target: EventTarget | null): boolean {
 /** 侧栏手机图标：弹出菜单 → 助手端二维码 / 客户端设备列表。 */
 export function SidebarMiniappButton() {
   const { t } = useI18n();
+  const token = useAuthStore((s) => s.token);
   const openUserCenter = useUserCenterUiStore((s) => s.openUserCenter);
   const userCenterOpen = useUserCenterUiStore((s) => s.open);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
-  const [qrKind, setQrKind] = useState<QrKind>("miniapp");
   const [miniappUrl, setMiniappUrl] = useState("");
-  const [h5Url, setH5Url] = useState("");
-  const [feedbackUrl, setFeedbackUrl] = useState("");
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const [assistantDevices, setAssistantDevices] = useState<AuthDevice[]>([]);
+  const [devicesLoading, setDevicesLoading] = useState(false);
+  const [teamKeyFingerprint, setTeamKeyFingerprint] = useState("");
+  const [view, setView] = useState<"list" | "qr" | "keyQr">("qr");
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   const loadQrcodes = useCallback(async () => {
@@ -57,8 +48,6 @@ export function SidebarMiniappButton() {
     try {
       const data = await fetchPublicQrcodes();
       setMiniappUrl(data.miniapp_url);
-      setH5Url(data.h5_url);
-      setFeedbackUrl(data.feedback_group_url);
       setLoadState("ready");
     } catch (e) {
       console.warn("[sidebarMiniapp] load qrcodes failed", e);
@@ -69,6 +58,53 @@ export function SidebarMiniappButton() {
   useEffect(() => {
     void loadQrcodes();
   }, [loadQrcodes]);
+
+  const loadAssistantDevices = useCallback(async (): Promise<AuthDevice[]> => {
+    if (!token) return [];
+    setDevicesLoading(true);
+    try {
+      const devices = await fetchDevices(token, { quiet: true });
+      const assistants = devices.filter((d) => d.role === "assistant");
+      setAssistantDevices(assistants);
+      return assistants;
+    } catch (e) {
+      console.warn("[sidebarMiniapp] load assistant devices failed", e);
+      setAssistantDevices([]);
+      return [];
+    } finally {
+      setDevicesLoading(false);
+    }
+  }, [token]);
+
+  const loadTeamKey = useCallback(async (): Promise<string | null> => {
+    try {
+      const keyResult = await ensureSyncTeamKey();
+      setTeamKeyFingerprint(keyResult.fingerprint);
+      return keyResult.fingerprint;
+    } catch (e) {
+      console.warn("[sidebarMiniapp] failed to get team key", e);
+      return null;
+    }
+  }, []);
+
+  const handleUnbind = useCallback(async (device: AuthDevice) => {
+    if (!token) return;
+    const name = device.deviceName || device.deviceId;
+    const confirmed = await appConfirm(
+      t("shell.miniapp.assistantUnbindConfirm", { name }),
+      t("shell.miniapp.assistantUnbind"),
+      { kind: "warning", confirmLabel: t("shell.miniapp.assistantUnbind") },
+    );
+    if (!confirmed) return;
+    try {
+      await deleteDevice(token, device.deviceId, device.appId);
+      setAssistantDevices((prev) => prev.filter((d) => d.deviceId !== device.deviceId));
+      showToast(t("shell.miniapp.assistantUnbindSuccess"));
+    } catch (e) {
+      console.warn("[sidebarMiniapp] unbind failed", e);
+      showToast(t("shell.miniapp.assistantUnbindFailed"));
+    }
+  }, [token, t]);
 
   const updateMenuPosition = useCallback(() => {
     const btn = buttonRef.current;
@@ -115,23 +151,36 @@ export function SidebarMiniappButton() {
     };
   }, [menuOpen, updateMenuPosition]);
 
-  const handleMenuAction = (action: MenuAction) => {
+  const handleMenuAction = async (action: MenuAction) => {
     setMenuOpen(false);
     if (action === "assistant") {
+      if (token) {
+        const assistants = await loadAssistantDevices();
+        if (assistants.length > 0) {
+          setView("list");
+        } else {
+          await loadTeamKey();
+          setView("keyQr");
+        }
+      } else {
+        await loadTeamKey();
+        setView("keyQr");
+      }
       setQrModalOpen(true);
+      return;
+    }
+    if (action === "miniapp") {
+      setView("qr");
       if (loadState === "error" || loadState === "idle") {
         void loadQrcodes();
       }
+      setQrModalOpen(true);
       return;
     }
     openUserCenter("devices", { devicesClientOnly: true });
   };
 
   const closeQrModal = useCallback(() => setQrModalOpen(false), []);
-
-  const qrSrc =
-    qrKind === "miniapp" ? miniappUrl : qrKind === "h5" ? h5Url : feedbackUrl;
-  const { titleKey, altKey } = QR_META[qrKind];
 
   const active = menuOpen || qrModalOpen || userCenterOpen;
 
@@ -146,39 +195,28 @@ export function SidebarMiniappButton() {
       label: t("shell.miniapp.menuClient"),
       icon: <IconMonitor size={14} />,
     },
+    {
+      id: "miniapp",
+      label: t("shell.miniapp.menuMiniapp"),
+      icon: <IconGlobe size={14} />,
+    },
   ];
 
-  const qrSwitch = (
-    <div className="sidebar-miniapp-qr-switch" role="tablist" aria-label={t("shell.miniapp.switchAria")}>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={qrKind === "miniapp"}
-        className={`sidebar-miniapp-qr-switch__btn${qrKind === "miniapp" ? " is-active" : ""}`}
-        onClick={() => setQrKind("miniapp")}
-      >
-        {t("shell.miniapp.tabMiniapp")}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={qrKind === "h5"}
-        className={`sidebar-miniapp-qr-switch__btn${qrKind === "h5" ? " is-active" : ""}`}
-        onClick={() => setQrKind("h5")}
-      >
-        {t("shell.miniapp.tabH5")}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={qrKind === "feedback"}
-        className={`sidebar-miniapp-qr-switch__btn${qrKind === "feedback" ? " is-active" : ""}`}
-        onClick={() => setQrKind("feedback")}
-      >
-        {t("shell.miniapp.tabFeedback")}
-      </button>
-    </div>
-  );
+  const switchToQr = useCallback(() => {
+    setView("qr");
+    if (loadState === "error" || loadState === "idle") {
+      void loadQrcodes();
+    }
+  }, [loadQrcodes, loadState]);
+
+  useEffect(() => {
+    if (view === "list" && assistantDevices.length === 0 && qrModalOpen) {
+      void (async () => {
+        await loadTeamKey();
+        setView("keyQr");
+      })();
+    }
+  }, [view, assistantDevices, qrModalOpen, loadTeamKey]);
 
   return (
     <>
@@ -208,7 +246,7 @@ export function SidebarMiniappButton() {
                   type="button"
                   role="menuitem"
                   className="sidebar-user-menu__item"
-                  onClick={() => handleMenuAction(item.id)}
+                  onClick={() => void handleMenuAction(item.id)}
                 >
                   <span className="sidebar-user-menu__icon" aria-hidden>
                     {item.icon}
@@ -230,7 +268,13 @@ export function SidebarMiniappButton() {
           onClick={(event) => event.stopPropagation()}
         >
           <div className="sidebar-miniapp-dialog__header">
-            <h3 id="sidebar-miniapp-title">{t(titleKey)}</h3>
+            <h3 id="sidebar-miniapp-title">
+              {view === "list"
+                ? t("shell.miniapp.assistantListTitle")
+                : view === "keyQr"
+                  ? t("shell.miniapp.teamKeyQrTitle")
+                  : t("shell.miniapp.title")}
+            </h3>
             <button
               type="button"
               className="sidebar-miniapp-dialog__close"
@@ -240,32 +284,95 @@ export function SidebarMiniappButton() {
               <IconClose size={16} />
             </button>
           </div>
-          {loadState === "ready" && qrSrc ? (
-            <img
-              className="sidebar-miniapp-dialog__qr"
-              src={qrSrc}
-              alt={t(altKey)}
-              draggable={false}
-            />
-          ) : (
-            <div className="sidebar-miniapp-qr-status sidebar-miniapp-qr-status--dialog">
-              {loadState === "error" || (!qrSrc && loadState !== "loading" && loadState !== "idle") ? (
+
+          {view === "list" ? (
+            <div className="sidebar-miniapp-assistant-list">
+              {devicesLoading ? (
+                <p className="sidebar-miniapp-qr-status">{t("shell.miniapp.assistantLoading")}</p>
+              ) : assistantDevices.length === 0 ? (
+                <p className="sidebar-miniapp-qr-status">{t("shell.miniapp.assistantListEmpty")}</p>
+              ) : (
                 <>
-                  <p>{t("shell.miniapp.loadFailed")}</p>
+                  {assistantDevices.map((device) => (
+                    <div key={device.deviceId} className="sidebar-miniapp-assistant-item">
+                      <span className="sidebar-miniapp-assistant-name">
+                        {device.deviceName || device.deviceId}
+                      </span>
+                      <button
+                        type="button"
+                        className="sidebar-miniapp-assistant-unbind"
+                        onClick={() => void handleUnbind(device)}
+                      >
+                        {t("shell.miniapp.assistantUnbind")}
+                      </button>
+                    </div>
+                  ))}
                   <button
                     type="button"
-                    className="sidebar-miniapp-qr-retry"
-                    onClick={() => void loadQrcodes()}
+                    className="sidebar-miniapp-assistant-bind-new"
+                    onClick={switchToQr}
                   >
-                    {t("shell.miniapp.retry")}
+                    {t("shell.miniapp.assistantBindNew")}
                   </button>
                 </>
-              ) : (
-                t("shell.miniapp.loading")
               )}
             </div>
+          ) : view === "keyQr" ? (
+            <div className="sidebar-miniapp-key-qr">
+              {teamKeyFingerprint ? (
+                <>
+                  <LocalQrCode
+                    payload={`omnipanel://sync-key?fingerprint=${teamKeyFingerprint}`}
+                    size={220}
+                    className="sidebar-miniapp-dialog__qr"
+                    alt={t("shell.miniapp.teamKeyQrAlt")}
+                  />
+                  <p className="sidebar-miniapp-dialog__hint">{t("shell.miniapp.teamKeyHint")}</p>
+                </>
+              ) : (
+                <div className="sidebar-miniapp-qr-status sidebar-miniapp-qr-status--dialog">
+                  {t("shell.miniapp.loading")}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {loadState === "ready" && miniappUrl ? (
+                <img
+                  className="sidebar-miniapp-dialog__qr"
+                  src={miniappUrl}
+                  alt={t("shell.miniapp.qrAlt")}
+                  draggable={false}
+                />
+              ) : (
+                <div className="sidebar-miniapp-qr-status sidebar-miniapp-qr-status--dialog">
+                  {loadState === "error" || (!miniappUrl && loadState !== "loading" && loadState !== "idle") ? (
+                    <>
+                      <p>{t("shell.miniapp.loadFailed")}</p>
+                      <button
+                        type="button"
+                        className="sidebar-miniapp-qr-retry"
+                        onClick={() => void loadQrcodes()}
+                      >
+                        {t("shell.miniapp.retry")}
+                      </button>
+                    </>
+                  ) : (
+                    t("shell.miniapp.loading")
+                  )}
+                </div>
+              )}
+              {assistantDevices.length > 0 ? (
+                <button
+                  type="button"
+                  className="sidebar-miniapp-assistant-back"
+                  onClick={() => setView("list")}
+                >
+                  {t("shell.miniapp.assistantBackToList")}
+                </button>
+              ) : null}
+            </>
           )}
-          {qrSwitch}
         </div>
       </Modal>
     </>

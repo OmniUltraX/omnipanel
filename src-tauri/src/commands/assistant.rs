@@ -1,20 +1,24 @@
 //! 助手端同步：采集本机脱敏元数据并上传 OSS。
 
 use omnipanel_assistant::{
-    AuthContext, CollectContext, OssUploadResult, PushOptions, PushSnapshotResult,
-    assemble_modules, default_collectors, fetch_oss_sts, push_snapshot, sanitize_ai_model_meta,
-    sanitize_assistant_conversation_meta, sanitize_connection_meta, sanitize_db_connection_meta,
-    sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta,
-    sanitize_terminal_session_meta, upload_object_bytes, upload_snapshot_json,
+    AuthContext, CollectContext, ModuleEncryptor, OssUploadResult, PushOptions,
+    PushSnapshotResult, assemble_modules, default_collectors, fetch_oss_sts, push_snapshot,
+    sanitize_ai_model_meta, sanitize_assistant_conversation_meta, sanitize_connection_meta,
+    sanitize_db_connection_meta, sanitize_http_request_meta, sanitize_knowledge_meta,
+    sanitize_task_meta, sanitize_terminal_session_meta, upload_object_bytes,
+    upload_snapshot_json,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{ConnectionKind, load_database_connections};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::State;
 
-use crate::commands::auth::{auth_device_identity, auth_get_me};
+use crate::commands::auth::{
+    auth_device_identity, auth_get_me, encrypt_sync_team_payload, resolve_sync_team,
+};
 use crate::commands::proxy::build_http_client_for_url;
 use crate::state::AppState;
 
@@ -90,6 +94,8 @@ pub struct AssistantPushRequest {
     pub dry_run: bool,
     #[serde(default)]
     pub bind_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<i64>,
     /// 前端注入的 AI 会话列表元数据（不含消息正文）。
     #[serde(default)]
     pub conversations: Vec<AssistantConversationSnapshotItem>,
@@ -130,14 +136,21 @@ pub async fn assistant_push_snapshot(
     }
 
     let identity = auth_device_identity().await?;
-    let user_id = if request.token.trim().is_empty() {
+    let me = if request.token.trim().is_empty() {
         None
     } else {
-        auth_get_me(state.clone(), request.token.clone())
-            .await
-            .ok()
-            .map(|me| me.id.to_string())
+        auth_get_me(state.clone(), request.token.clone()).await.ok()
     };
+    let user_id = me.as_ref().map(|m| m.id.to_string());
+
+    let encryptor = me.as_ref().and_then(|m| {
+        let team = resolve_sync_team(request.team_id, m).ok()?;
+        let team_id = team.id;
+        Some(Arc::new(move |module_id: &str, plaintext: &[u8]| {
+            let kind = format!("assistant-snapshot:{module_id}");
+            encrypt_sync_team_payload(team_id, &kind, plaintext)
+        }) as ModuleEncryptor)
+    });
 
     let ctx = build_collect_context(
         &state,
@@ -157,6 +170,7 @@ pub async fn assistant_push_snapshot(
             PushOptions {
                 dry_run: true,
                 object_key_override: None,
+                encryptor,
             },
         )
         .await;
@@ -170,6 +184,7 @@ pub async fn assistant_push_snapshot(
         PushOptions {
             dry_run: false,
             object_key_override: None,
+            encryptor,
         },
     )
     .await?;

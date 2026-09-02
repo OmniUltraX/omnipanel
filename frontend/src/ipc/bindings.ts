@@ -1708,6 +1708,7 @@ export type AssistantPushRequest = {
 	token: string,
 	dryRun?: boolean,
 	bindId?: string | null,
+	teamId?: number | null,
 	/**  前端注入的 AI 会话列表元数据（不含消息正文）。 */
 	conversations?: AssistantConversationSnapshotItem[],
 	/**  前端注入的终端会话列表（与 AI 会话分离）。 */

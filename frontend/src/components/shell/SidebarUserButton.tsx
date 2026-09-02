@@ -28,6 +28,7 @@ import { showToast } from "../../stores/toastStore";
 import { useTeamManagementUiStore } from "../../stores/teamManagementUiStore";
 import {
   IconCheckCircle,
+  IconClose,
   IconDownload,
   IconGlobe,
   IconPencil,
@@ -35,11 +36,13 @@ import {
   IconUser,
   IconUsers,
 } from "../ui/icons/Icons";
+import { Modal } from "../ui/overlay/Modal";
 import { AppUpdateDialog } from "./AppUpdateDialog";
+import { fetchPublicQrcodes } from "../../lib/auth/loginApi";
 
 const WEBSITE_URL = "https://omniultrax.github.io/omnipanel/";
 
-type MenuAction = "account" | "subscription" | "settings" | "website" | "update";
+type MenuAction = "account" | "subscription" | "settings" | "website" | "update" | "contact";
 
 function isUserMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
@@ -71,6 +74,9 @@ export function SidebarUserButton() {
   const [teamMenuOpen, setTeamMenuOpen] = useState(false);
   const [switchingTeam, setSwitchingTeam] = useState(false);
   const [switchingTeamName, setSwitchingTeamName] = useState("");
+  const [contactOpen, setContactOpen] = useState(false);
+  const [feedbackUrl, setFeedbackUrl] = useState("");
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [style, setStyle] = useState<CSSProperties>({});
   const [teamMenuStyle, setTeamMenuStyle] = useState<CSSProperties>({});
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -177,6 +183,23 @@ export function SidebarUserButton() {
       openUpdateDialog();
       return;
     }
+    if (action === "contact") {
+      setContactOpen(true);
+      if (!feedbackUrl && !feedbackLoading) {
+        void (async () => {
+          setFeedbackLoading(true);
+          try {
+            const data = await fetchPublicQrcodes();
+            setFeedbackUrl(data.feedback_group_url);
+          } catch (e) {
+            console.warn("[sidebarUser] load feedback qr failed", e);
+          } finally {
+            setFeedbackLoading(false);
+          }
+        })();
+      }
+      return;
+    }
     if (action === "subscription") {
       openUserCenter("subscription");
       return;
@@ -266,6 +289,11 @@ export function SidebarUserButton() {
       label: t("userCenter.update.menu"),
       icon: <IconDownload size={14} />,
       badge: updateBadge,
+    },
+    {
+      id: "contact",
+      label: t("userCenter.contactUs"),
+      icon: <IconGlobe size={14} />,
     },
     {
       id: "settings",
@@ -477,6 +505,45 @@ export function SidebarUserButton() {
             document.body,
           )
         : null}
+
+      <Modal open={contactOpen} onClose={() => setContactOpen(false)}>
+        <div
+          className="sidebar-miniapp-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sidebar-contact-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="sidebar-miniapp-dialog__header">
+            <h3 id="sidebar-contact-title">{t("userCenter.contactUs")}</h3>
+            <button
+              type="button"
+              className="sidebar-miniapp-dialog__close"
+              onClick={() => setContactOpen(false)}
+              aria-label={t("shell.topbar.close")}
+            >
+              <IconClose size={16} />
+            </button>
+          </div>
+          {feedbackLoading ? (
+            <div className="sidebar-miniapp-qr-status sidebar-miniapp-qr-status--dialog">
+              {t("shell.miniapp.loading")}
+            </div>
+          ) : feedbackUrl ? (
+            <img
+              className="sidebar-miniapp-dialog__qr"
+              src={feedbackUrl}
+              alt={t("shell.miniapp.feedbackQrAlt")}
+              draggable={false}
+            />
+          ) : (
+            <div className="sidebar-miniapp-qr-status sidebar-miniapp-qr-status--dialog">
+              <p>{t("shell.miniapp.loadFailed")}</p>
+            </div>
+          )}
+          <p className="sidebar-miniapp-dialog__hint">{t("shell.miniapp.feedbackHint")}</p>
+        </div>
+      </Modal>
 
       <AppUpdateDialog />
     </>

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use chrono::Utc;
 use omnipanel_error::OmniResult;
 use reqwest::Client;
@@ -9,14 +11,29 @@ use crate::error::{AssistantErrorKind, map_assistant_error_with_cause};
 use crate::notify::{SnapshotNotifyRequest, normalize_snapshot_dir, notify_snapshot_uploaded};
 use crate::oss::upload_snapshot_json;
 use crate::sts::{AuthContext, fetch_oss_sts};
-use crate::types::build_snapshot_bundle;
+use crate::types::{SnapshotOverview, SnapshotBundle, build_snapshot_bundle};
 
-#[derive(Debug, Clone, Default)]
+/// 模块加密回调：接收 module_id 和明文字节，返回加密后的信封字节。
+pub type ModuleEncryptor = Arc<dyn Fn(&str, &[u8]) -> OmniResult<Vec<u8>> + Send + Sync>;
+
+#[derive(Clone, Default)]
 pub struct PushOptions {
     /// 仅组装快照，不申请凭证 / 不上传（本地验证用）
     pub dry_run: bool,
     /// 覆盖本次快照目录（不含文件名）；默认按约定生成 `.../snapshots/{ts}-{id}`
     pub object_key_override: Option<String>,
+    /// 模块加密器；非 None 时对除 assistant（AI 聊天）外的模块文件加密
+    pub encryptor: Option<ModuleEncryptor>,
+}
+
+impl std::fmt::Debug for PushOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PushOptions")
+            .field("dry_run", &self.dry_run)
+            .field("object_key_override", &self.object_key_override)
+            .field("has_encryptor", &self.encryptor.is_some())
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -43,6 +60,7 @@ pub async fn push_snapshot(
     let collectors = default_collectors();
     let modules = assemble_modules(&collectors, &ctx);
     let short_id = unique_run_id();
+    let encryptor = options.encryptor.clone();
 
     let default_dir = format!(
         "assistant/{}/{}/snapshots/{}-{}",
@@ -60,7 +78,7 @@ pub async fn push_snapshot(
     if options.dry_run {
         let snapshot_dir =
             resolve_snapshot_dir(options.object_key_override.as_deref(), None, &default_dir);
-        let bundle = build_snapshot_bundle(
+        let mut bundle = build_snapshot_bundle(
             &ctx.client_device_id,
             ctx.bind_id.clone(),
             &generated_at,
@@ -68,6 +86,10 @@ pub async fn push_snapshot(
             &modules,
         )
         .map_err(|e| map_assistant_error_with_cause(AssistantErrorKind::Encode, e, ""))?;
+
+        if let Some(enc) = &encryptor {
+            apply_module_encryption(&mut bundle, enc)?;
+        }
 
         return Ok(PushSnapshotResult {
             object_key: bundle.overview_key.clone(),
@@ -93,7 +115,7 @@ pub async fn push_snapshot(
         sts.object_key_prefix.as_deref(),
         &default_dir,
     );
-    let bundle = build_snapshot_bundle(
+    let mut bundle = build_snapshot_bundle(
         &ctx.client_device_id,
         ctx.bind_id.clone(),
         &generated_at,
@@ -101,6 +123,10 @@ pub async fn push_snapshot(
         &modules,
     )
     .map_err(|e| map_assistant_error_with_cause(AssistantErrorKind::Encode, e, ""))?;
+
+    if let Some(enc) = &encryptor {
+        apply_module_encryption(&mut bundle, enc)?;
+    }
 
     let http = Client::new();
     let mut total_bytes = 0u64;
@@ -151,6 +177,59 @@ pub async fn push_snapshot(
         generated_at,
         dry_run: false,
     })
+}
+
+/// 对 bundle 中除 assistant（AI 聊天）外的模块文件进行加密，并更新 overview 标记。
+fn apply_module_encryption(
+    bundle: &mut SnapshotBundle,
+    encryptor: &ModuleEncryptor,
+) -> OmniResult<()> {
+    let mut encrypted_ids: Vec<String> = Vec::new();
+
+    for file in &mut bundle.files {
+        if let Some(module_id) = extract_module_id_from_key(&file.object_key) {
+            if module_id != "assistant" {
+                file.body = encryptor(&module_id, &file.body)?;
+                encrypted_ids.push(module_id);
+            }
+        }
+    }
+
+    if !encrypted_ids.is_empty() {
+        if let Some(overview_file) = bundle.files.last_mut() {
+            let mut overview: SnapshotOverview = serde_json::from_slice(&overview_file.body)
+                .map_err(|e| {
+                    map_assistant_error_with_cause(
+                        AssistantErrorKind::Encode,
+                        e.to_string(),
+                        "",
+                    )
+                })?;
+            for mid in &encrypted_ids {
+                if let Some(entry) = overview.modules.section_mut(mid) {
+                    entry.encrypted = true;
+                }
+            }
+            overview_file.body = serde_json::to_vec_pretty(&overview)
+                .map_err(|e| {
+                    map_assistant_error_with_cause(
+                        AssistantErrorKind::Encode,
+                        e.to_string(),
+                        "",
+                    )
+                })?;
+        }
+    }
+
+    Ok(())
+}
+
+/// 从 object key 中提取 module_id（如 `.../modules/terminal.json` → `terminal`）。
+fn extract_module_id_from_key(object_key: &str) -> Option<String> {
+    let marker = "/modules/";
+    let pos = object_key.rfind(marker)?;
+    let after = &object_key[pos + marker.len()..];
+    after.strip_suffix(".json").map(|s| s.to_string())
 }
 
 /// 解析本次快照目录。`object_key_override` 优先；否则若有 STS prefix 则用

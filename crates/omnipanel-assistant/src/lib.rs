@@ -34,7 +34,7 @@ pub use oss::{
     OssUploadResult, get_object_bytes, get_object_bytes_optional, strip_bucket_prefix,
     upload_object_bytes, upload_snapshot_json,
 };
-pub use push::{PushOptions, PushSnapshotResult, push_snapshot};
+pub use push::{ModuleEncryptor, PushOptions, PushSnapshotResult, push_snapshot};
 pub use sanitize::{
     sanitize_ai_model_meta, sanitize_assistant_conversation_meta, sanitize_connection_meta,
     sanitize_db_connection_meta, sanitize_http_request_meta, sanitize_knowledge_meta,

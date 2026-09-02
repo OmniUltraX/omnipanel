@@ -156,10 +156,10 @@ pub use ssh_vault::{
 };
 pub use storage::{AuditEntry, Storage};
 pub use sync_crypto::{
-    SYNC_BLOB_SCHEME, SYNC_BLOB_SCHEME_V2, SYNC_KIND_CONVERSATIONS, SYNC_KIND_MODULES,
-    SyncBlobEnvelope, decode_sync_blob_or_legacy, decode_sync_blob_with_sources, decrypt_sync_blob,
-    derive_sync_blob_key_material_v2, encrypt_sync_blob, encrypt_sync_team_blob,
-    looks_like_sync_blob_envelope,
+    SYNC_BLOB_SCHEME, SYNC_BLOB_SCHEME_V2, SYNC_KIND_ASSISTANT_SNAPSHOT, SYNC_KIND_CONVERSATIONS,
+    SYNC_KIND_MODULES, SyncBlobEnvelope, decode_sync_blob_or_legacy,
+    decode_sync_blob_with_sources, decrypt_sync_blob, derive_sync_blob_key_material_v2,
+    encrypt_sync_blob, encrypt_sync_team_blob, looks_like_sync_blob_envelope,
 };
 pub use sync_key_wrap::{
     WRAP_ALG, decrypt_assistant_payload, encrypt_assistant_payload, generate_pairing_keypair,
