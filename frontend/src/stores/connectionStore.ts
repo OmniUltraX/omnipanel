@@ -22,6 +22,7 @@ import { normalizeSshGroup, sanitizeSshGroupInput } from "../lib/sshGroups";
 import { modulePathForType } from "../lib/paths";
 import {
   getResourceTagValue,
+  uniqueTags,
   upsertResourceTag,
 } from "../lib/resourceTags";
 import { useSshHostStore } from "./sshHostStore";
@@ -116,7 +117,7 @@ export function connectionToResource(connection: Connection): WorkspaceResource 
     environment: normalizeEnv(connection.envTag),
     status: "idle",
     group: normalizeSshGroup(connection.group),
-    tags: connection.tags ?? [],
+    tags: uniqueTags(connection.tags),
   };
 }
 

@@ -15,6 +15,7 @@ import {
 } from "../../modules/clientSync/tombstones";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { showToast } from "../../stores/toastStore";
+import { uniqueTags } from "../../lib/resourceTags";
 import { IconChevronDown, IconFolder, IconLink, IconTrash, IconXCircle } from "../ui/icons/Icons";
 
 type PeekItem = TeamSyncPeekItem & { moduleKey: TeamSyncModuleKey };
@@ -450,7 +451,7 @@ export function TeamDataTree({
                   <td className="data-sync-table__tags">
                     {item.tags && item.tags.length > 0 ? (
                       <div className="data-sync-table__tag-list">
-                        {item.tags.map((tag) => (
+                        {uniqueTags(item.tags).map((tag) => (
                           <span key={tag} className="data-sync-table__tag" title={tag}>
                             {tag}
                           </span>

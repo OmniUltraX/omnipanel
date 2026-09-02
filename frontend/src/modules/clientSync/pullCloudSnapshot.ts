@@ -6,6 +6,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useAiStore, type AiConversation } from "../../stores/aiStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
+import { uniqueTags } from "../../lib/resourceTags";
 import { applySshSidebarTreeJson } from "../../stores/sshSidebarTreeStore";
 import { applyFolderTreesJson } from "./folderTrees";
 import { applyCustomPanelsJson } from "../workspace/useDashboardStore";
@@ -48,7 +49,9 @@ function mergeWorkspacesJson(raw: string | null | undefined): void {
             ? w.windowForm
             : undefined,
         // 保留远端 creator 标签，避免下次上传丢失来源设备信息
-        tags: Array.isArray(w.tags) ? w.tags.filter((t) => typeof t === "string") : undefined,
+        tags: Array.isArray(w.tags)
+          ? uniqueTags(w.tags.filter((t) => typeof t === "string"))
+          : undefined,
       }));
     if (incoming.length === 0) return;
 

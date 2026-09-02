@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { KnowledgeKindIcon } from "../ui/icons/KnowledgeKindIcon";
 import { IconBook } from "../ui/icons/Icons";
+import { uniqueTags } from "../../lib/resourceTags";
 
 /** Parsed knowledge search result item from the AI tool call result JSON. */
 interface KnowledgeRefItem {
@@ -85,7 +86,7 @@ export function KnowledgeReferences({ result }: { result: string }) {
               </div>
               {item.tags.length > 0 && (
                 <div className="flex gap-1 mb-1 flex-wrap">
-                  {item.tags.map((tag) => (
+                  {uniqueTags(item.tags).map((tag) => (
                     <span
                       key={tag}
                       className="px-1.5 py-0.5 text-[10px] bg-surface rounded-full text-meta"
