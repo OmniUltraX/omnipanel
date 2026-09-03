@@ -13411,6 +13411,13 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin-bottom: var(--sp-1);
     }
 
+    .notif-empty {
+        padding: var(--sp-8) var(--sp-4);
+        text-align: center;
+        color: var(--meta);
+        font-size: 13px;
+    }
+
     .notif-item {
         display: flex;
         gap: var(--sp-3);

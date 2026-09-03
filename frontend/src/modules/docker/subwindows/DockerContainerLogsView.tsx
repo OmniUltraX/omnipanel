@@ -25,6 +25,46 @@ interface DockerContainerLogsViewProps {
 
 const LOG_TAIL = 500;
 
+const ANSI_RED = "\x1b[31m";
+const ANSI_YELLOW = "\x1b[33m";
+const ANSI_DIM = "\x1b[2m";
+const ANSI_GREEN = "\x1b[32m";
+const ANSI_RESET = "\x1b[0m";
+
+const LEVEL_ERROR = /\bERROR\b/i;
+const LEVEL_WARN = /\bWARN(?:ING)?\b/i;
+const LEVEL_INFO = /\bINFO\b/i;
+const LEVEL_DEBUG = /\bDEBUG\b/i;
+const LEVEL_TRACE = /\bTRACE\b/i;
+
+interface LogLine {
+  stream: string;
+  message: string;
+}
+
+function formatLogLine(line: LogLine): string {
+  const { stream, message } = line;
+  if (stream === "stderr") {
+    return `${ANSI_RED}${message}${ANSI_RESET}`;
+  }
+  if (LEVEL_ERROR.test(message)) {
+    return `${ANSI_RED}${message}${ANSI_RESET}`;
+  }
+  if (LEVEL_WARN.test(message)) {
+    return `${ANSI_YELLOW}${message}${ANSI_RESET}`;
+  }
+  if (LEVEL_INFO.test(message)) {
+    return `${ANSI_GREEN}${message}${ANSI_RESET}`;
+  }
+  if (LEVEL_DEBUG.test(message)) {
+    return `${ANSI_DIM}${message}${ANSI_RESET}`;
+  }
+  if (LEVEL_TRACE.test(message)) {
+    return `${ANSI_DIM}${message}${ANSI_RESET}`;
+  }
+  return message;
+}
+
 type LogSinceRange = "all" | "15m" | "1h" | "6h" | "24h" | "7d";
 
 const LOG_SINCE_OPTIONS: LogSinceRange[] = ["all", "15m", "1h", "6h", "24h", "7d"];
@@ -68,7 +108,7 @@ export function DockerContainerLogsView({
   visible,
 }: DockerContainerLogsViewProps) {
   const { t } = useI18n();
-  const [lines, setLines] = useState<string[]>([]);
+  const [lines, setLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sinceRange, setSinceRange] = useState<LogSinceRange>("all");
@@ -105,7 +145,7 @@ export function DockerContainerLogsView({
         LOG_TAIL,
         sinceParam(sinceRange),
       );
-      setLines(data.map((line) => line.message));
+      setLines(data.map((line) => ({ stream: line.stream, message: line.message })));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -135,7 +175,8 @@ export function DockerContainerLogsView({
         if (event.payload.streamId !== streamId) return;
         const message = event.payload.message;
         if (!message) return;
-        setLines((current) => [...current, message]);
+        const stream = event.payload.stream;
+        setLines((current) => [...current, { stream, message }]);
       });
       const unlistenEnd = await listen<DockerLogEndPayload>(DOCKER_LOG_END, (event) => {
         if (event.payload.streamId !== streamId) return;
@@ -174,7 +215,7 @@ export function DockerContainerLogsView({
   );
 
   const handleDownload = useCallback(() => {
-    const text = lines.join("\n");
+    const text = lines.map((l) => l.message).join("\n");
     if (!text) return;
     const safeName = (containerName ?? containerId).replace(/[^\w.-]+/g, "_");
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
@@ -219,7 +260,7 @@ export function DockerContainerLogsView({
     [stopFollowStream],
   );
 
-  const text = useMemo(() => lines.join("\n"), [lines]);
+  const text = useMemo(() => lines.map(formatLogLine).join("\n"), [lines]);
 
   const sinceMenuItems = useMemo(
     () =>

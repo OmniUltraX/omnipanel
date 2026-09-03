@@ -501,6 +501,9 @@ export const enUS: TranslationDict = {
   notifications: {
     title: "Notifications",
     close: "Close",
+    clearAll: "Clear all",
+    clearAllConfirm: "Clear all notifications? This cannot be undone.",
+    empty: "No notifications",
     groups: {
       urgent: "Urgent",
       today: "Today",
@@ -5115,6 +5118,7 @@ export const enUS: TranslationDict = {
       containerStoppedHint: "Container stopped — click start to run",
       logsInclude: "Include in compose logs",
       logsExclude: "Hide from compose logs",
+      viewContainerLogs: "View container logs",
       logsNoneSelected: "No containers selected for logs",
       logsFollow: "Follow scroll",
       logsStopFollow: "Stop following",

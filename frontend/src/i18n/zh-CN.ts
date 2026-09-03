@@ -497,6 +497,9 @@ export const zhCN = {
   notifications: {
     title: "通知中心",
     close: "关闭",
+    clearAll: "一键清理",
+    clearAllConfirm: "确定要清空全部通知吗？此操作不可恢复。",
+    empty: "暂无通知",
     groups: {
       urgent: "紧急",
       today: "今日",
@@ -5049,6 +5052,7 @@ export const zhCN = {
       containerStoppedHint: "容器已停止，可点击启动",
       logsInclude: "在编排日志中显示",
       logsExclude: "从编排日志中隐藏",
+      viewContainerLogs: "查看容器日志",
       logsNoneSelected: "未选择要显示日志的容器",
       logsFollow: "跟随滚动",
       logsStopFollow: "停止跟随",
