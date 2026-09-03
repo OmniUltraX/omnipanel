@@ -50,7 +50,7 @@ impl WasmExecutor {
 impl PluginLogicExecutor for WasmExecutor {
     fn instantiate(
         &self,
-        plugin_id: &str,
+        _plugin_id: &str,
         package: &LogicPackage,
         bridge: std::sync::Arc<dyn omnipanel_plugin::PluginHostBridge>,
     ) -> Result<Box<dyn PluginLogicInstance>, PluginError> {

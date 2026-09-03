@@ -193,6 +193,7 @@ pub async fn assistant_push_snapshot(
             PushOptions {
                 dry_run: true,
                 object_key_override: None,
+                encryptor: None,
             },
         )
         .await;
@@ -206,6 +207,7 @@ pub async fn assistant_push_snapshot(
         PushOptions {
             dry_run: false,
             object_key_override: None,
+            encryptor: None,
         },
     )
     .await?;

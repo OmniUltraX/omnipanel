@@ -80,6 +80,7 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 | **Cloud vendors** | Capability workbench (account → capability → instance); Aliyun + Tencent Cloud; Aliyun also covers SG / EIP / SLB / RDS / Redis / disk / DNS |
 | **Module plugins** | Nacos workbench: enable to show sidebar; switch namespace on the connection like a cloud region |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
+| **Presence guard** | Dangerous ops require Windows Hello / Touch ID or short-lived type-issued token; consumed once per action across DB / Docker / cloud / SSH |
 | **Team sync** | Module snapshots use v2 key derivation; folder trees; post-upload peek matches local |
 | **Database** | Remote export SSH pool lag fixed; readiness check before export |
 | **Performance** | No module-window prewarm at startup — lower idle memory |
