@@ -40,8 +40,8 @@ pub use local::{DockerExecOutput, DockerExecSession, DockerOneShotExecOutput, Lo
 pub use local_engine::{local_engine_status, restart_local_engine, start_local_engine};
 pub use model::*;
 pub use onepanel::{
-    OnePanelAdapter, OnePanelClient, OnePanelEndpoint, build_onepanel_auth_headers,
-    normalize_onepanel_api_base_url, resolve_onepanel_endpoint,
+    build_onepanel_auth_headers, extract_onepanel_username, normalize_onepanel_api_base_url,
+    resolve_onepanel_endpoint, OnePanelAdapter, OnePanelClient, OnePanelEndpoint,
 };
 pub use ssh::SshDockerAdapter;
 

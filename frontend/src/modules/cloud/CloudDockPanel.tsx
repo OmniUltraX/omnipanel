@@ -27,6 +27,7 @@ export function CloudDockPanel({
         account={account}
         selectedRegions={selectedRegions}
         onOpenCapability={(capability) => onOpenCapability(capability)}
+        onOpenResource={(capability, resourceId, regionId) => onOpenRow(capability, resourceId, regionId)}
       />
     );
   }

@@ -5,6 +5,7 @@ import {
 } from "@omnipanel/plugin-sdk";
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
 import cloudAliyunJson from "../../../plugins/cloud-aliyun/plugin.json";
+import cloudTencentJson from "../../../plugins/cloud-tencent/plugin.json";
 import dbClickhouseJson from "../../../plugins/db-clickhouse/plugin.json";
 import dbMongodbJson from "../../../plugins/db-mongodb/plugin.json";
 import dbMysqlJson from "../../../plugins/db-mysql/plugin.json";
@@ -28,6 +29,7 @@ import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
   parsePluginManifest(cloudAliyunJson),
+  parsePluginManifest(cloudTencentJson),
   parsePluginManifest(dbClickhouseJson),
   parsePluginManifest(dbMongodbJson),
   parsePluginManifest(dbMysqlJson),
@@ -84,6 +86,8 @@ export function manifestPanelTabIds(manifest: PluginManifest | null): string[] {
 /** legacy 连接字段值 → 插件 id（迁移映射，集中维护；新插件 MUST 用自身 id）。 */
 export const LEGACY_PLUGIN_ALIASES: Readonly<Record<string, string>> = {
   aliyun: "omni.cloud.aliyun",
+  tencent: "omni.cloud.tencent",
+  qcloud: "omni.cloud.tencent",
 };
 
 export function manifestCloudCapabilities(

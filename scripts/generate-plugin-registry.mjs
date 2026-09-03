@@ -23,7 +23,11 @@ const META = {
   },
   "omni.cloud.aliyun": {
     name: "Alibaba Cloud",
-    description: "Discover ECS and Simple Application Server resources.",
+    description: "Manage ECS, security groups, RDS, metrics, and other Alibaba Cloud resources.",
+  },
+  "omni.cloud.tencent": {
+    name: "Tencent Cloud",
+    description: "Manage CVM, Lighthouse, security groups, TencentDB, COS, DNSPod, and other Tencent Cloud resources.",
   },
   "omni.panel.1panel": {
     name: "1Panel",

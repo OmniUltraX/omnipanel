@@ -1,0 +1,37 @@
+{
+  "id": "omni.module.starter",
+  "version": "0.1.0",
+  "kind": "module",
+  "permissions": ["ui:sidebar", "net:connect", "vault:read", "connections:write"],
+  "entry": { "logic": "logic.js" },
+  "methods": [
+    { "name": "testConnection", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getServerInfo", "permissions": ["net:connect", "vault:read"] },
+    { "name": "probeHealth", "permissions": ["net:connect"] },
+    { "name": "listConfigs", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getConfig", "permissions": ["net:connect", "vault:read"] }
+  ],
+  "contributes": {
+    "ui": {
+      "sidebar": true,
+      "moduleKey": "starter",
+      "connectionForm": {
+        "fields": [
+          { "key": "host", "type": "text" },
+          { "key": "port", "type": "number" },
+          { "key": "contextPath", "type": "text", "optional": true },
+          { "key": "username", "type": "text", "optional": true },
+          { "key": "password", "type": "password", "optional": true }
+        ]
+      }
+    },
+    "module": {
+      "capabilities": [
+        { "id": "config", "columns": [{ "key": "dataId" }], "actions": [] }
+      ],
+      "probe": { "ports": [8080], "healthPath": "/health", "contextPath": "" }
+    },
+    "discovery": [{ "probeId": "module-http" }],
+    "launcher": { "prefix": "starter" }
+  }
+}

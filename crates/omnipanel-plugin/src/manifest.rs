@@ -175,6 +175,22 @@ impl PluginManifest {
         if let Some(home) = &self.contributes.ui.home {
             home.validate()?;
         }
+        if let Some(module) = &self.contributes.module {
+            let mut seen = std::collections::BTreeSet::new();
+            for cap in &module.capabilities {
+                if cap.id.trim().is_empty() {
+                    return Err(PluginError::InvalidManifest(
+                        "module.capabilities[].id 不能为空".into(),
+                    ));
+                }
+                if !seen.insert(cap.id.clone()) {
+                    return Err(PluginError::InvalidManifest(format!(
+                        "module.capabilities 重复声明: {}",
+                        cap.id
+                    )));
+                }
+            }
+        }
         Ok(())
     }
 

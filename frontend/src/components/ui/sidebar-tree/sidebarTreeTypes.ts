@@ -8,4 +8,5 @@ export type SidebarTreeModule =
   | "knowledge"
   | "protocol"
   | "terminal"
-  | "cloud";
+  | "cloud"
+  | "module";

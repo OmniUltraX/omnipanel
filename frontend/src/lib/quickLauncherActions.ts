@@ -6,7 +6,7 @@ import {
 } from "./quickLauncher";
 import { clearWindowHiddenToTray, getTrayHiddenLabels } from "./trayHiddenWindows";
 import { focusMainWindow, goWorkspaceHome } from "./workspaceNavigation";
-import { MODULE_PATHS, type ModuleKey } from "./paths";
+import { MODULE_PATHS, MODULE_PREFIX, type ModuleKey } from "./paths";
 import {
   navigateToPath,
   openLocalTerminalSession,
@@ -274,6 +274,7 @@ export function moduleKeyForQuickLauncherAction(
     case "open-path":
       return "files";
     case "ask-ai":
+    case "module-service":
       return null;
     default:
       return null;
@@ -328,6 +329,17 @@ export function applyQuickLauncherResourceAction(action: QuickLauncherAction): v
       return;
     case "open-path":
       void runOpenPathAction(action);
+      return;
+    case "module-service":
+      navigateToPath(`${MODULE_PREFIX}/${action.moduleKey}`);
+      try {
+        sessionStorage.setItem(
+          "omnipanel.module.pendingConnectionId",
+          JSON.stringify({ moduleKey: action.moduleKey, connectionId: action.connectionId }),
+        );
+      } catch {
+        /* ignore */
+      }
       return;
     default:
       break;
@@ -403,6 +415,7 @@ async function handleAction(action: QuickLauncherAction): Promise<void> {
     case "create-todo":
     case "open-url":
     case "open-path":
+    case "module-service":
       await wakeMainFromTray();
       applyQuickLauncherResourceAction(action);
       return;

@@ -1,12 +1,13 @@
 import type { Connection } from "../../../ipc/bindings";
 import { normalizeServerGroup } from "./panelConnection";
 import { parsePanelConfig, type PanelConfigJson } from "./serverConnection";
-import { panelServiceTypeToPluginId } from "./panelPlugin";
+import { isOnePanelService, panelServiceTypeToPluginId } from "./panelPlugin";
 
 export interface PanelFormData {
   name: string;
   panelAddress: string;
   panelKey: string;
+  panelUser: string;
   serviceType: string;
   remark: string;
 }
@@ -15,6 +16,7 @@ export const EMPTY_PANEL_FORM: PanelFormData = {
   name: "",
   panelAddress: "",
   panelKey: "",
+  panelUser: "admin",
   serviceType: "bt",
   remark: "",
 };
@@ -35,6 +37,7 @@ export function panelConnectionToForm(connection: Connection): PanelFormData {
     panelAddress: panel.address,
     // API Key 在 Vault；打开表单时由 ServerConnectionDialog 从 Vault 回显
     panelKey: "",
+    panelUser: panel.panelUser?.trim() || "admin",
     serviceType: panel.serviceType,
     remark,
   };
@@ -49,6 +52,9 @@ export function buildPanelOnlyConnection(
   const config: PanelConfigJson & { remark?: string } = {
     address: form.panelAddress.trim(),
     key: form.panelKey.trim(),
+    panelUser: isOnePanelService(form.serviceType)
+      ? form.panelUser.trim() || "admin"
+      : undefined,
     serviceType: panelServiceTypeToPluginId(form.serviceType),
     remark: form.remark.trim() || undefined,
   };

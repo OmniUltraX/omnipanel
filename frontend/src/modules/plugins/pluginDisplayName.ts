@@ -3,6 +3,7 @@ const PLUGIN_ID_EVERYTHING = "omni.addon.everything";
 const PLUGIN_NAME_KEYS: Record<string, string> = {
   [PLUGIN_ID_EVERYTHING]: "plugins.names.everything",
   "omni.cloud.aliyun": "plugins.names.aliyun",
+  "omni.cloud.tencent": "plugins.names.tencent",
   "omni.engine.qdrant": "plugins.names.qdrant",
   "omni.engine.clickhouse": "plugins.names.clickhouse",
   "omni.engine.mongodb": "plugins.names.mongodb",

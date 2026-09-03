@@ -5,14 +5,23 @@ import { defaultS3Endpoint, resolveS3Provider } from "../files/s3Provider";
 import { normalizeS3ApiEndpoint } from "../files/s3PublicUrl";
 import { saveFileConnection } from "../files/fileApi";
 import type { SshConfigJson } from "../server/panel/serverConnection";
-import { parseCloudConfig, type CloudAccount } from "./cloudForm";
+import { isTencentCloud, parseCloudConfig, PLUGIN_ID_ALIYUN, type CloudAccount } from "./cloudForm";
 
-export type CloudLinkKind = "compute" | "compute.lite" | "objectStorage" | "ecs" | "swas" | "oss";
+export type CloudLinkKind =
+  | "compute"
+  | "compute.lite"
+  | "objectStorage"
+  | "database"
+  | "ecs"
+  | "swas"
+  | "oss"
+  | "rds";
 
 function toCapabilityId(kind: string): string {
   if (kind === "ecs") return "compute";
   if (kind === "swas") return "compute.lite";
   if (kind === "oss") return "objectStorage";
+  if (kind === "rds") return "database";
   return kind;
 }
 
@@ -21,11 +30,12 @@ export function cloudRemoteKindAliases(kind: string): string[] {
   if (cap === "compute") return ["compute", "ecs"];
   if (cap === "compute.lite") return ["compute.lite", "swas"];
   if (cap === "objectStorage") return ["objectStorage", "oss"];
+  if (cap === "database") return ["database", "rds"];
   return [kind];
 }
 
 function pluginIdOf(account: CloudAccount): string {
-  return account.pluginId || "omni.cloud.aliyun";
+  return account.pluginId || PLUGIN_ID_ALIYUN;
 }
 
 export type CloudResourceSource = {
@@ -236,10 +246,13 @@ export async function addCloudOssToFile(
   const accessKey = (cloudCfg.accessKeyId ?? "").trim();
   if (!accessKey) throw new Error("NO_AK");
 
-  const region = normalizeOssRegion(row.region || account.regions[0] || "cn-hangzhou");
-  const endpointRaw = (row.endpoint ?? "").trim() || defaultS3Endpoint("aliyun", region);
+  const tencent = isTencentCloud(account.pluginId);
+  const rawRegion = row.region || account.regions[0] || (tencent ? "ap-guangzhou" : "cn-hangzhou");
+  const region = tencent ? rawRegion.replace(/^oss-/, "") : normalizeOssRegion(rawRegion);
+  const providerHint = tencent ? "tencent" : "aliyun";
+  const endpointRaw = (row.endpoint ?? "").trim() || defaultS3Endpoint(providerHint, region);
   const endpoint = normalizeS3ApiEndpoint(endpointRaw, bucket);
-  const provider = resolveS3Provider({ provider: "aliyun", endpoint });
+  const provider = resolveS3Provider({ provider: providerHint, endpoint });
 
   const cloudSource: CloudResourceSource = {
     accountId: account.id,
@@ -279,6 +292,41 @@ export async function addCloudOssToFile(
   };
 
   return saveFileConnection(draft, null);
+}
+
+export function rdsEngineToDbType(engine: string): string {
+  const value = engine.trim().toLowerCase();
+  if (value.includes("postgres")) return "postgres";
+  if (value.includes("sqlserver") || value.includes("mssql")) return "sqlserver";
+  if (value.includes("redis") || value.includes("tair") || value.includes("kvstore")) return "redis";
+  if (value.includes("mariadb")) return "mysql";
+  if (value.includes("mysql")) return "mysql";
+  return "mysql";
+}
+
+export async function addCloudRdsToDatabase(
+  _account: CloudAccount,
+  row: { id: string; name: string; engine?: string; host?: string; port?: string },
+): Promise<void> {
+  const host = (row.host ?? "").trim();
+  if (!host) throw new Error("NO_HOST");
+  const dbType = rdsEngineToDbType(row.engine ?? "");
+  const port = Number.parseInt(row.port || "", 10);
+  const { saveConnection } = await import("../database/api");
+  await saveConnection({
+    id: "",
+    name: (row.name || row.id).trim() || host,
+    db_type: dbType,
+    host,
+    port: Number.isFinite(port) && port > 0 ? port : dbType === "postgres" ? 5432 : dbType === "redis" ? 6379 : 3306,
+    user: dbType === "postgres" ? "postgres" : "root",
+    password: "",
+    database: "",
+    ssl: false,
+    status: "unknown",
+    enabled: true,
+    group: "云数据库",
+  });
 }
 
 export function listLinkedCloudSsh(connections: Connection[], accountId: string): Connection[] {

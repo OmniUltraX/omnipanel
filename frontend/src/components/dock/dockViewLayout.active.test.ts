@@ -3,8 +3,10 @@ import type { SerializedDockview } from "dockview-core";
 import {
   canApplyDockLayoutIncrementally,
   createDefaultLayout,
+  isLayoutUsable,
   mergePanelsIntoLayout,
   normalizeDockLayout,
+  safeLayoutForFromJson,
 } from "./dockViewLayout";
 
 function readActiveView(layout: SerializedDockview): string | undefined {
@@ -101,5 +103,116 @@ describe("normalizeDockLayout", () => {
     ).data[0]!;
     expect(cleanedLeaf.data.views).toEqual(["a", "b"]);
     expect(cleanedLeaf.data.tabGroups).toBeUndefined();
+  });
+
+  it("跨 leaf 重复 view 只保留首次出现", () => {
+    const layout = createDefaultLayout(["a", "b"], "a");
+    const split: SerializedDockview = {
+      ...layout,
+      grid: {
+        ...layout.grid,
+        root: {
+          type: "branch",
+          data: [
+            {
+              type: "leaf",
+              data: { id: "g1", views: ["a", "b"], activeView: "a" },
+              size: 500,
+            },
+            {
+              type: "leaf",
+              data: { id: "g2", views: ["b"], activeView: "b" },
+              size: 500,
+            },
+          ],
+        } as SerializedDockview["grid"]["root"],
+      },
+    };
+    const cleaned = normalizeDockLayout(split);
+    const leaves = (
+      cleaned!.grid.root as {
+        type: "branch";
+        data: Array<{ type: "leaf"; data: { id: string; views: string[] } }>;
+      }
+    ).data;
+    expect(leaves).toHaveLength(1);
+    expect(leaves[0]!.data.views).toEqual(["a", "b"]);
+    expect(isLayoutUsable(cleaned)).toBe(true);
+  });
+
+  it("重复 group id 会被改名", () => {
+    const layout = createDefaultLayout(["a", "b"], "a");
+    const split: SerializedDockview = {
+      ...layout,
+      grid: {
+        ...layout.grid,
+        root: {
+          type: "branch",
+          data: [
+            {
+              type: "leaf",
+              data: { id: "same", views: ["a"], activeView: "a" },
+              size: 500,
+            },
+            {
+              type: "leaf",
+              data: { id: "same", views: ["b"], activeView: "b" },
+              size: 500,
+            },
+          ],
+        } as SerializedDockview["grid"]["root"],
+      },
+    };
+    const cleaned = normalizeDockLayout(split);
+    const leaves = (
+      cleaned!.grid.root as {
+        type: "branch";
+        data: Array<{ type: "leaf"; data: { id: string } }>;
+      }
+    ).data;
+    expect(leaves[0]!.data.id).toBe("same");
+    expect(leaves[1]!.data.id).not.toBe("same");
+    expect(isLayoutUsable(cleaned)).toBe(true);
+  });
+});
+
+describe("safeLayoutForFromJson", () => {
+  it("带 tabGroups 的脏布局洗完后可用", () => {
+    const dirty = createDefaultLayout(["a", "b"], "a") as SerializedDockview & {
+      grid: { root: { type: string; data: unknown } };
+    };
+    const root = dirty.grid.root as {
+      type: "branch";
+      data: Array<{ type: "leaf"; data: { tabGroups?: unknown } }>;
+    };
+    root.data[0]!.data.tabGroups = [{ id: "tg-0", panelIds: ["a", "b"] }];
+    expect(isLayoutUsable(dirty)).toBe(false);
+    const safe = safeLayoutForFromJson(dirty, ["a", "b"], "a");
+    expect(safe).not.toBeNull();
+    expect(isLayoutUsable(safe)).toBe(true);
+  });
+
+  it("仍有风险时退回单 group 默认布局", () => {
+    const broken = {
+      grid: {
+        root: { type: "leaf", data: { id: "g", views: ["ghost"] } },
+        width: 0,
+        height: 0,
+        orientation: 1,
+      },
+      panels: {},
+    } as unknown as SerializedDockview;
+    const safe = safeLayoutForFromJson(broken, ["a", "b"], "b");
+    expect(safe).not.toBeNull();
+    expect(isLayoutUsable(safe)).toBe(true);
+    expect(Object.keys(safe!.panels)).toEqual(["a", "b"]);
+    const leaf = (
+      safe!.grid.root as {
+        type: "branch";
+        data: Array<{ type: "leaf"; data: { views: string[]; activeView?: string } }>;
+      }
+    ).data[0]!;
+    expect(leaf.data.views).toEqual(["a", "b"]);
+    expect(leaf.data.activeView).toBe("b");
   });
 });

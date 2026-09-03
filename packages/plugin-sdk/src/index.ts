@@ -188,15 +188,64 @@ export const cloudActionDeclSchema = z.object({
   kind: z.enum(["host", "plugin", "link"]).optional(),
 });
 
+export const cloudDetailSlotSchema = z.enum([
+  "overview",
+  "metrics",
+  "rules",
+  "logs",
+  "security",
+  "records",
+  "members",
+  "backups",
+]);
+
 export const cloudCapabilitySchema = z.object({
   id: z.string().min(1),
   scope: cloudCapabilityScopeSchema,
   columns: z.array(cloudColumnSchema).default([]),
   actions: z.array(cloudActionDeclSchema).default([]),
+  detailSlots: z.array(cloudDetailSlotSchema).default(["overview"]),
 });
 
 export type CloudCapabilityScope = z.infer<typeof cloudCapabilityScopeSchema>;
 export type CloudCapabilityDecl = z.infer<typeof cloudCapabilitySchema>;
+
+/** module 工作台能力 id 建议值；未知 id 由 Host 空态承接，便于后续 topic/queue。 */
+export const MODULE_CAPABILITY_IDS = ["namespace", "config", "discovery", "cluster"] as const;
+
+export const moduleCapabilitySchema = z.object({
+  id: z.string().min(1),
+  columns: z.array(cloudColumnSchema).default([]),
+  actions: z.array(cloudActionDeclSchema).default([]),
+});
+
+export const moduleProbeSchema = z.object({
+  ports: z.array(z.number().int().positive()).default([]),
+  healthPath: z.string().optional(),
+  contextPath: z.string().optional(),
+});
+
+export const moduleContributesSchema = z
+  .object({
+    capabilities: z.array(moduleCapabilitySchema).default([]),
+    probe: moduleProbeSchema.optional(),
+  })
+  .superRefine((val, ctx) => {
+    const seen = new Set<string>();
+    val.capabilities.forEach((cap, index) => {
+      if (seen.has(cap.id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `module.capabilities 重复声明: ${cap.id}`,
+          path: ["capabilities", index, "id"],
+        });
+      }
+      seen.add(cap.id);
+    });
+  });
+
+export type ModuleCapabilityDecl = z.infer<typeof moduleCapabilitySchema>;
+export type ModuleProbeDecl = z.infer<typeof moduleProbeSchema>;
 
 export const pluginManifestSchema = z.object({
   id: z.string().min(1),
@@ -242,6 +291,7 @@ export const pluginManifestSchema = z.object({
           capabilities: z.array(cloudCapabilitySchema).default([]),
         })
         .optional(),
+      module: moduleContributesSchema.optional(),
     })
     .default({}),
 })

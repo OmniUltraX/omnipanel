@@ -142,18 +142,20 @@ export const useCloudInventoryStore = create<CloudInventoryState>()(
             }));
             return rows;
           } catch (err) {
-            if (prev) {
-              patchAccount(accountId, (current) => ({
-                ...current,
-                lists: {
-                  ...current.lists,
-                  [slot]: { ...prev, error: formatIpcError(err) },
+            const message = formatIpcError(err);
+            patchAccount(accountId, (current) => ({
+              ...current,
+              lists: {
+                ...current.lists,
+                [slot]: {
+                  rows: prev?.rows ?? [],
+                  fetchedAt: prev?.fetchedAt ?? Date.now(),
+                  error: message,
                 },
-              }));
-              if (opts?.force) throw err;
-              return prev.rows;
-            }
-            throw err;
+              },
+            }));
+            if (opts?.force) throw err;
+            return prev?.rows ?? [];
           }
         });
       };
@@ -181,18 +183,20 @@ export const useCloudInventoryStore = create<CloudInventoryState>()(
             }));
             return detail;
           } catch (err) {
+            const message = formatIpcError(err);
             if (prev) {
               patchAccount(accountId, (current) => ({
                 ...current,
                 details: {
                   ...current.details,
-                  [slot]: { ...prev, error: formatIpcError(err) },
+                  [slot]: { ...prev, error: message },
                 },
               }));
               if (opts?.force) throw err;
               return prev.detail;
             }
-            throw err;
+            if (opts?.force) throw err;
+            return null;
           }
         });
       };

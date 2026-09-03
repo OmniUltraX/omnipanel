@@ -2,7 +2,11 @@ import type { SerializedDockview } from "dockview-core";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
-import { isLayoutUsable, normalizeDockLayout } from "../components/dock/dockViewLayout";
+import {
+  isLayoutUsable,
+  normalizeDockLayout,
+  safeLayoutForFromJson,
+} from "../components/dock/dockViewLayout";
 import {
   findPreviewDockTab,
   findTabIdForAccount,
@@ -167,7 +171,7 @@ export const useCloudDockStore = create<CloudDockState>()(
     }),
     {
       name: "omnipanel.cloud.dock",
-      version: 2,
+      version: 3,
       storage: createJSONStorage(createSafeLocalStorage),
       migrate: (persisted) => {
         if (!persisted || typeof persisted !== "object") {
@@ -175,7 +179,9 @@ export const useCloudDockStore = create<CloudDockState>()(
         }
         const state = persisted as CloudDockState;
         const tabs = sanitizeCloudDockTabs(state.tabs ?? []);
-        const normalized = normalizeDockLayout(state.dockLayout ?? null);
+        const tabIds = tabs.map((tab) => tab.id);
+        const activeId = reconcileActiveTabId(tabs, state.activeTabId ?? null) ?? tabIds[0] ?? "";
+        const normalized = safeLayoutForFromJson(state.dockLayout ?? null, tabIds, activeId);
         const dockLayout = isLayoutUsable(normalized) ? normalized : null;
         return {
           ...state,

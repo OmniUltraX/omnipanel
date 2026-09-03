@@ -14,6 +14,7 @@ import {
 } from "@/stores/backgroundTaskStore";
 import { parseSshConfig } from "../server/panel/serverConnection";
 import { appendPanelEntrance, panelProbeReachableAddress } from "../server/panel/panelAddress";
+import { isUsablePanelApiKey } from "../server/panel/panelApiKey";
 import type { DiscoveryPreviewRow } from "@/components/ui/DiscoveryImportDialog";
 import { createPluginHost, KERNEL_DOCKER_PLUGIN_ID } from "@/lib/pluginHost";
 import { isProdEnvTag } from "@/lib/envTag";
@@ -143,7 +144,7 @@ async function resolvePanelApiKey(
   enableApiIfNeeded: boolean,
 ): Promise<string> {
   let apiKey = (panel.apiKey || "").trim();
-  if ((panel.apiEnabled && apiKey) || !enableApiIfNeeded) {
+  if ((panel.apiEnabled && isUsablePanelApiKey(panel.kind, apiKey)) || !enableApiIfNeeded) {
     return apiKey;
   }
   try {

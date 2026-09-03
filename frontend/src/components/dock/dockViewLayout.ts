@@ -440,6 +440,43 @@ function mapRoot(
   return node;
 }
 
+function dedupeViewsAcrossLeaves(node: SerializedNode, seen: Set<string>): SerializedNode {
+  if (isLeaf(node)) {
+    const views = uniqueViewIds(node.data.views).filter((id) => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    const activeView =
+      node.data.activeView && views.includes(node.data.activeView) ? node.data.activeView : views[0];
+    return { ...node, data: { ...node.data, views, activeView } };
+  }
+  if (isBranch(node)) {
+    return {
+      ...node,
+      data: node.data.map((child) => dedupeViewsAcrossLeaves(child, seen)),
+    };
+  }
+  return node;
+}
+
+function pruneEmptyLeaves(node: SerializedNode): SerializedNode | null {
+  if (isLeaf(node)) {
+    return uniqueViewIds(node.data.views).length === 0 ? null : node;
+  }
+  if (isBranch(node)) {
+    const children = node.data
+      .map((child) => pruneEmptyLeaves(child))
+      .filter((child): child is SerializedNode => child !== null);
+    if (children.length === 0) return null;
+    if (children.length === 1) {
+      return { ...children[0]!, size: node.size };
+    }
+    return { ...node, data: children };
+  }
+  return node;
+}
+
 /** 剥除侧/底 Tab 栏、tabGroups、重复 views；fromJSON 前必须洗过，否则 dockview 会 invalid location */
 function stripSideHeaderLayout(layout: SerializedDockview): SerializedDockview {
   const next = cloneLayout(layout);
@@ -453,7 +490,7 @@ function stripSideHeaderLayout(layout: SerializedDockview): SerializedDockview {
   delete extra.popoutGroups;
 
   const root = fromGridNode(next.grid.root);
-  const normalized = mapRoot(root, (leaf) => {
+  const stripped = mapRoot(root, (leaf) => {
     const { headerPosition: _header, tabGroups: _tabGroups, ...rest } = leaf.data;
     const views = uniqueViewIds(rest.views);
     const activeView =
@@ -467,7 +504,27 @@ function stripSideHeaderLayout(layout: SerializedDockview): SerializedDockview {
       },
     };
   });
-  next.grid.root = toGridNode(normalized);
+  const deduped = dedupeViewsAcrossLeaves(stripped, new Set());
+  const pruned = pruneEmptyLeaves(deduped);
+  if (!pruned) {
+    next.grid.root = toGridNode({ type: "branch", data: [] });
+    return next;
+  }
+  const usedGroupIds = new Set<string>();
+  const uniqueGroups = mapRoot(pruned, (leaf) => {
+    let id = typeof leaf.data.id === "string" ? leaf.data.id.trim() : "";
+    if (!id || usedGroupIds.has(id)) {
+      id = `group-${leaf.data.activeView || leaf.data.views?.[0] || usedGroupIds.size}`;
+      let suffix = 0;
+      while (usedGroupIds.has(suffix === 0 ? id : `${id}-${suffix}`)) suffix += 1;
+      id = suffix === 0 ? id : `${id}-${suffix}`;
+    }
+    usedGroupIds.add(id);
+    return { ...leaf, data: { ...leaf.data, id } };
+  });
+  next.grid.root = toGridNode(
+    uniqueGroups.type === "leaf" ? { type: "branch", data: [uniqueGroups] } : uniqueGroups,
+  );
   return next;
 }
 
@@ -562,6 +619,39 @@ function resolveActiveAfterRemove(
   return [...remaining][0];
 }
 
+function layoutHasFromJsonRisk(layout: SerializedDockview): boolean {
+  const extra = layout as SerializedDockview & {
+    edgeGroups?: unknown;
+    floatingGroups?: unknown;
+    popoutGroups?: unknown;
+  };
+  if (extra.edgeGroups || extra.floatingGroups || extra.popoutGroups) return true;
+  const root = layout.grid?.root as SerializedNode | undefined;
+  if (!root || root.type !== "branch") return true;
+  const seenViews = new Set<string>();
+  const seenGroups = new Set<string>();
+  const walk = (node: SerializedNode | null | undefined): boolean => {
+    if (!node) return true;
+    if (isLeaf(node)) {
+      if (node.data?.tabGroups) return true;
+      if (node.data?.headerPosition) return true;
+      const groupId = typeof node.data?.id === "string" ? node.data.id : "";
+      if (!groupId || seenGroups.has(groupId)) return true;
+      seenGroups.add(groupId);
+      for (const id of uniqueViewIds(node.data.views)) {
+        if (seenViews.has(id)) return true;
+        seenViews.add(id);
+      }
+      return false;
+    }
+    if (isBranch(node)) {
+      return node.data.some((child) => walk(child));
+    }
+    return true;
+  };
+  return walk(root);
+}
+
 /** 校验已合并布局是否结构完好（panels↔views 一致 + 每个 leaf 有合法 id）。 */
 export function isLayoutUsable(
   layout: SerializedDockview | null,
@@ -594,7 +684,22 @@ export function isLayoutUsable(
     return false;
   };
   if (!walk(root)) return false;
-  return foundUsableLeaf;
+  return foundUsableLeaf && !layoutHasFromJsonRisk(layout);
+}
+
+/** fromJSON 只吃洗过的布局；有风险时退回单 group，避免 dockview invalid location。 */
+export function safeLayoutForFromJson(
+  layout: SerializedDockview | null,
+  tabIds: string[],
+  activeTabId: string,
+): SerializedDockview | null {
+  if (tabIds.length === 0) return null;
+  const merged = mergePanelsIntoLayout(layout, tabIds, activeTabId);
+  const normalized = normalizeDockLayout(merged);
+  if (normalized && isLayoutUsable(normalized) && !layoutHasFromJsonRisk(normalized)) {
+    return normalized;
+  }
+  return createDefaultLayout(tabIds, activeTabId || tabIds[0]!);
 }
 
 /**

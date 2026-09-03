@@ -31,6 +31,7 @@ interface AppModuleStore {
   modules: AppModule[];
   hydrated: boolean;
   hydrate: () => Promise<void>;
+  refresh: () => Promise<void>;
   getStatus: (key: string) => AppModuleStatus;
   setStatus: (key: string, status: UserAppModuleStatus) => Promise<void>;
 }
@@ -41,6 +42,10 @@ export const useAppModuleStore = create<AppModuleStore>((set, get) => ({
 
   hydrate: async () => {
     if (get().hydrated) return;
+    await get().refresh();
+  },
+
+  refresh: async () => {
     try {
       const res = await commands.appModuleList();
       if (res.status === "ok") {
@@ -57,6 +62,8 @@ export const useAppModuleStore = create<AppModuleStore>((set, get) => ({
     const mod = get().modules.find((m) => m.module_key === key);
     if (mod) return mod.status;
     if (isKernelModuleKey(key)) return DEFAULT_MODULE_STATUS[key];
+    // 已启用的 module 插件：尚未入库时默认可见，不必先去设置打开。
+    if (listActivatedPluginModules().some((item) => item.moduleKey === key)) return "open";
     return "closed";
   },
 

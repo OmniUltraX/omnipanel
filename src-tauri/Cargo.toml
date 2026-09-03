@@ -52,7 +52,9 @@ omnipanel-db-sync = { path = "../crates/omnipanel-db-sync" }
 omnipanel-docker = { path = "../crates/omnipanel-docker" }
 omnipanel-assistant = { path = "../crates/omnipanel-assistant" }
 omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
+omnipanel-cloud = { path = "../crates/omnipanel-cloud" }
 omnipanel-cloud-aliyun = { path = "../crates/omnipanel-cloud-aliyun" }
+omnipanel-cloud-tencent = { path = "../crates/omnipanel-cloud-tencent" }
 omnipanel-plugin = { path = "../crates/omnipanel-plugin" }
 omnipanel-plugin-pkg = { path = "../crates/omnipanel-plugin-pkg" }
 omnipanel-plugin-wasm = { path = "../crates/omnipanel-plugin-wasm", optional = true }

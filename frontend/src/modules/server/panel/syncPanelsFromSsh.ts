@@ -13,6 +13,7 @@ import {
 } from "@/stores/backgroundTaskStore";
 import { parseSshConfig } from "./serverConnection";
 import { panelProbeReachableAddress } from "./panelAddress";
+import { isUsablePanelApiKey } from "./panelApiKey";
 
 export type SyncPanelsFromSshProgress = {
   total: number;
@@ -197,7 +198,7 @@ export async function importPanelPreviewRows(
     const sshId = typeof cfg.sshConnectionId === "string" ? cfg.sshConnectionId : row.candidate.accountId;
     const probeKind = typeof cfg.probeKind === "string" ? cfg.probeKind : "";
     let apiKey = typeof cfg.key === "string" ? cfg.key.trim() : "";
-    if (sshId && probeKind && !apiKey) {
+    if (sshId && probeKind && !isUsablePanelApiKey(probeKind, apiKey)) {
       try {
         const enabled = await unwrapCommand(commands.sshPoolEnablePanelApi(sshId, probeKind, true));
         if (enabled.apiKey?.trim()) apiKey = enabled.apiKey.trim();

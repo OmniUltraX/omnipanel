@@ -21,6 +21,7 @@ vi.mock("../ipc/bindings", () => ({
   commands: {
     pluginList: () => pluginListMock(),
     pluginManifests: () => pluginManifestsIpcMock(),
+    appModuleList: () => Promise.resolve({ status: "ok", data: [] }),
   },
 }));
 

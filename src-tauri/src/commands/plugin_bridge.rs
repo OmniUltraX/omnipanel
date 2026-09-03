@@ -135,6 +135,11 @@ struct NetSpec {
     /// 自签证书常见于堡垒 / 面板；仅当插件显式请求时放宽校验。
     #[serde(default)]
     insecure: bool,
+    /// 缺省 GET。L2 写操作（登录 / 发布配置）需要 POST/PUT/DELETE。
+    #[serde(default)]
+    method: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
 }
 
 fn format_net_error(err: reqwest::Error) -> String {
@@ -312,7 +317,7 @@ impl PluginHostBridge for PluginBridge {
         self.require(PluginPermission::NetConnect)
             .map_err(|e| e.to_string())?;
         let spec: NetSpec = serde_json::from_str(spec_json)
-            .map_err(|e| format!("netFetch 参数需为 {{url, headers?}} JSON: {e}"))?;
+            .map_err(|e| format!("netFetch 参数需为 {{url, headers?, method?, body?}} JSON: {e}"))?;
 
         // prod 闸是异步的，这里用独立 runtime 桥接同步边界
         let gate_bridge = Self {
@@ -329,9 +334,17 @@ impl PluginHostBridge for PluginBridge {
             .map_err(|e| e.to_string())?;
 
         let client = http_client_for(&self.http, spec.insecure)?;
-        let mut request = client.get(&spec.url).timeout(Duration::from_secs(20));
+        let method_raw = spec.method.as_deref().unwrap_or("GET").trim();
+        let method = reqwest::Method::from_bytes(method_raw.as_bytes())
+            .map_err(|_| format!("不支持的 HTTP method: {method_raw}"))?;
+        let mut request = client
+            .request(method, &spec.url)
+            .timeout(Duration::from_secs(20));
         for (key, value) in &spec.headers {
             request = request.header(key, value);
+        }
+        if let Some(body) = spec.body.clone() {
+            request = request.body(body);
         }
         let response = block_on_detached(async move { request.send().await?.error_for_status() })
             .map_err(format_net_error)?;

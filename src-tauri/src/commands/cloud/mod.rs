@@ -1,10 +1,15 @@
-//! 云厂商 Host 薄桥：解连接、Vault、prod 闸、audit；业务在 `omnipanel-cloud-aliyun`。
+//! 云厂商 Host 薄桥：解连接、Vault、prod 闸、audit；业务经 `omnipanel-cloud` 分发。
 
+use omnipanel_cloud::{
+    default_region, get_account, get_metrics, get_resource, http_probe_url, invoke_action,
+    is_write_action, list_regions, list_resources, query_logs, test_account, CloudAccountSnapshot,
+    CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery, CloudMetricQuery, CloudMetricSeries,
+    CloudRegion, CloudResourceDetail, CloudResourceFilter, CloudResourceRow, PLUGIN_ID_ALIYUN,
+    PLUGIN_ID_TENCENT,
+};
 use omnipanel_cloud_aliyun::{
-    driver_for, is_write_action, AliyunCloudDriver, AliyunCredentials, CloudAccountSnapshot,
-    CloudAction, CloudActionResult, CloudCertificateItem, CloudDomainItem, CloudEcsInstance,
-    CloudOssBucket, CloudProviderDriver, CloudRegion, CloudResourceDetail, CloudResourceFilter,
-    CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN,
+    AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
+    CloudSwasInstance,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{AuditEntry, Connection, ConnectionKind, Vault};
@@ -67,7 +72,7 @@ fn normalize_regions(regions: &[String], legacy: &str) -> Vec<String> {
     out
 }
 
-fn effective_region(cfg: &CloudConfig, override_region: Option<&str>) -> String {
+fn effective_region(cfg: &CloudConfig, plugin_id: &str, override_region: Option<&str>) -> String {
     if let Some(r) = override_region.map(str::trim).filter(|s| !s.is_empty()) {
         return r.to_string();
     }
@@ -75,7 +80,7 @@ fn effective_region(cfg: &CloudConfig, override_region: Option<&str>) -> String 
     regions
         .into_iter()
         .next()
-        .unwrap_or_else(|| "cn-hangzhou".into())
+        .unwrap_or_else(|| default_region(plugin_id).to_string())
 }
 
 fn plugin_id_of(cfg: &CloudConfig) -> Result<String, OmniError> {
@@ -84,7 +89,7 @@ fn plugin_id_of(cfg: &CloudConfig) -> Result<String, OmniError> {
     } else {
         cfg.provider.as_str()
     };
-    omnipanel_cloud_aliyun::resolve_plugin_id(raw)
+    omnipanel_cloud::resolve_plugin_id(raw)
 }
 
 pub(crate) fn cloud_secret_ref(connection_id: &str) -> String {
@@ -115,9 +120,14 @@ pub(crate) fn normalize_cloud_connection(
     }
     let regions = normalize_regions(&cfg.regions, &cfg.region);
     let plugin_id = plugin_id_of(&cfg).unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
+    let provider = if plugin_id == PLUGIN_ID_TENCENT {
+        "tencent"
+    } else {
+        "aliyun"
+    };
     connection.config = serde_json::to_string(&serde_json::json!({
         "pluginId": plugin_id,
-        "provider": cfg.provider.trim().to_ascii_lowercase(),
+        "provider": provider,
         "regions": regions,
         "region": regions.first().map(String::as_str).unwrap_or(""),
         "accessKeyId": cfg.access_key_id.trim(),
@@ -137,7 +147,6 @@ fn resolve_credentials(
         OmniError::new(ErrorCode::InvalidInput, "云厂商配置解析失败").with_cause(e.to_string())
     })?;
     let plugin_id = plugin_id_of(&cfg)?;
-    let _ = driver_for(&plugin_id)?;
     let access_key_id = cfg.access_key_id.trim().to_string();
     if access_key_id.is_empty() {
         return Err(OmniError::invalid_input("请填写 AccessKey ID"));
@@ -165,13 +174,15 @@ fn resolve_credentials(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| OmniError::invalid_input("请填写 AccessKey Secret"))?;
 
+    let region = effective_region(&cfg, &plugin_id, None);
+    let regions = normalize_regions(&cfg.regions, &cfg.region);
     Ok((
         plugin_id,
         AliyunCredentials {
             access_key_id,
             access_key_secret: secret,
-            region: effective_region(&cfg, None),
-            regions: normalize_regions(&cfg.regions, &cfg.region),
+            region,
+            regions,
         },
         cfg,
     ))
@@ -252,9 +263,9 @@ pub async fn cloud_test(
     connection: Connection,
     secret: Option<String>,
 ) -> Result<String, OmniError> {
-    let (_plugin_id, creds, _) = resolve_credentials(&connection, secret.as_deref())?;
-    let http = http_for_aliyun(&state, "https://sts.aliyuncs.com/").await?;
-    AliyunCloudDriver.test_account(&creds, &http).await
+    let (plugin_id, creds, _) = resolve_credentials(&connection, secret.as_deref())?;
+    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
+    test_account(&plugin_id, &creds, &http).await
 }
 
 #[tauri::command]
@@ -264,12 +275,10 @@ pub async fn cloud_list_regions(
     connection_id: String,
 ) -> Result<Vec<CloudRegion>, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let configured = normalize_regions(&cfg.regions, &cfg.region);
-    let http = http_for_aliyun(&state, "https://ecs.aliyuncs.com/").await?;
-    AliyunCloudDriver
-        .list_regions(&creds, &http, &configured)
-        .await
+    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
+    list_regions(&plugin_id, &creds, &http, &configured).await
 }
 
 #[tauri::command]
@@ -279,9 +288,9 @@ pub async fn cloud_get_account(
     connection_id: String,
 ) -> Result<CloudAccountSnapshot, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, creds, _) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(&state, "https://sts.aliyuncs.com/").await?;
-    AliyunCloudDriver.get_account(&creds, &http).await
+    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
+    get_account(&plugin_id, &creds, &http).await
 }
 
 #[tauri::command]
@@ -293,16 +302,9 @@ pub async fn cloud_list_resources(
     filter: Option<CloudResourceFilter>,
 ) -> Result<Vec<CloudResourceRow>, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, creds, _) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(&state, "https://ecs.aliyuncs.com/").await?;
-    AliyunCloudDriver
-        .list_resources(
-            &creds,
-            &http,
-            &capability,
-            &filter.unwrap_or_default(),
-        )
-        .await
+    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
+    list_resources(&plugin_id, &creds, &http, &capability, &filter.unwrap_or_default()).await
 }
 
 #[tauri::command]
@@ -315,17 +317,17 @@ pub async fn cloud_get_resource(
     region_id: Option<String>,
 ) -> Result<CloudResourceDetail, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, creds, _) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(&state, "https://ecs.aliyuncs.com/").await?;
-    AliyunCloudDriver
-        .get_resource(
-            &creds,
-            &http,
-            &capability,
-            &resource_id,
-            region_id.as_deref().unwrap_or(""),
-        )
-        .await
+    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
+    get_resource(
+        &plugin_id,
+        &creds,
+        &http,
+        &capability,
+        &resource_id,
+        region_id.as_deref().unwrap_or(""),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -348,10 +350,8 @@ pub async fn cloud_invoke_action(
         );
         return Err(err);
     }
-    let http = http_for_aliyun(&state, "https://ecs.aliyuncs.com/").await?;
-    match AliyunCloudDriver
-        .invoke_action(&creds, &http, &action)
-        .await
+    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
+    match invoke_action(&plugin_id, &creds, &http, &action).await
     {
         Ok(result) => {
             audit_cloud_action(
@@ -376,6 +376,56 @@ pub async fn cloud_invoke_action(
             Err(err)
         }
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn cloud_get_metrics(
+    state: State<'_, AppState>,
+    connection_id: String,
+    capability: String,
+    resource_id: String,
+    region_id: Option<String>,
+    query: Option<CloudMetricQuery>,
+) -> Result<Vec<CloudMetricSeries>, OmniError> {
+    let conn = load_connection(&state, &connection_id).await?;
+    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
+    get_metrics(
+        &plugin_id,
+        &creds,
+        &http,
+        &capability,
+        &resource_id,
+        region_id.as_deref().unwrap_or(""),
+        &query.unwrap_or_default(),
+    )
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn cloud_query_logs(
+    state: State<'_, AppState>,
+    connection_id: String,
+    capability: String,
+    resource_id: String,
+    region_id: Option<String>,
+    query: Option<CloudLogQuery>,
+) -> Result<CloudLogPage, OmniError> {
+    let conn = load_connection(&state, &connection_id).await?;
+    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
+    query_logs(
+        &plugin_id,
+        &creds,
+        &http,
+        &capability,
+        &resource_id,
+        region_id.as_deref().unwrap_or(""),
+        &query.unwrap_or_default(),
+    )
+    .await
 }
 
 /// 过渡：产品级列表，内部仍走同一客户端。前端主路径请用 `cloud_list_resources`。

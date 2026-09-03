@@ -8,6 +8,7 @@ use crate::state::AppState;
 #[tauri::command]
 #[specta::specta]
 pub async fn app_module_list(state: State<'_, AppState>) -> Result<Vec<AppModule>, OmniError> {
+    crate::commands::plugin::sync_plugin_app_modules(&state).await;
     let storage = state.storage.lock().await;
     storage.app_module_list()
 }

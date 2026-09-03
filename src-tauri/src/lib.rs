@@ -206,6 +206,8 @@ fn export_ipc_bindings() {
         commands::cloud::cloud_list_resources,
         commands::cloud::cloud_get_resource,
         commands::cloud::cloud_invoke_action,
+        commands::cloud::cloud_get_metrics,
+        commands::cloud::cloud_query_logs,
         commands::docker::docker_list_connections,
         commands::docker::docker_get_connection_secret,
         commands::docker::docker_probe_connection,
@@ -1179,6 +1181,8 @@ fn build_and_run_tauri() {
             commands::cloud::cloud_list_resources,
             commands::cloud::cloud_get_resource,
             commands::cloud::cloud_invoke_action,
+            commands::cloud::cloud_get_metrics,
+            commands::cloud::cloud_query_logs,
             // Docker（容器工作区）
             commands::docker::docker_list_connections,
             commands::docker::docker_get_connection_secret,

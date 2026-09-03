@@ -16908,6 +16908,10 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: #ff8826;
     }
 
+    .server-sidebar-body .server-tree-node--tencent .tree-icon {
+        color: #00a4ff;
+    }
+
     .server-sidebar-body .server-tree-node--websites .tree-icon {
         color: var(--success);
     }

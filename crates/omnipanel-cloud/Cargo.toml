@@ -1,0 +1,15 @@
+[package]
+name = "omnipanel-cloud"
+version.workspace = true
+edition.workspace = true
+description = "云厂商 Host 分发：按 pluginId 路由到阿里云 / 腾讯云 Driver"
+
+[dependencies]
+async-trait.workspace = true
+reqwest.workspace = true
+omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-cloud-aliyun = { path = "../omnipanel-cloud-aliyun" }
+omnipanel-cloud-tencent = { path = "../omnipanel-cloud-tencent" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

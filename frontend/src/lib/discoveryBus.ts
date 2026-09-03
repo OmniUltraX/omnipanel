@@ -95,6 +95,11 @@ registerDiscoveryProbe("ssh-docker", async (scope, ctx) => {
   });
 });
 
+registerDiscoveryProbe("module-http", async (scope, ctx) => {
+  const { probeModuleHttpCandidates } = await import("../modules/plugin-module/moduleDiscovery");
+  return probeModuleHttpCandidates(scope, ctx);
+});
+
 registerDiscoveryProbe("ssh-panel", async (scope, ctx) => {
   const { probePanelCandidatesFromSsh } = await import("../modules/server/panel/syncPanelsFromSsh");
   const store = useConnectionStore.getState();

@@ -23,7 +23,15 @@ export type ParsedQuickLaunchQuery =
       databaseHint?: string;
       tableHint?: string;
     }
-  | { kind: "es"; raw: string; filter: string };
+  | { kind: "es"; raw: string; filter: string }
+  | {
+      kind: "module";
+      raw: string;
+      filter: string;
+      prefix: string;
+      pluginId: string;
+      moduleKey: string;
+    };
 
 /** 列表行（匹配结果） */
 export type QuickLaunchMatchRow =
@@ -66,6 +74,17 @@ export type QuickLaunchMatchRow =
       type: "everything-path";
       id: string;
       path: string;
+      label: string;
+      subtitle: string;
+      score: number;
+    }
+  | {
+      type: "module-service";
+      id: string;
+      connectionId: string;
+      pluginId: string;
+      moduleKey: string;
+      prefix: string;
       label: string;
       subtitle: string;
       score: number;
@@ -279,9 +298,10 @@ export function mergeQuickLaunchConnections(
 /** 匹配行所属模块（展示用） */
 export function quickLaunchRowModule(
   row: Pick<QuickLaunchMatchRow, "type">,
-): "ssh" | "database" | "files" {
+): "ssh" | "database" | "files" | "module" {
   if (row.type === "ssh-connection") return "ssh";
   if (row.type === "everything-path") return "files";
+  if (row.type === "module-service") return "module";
   return "database";
 }
 
@@ -295,6 +315,10 @@ export function rowToInsertQuery(row: QuickLaunchMatchRow, currentQuery: string)
 
   if (row.type === "everything-path") {
     return `es ${row.path}`;
+  }
+
+  if (row.type === "module-service") {
+    return `${row.prefix} ${row.label}`;
   }
 
   if (row.type === "ssh-connection") {
@@ -412,7 +436,46 @@ export function buildQuickLaunchMatches(options: {
     return [];
   }
 
+  if (query.kind === "module") {
+    return matchModuleServices(connections, query);
+  }
+
   return matchDbTargets(connections, schema, query);
+}
+
+function matchModuleServices(
+  connections: Connection[],
+  query: Extract<ParsedQuickLaunchQuery, { kind: "module" }>,
+): QuickLaunchMatchRow[] {
+  const rows: QuickLaunchMatchRow[] = [];
+  for (const conn of connections) {
+    if (conn.kind !== "service") continue;
+    let pluginId = "";
+    try {
+      const cfg = conn.config ? (JSON.parse(conn.config) as { pluginId?: unknown }) : {};
+      pluginId = typeof cfg.pluginId === "string" ? cfg.pluginId : "";
+    } catch {
+      pluginId = "";
+    }
+    if (pluginId !== query.pluginId) continue;
+    const score = bestScore(
+      scoreText(conn.name, query.filter),
+      scoreText(connectionSearchBlob(conn), query.filter),
+    );
+    if (score == null) continue;
+    rows.push({
+      type: "module-service",
+      id: `module:${conn.id}`,
+      connectionId: conn.id,
+      pluginId,
+      moduleKey: query.moduleKey,
+      prefix: query.prefix,
+      label: conn.name,
+      subtitle: connectionDetailHint(conn),
+      score,
+    });
+  }
+  return sortAndLimit(rows);
 }
 
 function matchSshConnections(

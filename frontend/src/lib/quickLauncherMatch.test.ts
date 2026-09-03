@@ -21,6 +21,31 @@ describe("parseQuickLaunchQuery", () => {
     });
   });
 
+  it("module 前缀由清单登记，禁用后消失", () => {
+    expect(parseQuickLaunchQuery("nacos local").kind).toBe("plain");
+    registerLauncherProvider({
+      prefix: "nacos",
+      parse: (raw, filter) => ({
+        kind: "module",
+        raw,
+        filter,
+        prefix: "nacos",
+        pluginId: "omni.module.nacos",
+        moduleKey: "nacos",
+      }),
+    });
+    expect(parseQuickLaunchQuery("nacos local")).toEqual({
+      kind: "module",
+      raw: "nacos local",
+      filter: "local",
+      prefix: "nacos",
+      pluginId: "omni.module.nacos",
+      moduleKey: "nacos",
+    });
+    unregisterLauncherProvider("nacos");
+    expect(parseQuickLaunchQuery("nacos local").kind).toBe("plain");
+  });
+
   it("es prefix comes from plugin registration, not builtin", () => {
     // 插件未激活：es 前缀不存在，退化为普通查询
     expect(parseQuickLaunchQuery("es ext:yml").kind).toBe("plain");

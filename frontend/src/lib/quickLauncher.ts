@@ -25,7 +25,8 @@ export type QuickLauncherAction =
   | { kind: "save-note"; title: string; content: string }
   | { kind: "create-todo"; title: string }
   | { kind: "open-url"; url: string; target: "http" | "browser" }
-  | { kind: "open-path"; path: string };
+  | { kind: "open-path"; path: string }
+  | { kind: "module-service"; connectionId: string; moduleKey: string };
 
 declare global {
   interface Window {
@@ -119,6 +120,8 @@ function isQuickLauncherAction(payload: unknown): payload is QuickLauncherAction
       );
     case "open-path":
       return isNonEmptyString(p.path);
+    case "module-service":
+      return isNonEmptyString(p.connectionId) && isNonEmptyString(p.moduleKey);
     default:
       return false;
   }

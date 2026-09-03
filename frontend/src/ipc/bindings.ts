@@ -340,6 +340,8 @@ export const commands = {
 } | null) => typedError<CloudResourceRow[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_resources", { connectionId, capability, filter })),
 	cloudGetResource: (connectionId: string, capability: string, resourceId: string, regionId: string | null) => typedError<CloudResourceDetail, OmniError_Serialize>(__TAURI_INVOKE("cloud_get_resource", { connectionId, capability, resourceId, regionId })),
 	cloudInvokeAction: (connectionId: string, action: CloudAction) => typedError<CloudActionResult, OmniError_Serialize>(__TAURI_INVOKE("cloud_invoke_action", { connectionId, action })),
+	cloudGetMetrics: (connectionId: string, capability: string, resourceId: string, regionId: string | null, query: CloudMetricQuery | null) => typedError<CloudMetricSeries[], OmniError_Serialize>(__TAURI_INVOKE("cloud_get_metrics", { connectionId, capability, resourceId, regionId, query })),
+	cloudQueryLogs: (connectionId: string, capability: string, resourceId: string, regionId: string | null, query: CloudLogQuery | null) => typedError<CloudLogPage, OmniError_Serialize>(__TAURI_INVOKE("cloud_query_logs", { connectionId, capability, resourceId, regionId, query })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerListConnections: () => typedError<DockerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_connections")),
 	/**  编辑 Docker 连接表单：从 Vault 取回面板 API Key（列表 / config 永不存明文）。 */
@@ -2257,11 +2259,86 @@ export type CloudAction = {
 	confirmed?: boolean,
 	/**  写操作短命在场 token（一次性消费）。 */
 	presenceToken?: string | null,
+	params?: { [key in string]: string },
 };
 
 export type CloudActionResult = {
 	ok: boolean,
 	message?: string,
+};
+
+export type CloudRelatedRef = {
+	capability: string,
+	resourceId: string,
+	name?: string,
+	role?: string,
+};
+
+export type CloudChildRow = {
+	id?: string,
+	kind?: string,
+	name?: string,
+	status?: string,
+	fields?: { [key in string]: string },
+};
+
+export type CloudNetworkRule = {
+	id?: string,
+	direction?: string,
+	protocol?: string,
+	portRange?: string,
+	cidr?: string,
+	sourceGroupId?: string,
+	policy?: string,
+	priority?: string,
+	nicType?: string,
+	description?: string,
+};
+
+export type CloudMetricQuery = {
+	metricIds?: string[],
+	startMs?: number,
+	endMs?: number,
+	periodSec?: number,
+};
+
+export type CloudMetricPoint = {
+	tsMs: number,
+	value: number,
+};
+
+export type CloudMetricSeries = {
+	id: string,
+	label?: string,
+	unit?: string,
+	points?: CloudMetricPoint[],
+};
+
+export type CloudLogQuery = {
+	kind?: string,
+	startMs?: number,
+	endMs?: number,
+	page?: number,
+	pageSize?: number,
+	dbName?: string,
+	sortKey?: string,
+	sortDir?: string,
+	keyword?: string,
+};
+
+export type CloudLogEntry = {
+	id?: string,
+	tsMs?: number,
+	severity?: string,
+	summary?: string,
+	fields?: { [key in string]: string },
+};
+
+export type CloudLogPage = {
+	kind?: string,
+	total?: number,
+	page?: number,
+	entries?: CloudLogEntry[],
 };
 
 export type CloudCertificateItem = {
@@ -2332,6 +2409,11 @@ export type CloudResourceDetail = {
 	status?: string,
 	fields?: { [key in string]: string },
 	consoleUrl?: string | null,
+	related?: CloudRelatedRef[],
+	rules?: CloudNetworkRule[],
+	metricIds?: string[],
+	logKinds?: string[],
+	children?: CloudChildRow[],
 };
 
 export type CloudResourceFilter = {

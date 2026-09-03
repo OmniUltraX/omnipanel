@@ -1,7 +1,7 @@
 /** 侧栏单击打开临时预览标签，双击打开常驻标签。 */
 export type ServerPanelDockOpenMode = "preview" | "permanent";
 
-export type ServerPanelResourceKind = "websites" | "certificates" | "cronjobs";
+export type ServerPanelResourceKind = "websites" | "certificates" | "cronjobs" | "databases";
 
 export type ServerPanelWorkspaceTabKind = "server" | "cloud" | ServerPanelResourceKind;
 
@@ -46,12 +46,21 @@ export type ServerCronjobsPanelTab = {
   preview?: boolean;
 };
 
+export type ServerDatabasesPanelTab = {
+  id: string;
+  kind: "databases";
+  label: string;
+  serverId: string;
+  preview?: boolean;
+};
+
 export type ServerPanelWorkspaceTab =
   | ServerOverviewPanelTab
   | CloudOverviewPanelTab
   | ServerWebsitesPanelTab
   | ServerCertificatesPanelTab
-  | ServerCronjobsPanelTab;
+  | ServerCronjobsPanelTab
+  | ServerDatabasesPanelTab;
 
 /**
  * 查找当前预览 Tab（单击打开的临时槽位）。
@@ -82,7 +91,8 @@ function isServerPanelWorkspaceTabKind(kind: string): kind is ServerPanelWorkspa
     kind === "cloud" ||
     kind === "websites" ||
     kind === "certificates" ||
-    kind === "cronjobs"
+    kind === "cronjobs" ||
+    kind === "databases"
   );
 }
 
@@ -137,8 +147,17 @@ export function isCloudOverviewTab(
 
 export function isServerResourceTab(
   tab: ServerPanelWorkspaceTab,
-): tab is ServerWebsitesPanelTab | ServerCertificatesPanelTab | ServerCronjobsPanelTab {
-  return tab.kind === "websites" || tab.kind === "certificates" || tab.kind === "cronjobs";
+): tab is
+  | ServerWebsitesPanelTab
+  | ServerCertificatesPanelTab
+  | ServerCronjobsPanelTab
+  | ServerDatabasesPanelTab {
+  return (
+    tab.kind === "websites" ||
+    tab.kind === "certificates" ||
+    tab.kind === "cronjobs" ||
+    tab.kind === "databases"
+  );
 }
 
 export function makeServerResourceTab(

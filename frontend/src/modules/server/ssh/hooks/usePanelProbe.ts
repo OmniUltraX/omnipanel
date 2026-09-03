@@ -10,7 +10,7 @@ import { usePanelProbeStore } from "../stores/panelProbeStore";
  * 与工具能力探测（useCapabilitiesStore）分开管理：
  * - 面板探测返回结构化数据（端口/安全入口/版本），不适合塞进 ToolState
  * - 探测结果写入 panelProbeStore，侧栏可展示已安装面板图标
- * - 不再探测 API Key；前端只用地址与安全入口打开浏览器或预填面板连接
+ * - 探测会回填可用 API Key；没有则自动在远端开启 API
  *
  * 触发时机：进入 SSH 详情页的「能力」Tab 时自动探测一次。
  */

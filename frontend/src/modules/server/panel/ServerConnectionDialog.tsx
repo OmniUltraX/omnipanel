@@ -127,7 +127,12 @@ export function ServerConnectionDialog({
       const address = form.panelAddress.trim();
       clearBtPanelLockout(address);
       if (isOnePanelService(form.serviceType)) {
-        const client = createOnePanelClient(address, inlineKey, connectionId);
+        const client = createOnePanelClient(
+          address,
+          inlineKey,
+          connectionId,
+          form.panelUser,
+        );
         const info = await client.getDeviceBase();
         const hostname = info.hostname ?? address;
         setPanelStatus({
@@ -230,7 +235,22 @@ export function ServerConnectionDialog({
           value={form.panelAddress}
           onChange={(value) => update("panelAddress", value)}
         />
+        {isOnePanelService(form.serviceType) ? (
+          <p className="form-hint">{t("server.create.onePanelAddressHint")}</p>
+        ) : null}
       </div>
+
+      {isOnePanelService(form.serviceType) ? (
+        <div className="form-field">
+          <label className="form-label">{t("server.create.panelUser")}</label>
+          <TextInput
+            placeholder="admin"
+            value={form.panelUser}
+            onChange={(value) => update("panelUser", value)}
+          />
+          <p className="form-hint">{t("server.create.panelUserHint")}</p>
+        </div>
+      ) : null}
 
       <div className="form-field">
         <label className="form-label">{t("server.create.key")}</label>

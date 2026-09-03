@@ -257,19 +257,41 @@ impl PluginRegistry {
         self.contributions = index;
     }
 
-    /// `kind=module` 且声明了 `ui.moduleKey` 的补种清单；状态由 Host 定为 closed。
+    /// `kind=module` 且声明了 `ui.moduleKey` 的补种清单。
     pub fn module_seeds(&self) -> Vec<(String, i32)> {
         self.plugins
             .values()
             .filter(|entry| entry.manifest.kind == PluginKind::Module)
-            .filter_map(|entry| {
-                let key = entry.manifest.contributes.ui.module_key.trim();
-                if key.is_empty() {
-                    return None;
-                }
-                Some((key.to_string(), 80))
-            })
+            .filter_map(|entry| Self::module_key_and_order(entry))
             .collect()
+    }
+
+    /// 已启用且已激活的 module 插件侧栏 key。
+    pub fn activated_module_seeds(&self) -> Vec<(String, i32)> {
+        self.plugins
+            .values()
+            .filter(|entry| {
+                entry.manifest.kind == PluginKind::Module && entry.enabled && entry.activated
+            })
+            .filter_map(Self::module_key_and_order)
+            .collect()
+    }
+
+    pub fn module_key_of(&self, plugin_id: &str) -> Option<String> {
+        self.get(plugin_id)
+            .and_then(Self::module_key_and_order)
+            .map(|(key, _)| key)
+    }
+
+    fn module_key_and_order(entry: &PluginEntry) -> Option<(String, i32)> {
+        if entry.manifest.kind != PluginKind::Module {
+            return None;
+        }
+        let key = entry.manifest.contributes.ui.module_key.trim();
+        if key.is_empty() {
+            return None;
+        }
+        Some((key.to_string(), 80))
     }
 
     pub fn plugins_for_probe(&self, probe_id: &str) -> Vec<String> {
@@ -419,6 +441,17 @@ mod tests {
         reg.register(crate::first_party::module_nacos()).unwrap();
         let seeds = reg.module_seeds();
         assert_eq!(seeds, vec![("nacos".to_string(), 80)]);
+        assert!(reg.activated_module_seeds().is_empty());
+        assert_eq!(
+            reg.module_key_of(crate::PLUGIN_ID_MODULE_NACOS).as_deref(),
+            Some("nacos")
+        );
+        reg.set_enabled(crate::PLUGIN_ID_MODULE_NACOS, true)
+            .unwrap();
+        assert_eq!(
+            reg.activated_module_seeds(),
+            vec![("nacos".to_string(), 80)]
+        );
     }
 
     fn method_manifest(id: &str, activated: bool) -> PluginManifest {

@@ -5549,7 +5549,9 @@ dependencies = [
  "omnipanel-ai",
  "omnipanel-assistant",
  "omnipanel-bg",
+ "omnipanel-cloud",
  "omnipanel-cloud-aliyun",
+ "omnipanel-cloud-tencent",
  "omnipanel-core",
  "omnipanel-db",
  "omnipanel-db-sync",
@@ -5653,6 +5655,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-cloud"
+version = "0.0.5"
+dependencies = [
+ "async-trait",
+ "omnipanel-cloud-aliyun",
+ "omnipanel-cloud-tencent",
+ "omnipanel-error",
+ "reqwest 0.12.28",
+ "tokio",
+]
+
+[[package]]
 name = "omnipanel-cloud-aliyun"
 version = "0.0.5"
 dependencies = [
@@ -5666,6 +5680,27 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1 0.10.6",
+ "specta",
+ "tokio",
+]
+
+[[package]]
+name = "omnipanel-cloud-tencent"
+version = "0.0.5"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "futures",
+ "hex",
+ "hmac 0.12.1",
+ "omnipanel-cloud-aliyun",
+ "omnipanel-error",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha1 0.10.6",
+ "sha2 0.10.9",
  "specta",
  "tokio",
 ]
@@ -5981,6 +6016,7 @@ dependencies = [
  "omnipanel-ai",
  "omnipanel-assistant",
  "omnipanel-bg",
+ "omnipanel-cloud",
  "omnipanel-cloud-aliyun",
  "omnipanel-core",
  "omnipanel-db",
@@ -6001,6 +6037,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1 0.10.6",
+ "sha2 0.10.9",
  "shell-words",
  "specta",
  "suppaftp",

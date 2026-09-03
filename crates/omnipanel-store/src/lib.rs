@@ -56,7 +56,9 @@ pub use agent_prompt::{
     system_prompt,
 };
 pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
-pub use app_module::{AppModule, AppModuleStatus, DEFAULT_APP_MODULES};
+pub use app_module::{
+    AppModule, AppModuleStatus, DEFAULT_APP_MODULES, PLUGIN_MODULE_SORT_ORDER,
+};
 pub use assistant_binding_key::{
     clear_assistant_binding_pubkey, load_assistant_binding_pubkey, store_assistant_binding_pubkey,
 };

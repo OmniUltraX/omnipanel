@@ -24,6 +24,8 @@ import { DiscoveryImportDialog, type DiscoveryPreviewRow } from "@/components/ui
 import { importPanelPreviewRows } from "./syncPanelsFromSsh";
 import type { ServerEntry } from "./serverConnection";
 import { isBtPanelService, isOnePanelService, panelServiceTypeI18nKey } from "./panelPlugin";
+import { listPanelSidebarTabs } from "./panelTabIds";
+import { usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
 import { usePersistedServerTreeExpanded } from "./usePersistedServerTreeExpanded";
 import {
   makeServerTreeKey,
@@ -43,8 +45,6 @@ type ServerTreeBranchProps = {
   onNavigate: ServerSidebarNavigate;
 };
 
-const SERVER_TREE_CATEGORIES = ["websites", "certificates", "cronjobs"] as const;
-
 function ServerTreeBranch({
   server,
   serverExpanded,
@@ -54,11 +54,12 @@ function ServerTreeBranch({
   onNavigate,
 }: ServerTreeBranchProps) {
   const { t } = useI18n();
+  const pluginItems = usePluginRuntimeStore((s) => s.items);
   const serviceTypeLabel = t(`server.serviceType.${panelServiceTypeI18nKey(server.serviceType)}`);
   const serverNameMatch = serverEntryMatchesSearch(searchQuery, server, serviceTypeLabel);
 
   const categories = useMemo(() => {
-    const all = SERVER_TREE_CATEGORIES.map((category) => ({
+    const all = listPanelSidebarTabs(server.serviceType).map((category) => ({
       category,
       label: t(`server.tabs.${category}`),
       iconKind: category,
@@ -67,7 +68,7 @@ function ServerTreeBranch({
       return all;
     }
     return all.filter((item) => sidebarTreeSearchMatches(searchQuery, item.label));
-  }, [searchQuery, serverNameMatch, t]);
+  }, [pluginItems, searchQuery, server.serviceType, serverNameMatch, t]);
 
   const visible =
     !hasSidebarTreeSearch(searchQuery) || serverNameMatch || categories.length > 0;

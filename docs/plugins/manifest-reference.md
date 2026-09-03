@@ -24,7 +24,10 @@
 | `ui.connectionForm` | engine | `{ engineKey, aliases[], defaultPort, icon, fields[{key,type,label?,optional?}] }`；连接对话框按声明渲染 |
 | `ui.workbench` | engine | 树/编辑器/预览/连接信息插槽枚举：`tree: schema\|kv\|collections\|documents\|none` 等 |
 | `ui.panelTabs` | panel | Tab id 数组（`overview/websites/apps/certificates/cronjobs/databases`），与宿主插槽取交集 |
+| `methods` | panel | L2 白名单：`testConnection` / `listDatabases` / `createDatabase` / `deleteDatabase`；阶段 A 由插件 `activate()` 登记进程内 driver |
 | `ui.sidebar` + `ui.moduleKey` | module | 侧栏入口；模块默认 closed |
+| `module.capabilities[]` | module | Host 工作台插槽：`id`（建议 `namespace` / `config` / `discovery` / `cluster`，未知 id 空态承接）、`columns`、`actions`；重复 id 失败 |
+| `module.probe` | module | 通用 HTTP 扫描：`ports`、`healthPath`、`contextPath`；配合 `discovery: [{ probeId: "module-http" }]` |
 | `overlays[]` | addon 等 | `{ id, title(i18n key), entry }` → 设置页「打开面板」，L3 沙箱渲染 |
 | `ui.home` | 有独立界面、能调起的插件 | `{ show, title, icon, open:{ kind: overlay\|importer\|module, id } }` → 首页启动条资格；钉选由用户决定。`icon` 仅包内相对路径 svg/png |
 | `menus[]` | addon | 菜单贡献（`when.hasSelection` 控制显隐） |

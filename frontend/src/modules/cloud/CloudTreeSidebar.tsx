@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
+import { IconPlus } from "@/components/ui/Icons";
 import { MultiSelect } from "@/components/ui/form/MultiSelect";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
@@ -14,19 +15,39 @@ import {
   SidebarTreeRoot,
   SidebarTreeSelectionProvider,
   resolveSidebarTreeDeleteTargets,
+  type TreeRowMouseEvent,
 } from "@/components/ui/sidebar-tree";
 import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { usePersistedServerTreeExpanded } from "../server/panel/usePersistedServerTreeExpanded";
 import { ServerTreeIcon, serverTreeNodeClassName } from "../server/panel/serverTreeIcons";
+import { pluginDisplayName } from "../plugins/pluginDisplayName";
 import { usePluginRuntimeStore } from "@/stores/pluginRuntimeStore";
-import { capabilityI18nKey, type CloudAccount } from "./cloudForm";
+import { useConnectionStore } from "@/stores/connectionStore";
+import { showToast } from "@/stores/toastStore";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { capabilityI18nKey, cloudAccountConsoleUrl, cloudBrandKind, type CloudAccount } from "./cloudForm";
 import { cloudCapabilitiesForPlugin, isGlobalCloudCapability } from "./cloudCapabilities";
-import { makeCloudTreeKey, type CloudSidebarNavTarget } from "./cloudWorkspaceTabs";
-import { filterCloudResourceRows, resolveCloudQueryRegions } from "./cloudResourceApi";
+import {
+  capabilityHasDeclaredAction,
+  makeCloudTreeKey,
+  type CloudDockOpenMode,
+  type CloudSidebarNavTarget,
+} from "./cloudWorkspaceTabs";
+import { cloudRowField, filterCloudResourceRows, resolveCloudQueryRegions } from "./cloudResourceApi";
 import { cloudListSlotKey } from "./cloudInventory";
 import { cloudListRefreshKey, useCloudInventoryStore } from "../../stores/cloudInventoryStore";
 import { cloudRegionLabel } from "./cloudForm";
-import type { CloudDockOpenMode } from "./cloudWorkspaceTabs";
+import { copyCloudText } from "./cloudDetailUi";
+import { addCloudInstanceToSsh } from "./cloudResourceLinks";
+import type { CloudResourceRow } from "../../ipc/bindings";
+import { formatIpcError } from "../../ipc/result";
+
+type CloudTreeCtxTarget =
+  | { kind: "account"; account: CloudAccount }
+  | { kind: "capability"; account: CloudAccount; capabilityId: string }
+  | { kind: "resource"; account: CloudAccount; capabilityId: string; row: CloudResourceRow };
+
+type CloudTreeContextHandler = (event: TreeRowMouseEvent, target: CloudTreeCtxTarget) => void;
 
 export type CloudSidebarNavigate = (target: CloudSidebarNavTarget, mode?: CloudDockOpenMode) => void;
 
@@ -50,6 +71,7 @@ type CloudAccountBranchProps = {
   isExpanded: (key: string) => boolean;
   toggle: (key: string) => void;
   onNavigate: CloudSidebarNavigate;
+  onNodeContextMenu: CloudTreeContextHandler;
 };
 
 function CloudAccountBranch({
@@ -63,6 +85,7 @@ function CloudAccountBranch({
   isExpanded,
   toggle,
   onNavigate,
+  onNodeContextMenu,
 }: CloudAccountBranchProps) {
   const { t } = useI18n();
   usePluginRuntimeStore((s) => s.items);
@@ -71,7 +94,7 @@ function CloudAccountBranch({
   const nameMatch =
     !hasSidebarTreeSearch(searchQuery) ||
     sidebarTreeSearchMatches(searchQuery, account.name) ||
-    sidebarTreeSearchMatches(searchQuery, t("server.cloud.providers.aliyun"));
+    sidebarTreeSearchMatches(searchQuery, pluginDisplayName(account.pluginId, t));
 
   const visibleCaps = useMemo(() => {
     if (!hasSidebarTreeSearch(searchQuery) || nameMatch) return capabilities;
@@ -104,6 +127,7 @@ function CloudAccountBranch({
             ensureExpanded={ensureExpanded}
             toggle={toggle}
             onNavigate={onNavigate}
+            onNodeContextMenu={onNodeContextMenu}
           />
         );
       })}
@@ -124,6 +148,7 @@ function CloudCapabilityBranch({
   ensureExpanded,
   toggle,
   onNavigate,
+  onNodeContextMenu,
 }: {
   account: CloudAccount;
   capabilityId: string;
@@ -137,6 +162,7 @@ function CloudCapabilityBranch({
   ensureExpanded: (key: string) => void;
   toggle: (key: string) => void;
   onNavigate: CloudSidebarNavigate;
+  onNodeContextMenu: CloudTreeContextHandler;
 }) {
   const { t } = useI18n();
   const queryRegions = useMemo(
@@ -151,9 +177,10 @@ function CloudCapabilityBranch({
 
   useEffect(() => {
     if (!expanded) return;
-    void useCloudInventoryStore.getState().ensureList(account.id, capabilityId, queryRegions, {
-      quiet: true,
-    });
+    void useCloudInventoryStore
+      .getState()
+      .ensureList(account.id, capabilityId, queryRegions, { quiet: true })
+      .catch(() => undefined);
   }, [account.id, capabilityId, expanded, queryRegions]);
 
   const instances = useMemo(() => {
@@ -176,8 +203,8 @@ function CloudCapabilityBranch({
         nodeType="cloud-capability"
         treeKey={capKey}
         label={label}
-        icon={<ServerTreeIcon kind="aliyun" />}
-        className={serverTreeNodeClassName("aliyun")}
+        icon={<ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />}
+        className={serverTreeNodeClassName(cloudBrandKind(account.pluginId))}
         hasChildren
         expanded={expanded}
         active={activeNavKey === capKey}
@@ -193,6 +220,9 @@ function CloudCapabilityBranch({
             "permanent",
           );
         }}
+        onContextMenu={(event) =>
+          onNodeContextMenu(event, { kind: "capability", account, capabilityId })
+        }
       />
       {expanded ? (
         <div className="server-tree-children">
@@ -254,6 +284,9 @@ function CloudCapabilityBranch({
                       "permanent",
                     )
                   }
+                  onContextMenu={(event) =>
+                    onNodeContextMenu(event, { kind: "resource", account, capabilityId, row })
+                  }
                 />
               );
             })
@@ -301,10 +334,16 @@ export function CloudTreeSidebar({
   const inventoryByAccount = useCloudInventoryStore((s) => s.byAccount);
   const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
-  const [ctxAccount, setCtxAccount] = useState<CloudAccount | null>(null);
+  const [ctxTarget, setCtxTarget] = useState<CloudTreeCtxTarget | null>(null);
+  const saveConn = useConnectionStore((s) => s.save);
   const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
+  }, []);
+  const handleNodeContextMenu = useCallback<CloudTreeContextHandler>((event, target) => {
+    event.preventDefault();
+    setCtxTarget(target);
+    setCtxPos({ x: event.clientX, y: event.clientY });
   }, []);
 
   const visibleAccounts = useMemo(() => {
@@ -313,25 +352,126 @@ export function CloudTreeSidebar({
   }, [accounts, searchQuery]);
 
   const ctxItems: ContextMenuItem[] = useMemo(() => {
-    if (!ctxAccount) return [];
+    if (!ctxTarget) return [];
     const items: ContextMenuItem[] = [];
-    if (onEditAccount) {
+    if (ctxTarget.kind === "account") {
+      const consoleUrl = cloudAccountConsoleUrl(ctxTarget.account.pluginId);
+      if (consoleUrl) {
+        items.push({
+          id: "openConsole",
+          label: t("cloud.actions.openConsole"),
+          onClick: () => {
+            void openExternal(consoleUrl);
+          },
+        });
+      }
+      if (onEditAccount) {
+        items.push({
+          id: "edit",
+          label: t("common.edit"),
+          onClick: () => onEditAccount(ctxTarget.account),
+        });
+      }
+      if (onDeleteAccount) {
+        items.push({
+          id: "delete",
+          label: t("common.delete"),
+          danger: true,
+          onClick: () => onDeleteAccount(ctxTarget.account.id),
+        });
+      }
+      return items;
+    }
+    if (ctxTarget.kind === "capability") {
       items.push({
-        id: "edit",
-        label: t("common.edit"),
-        onClick: () => onEditAccount(ctxAccount),
+        id: "refresh",
+        label: t("cloud.tree.refresh"),
+        onClick: () => {
+          const cap = cloudCapabilitiesForPlugin(ctxTarget.account.pluginId).find(
+            (item) => item.id === ctxTarget.capabilityId,
+          );
+          const regions = isGlobalCloudCapability(cap)
+            ? []
+            : resolveCloudQueryRegions(
+                selectedRegions,
+                liveRegionIds,
+                ctxTarget.account.regions,
+              );
+          void useCloudInventoryStore
+            .getState()
+            .ensureList(ctxTarget.account.id, ctxTarget.capabilityId, regions, { force: true })
+            .catch((err) => showToast(formatIpcError(err)));
+        },
+      });
+      return items;
+    }
+    const { account, capabilityId, row } = ctxTarget;
+    const cap = cloudCapabilitiesForPlugin(account.pluginId).find((item) => item.id === capabilityId);
+    items.push({
+      id: "openDetail",
+      label: t("cloud.tree.openDetail"),
+      onClick: () =>
+        onNavigate(
+          {
+            kind: "resource",
+            accountId: account.id,
+            capability: capabilityId,
+            resourceId: row.id,
+            regionId: row.regionId,
+          },
+          "permanent",
+        ),
+    });
+    items.push({
+      id: "copyId",
+      label: t("cloud.tree.copyId"),
+      onClick: () => {
+        void copyCloudText(row.id).then((ok) => {
+          if (ok) showToast(t("common.copied"));
+        });
+      },
+    });
+    const publicIp = cloudRowField(row.fields, "publicIp");
+    if (publicIp) {
+      items.push({
+        id: "copyIp",
+        label: t("cloud.tree.copyIp"),
+        onClick: () => {
+          void copyCloudText(publicIp).then((ok) => {
+            if (ok) showToast(t("common.copied"));
+          });
+        },
       });
     }
-    if (onDeleteAccount) {
+    if (capabilityHasDeclaredAction(cap?.actions, "addSsh")) {
       items.push({
-        id: "delete",
-        label: t("common.delete"),
-        danger: true,
-        onClick: () => onDeleteAccount(ctxAccount.id),
+        id: "addSsh",
+        label: t("server.cloud.actions.addSsh"),
+        onClick: () => {
+          void (async () => {
+            try {
+              await addCloudInstanceToSsh(
+                account,
+                capabilityId,
+                {
+                  id: row.id,
+                  name: row.name,
+                  publicIp,
+                  privateIp: cloudRowField(row.fields, "privateIp"),
+                },
+                saveConn,
+              );
+              showToast(t("server.cloud.actions.addedSsh", { name: row.name || row.id }));
+            } catch (err) {
+              if (String(err).includes("NO_HOST")) showToast(t("server.cloud.actions.noHost"));
+              else showToast(formatIpcError(err));
+            }
+          })();
+        },
       });
     }
     return items;
-  }, [ctxAccount, onDeleteAccount, onEditAccount, t]);
+  }, [ctxTarget, liveRegionIds, onDeleteAccount, onEditAccount, onNavigate, saveConn, selectedRegions, t]);
 
   return (
     <VerticalSplitSidebarSection
@@ -340,8 +480,14 @@ export function CloudTreeSidebar({
       onToggle={section?.onToggle ?? (() => {})}
       actions={
         onCreateAccount ? (
-          <Button type="button" size="sm" variant="ghost" onClick={onCreateAccount}>
-            {t("server.cloud.sidebar.addAccount")}
+          <Button
+            type="button"
+            variant="icon"
+            title={t("server.cloud.sidebar.addAccount")}
+            aria-label={t("server.cloud.sidebar.addAccount")}
+            onClick={onCreateAccount}
+          >
+            <IconPlus size={14} />
           </Button>
         ) : null
       }
@@ -367,9 +513,9 @@ export function CloudTreeSidebar({
                   nodeType="cloud-account"
                   treeKey={accountKey}
                   label={account.name}
-                  icon={<ServerTreeIcon kind="aliyun" />}
+                  icon={<ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />}
                   prefix={<StatusDot status={accountStatus} title={accountStatusTitle} />}
-                  className={serverTreeNodeClassName("aliyun")}
+                  className={serverTreeNodeClassName(cloudBrandKind(account.pluginId))}
                   hasChildren
                   expanded={expanded}
                   active={activeNavKey === accountKey || activeAccountId === account.id}
@@ -408,11 +554,7 @@ export function CloudTreeSidebar({
                   onActivate={() =>
                     onNavigate({ kind: "account", accountId: account.id }, "permanent")
                   }
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setCtxAccount(account);
-                    setCtxPos({ x: event.clientX, y: event.clientY });
-                  }}
+                  onContextMenu={(event) => handleNodeContextMenu(event, { kind: "account", account })}
                   onDelete={
                     onDeleteAccount
                       ? () => {
@@ -439,6 +581,7 @@ export function CloudTreeSidebar({
                   isExpanded={isExpanded}
                   toggle={toggle}
                   onNavigate={onNavigate}
+                  onNodeContextMenu={handleNodeContextMenu}
                 />
               </div>
             );

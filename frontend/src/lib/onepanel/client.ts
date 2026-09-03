@@ -2,6 +2,12 @@ import { commands, type OmniError_Serialize } from "../../ipc/bindings";
 import { canUseIpcBackend } from "../isTauriRuntime";
 import { buildOnePanelAuthHeaders, resolveOnePanelEndpoint } from "./auth";
 import {
+  expandOnePanelRequestUrls,
+  expandOnePanelRoutes,
+  isOnePanelRouteMiss,
+  polishOnePanelError,
+} from "./compat";
+import {
   OnePanelApiError,
   type OnePanelAcmeAccount,
   type OnePanelApiEnvelope,
@@ -42,6 +48,8 @@ export interface OnePanelClientOptions {
   apiKey: string;
   /** 连接 ID：apiKey 为空时从 Vault 解析密钥 */
   connectionId?: string;
+  /** 旧版 JWT 登录用户名，默认 admin */
+  username?: string;
   /** 默认 true：在有 IPC 后端时走 Rust 代理，避免浏览器 CORS。 */
   useTauri?: boolean;
 }
@@ -154,7 +162,7 @@ function parseResponseText<T>(text: string): T {
   }
   const lower = trimmed.toLowerCase();
   if (lower.startsWith("<!doctype") || lower.startsWith("<html")) {
-    throw new OnePanelApiError("1Panel 返回了 HTML 页面而非 JSON", 0, trimmed.slice(0, 300));
+    throw new OnePanelApiError("1Panel 返回了 HTML 页面而非 JSON", 404, trimmed.slice(0, 300));
   }
   try {
     return unwrapEnvelope<T>(JSON.parse(trimmed));
@@ -172,6 +180,7 @@ export class OnePanelClient {
   private apiKey: string;
   private readonly connectionId?: string;
   private readonly useTauri: boolean;
+  private readonly username: string;
   private resolvePromise: Promise<string> | null = null;
 
   constructor(options: OnePanelClientOptions) {
@@ -180,7 +189,19 @@ export class OnePanelClient {
     this.entrance = endpoint.entrance;
     this.apiKey = options.apiKey;
     this.connectionId = options.connectionId;
+    this.username = options.username?.trim() ?? "";
     this.useTauri = options.useTauri ?? true;
+  }
+
+  /** 把登录用户名塞进 URL userinfo，供 Rust 走官方 JWT 登录。 */
+  private ipcHost(): string {
+    if (!this.username) return this.baseUrl;
+    try {
+      const url = new URL(this.baseUrl);
+      return `${url.protocol}//${encodeURIComponent(this.username)}@${url.host}`;
+    } catch {
+      return this.baseUrl;
+    }
   }
 
   private async resolveApiKey(): Promise<string> {
@@ -237,6 +258,33 @@ export class OnePanelClient {
   async request<T = unknown>(options: OnePanelRequestOptions): Promise<T> {
     const method = (options.method ?? "GET").toUpperCase();
     const path = options.path.startsWith("/") ? options.path : `/${options.path}`;
+    const candidates = expandOnePanelRoutes(method, path);
+    let lastErr: unknown;
+    for (const candidate of candidates) {
+      try {
+        const body =
+          candidate.body !== undefined
+            ? candidate.body
+            : candidate.method === "GET" || candidate.method === "HEAD"
+              ? undefined
+              : options.body;
+        return await this.requestOnce<T>({
+          ...options,
+          method: candidate.method,
+          path: candidate.path,
+          body,
+        });
+      } catch (err) {
+        if (!isOnePanelRouteMiss(err)) throw err;
+        lastErr = err;
+      }
+    }
+    throw polishOnePanelError(lastErr);
+  }
+
+  private async requestOnce<T = unknown>(options: OnePanelRequestOptions): Promise<T> {
+    const method = (options.method ?? "GET").toUpperCase();
+    const path = options.path.startsWith("/") ? options.path : `/${options.path}`;
     const pathWithQuery = `${path}${buildQueryString(options.query)}`;
     const apiKey = await this.resolveApiKey();
 
@@ -244,7 +292,7 @@ export class OnePanelClient {
       const body = serializeRequestBody(method, options.body);
       const presenceToken = await this.resolvePresenceToken(pathWithQuery, body);
       const result = await commands.panel1panelRequest(
-        this.baseUrl,
+        this.ipcHost(),
         apiKey,
         method,
         pathWithQuery,
@@ -252,7 +300,13 @@ export class OnePanelClient {
         presenceToken,
       );
       if (result.status === "error") {
-        throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+        const ipcHay = `${result.error.message} ${result.error.cause ?? ""}`;
+        const status = /404|405|not found|版本不兼容|接口不存在|鉴权或入口/i.test(ipcHay) ? 404 : 0;
+        throw new OnePanelApiError(
+          formatIpcError(result.error),
+          status,
+          result.error.cause ?? undefined,
+        );
       }
       return parseResponseText<T>(result.data);
     }
@@ -294,7 +348,7 @@ export class OnePanelClient {
       const serialized = serializeRequestBody(upperMethod, body);
       const presenceToken = await this.resolvePresenceToken(normalizedPath, serialized);
       const result = await commands.panel1panelRequestText(
-        this.baseUrl,
+        this.ipcHost(),
         apiKey,
         upperMethod,
         normalizedPath,
@@ -325,8 +379,8 @@ export class OnePanelClient {
     };
     const payload = hasBody ? JSON.stringify(body ?? {}) : undefined;
     let lastErr: Error | null = null;
-    for (const prefix of ["/api/v2", "/api/v1"]) {
-      const res = await fetch(`${this.baseUrl}${prefix}${path}`, {
+    for (const url of expandOnePanelRequestUrls(this.baseUrl, this.entrance, path)) {
+      const res = await fetch(url, {
         method,
         headers,
         body: payload,
@@ -340,11 +394,12 @@ export class OnePanelClient {
       if (!res.ok) {
         const hint = res.status === 401 ? "API 接口密钥错误" : text || res.statusText;
         lastErr = new OnePanelApiError(`1Panel API 错误 (${res.status}): ${hint}`, res.status, text);
+        if (res.status === 401) throw lastErr;
         continue;
       }
       return text;
     }
-    throw lastErr ?? new OnePanelApiError("1Panel 请求失败", 0);
+    throw polishOnePanelError(lastErr ?? new OnePanelApiError("1Panel 请求失败", 0));
   }
 
   /** POST /containers/download/log — 下载 Compose 应用日志文本。 */
@@ -372,8 +427,8 @@ export class OnePanelClient {
     };
     const payload = hasBody ? JSON.stringify(body ?? {}) : undefined;
     let lastErr: Error | null = null;
-    for (const prefix of ["/api/v2", "/api/v1"]) {
-      const res = await fetch(`${this.baseUrl}${prefix}${pathWithQuery}`, {
+    for (const url of expandOnePanelRequestUrls(this.baseUrl, this.entrance, pathWithQuery)) {
+      const res = await fetch(url, {
         method,
         headers,
         body: payload,
@@ -387,11 +442,12 @@ export class OnePanelClient {
       if (!res.ok) {
         const hint = res.status === 401 ? "API 接口密钥错误" : text || res.statusText;
         lastErr = new OnePanelApiError(`1Panel API 错误 (${res.status}): ${hint}`, res.status, text);
+        if (res.status === 401) throw lastErr;
         continue;
       }
       return parseResponseText<T>(text);
     }
-    throw lastErr ?? new OnePanelApiError("1Panel 请求失败", 0);
+    throw polishOnePanelError(lastErr ?? new OnePanelApiError("1Panel 请求失败", 0));
   }
 
   /** 连通性测试（兼容 v1 / v2）。 */
@@ -756,7 +812,7 @@ export class OnePanelClient {
     const apiKey = await this.resolveApiKey();
     if (this.useTauri && canUseIpcBackend()) {
       const result = await commands.panel1panelRequestBytes(
-        this.baseUrl,
+        this.ipcHost(),
         apiKey,
         "POST",
         "/websites/ssl/download",
@@ -983,7 +1039,7 @@ export class OnePanelClient {
     const apiKey = await this.resolveApiKey();
     if (this.useTauri && canUseIpcBackend()) {
       const result = await commands.panel1panelUploadFile(
-        this.baseUrl,
+        this.ipcHost(),
         apiKey,
         params.path,
         params.filename,
@@ -1064,6 +1120,50 @@ export class OnePanelClient {
     return unwrapList(data);
   }
 
+  /** POST /databases/db — 创建数据库。 */
+  async createDatabase(body: {
+    name: string;
+    username: string;
+    password: string;
+    type?: string;
+    from?: string;
+    format?: string;
+    permission?: string;
+    description?: string;
+  }): Promise<void> {
+    const type = body.type?.trim() || "mysql";
+    await this.request({
+      method: "POST",
+      path: "/databases/db",
+      body: {
+        from: body.from ?? "local",
+        type,
+        database: type,
+        name: body.name,
+        username: body.username,
+        password: body.password,
+        format: body.format ?? "utf8mb4",
+        permission: body.permission ?? "127.0.0.1",
+        description: body.description ?? "",
+      },
+    });
+  }
+
+  /** POST /databases/db/del — 删除数据库。 */
+  async deleteDatabase(body: { id: number; name: string; type?: string }): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/databases/db/del",
+      body: {
+        id: body.id,
+        type: body.type?.trim() || "mysql",
+        database: body.name,
+        deleteBackup: false,
+        forceDelete: true,
+      },
+    });
+  }
+
   /** POST /cronjobs/search — 计划任务列表。 */
   async searchCronjobs(body: Record<string, unknown> = {}): Promise<unknown[]> {
     const payload = {
@@ -1105,7 +1205,7 @@ export class OnePanelClient {
 
     const apiKey = await this.resolveApiKey();
     if (this.useTauri && canUseIpcBackend()) {
-      const result = await commands.panel1panelAppIcon(this.baseUrl, apiKey, key);
+      const result = await commands.panel1panelAppIcon(this.ipcHost(), apiKey, key);
       if (result.status === "error") {
         throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
       }
@@ -1117,18 +1217,32 @@ export class OnePanelClient {
 
   private async fetchAppIconViaFetch(appKey: string, apiKey: string): Promise<string> {
     const timestamp = Math.floor(Date.now() / 1000);
-    const res = await fetch(`${this.baseUrl}/api/v2/apps/icon/${encodeURIComponent(appKey)}`, {
-      method: "GET",
-      headers: {
-        Accept: "application/json, image/*, */*",
-        ...buildOnePanelAuthHeaders(apiKey, timestamp, this.entrance),
-      },
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      const hint = res.status === 401 ? "API 接口密钥错误" : text || res.statusText;
-      throw new OnePanelApiError(`获取应用图标失败 (${res.status}): ${hint}`, res.status, text);
+    const headers = {
+      Accept: "application/json, image/*, */*",
+      ...buildOnePanelAuthHeaders(apiKey, timestamp, this.entrance),
+    };
+    let lastErr: Error | null = null;
+    let res: Response | null = null;
+    for (const url of expandOnePanelRequestUrls(
+      this.baseUrl,
+      this.entrance,
+      `/apps/icon/${encodeURIComponent(appKey)}`,
+    )) {
+      const next = await fetch(url, { method: "GET", headers });
+      if (next.ok) {
+        res = next;
+        break;
+      }
+      const text = await next.text().catch(() => "");
+      lastErr = new OnePanelApiError(
+        `获取应用图标失败 (${next.status}): ${next.status === 401 ? "API 接口密钥错误" : text || next.statusText}`,
+        next.status,
+        text,
+      );
+      if (next.status === 401) throw lastErr;
+    }
+    if (!res) {
+      throw polishOnePanelError(lastErr ?? new OnePanelApiError("获取应用图标失败", 0));
     }
 
     const contentType = res.headers.get("content-type") ?? "";
@@ -1464,6 +1578,7 @@ export function createOnePanelClient(
   host: string,
   apiKey: string,
   connectionId?: string,
+  username?: string,
 ): OnePanelClient {
-  return new OnePanelClient({ host, apiKey, connectionId });
+  return new OnePanelClient({ host, apiKey, connectionId, username });
 }

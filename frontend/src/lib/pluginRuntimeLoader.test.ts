@@ -6,6 +6,7 @@ import {
   syncPluginLifecycles,
 } from "./pluginRuntimeLoader";
 import { findPanelProbeMapper } from "./panelProbeRegistry";
+import { findPanelDriver } from "./panelDriverRegistry";
 
 const stubHost = {} as PluginHost;
 const stubFactory = vi.fn(async () => stubHost);
@@ -31,9 +32,11 @@ describe("pluginRuntimeLoader 差量生命周期", () => {
       lifecycle("omni.addon.everything", true, true),
     ]);
     expect(findPanelProbeMapper("1panel")?.pluginId).toBe("omni.panel.1panel");
+    expect(findPanelDriver("omni.panel.1panel")?.listDatabases).toEqual(expect.any(Function));
 
     await sync([lifecycle("omni.panel.1panel", false, false)]);
     expect(findPanelProbeMapper("1panel")).toBeNull();
+    expect(findPanelDriver("omni.panel.1panel")).toBeNull();
 
     resetPluginLifecycleForTests();
   });
@@ -44,6 +47,7 @@ describe("pluginRuntimeLoader 差量生命周期", () => {
     await sync([lifecycle("omni.panel.bt", true, true)]);
 
     expect(findPanelProbeMapper("baota")?.pluginId).toBe("omni.panel.bt");
+    expect(findPanelDriver("omni.panel.bt")?.createDatabase).toEqual(expect.any(Function));
     expect(findPanelProbeMapper("unknown-panel")).toBeNull();
 
     resetPluginLifecycleForTests();
