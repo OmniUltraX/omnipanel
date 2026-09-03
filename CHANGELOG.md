@@ -2,7 +2,7 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [Unreleased]
+## [0.8.15] - 2026-09-03
 
 ### 新增
 
@@ -22,6 +22,12 @@
 - **数据库 · 目录引擎**：可安装金仓 / Vastbase / UXDB；OceanBase 走目录实有 key（`oceanbase-oracle`）；GaussDB / TiDB 目录无包则跳过
 - **数据库 · Docker 本地种子**：幂等写入本机 9 条测试连接（密码进 Vault，列表不落明文）
 - **数据库 · MCP 工作台对齐**：建库 / 用户列表 / 表预览 / 字符集与工作台同一后端路径（`create_database` / `list_users` / `preview_table` / `list_character_sets`）
+- **团队 · 邀请与会同步 mesh**：团队邀请、mesh 同步与团队作用域本地存储管理；SSH 侧栏「已折叠自动文件夹」与入口菜单动作增强
+- **SSH · 密钥管理**：SSH 密钥对管理与连接处理增强；支持 HTTP inference API 与 Spring Boot Admin 基址处理
+- **Docker · 库扫描导入**：扫描本机 Docker 库并按连接树文件夹分组导入
+- **助手 · 快照模块加密**：助手快照新增模块级加密信封支持，敏感模块字节加密后上传
+- **通知 · 一键清空**：通知中心支持一键清空全部通知并优化列表 UI
+- **工程 · 告警消除**：修复 `cargo check --workspace` 的 dead_code / 未用变量警告与 `PushOptions` 新字段编译错误
 
 ### 修复
 
@@ -35,7 +41,9 @@
 - **数据库 · MCP 会话**：SQL Server 支持 processlist / 慢查询；PG 无 `pg_stat_statements` 时回退 `pg_stat_activity`
 - **数据库 · Mongo shell**：`show collections` / `show dbs` / `db.<集合>.find()` 可执行
 - **数据库 · Redis / Neo4j 查询**：编辑器不再把 Redis 命令包成 SELECT；Neo4j 数字字符串还原为 JSON number
+- **数据库 · sidecar 命令行解析**：未加引号的程序行参数去掉前导空格（`dbx.exe --lang zh` → `--lang zh`），修复 DBX 测试门禁
 - **终端 · Shell Agent 浮层**：xterm 视口刷新不再反复 setState，避免思考卡/工具条死循环
+- **macOS · 在场验证编译**：对齐 `objc2-local-authentication 0.3` / `block2 0.6` 的新 API（`canEvaluatePolicy_error` 单参返回 `Result`、回复块 `Bool` 参数），移除未用 import
 
 ## [0.8.8] - 2026-08-25
 

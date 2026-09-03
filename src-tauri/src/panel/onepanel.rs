@@ -53,15 +53,6 @@ fn hex_lower(bytes: impl AsRef<[u8]>) -> String {
     bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// 规范化 1Panel API 根地址（仅 origin，不含 `/api/v2` 与安全入口路径）。
-pub fn normalize_base_url(host: &str) -> Result<String, OmniError> {
-    let endpoint = omnipanel_docker::resolve_onepanel_endpoint(host, None);
-    if endpoint.base_url.is_empty() {
-        return Err(OmniError::invalid_input("1Panel 地址不能为空"));
-    }
-    Ok(endpoint.base_url)
-}
-
 fn resolve_endpoint(host: &str) -> Result<omnipanel_docker::OnePanelEndpoint, OmniError> {
     let endpoint = omnipanel_docker::resolve_onepanel_endpoint(host, None);
     if endpoint.base_url.is_empty() {

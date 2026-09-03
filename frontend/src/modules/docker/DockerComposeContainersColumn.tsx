@@ -15,14 +15,11 @@ import {
   lifecycleStatusLabel,
   type DockerContainerLifecycleAction,
 } from "./dockerContainerLifecycle";
-import {
-  composeLogServiceKey,
-  isComposeLogServiceEnabled,
-} from "./dockerComposePanelCache";
 import { containerRowLabel, containerUptimeLabel } from "./dockerResourceLabels";
 import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
 import { useComposeProjectContainers } from "./hooks/useComposeProjectContainers";
 import { LogsIcon, PlayIcon, RestartIcon, StopIcon, TrashIcon } from "./icons";
+import { DockerContainerSubWindow } from "./subwindows/DockerContainerSubWindow";
 
 function clampPercent(value: number | null | undefined): number {
   if (value == null || Number.isNaN(value)) return 0;
@@ -156,8 +153,8 @@ type ComposeContainerRowProps = {
   container: DockerContainerSummary;
   stats: DockerContainerStats | null;
   busy: boolean;
-  logsEnabled: boolean;
-  onToggleLogs: (containerId: string, event: MouseEvent<HTMLButtonElement>) => void;
+  isLogSubWindowOpen: boolean;
+  onViewLogs: (containerId: string, event: MouseEvent<HTMLButtonElement>) => void;
   onAction: (
     containerId: string,
     action: DockerContainerLifecycleAction,
@@ -170,8 +167,8 @@ const ComposeContainerRow = memo(function ComposeContainerRow({
   container,
   stats,
   busy,
-  logsEnabled,
-  onToggleLogs,
+  isLogSubWindowOpen,
+  onViewLogs,
   onAction,
   t,
 }: ComposeContainerRowProps) {
@@ -181,9 +178,7 @@ const ComposeContainerRow = memo(function ComposeContainerRow({
   const cpu = container.running ? (stats?.cpuPercent ?? 0) : 0;
   const memory = container.running ? (stats?.memoryPercent ?? 0) : 0;
   const name = container.composeService?.trim() || containerRowLabel(container);
-  const logsToggleLabel = logsEnabled
-    ? t("docker.composePanel.logsExclude")
-    : t("docker.composePanel.logsInclude");
+  const viewLogsLabel = t("docker.composePanel.viewContainerLogs");
 
   return (
     <article className={`docker-compose-panel__container-card docker-compose-panel__container-card--${phase}`}>
@@ -223,14 +218,14 @@ const ComposeContainerRow = memo(function ComposeContainerRow({
             className={[
               "docker-compose-panel__container-action-btn",
               "docker-compose-panel__container-logs-toggle",
-              logsEnabled ? "is-on" : "is-off",
+              isLogSubWindowOpen ? "is-on" : "is-off",
             ].join(" ")}
-            title={logsToggleLabel}
-            aria-label={logsToggleLabel}
-            aria-pressed={logsEnabled}
-            onClick={(event) => onToggleLogs(container.id, event)}
+            title={viewLogsLabel}
+            aria-label={viewLogsLabel}
+            aria-pressed={isLogSubWindowOpen}
+            onClick={(event) => onViewLogs(container.id, event)}
           >
-            <LogsIcon active={logsEnabled} />
+            <LogsIcon active={isLogSubWindowOpen} />
           </Button>
         </div>
       </div>
@@ -257,8 +252,6 @@ export type DockerComposeContainersColumnProps = {
   isActive: boolean;
   /** 递增时触发容器列表/stats 刷新（编排生命周期后） */
   refreshToken?: number;
-  logEnabledByService: Record<string, boolean>;
-  onLogEnabledByServiceChange: (next: Record<string, boolean>) => void;
   onActionError: (message: string | null) => void;
 };
 
@@ -268,8 +261,6 @@ export function DockerComposeContainersColumn({
   composeProject,
   isActive,
   refreshToken = 0,
-  logEnabledByService,
-  onLogEnabledByServiceChange,
   onActionError,
 }: DockerComposeContainersColumnProps) {
   const { t } = useI18n();
@@ -330,18 +321,26 @@ export function DockerComposeContainersColumn({
     [connection.connectionId, onActionError, projectContainers, refreshNow, t],
   );
 
-  const handleToggleContainerLogs = useCallback(
+  const [logSubWindow, setLogSubWindow] = useState<{
+    containerId: string;
+    containerName: string;
+  } | null>(null);
+
+  const handleViewLogs = useCallback(
     (containerId: string, event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
+      if (logSubWindow?.containerId === containerId) {
+        setLogSubWindow(null);
+        return;
+      }
       const container = projectContainers.find((item) => item.container.id === containerId)?.container;
       if (!container) return;
-      const key = composeLogServiceKey(container);
-      onLogEnabledByServiceChange({
-        ...logEnabledByService,
-        [key]: !isComposeLogServiceEnabled(key, logEnabledByService),
+      setLogSubWindow({
+        containerId,
+        containerName: container.composeService?.trim() || containerRowLabel(container),
       });
     },
-    [logEnabledByService, onLogEnabledByServiceChange, projectContainers],
+    [logSubWindow, projectContainers],
   );
 
   return (
@@ -357,15 +356,14 @@ export function DockerComposeContainersColumn({
           <ModuleEmptyState preset="container" title={t("docker.composePanel.noContainers")} />
         ) : (
           projectContainers.map(({ container, stats }) => {
-            const serviceKey = composeLogServiceKey(container);
             return (
               <ComposeContainerRow
                 key={container.id}
                 container={container}
                 stats={stats}
                 busy={Boolean(pendingContainerActions[container.id])}
-                logsEnabled={isComposeLogServiceEnabled(serviceKey, logEnabledByService)}
-                onToggleLogs={handleToggleContainerLogs}
+                isLogSubWindowOpen={logSubWindow?.containerId === container.id}
+                onViewLogs={handleViewLogs}
                 onAction={handleContainerLifecycle}
                 t={t}
               />
@@ -374,6 +372,16 @@ export function DockerComposeContainersColumn({
         )}
       </div>
       {error ? <div className="docker-compose-panel__list-error">{error}</div> : null}
+      <DockerContainerSubWindow
+        open={logSubWindow != null}
+        kind="logs"
+        title={t("docker.composePanel.viewContainerLogs")}
+        containerName={logSubWindow?.containerName ?? ""}
+        connectionId={connection.connectionId}
+        containerId={logSubWindow?.containerId ?? ""}
+        connectionSource={connection.source}
+        onClose={() => setLogSubWindow(null)}
+      />
     </div>
   );
 }

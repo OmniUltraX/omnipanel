@@ -429,7 +429,7 @@ fn split_command_head(raw: &str) -> Option<(&str, &str)> {
         Some((head, rest))
     } else {
         match raw.find(char::is_whitespace) {
-            Some(idx) => Some((&raw[..idx], &raw[idx..])),
+            Some(idx) => Some((&raw[..idx], raw[idx..].trim_start())),
             None => Some((raw, "")),
         }
     }

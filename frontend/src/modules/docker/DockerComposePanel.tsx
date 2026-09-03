@@ -140,7 +140,7 @@ export function DockerComposePanel({
     "stop" | "restart" | "rebuild" | "down" | null
   >(null);
   const [logsText, setLogsText] = useState(panelCache?.logsText ?? "");
-  const [logEnabledByService, setLogEnabledByService] = useState<Record<string, boolean>>(
+  const [logEnabledByService] = useState<Record<string, boolean>>(
     () => panelCache?.logEnabledByService ?? {},
   );
   const [metaReady, setMetaReady] = useState(panelCache?.metaReady ?? seededMeta.metaReady);
@@ -595,10 +595,6 @@ export function DockerComposePanel({
     workingDir,
   ]);
 
-  const handleLogEnabledChange = useCallback((next: Record<string, boolean>) => {
-    setLogEnabledByService(next);
-  }, []);
-
   const handleLogsTextChange = useCallback((text: string) => {
     setLogsText(text);
   }, []);
@@ -679,8 +675,6 @@ export function DockerComposePanel({
               composeProject={composeProject}
               isActive={isActive}
               refreshToken={containersRefreshToken}
-              logEnabledByService={logEnabledByService}
-              onLogEnabledByServiceChange={handleLogEnabledChange}
               onActionError={setActionError}
             />
           </DockPanel>

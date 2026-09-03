@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useI18n } from "../../i18n";
+import { appConfirm } from "../../lib/appConfirm";
 import { Button } from "../ui/primitives/Button";
 
 type Tone = "danger" | "warn" | "success" | "accent";
@@ -98,10 +99,22 @@ function NotifIcon({ token }: { token: IconToken }) {
 export function NotificationDrawer() {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
+  const [groups, setGroups] = useState<NotifGroup[]>(NOTIF_GROUPS);
 
   const toggle = useCallback(() => {
     setIsOpen((prev) => !prev);
   }, []);
+
+  const handleClearAll = useCallback(async () => {
+    if (groups.length === 0) return;
+    const ok = await appConfirm(
+      t("notifications.clearAllConfirm"),
+      t("notifications.title"),
+      { kind: "warning", confirmLabel: t("notifications.clearAll") },
+    );
+    if (!ok) return;
+    setGroups([]);
+  }, [groups, t]);
 
   useEffect(() => {
     const toggleHandler = () => toggle();
@@ -131,6 +144,16 @@ export function NotificationDrawer() {
             <path d="M13.73 21a2 2 0 01-3.46 0" />
           </svg>
           <h3>{t("notifications.title")}</h3>
+          {groups.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => void handleClearAll()} title={t("notifications.clearAll")}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="15" height="15">
+                <path d="M3 6h18" />
+                <path d="M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2" />
+                <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                <path d="M10 11v6M14 11v6" />
+              </svg>
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={() => setIsOpen(false)} title={t("notifications.close")}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -138,26 +161,30 @@ export function NotificationDrawer() {
           </Button>
         </div>
         <div className="notif-drawer-body">
-          {NOTIF_GROUPS.map((group) => (
-            <div key={group.groupKey}>
-              <div className="notif-group-title">{t(`notifications.groups.${group.groupKey}`)}</div>
-              {group.items.map((item) => (
-                <div key={item.key} className={`notif-item${item.unread ? " unread" : ""}`}>
-                  <div
-                    className="notif-icon"
-                    style={{ background: `var(--${item.tone}-soft)`, color: `var(--${item.tone})` }}
-                  >
-                    <NotifIcon token={item.icon} />
+          {groups.length === 0 ? (
+            <div className="notif-empty">{t("notifications.empty")}</div>
+          ) : (
+            groups.map((group) => (
+              <div key={group.groupKey}>
+                <div className="notif-group-title">{t(`notifications.groups.${group.groupKey}`)}</div>
+                {group.items.map((item) => (
+                  <div key={item.key} className={`notif-item${item.unread ? " unread" : ""}`}>
+                    <div
+                      className="notif-icon"
+                      style={{ background: `var(--${item.tone}-soft)`, color: `var(--${item.tone})` }}
+                    >
+                      <NotifIcon token={item.icon} />
+                    </div>
+                    <div className="notif-content">
+                      <div className="notif-title">{t(`notifications.items.${item.key}.title`)}</div>
+                      <div className="notif-desc">{t(`notifications.items.${item.key}.desc`)}</div>
+                      <div className="notif-time">{t(`notifications.items.${item.key}.time`)}</div>
+                    </div>
                   </div>
-                  <div className="notif-content">
-                    <div className="notif-title">{t(`notifications.items.${item.key}.title`)}</div>
-                    <div className="notif-desc">{t(`notifications.items.${item.key}.desc`)}</div>
-                    <div className="notif-time">{t(`notifications.items.${item.key}.time`)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
+                ))}
+              </div>
+            ))
+          )}
         </div>
       </div>
     </>
