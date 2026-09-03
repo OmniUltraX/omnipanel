@@ -41,6 +41,7 @@
 - **数据库 · MCP 会话**：SQL Server 支持 processlist / 慢查询；PG 无 `pg_stat_statements` 时回退 `pg_stat_activity`
 - **数据库 · Mongo shell**：`show collections` / `show dbs` / `db.<集合>.find()` 可执行
 - **数据库 · Redis / Neo4j 查询**：编辑器不再把 Redis 命令包成 SELECT；Neo4j 数字字符串还原为 JSON number
+- **数据库 · sidecar 命令行解析**：未加引号的程序行参数去掉前导空格（`dbx.exe --lang zh` → `--lang zh`），修复 DBX 测试门禁
 - **终端 · Shell Agent 浮层**：xterm 视口刷新不再反复 setState，避免思考卡/工具条死循环
 - **macOS · 在场验证编译**：对齐 `objc2-local-authentication 0.3` / `block2 0.6` 的新 API（`canEvaluatePolicy_error` 单参返回 `Result`、回复块 `Bool` 参数），移除未用 import
 
