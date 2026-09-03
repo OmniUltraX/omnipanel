@@ -2,8 +2,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use block2::RcBlock;
-use objc2::AnyThread;
-use objc2::rc::Retained;
+use objc2::runtime::Bool;
 use objc2_foundation::{NSError, NSString};
 use objc2_local_authentication::{LAContext, LAPolicy};
 use omnipanel_error::OmniResult;
@@ -33,10 +32,7 @@ impl PresenceVerifier for MacOsVerifier {
 
 fn can_evaluate() -> Result<bool, String> {
     let ctx = unsafe { LAContext::new() };
-    let mut err: Option<Retained<NSError>> = None;
-    let ok = unsafe {
-        ctx.canEvaluatePolicy_error(LAPolicy::DeviceOwnerAuthentication, Some(&mut err))
-    };
+    let ok = unsafe { ctx.canEvaluatePolicy_error(LAPolicy::DeviceOwnerAuthentication) }.is_ok();
     Ok(ok)
 }
 
@@ -47,8 +43,8 @@ fn evaluate(reason: &str) -> OmniResult<()> {
     let ctx = unsafe { LAContext::new() };
     let (tx, rx) = mpsc::channel();
     let reason = NSString::from_str(reason);
-    let block = RcBlock::new(move |success: bool, error: *mut NSError| {
-        if success {
+    let block = RcBlock::new(move |success: Bool, error: *mut NSError| {
+        if success.as_bool() {
             let _ = tx.send(Ok(()));
             return;
         }

@@ -42,6 +42,7 @@
 - **数据库 · Mongo shell**：`show collections` / `show dbs` / `db.<集合>.find()` 可执行
 - **数据库 · Redis / Neo4j 查询**：编辑器不再把 Redis 命令包成 SELECT；Neo4j 数字字符串还原为 JSON number
 - **终端 · Shell Agent 浮层**：xterm 视口刷新不再反复 setState，避免思考卡/工具条死循环
+- **macOS · 在场验证编译**：对齐 `objc2-local-authentication 0.3` / `block2 0.6` 的新 API（`canEvaluatePolicy_error` 单参返回 `Result`、回复块 `Bool` 参数），移除未用 import
 
 ## [0.8.8] - 2026-08-25
 
