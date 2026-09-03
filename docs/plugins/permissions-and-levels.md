@@ -1,5 +1,7 @@
 # 权限模型与三级开放梯度
 
+完整开发合同见 [README](./README.md)。
+
 ## 权限清单
 
 | 权限 | 控制的能力 |
@@ -39,6 +41,7 @@
 ```js
 // logic.js（QuickJS）
 globalThis.call = function (method, argsJson) {
+  // host.hmac(JSON.stringify({ alg, key, data, encoding }))  // sha256|sha1 → hex|base64，无权限
   // host.netFetch({url, headers}) / host.fsRead(path)
   // host.connectionUpsert(candidateJson) / host.invoke(method, argsJson)
   // host.vaultGet/Has/Put/Delete(key) / host.stateGet() / host.stateSet(json)

@@ -10,7 +10,7 @@ import { commands, type CloudResourceRow } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { showToast } from "../../stores/toastStore";
-import { capabilityI18nKey, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
+import { cloudCapabilityLabel, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
 import { cloudCapabilityById, isGlobalCloudCapability } from "./cloudCapabilities";
 import { capabilityHasDeclaredAction } from "./cloudWorkspaceTabs";
 import {
@@ -283,7 +283,7 @@ export function CloudResourceListPanel({
   return (
     <div className="cloud-resource-list">
       <header className="db-tables-panel-header db-connection-info-header">
-        <span className="db-tables-panel-header-label">{t(capabilityI18nKey(capability))}</span>
+        <span className="db-tables-panel-header-label">{cloudCapabilityLabel(t, capability, account.pluginId)}</span>
         <div className="db-tables-panel-header-tags">
           <span className="db-tables-panel-header-tag">{account.name}</span>
           <span className="db-tables-panel-header-tag">

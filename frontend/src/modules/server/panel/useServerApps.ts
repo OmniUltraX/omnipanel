@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import type { OnePanelApp, OnePanelInstalledApp } from "../../../lib/onepanel";
 import { useServerPanelCacheStore } from "../../../stores/serverPanelCacheStore";
 import type { ServerEntry } from "./serverConnection";
-import { isBtPanelService, isOnePanelService } from "./panelPlugin";
+import { panelHasCapability } from "./panelPlugin";
 import { EMPTY_SERVER_PANEL_RESOURCE_CACHE } from "./serverPanelCache";
 import { useServerPanelCacheAutoRefresh } from "./useServerPanelCacheAutoRefresh";
 
@@ -40,7 +40,7 @@ export function useServerApps(server: ServerEntry | null): UseServerAppsResult {
     refreshedAt: entry.appsRefreshedAt,
     refreshing,
     refresh: refreshServerApps,
-    enabled: isOnePanelService(server?.serviceType) || isBtPanelService(server?.serviceType),
+    enabled: panelHasCapability(server?.serviceType, "apps"),
   });
 
   return {

@@ -55,6 +55,12 @@ jobs:
       - name: Check plugin manifests
         run: npm run check:plugin-manifests
 
+      - name: Validate third-party plugin samples
+        run: npm run plugin:validate -- plugins-samples
+
+      - name: Installed-pack plugin smoke
+        run: npm run plugin:smoke
+
       - name: DB sidecar isolation + crate tests
         run: |
           set -euo pipefail

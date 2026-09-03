@@ -10,10 +10,13 @@
 |---|---|---|---|
 | `id` | string | ✅ | 反向域名式唯一标识，如 `omni.engine.clickhouse`。安装包 id 与内置冲突时拒绝安装 |
 | `version` | string | ✅ | SemVer；覆盖升级用 |
+| `displayName` | string | — | 侧栏 / 插件中心显示名；缺省回退宿主 i18n 或 id |
 | `kind` | enum | ✅ | 七选一：`engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon` |
 | `permissions` | string[] | — | 声明所需权限；缺权调用即失败（见 [permissions-and-levels](./permissions-and-levels.md)） |
 | `methods` | object[] | — | L2 网关白名单：`{ name, permissions[] }`；未声明的 method 一律 `UnknownMethod` |
 | `entry.logic` | string | — | L2 逻辑包相对路径，仅 `.wasm` / `.js`；禁止 `..` 与绝对路径 |
+| `entry.driver` | string | — | sidecar 可执行文件相对路径（`runtime=sidecar` 时必填）；`.js/.mjs→node`，`.jar→java -jar`，其它直接执行。协议见 [sidecar-dbx](./sidecar-dbx.md) |
+| `runtime` | enum | — | `inproc`（第一方）/ `sidecar`（第三方引擎用这个） |
 | `minHostApi` | number | — | 所需最低宿主 API 版本；高于宿主当前版本的包拒绝装载 |
 | `platforms` | string[] | — | 缺省全平台；不匹配则不激活、列表中标记不可用原因 |
 
@@ -26,7 +29,9 @@
 | `ui.panelTabs` | panel | Tab id 数组（`overview/websites/apps/certificates/cronjobs/databases`），与宿主插槽取交集 |
 | `methods` | panel | L2 白名单：`testConnection` / `listDatabases` / `createDatabase` / `deleteDatabase`；阶段 A 由插件 `activate()` 登记进程内 driver |
 | `ui.sidebar` + `ui.moduleKey` | module | 侧栏入口；模块默认 closed |
-| `module.capabilities[]` | module | Host 工作台插槽：`id`（建议 `namespace` / `config` / `discovery` / `cluster`，未知 id 空态承接）、`columns`、`actions`；重复 id 失败 |
+| `module.capabilities[]` | module | Host 工作台：`id` / `label?` / `columns` / `actions[{id,method?,target?,label?,toggle?}]` / `listMethod?` / `getMethod?` / `itemKey?` / `detail?`（`none`\|`editor`\|`form`\|`kv`\|`children`\|`logs`\|`metrics`\|`facts`\|`tree`）/ `formFields?` / `historyMethod?` / `childColumns?` / `childListMethod?` / `language?` / `valueKey?`。未知 id 同样走通用壳。完整合同见 [README](./README.md) |
+| `cloud.capabilities[]` | cloud | Host 云工作台：`id` / `label?` / `scope` / `columns` / `actions` / `detailSlots` |
+| `cloud.regions[]` | cloud | 连接对话框地区预置 `{ id, label? }`；空则第一方用内置列表 |
 | `module.probe` | module | 通用 HTTP 扫描：`ports`、`healthPath`、`contextPath`；配合 `discovery: [{ probeId: "module-http" }]` |
 | `overlays[]` | addon 等 | `{ id, title(i18n key), entry }` → 设置页「打开面板」，L3 沙箱渲染 |
 | `ui.home` | 有独立界面、能调起的插件 | `{ show, title, icon, open:{ kind: overlay\|importer\|module, id } }` → 首页启动条资格；钉选由用户决定。`icon` 仅包内相对路径 svg/png |

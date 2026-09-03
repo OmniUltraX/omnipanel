@@ -70,7 +70,7 @@ export function listInstalledPluginManifests(): PluginManifest[] {
   return [...INSTALLED_PLUGIN_MANIFESTS];
 }
 
-/** 从 `contributes.ui.panelTabs` 提取有效 tab id（声明项为开放结构）。 */
+/** 从 `contributes.ui.panelTabs` 提取有效 tab id。 */
 export function manifestPanelTabIds(manifest: PluginManifest | null): string[] {
   const tabs = manifest?.contributes.ui?.panelTabs;
   if (!Array.isArray(tabs)) return [];

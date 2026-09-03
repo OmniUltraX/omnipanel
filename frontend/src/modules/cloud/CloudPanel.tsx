@@ -13,7 +13,7 @@ import { appConfirm } from "../../lib/appConfirm";
 import { CloudConnectionDialog } from "./CloudConnectionDialog";
 import { CloudDockPanel } from "./CloudDockPanel";
 import { CloudTreeSidebar } from "./CloudTreeSidebar";
-import { capabilityI18nKey, cloudBrandKind, connectionToCloudAccount, type CloudAccount } from "./cloudForm";
+import { cloudBrandKind, cloudCapabilityLabel, connectionToCloudAccount, type CloudAccount } from "./cloudForm";
 import { makeCloudTreeKey, type CloudSidebarNavTarget } from "./cloudWorkspaceTabs";
 import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
@@ -230,7 +230,7 @@ export function CloudPanel() {
           if (!account) return null;
           let label = account.name;
           if (tab.kind === "resources") {
-            label = `${t(capabilityI18nKey(tab.capability))}@${account.name}`;
+            label = `${cloudCapabilityLabel(t, tab.capability, account.pluginId)}@${account.name}`;
           } else if (tab.kind === "resource") {
             label = `${tab.resourceId}@${account.name}`;
           }

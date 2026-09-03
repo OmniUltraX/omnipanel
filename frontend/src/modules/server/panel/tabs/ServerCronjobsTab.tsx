@@ -16,12 +16,18 @@ import {
   type DbTablesPanelGridColumn,
   type DbTablesPanelGridSortDirection,
 } from "../../../database/workspace/DbTablesPanelGrid";
-import { createOnePanelClient } from "../../../../lib/onepanel";
-import { createBtPanelClient } from "../../../../lib/btpanel";
+import {
+  getPanelDriver,
+  hasInprocPanelDriver,
+  panelConnectionCtx,
+} from "../../../../lib/panelDriverRegistry";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
-import { isBtPanelService, isOnePanelService, panelHasCapability } from "../panelPlugin";
+import {
+  panelHasCapability,
+  panelTabCreateSpec,
+} from "../panelPlugin";
 import {
   cronjobNumericId,
   cronjobRowId,
@@ -32,6 +38,7 @@ import {
   websiteStatusBadgeClass,
 } from "../serverResourceLabels";
 import { CreateCronjobDialog } from "../ServerResourceCreateDialogs";
+import { PluginFormDialog } from "../PluginFormDialog";
 
 interface Props {
   server: ServerEntry;
@@ -80,8 +87,16 @@ export function ServerCronjobsTab({ server }: Props) {
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const isBt = isBtPanelService(server.serviceType);
+  const driver = getPanelDriver(server.serviceType);
+  const inproc = hasInprocPanelDriver(server.serviceType);
   const canManage = panelHasCapability(server.serviceType, "cronjobs");
+  const pluginCreate = panelTabCreateSpec(server.serviceType, "cronjobs");
+  const canCreate =
+    canManage && (Boolean(pluginCreate) || (inproc && typeof driver?.createCronjob === "function"));
+  const canEdit = canManage && inproc;
+  const canToggle = canManage && typeof driver?.setCronjobStatus === "function";
+  const canRun = canManage && typeof driver?.runCronjob === "function";
+  const canDelete = canManage && typeof driver?.deleteCronjob === "function";
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 280);
@@ -92,17 +107,8 @@ export function ServerCronjobsTab({ server }: Props) {
     if (!opts?.soft) setLoading(true);
     setError(null);
     try {
-      if (isOnePanelService(server.serviceType)) {
-        const client = createOnePanelClient(server.address, server.key, server.id);
-        const items = await client.searchCronjobs();
-        setRows(items as Record<string, unknown>[]);
-      } else if (isBtPanelService(server.serviceType)) {
-        const client = createBtPanelClient(server.address, server.key, server.id);
-        const result = await client.getCronList({ limit: 100 });
-        setRows(result.data as unknown as Record<string, unknown>[]);
-      } else {
-        setRows([]);
-      }
+      const next = getPanelDriver(server.serviceType);
+      setRows(next?.listCronjobs ? await next.listCronjobs(panelConnectionCtx(server)) : []);
     } catch (e) {
       setError(String(e));
       setRows([]);
@@ -160,7 +166,7 @@ export function ServerCronjobsTab({ server }: Props) {
 
   const handleToggleStatus = useCallback(
     async (row: CronGridRow) => {
-      if (!canManage || row.jobId == null || actionBusyId != null) return;
+      if (!canToggle || row.jobId == null || actionBusyId != null) return;
       const enabled = isCronEnabled(row.status);
       const disabled = isCronDisabled(row.status);
       if (!enabled && !disabled) return;
@@ -168,20 +174,13 @@ export function ServerCronjobsTab({ server }: Props) {
       setActionBusyId(row.jobId);
       setError(null);
       try {
-        if (isBt) {
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          await client.setCronStatus(row.jobId);
-          showToast(enabled ? t("server.cronjobs.disableSuccess") : t("server.cronjobs.enableSuccess"));
-        } else {
-          const client = createOnePanelClient(server.address, server.key, server.id);
-          const next = enabled ? "Disable" : "Enable";
-          await client.updateCronjobStatus(row.jobId, next);
-          showToast(
-            next === "Enable"
-              ? t("server.cronjobs.enableSuccess")
-              : t("server.cronjobs.disableSuccess"),
-          );
-        }
+        const next = getPanelDriver(server.serviceType);
+        if (!next?.setCronjobStatus) return;
+        await next.setCronjobStatus(panelConnectionCtx(server), {
+          id: row.jobId,
+          enabled: !enabled,
+        });
+        showToast(enabled ? t("server.cronjobs.disableSuccess") : t("server.cronjobs.enableSuccess"));
         await load({ soft: true });
       } catch (err) {
         setError(formatCronError(err));
@@ -189,22 +188,18 @@ export function ServerCronjobsTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, canManage, isBt, load, server.address, server.id, server.key, t],
+    [actionBusyId, canToggle, load, server, t],
   );
 
   const handleRunOnce = useCallback(
     async (row: CronGridRow) => {
-      if (!canManage || row.jobId == null || actionBusyId != null) return;
+      if (!canRun || row.jobId == null || actionBusyId != null) return;
       setActionBusyId(row.jobId);
       setError(null);
       try {
-        if (isBt) {
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          await client.startCronTask(row.jobId);
-        } else {
-          const client = createOnePanelClient(server.address, server.key, server.id);
-          await client.handleCronjobOnce(row.jobId);
-        }
+        const next = getPanelDriver(server.serviceType);
+        if (!next?.runCronjob) return;
+        await next.runCronjob(panelConnectionCtx(server), { id: row.jobId });
         showToast(t("server.cronjobs.runOnceSuccess", { name: row.name }));
       } catch (err) {
         setError(formatCronError(err));
@@ -212,12 +207,12 @@ export function ServerCronjobsTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, canManage, isBt, server.address, server.id, server.key, t],
+    [actionBusyId, canRun, server, t],
   );
 
   const handleDelete = useCallback(
     async (row: CronGridRow) => {
-      if (!canManage || row.jobId == null || actionBusyId != null) return;
+      if (!canDelete || row.jobId == null || actionBusyId != null) return;
       const confirmed = await appConfirm(
         t("server.cronjobs.deleteConfirm", { name: row.name }),
       );
@@ -225,13 +220,9 @@ export function ServerCronjobsTab({ server }: Props) {
       setActionBusyId(row.jobId);
       setError(null);
       try {
-        if (isBt) {
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          await client.deleteCrontab(row.jobId);
-        } else {
-          const client = createOnePanelClient(server.address, server.key, server.id);
-          await client.deleteCronjobs([row.jobId]);
-        }
+        const next = getPanelDriver(server.serviceType);
+        if (!next?.deleteCronjob) return;
+        await next.deleteCronjob(panelConnectionCtx(server), { id: row.jobId });
         showToast(t("server.cronjobs.deleteSuccess"));
         await load({ soft: true });
       } catch (err) {
@@ -240,7 +231,7 @@ export function ServerCronjobsTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, canManage, isBt, load, server.address, server.id, server.key, t],
+    [actionBusyId, canDelete, load, server, t],
   );
 
   const columns = useMemo((): DbTablesPanelGridColumn<CronGridRow>[] => {
@@ -301,11 +292,14 @@ export function ServerCronjobsTab({ server }: Props) {
         defaultWidth: 132,
         minWidth: 132,
         render: (row) => {
-          const canAct = canManage && row.jobId != null;
+          const hasId = row.jobId != null;
           const busy = actionBusyId === row.jobId;
           const enabled = isCronEnabled(row.status);
           const disabled = isCronDisabled(row.status);
-          const canToggle = canAct && (enabled || disabled);
+          const canToggleRow = canToggle && hasId && (enabled || disabled);
+          const canRunRow = canRun && hasId;
+          const canDeleteRow = canDelete && hasId;
+          const canEditRow = canEdit && hasId;
           return (
             <div
               className="db-tables-panel-grid__row-actions"
@@ -316,9 +310,9 @@ export function ServerCronjobsTab({ server }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canAct || busy || actionBusyId != null}
-                title={canAct ? t("server.cronjobs.runOnce") : t("server.create.panelOnly")}
-                aria-label={canAct ? t("server.cronjobs.runOnce") : t("server.create.panelOnly")}
+                disabled={!canRunRow || busy || actionBusyId != null}
+                title={canRunRow ? t("server.cronjobs.runOnce") : t("server.create.panelOnly")}
+                aria-label={canRunRow ? t("server.cronjobs.runOnce") : t("server.create.panelOnly")}
                 onClick={() => void handleRunOnce(row)}
               >
                 <IconPlay size={14} />
@@ -328,9 +322,9 @@ export function ServerCronjobsTab({ server }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canToggle || busy || actionBusyId != null}
+                disabled={!canToggleRow || busy || actionBusyId != null}
                 title={
-                  !canToggle
+                  !canToggleRow
                     ? t("server.create.panelOnly")
                     : enabled
                       ? t("server.cronjobs.disable")
@@ -348,9 +342,9 @@ export function ServerCronjobsTab({ server }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canAct || busy}
-                title={canAct ? t("server.cronjobs.edit") : t("server.create.panelOnly")}
-                aria-label={canAct ? t("server.cronjobs.edit") : t("server.create.panelOnly")}
+                disabled={!canEditRow || busy}
+                title={canEditRow ? t("server.cronjobs.edit") : t("server.create.panelOnly")}
+                aria-label={canEditRow ? t("server.cronjobs.edit") : t("server.create.panelOnly")}
                 onClick={() => handleEdit(row)}
               >
                 <IconPencil size={14} />
@@ -359,9 +353,9 @@ export function ServerCronjobsTab({ server }: Props) {
                 type="button"
                 variant="danger"
                 size="icon-xs"
-                disabled={!canAct || busy || actionBusyId != null}
-                title={canAct ? t("server.cronjobs.delete") : t("server.create.panelOnly")}
-                aria-label={canAct ? t("server.cronjobs.delete") : t("server.create.panelOnly")}
+                disabled={!canDeleteRow || busy || actionBusyId != null}
+                title={canDeleteRow ? t("server.cronjobs.delete") : t("server.create.panelOnly")}
+                aria-label={canDeleteRow ? t("server.cronjobs.delete") : t("server.create.panelOnly")}
                 onClick={() => void handleDelete(row)}
               >
                 <IconTrash size={14} />
@@ -373,7 +367,10 @@ export function ServerCronjobsTab({ server }: Props) {
     ];
   }, [
     actionBusyId,
-    canManage,
+    canDelete,
+    canEdit,
+    canRun,
+    canToggle,
     handleDelete,
     handleEdit,
     handleRunOnce,
@@ -440,9 +437,9 @@ export function ServerCronjobsTab({ server }: Props) {
             type="button"
             variant="icon"
             size="icon-xs"
-            disabled={!canManage || loading}
-            title={canManage ? t("server.cronjobs.create") : t("server.create.panelOnly")}
-            aria-label={canManage ? t("server.cronjobs.create") : t("server.create.panelOnly")}
+            disabled={!canCreate || loading}
+            title={canCreate ? t("server.cronjobs.create") : t("server.create.panelOnly")}
+            aria-label={canCreate ? t("server.cronjobs.create") : t("server.create.panelOnly")}
             onClick={() => setCreateOpen(true)}
           >
             <IconPlus size={14} />
@@ -475,7 +472,7 @@ export function ServerCronjobsTab({ server }: Props) {
       {error && gridRows.length > 0 ? <div className="db-tables-panel-error">{error}</div> : null}
       <div className="db-tables-panel-grid-wrap server-websites-grid-wrap">{renderTable()}</div>
       <CreateCronjobDialog
-        open={createOpen || editId != null}
+        open={(createOpen && inproc && !pluginCreate) || (editId != null && inproc)}
         server={server}
         editId={editId}
         onClose={() => {
@@ -483,6 +480,19 @@ export function ServerCronjobsTab({ server }: Props) {
           setEditId(null);
         }}
         onCreated={() => void load({ soft: true })}
+      />
+      <PluginFormDialog
+        open={createOpen && Boolean(pluginCreate)}
+        title={t("server.cronjobs.create")}
+        fields={pluginCreate?.formFields ?? []}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={async (values) => {
+          const driver = getPanelDriver(server.serviceType);
+          if (!driver?.createCronjob) throw new Error(t("server.create.panelOnly"));
+          await driver.createCronjob(panelConnectionCtx(server), values);
+          showToast(t("server.cronjobs.createSuccess"));
+          await load({ soft: true });
+        }}
       />
     </div>
   );

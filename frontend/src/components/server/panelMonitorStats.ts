@@ -6,6 +6,17 @@ function formatLoadString(load1?: number, load5?: number, load15?: number): stri
   return `${load1.toFixed(2)} ${(load5 ?? 0).toFixed(2)} ${(load15 ?? 0).toFixed(2)}`;
 }
 
+/** 第三方 `getDashboard` → Host 已有归一化形状；兼容 `{ dashboard }` 包一层。 */
+export function asPanelDashboard(raw: unknown): OnePanelDashboardBase {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const obj = raw as Record<string, unknown>;
+  const inner = obj.dashboard;
+  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+    return inner as OnePanelDashboardBase;
+  }
+  return obj as OnePanelDashboardBase;
+}
+
 /** 将 1Panel / 宝塔仪表盘数据映射为 SSH 监控组件共用的 HostSystemStats。 */
 export function dashboardToHostStats(
   hostId: string,

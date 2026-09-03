@@ -64,7 +64,9 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
   const manifest = pluginId ? getPluginManifest(pluginId) : null;
   const nameKey = desc?.labelI18nKey;
   const translated = nameKey ? t(nameKey) : moduleKey;
-  const name = translated === nameKey ? moduleKey : translated;
+  const name =
+    manifest?.displayName?.trim() ||
+    (translated === nameKey ? moduleKey : translated);
   const activated = desc ? isPluginActivated(desc.pluginId) : false;
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
@@ -148,11 +150,13 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
   const capabilityLabel = useCallback(
     (id: string) => {
       if (id === "overview") return t("moduleHost.overview");
+      const declared = capabilities.find((cap) => cap.id === id)?.label?.trim();
+      if (declared) return declared;
       const key = `moduleHost.capability.${id}`;
       const label = t(key);
       return label === key ? id : label;
     },
-    [t],
+    [capabilities, t],
   );
 
   const handleNavigate = useCallback(

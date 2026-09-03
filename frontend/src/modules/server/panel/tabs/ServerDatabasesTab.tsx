@@ -10,13 +10,15 @@ import {
 import { appConfirm } from "../../../../lib/appConfirm";
 import {
   getPanelDriver,
+  hasInprocPanelDriver,
   panelConnectionCtx,
   type PanelDatabaseItem,
 } from "../../../../lib/panelDriverRegistry";
 import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
-import { panelHasCapability } from "../panelPlugin";
+import { panelHasCapability, panelTabCreateSpec } from "../panelPlugin";
 import { CreateDatabaseDialog } from "../CreateDatabaseDialog";
+import { PluginFormDialog } from "../PluginFormDialog";
 
 interface Props {
   server: ServerEntry;
@@ -47,9 +49,13 @@ export function ServerDatabasesTab({ server }: Props) {
   const [actionBusyId, setActionBusyId] = useState<number | null>(null);
 
   const driver = getPanelDriver(server.serviceType);
+  const inproc = hasInprocPanelDriver(server.serviceType);
   const canManage = panelHasCapability(server.serviceType, "databases") && driver != null;
-  const canCreate = canManage && typeof driver.createDatabase === "function";
-  const canDelete = canManage && typeof driver.deleteDatabase === "function";
+  const pluginCreate = panelTabCreateSpec(server.serviceType, "databases");
+  const canCreate =
+    canManage &&
+    (Boolean(pluginCreate) || (inproc && typeof driver?.createDatabase === "function"));
+  const canDelete = canManage && typeof driver?.deleteDatabase === "function";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -258,10 +264,29 @@ export function ServerDatabasesTab({ server }: Props) {
         )}
       </div>
       <CreateDatabaseDialog
-        open={createOpen}
+        open={createOpen && inproc && !pluginCreate}
         server={server}
         onClose={() => setCreateOpen(false)}
         onCreated={() => void load()}
+      />
+      <PluginFormDialog
+        open={createOpen && Boolean(pluginCreate)}
+        title={t("server.databases.create")}
+        fields={pluginCreate?.formFields ?? []}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={async (values) => {
+          const next = getPanelDriver(server.serviceType);
+          if (!next?.createDatabase) throw new Error(t("server.create.panelOnly"));
+          await next.createDatabase(panelConnectionCtx(server), {
+            name: values.name ?? "",
+            dbUser: values.dbUser || values.user || values.name || "",
+            password: values.password ?? "",
+            charset: values.charset,
+            remark: values.remark,
+          });
+          showToast(t("server.databases.createSuccess"));
+          await load();
+        }}
       />
     </div>
   );

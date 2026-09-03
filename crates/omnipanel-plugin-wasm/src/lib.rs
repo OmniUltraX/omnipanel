@@ -195,6 +195,18 @@ fn wire_imports(linker: &mut Linker<BridgeCtx<'_>>) -> Result<(), PluginError> {
     linker
         .func_wrap(
             "omni",
+            "hmac",
+            |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
+                let spec = read_guest_str(&mut caller, ptr, len);
+                let payload = caller.data().bridge.hmac(&spec).map(String::into_bytes);
+                return_to_guest(caller, payload)
+            },
+        )
+        .map_err(wasmtime_err)?;
+
+    linker
+        .func_wrap(
+            "omni",
             "net_fetch",
             |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
                 let url = read_guest_str(&mut caller, ptr, len);

@@ -14,8 +14,8 @@ import {
   EMPTY_CLOUD_FORM,
   buildCloudConnection,
   cloudConnectionToForm,
+  cloudBrandKind,
   cloudRegionOptions,
-  isTencentCloud,
   type CloudFormData,
 } from "./cloudForm";
 import { invalidateCloudAccountRegions } from "./cloudRegionDiscovery";
@@ -150,6 +150,7 @@ export function CloudConnectionDialog({
   };
 
   const footerStatus = error ? { kind: "error" as const, message: error } : status;
+  const brand = cloudBrandKind(form.pluginId);
   const regionOptions = cloudRegionOptions(form.pluginId).map((r) => ({
     value: r.value,
     label: `${r.label} (${r.value})`,
@@ -245,10 +246,10 @@ export function CloudConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">
-          {t(isTencentCloud(form.pluginId) ? "server.cloud.create.secretId" : "server.cloud.create.accessKeyId")}
+          {t(brand === "tencent" ? "server.cloud.create.secretId" : "server.cloud.create.accessKeyId")}
         </label>
         <TextInput
-          placeholder={isTencentCloud(form.pluginId) ? "AKI..." : "LTAI..."}
+          placeholder={brand === "tencent" ? "AKI..." : brand === "aliyun" ? "LTAI..." : ""}
           value={form.accessKeyId}
           onChange={(value) => update("accessKeyId", value)}
           autoComplete="off"
@@ -257,7 +258,7 @@ export function CloudConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">
-          {t(isTencentCloud(form.pluginId) ? "server.cloud.create.secretKey" : "server.cloud.create.accessKeySecret")}
+          {t(brand === "tencent" ? "server.cloud.create.secretKey" : "server.cloud.create.accessKeySecret")}
         </label>
         <PasswordInput
           copyable

@@ -108,3 +108,48 @@
 .module-host-sidebar .cloud-tree-region-filter {
   margin-left: auto;
 }
+
+.module-host-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0 8px;
+}
+
+.module-host-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 0;
+  font-size: 13px;
+}
+
+.module-host-tree-row:hover {
+  background: color-mix(in oklch, var(--accent) 8%, transparent);
+}
+
+.module-host-tree-row.is-selected {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+
+.module-host-tree-toggle {
+  display: inline-flex;
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.module-host-tree-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

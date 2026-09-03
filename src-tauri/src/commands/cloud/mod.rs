@@ -2,11 +2,12 @@
 
 use omnipanel_cloud::{
     default_region, get_account, get_metrics, get_resource, http_probe_url, invoke_action,
-    is_write_action, list_regions, list_resources, query_logs, test_account, CloudAccountSnapshot,
-    CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery, CloudMetricQuery, CloudMetricSeries,
-    CloudRegion, CloudResourceDetail, CloudResourceFilter, CloudResourceRow, PLUGIN_ID_ALIYUN,
-    PLUGIN_ID_TENCENT,
+    is_first_party_cloud, is_write_action, list_regions, list_resources, query_logs, test_account,
+    CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
+    CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail, CloudResourceFilter,
+    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT,
 };
+use serde_json::{json, Value};
 use omnipanel_cloud_aliyun::{
     AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
     CloudSwasInstance,
@@ -122,8 +123,10 @@ pub(crate) fn normalize_cloud_connection(
     let plugin_id = plugin_id_of(&cfg).unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
     let provider = if plugin_id == PLUGIN_ID_TENCENT {
         "tencent"
-    } else {
+    } else if plugin_id == PLUGIN_ID_ALIYUN {
         "aliyun"
+    } else {
+        plugin_id.as_str()
     };
     connection.config = serde_json::to_string(&serde_json::json!({
         "pluginId": plugin_id,
@@ -186,6 +189,48 @@ fn resolve_credentials(
         },
         cfg,
     ))
+}
+
+fn cloud_plugin_args(connection_id: &str, creds: &AliyunCredentials, extra: Value) -> Value {
+    let mut map = extra.as_object().cloned().unwrap_or_default();
+    map.entry("connectionId".to_string())
+        .or_insert_with(|| json!(connection_id));
+    map.entry("accessKeyId".to_string())
+        .or_insert_with(|| json!(creds.access_key_id));
+    map.entry("accessKeySecret".to_string())
+        .or_insert_with(|| json!(creds.access_key_secret));
+    map.entry("region".to_string())
+        .or_insert_with(|| json!(creds.region));
+    map.entry("regions".to_string())
+        .or_insert_with(|| json!(creds.regions));
+    Value::Object(map)
+}
+
+async fn invoke_cloud_plugin(
+    state: &AppState,
+    plugin_id: &str,
+    method: &str,
+    args: Value,
+) -> Result<Value, OmniError> {
+    crate::commands::plugin::invoke_plugin_method(
+        state,
+        plugin_id.to_string(),
+        method.to_string(),
+        args,
+    )
+    .await
+}
+
+fn l2_items<T: serde::de::DeserializeOwned>(value: Value) -> Result<Vec<T>, OmniError> {
+    if let Ok(rows) = serde_json::from_value::<Vec<T>>(value.clone()) {
+        return Ok(rows);
+    }
+    if let Some(items) = value.get("items") {
+        return serde_json::from_value(items.clone()).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "插件列表结果无法解析").with_cause(e.to_string())
+        });
+    }
+    Err(OmniError::new(ErrorCode::Internal, "插件未返回 items"))
 }
 
 async fn load_connection(state: &AppState, connection_id: &str) -> Result<Connection, OmniError> {
@@ -264,6 +309,22 @@ pub async fn cloud_test(
     secret: Option<String>,
 ) -> Result<String, OmniError> {
     let (plugin_id, creds, _) = resolve_credentials(&connection, secret.as_deref())?;
+    if !is_first_party_cloud(&plugin_id) {
+        let value = invoke_cloud_plugin(
+            &state,
+            &plugin_id,
+            "testAccount",
+            cloud_plugin_args(&connection.id, &creds, json!({})),
+        )
+        .await?;
+        if let Some(msg) = value.as_str() {
+            return Ok(msg.to_string());
+        }
+        if let Some(msg) = value.get("message").and_then(|v| v.as_str()) {
+            return Ok(msg.to_string());
+        }
+        return Ok(value.to_string());
+    }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
     test_account(&plugin_id, &creds, &http).await
 }
@@ -277,6 +338,16 @@ pub async fn cloud_list_regions(
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let configured = normalize_regions(&cfg.regions, &cfg.region);
+    if !is_first_party_cloud(&plugin_id) {
+        let value = invoke_cloud_plugin(
+            &state,
+            &plugin_id,
+            "listRegions",
+            cloud_plugin_args(&connection_id, &creds, json!({ "configured": configured })),
+        )
+        .await?;
+        return l2_items(value);
+    }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
     list_regions(&plugin_id, &creds, &http, &configured).await
 }
@@ -289,6 +360,18 @@ pub async fn cloud_get_account(
 ) -> Result<CloudAccountSnapshot, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    if !is_first_party_cloud(&plugin_id) {
+        let value = invoke_cloud_plugin(
+            &state,
+            &plugin_id,
+            "getAccount",
+            cloud_plugin_args(&connection_id, &creds, json!({})),
+        )
+        .await?;
+        return serde_json::from_value(value).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "插件账户结果无法解析").with_cause(e.to_string())
+        });
+    }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
     get_account(&plugin_id, &creds, &http).await
 }
@@ -303,8 +386,23 @@ pub async fn cloud_list_resources(
 ) -> Result<Vec<CloudResourceRow>, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let filter = filter.unwrap_or_default();
+    if !is_first_party_cloud(&plugin_id) {
+        let value = invoke_cloud_plugin(
+            &state,
+            &plugin_id,
+            "listResources",
+            cloud_plugin_args(
+                &connection_id,
+                &creds,
+                json!({ "capability": capability, "filter": filter }),
+            ),
+        )
+        .await?;
+        return l2_items(value);
+    }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    list_resources(&plugin_id, &creds, &http, &capability, &filter.unwrap_or_default()).await
+    list_resources(&plugin_id, &creds, &http, &capability, &filter).await
 }
 
 #[tauri::command]
@@ -318,16 +416,29 @@ pub async fn cloud_get_resource(
 ) -> Result<CloudResourceDetail, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let region = region_id.as_deref().unwrap_or("");
+    if !is_first_party_cloud(&plugin_id) {
+        let value = invoke_cloud_plugin(
+            &state,
+            &plugin_id,
+            "getResource",
+            cloud_plugin_args(
+                &connection_id,
+                &creds,
+                json!({
+                    "capability": capability,
+                    "resourceId": resource_id,
+                    "regionId": region,
+                }),
+            ),
+        )
+        .await?;
+        return serde_json::from_value(value).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "插件详情结果无法解析").with_cause(e.to_string())
+        });
+    }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    get_resource(
-        &plugin_id,
-        &creds,
-        &http,
-        &capability,
-        &resource_id,
-        region_id.as_deref().unwrap_or(""),
-    )
-    .await
+    get_resource(&plugin_id, &creds, &http, &capability, &resource_id, region).await
 }
 
 #[tauri::command]
@@ -349,6 +460,18 @@ pub async fn cloud_invoke_action(
             "blocked",
         );
         return Err(err);
+    }
+    if !is_first_party_cloud(&plugin_id) {
+        let value = invoke_cloud_plugin(
+            &state,
+            &plugin_id,
+            "invokeAction",
+            cloud_plugin_args(&connection_id, &creds, json!({ "action": action })),
+        )
+        .await?;
+        return serde_json::from_value(value).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "插件动作结果无法解析").with_cause(e.to_string())
+        });
     }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
     match invoke_action(&plugin_id, &creds, &http, &action).await
@@ -390,6 +513,27 @@ pub async fn cloud_get_metrics(
 ) -> Result<Vec<CloudMetricSeries>, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let region = region_id.as_deref().unwrap_or("");
+    let query = query.unwrap_or_default();
+    if !is_first_party_cloud(&plugin_id) {
+        let value = invoke_cloud_plugin(
+            &state,
+            &plugin_id,
+            "getMetrics",
+            cloud_plugin_args(
+                &connection_id,
+                &creds,
+                json!({
+                    "capability": capability,
+                    "resourceId": resource_id,
+                    "regionId": region,
+                    "query": query,
+                }),
+            ),
+        )
+        .await?;
+        return l2_items(value);
+    }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
     get_metrics(
         &plugin_id,
@@ -397,8 +541,8 @@ pub async fn cloud_get_metrics(
         &http,
         &capability,
         &resource_id,
-        region_id.as_deref().unwrap_or(""),
-        &query.unwrap_or_default(),
+        region,
+        &query,
     )
     .await
 }
@@ -415,6 +559,29 @@ pub async fn cloud_query_logs(
 ) -> Result<CloudLogPage, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let region = region_id.as_deref().unwrap_or("");
+    let query = query.unwrap_or_default();
+    if !is_first_party_cloud(&plugin_id) {
+        let value = invoke_cloud_plugin(
+            &state,
+            &plugin_id,
+            "queryLogs",
+            cloud_plugin_args(
+                &connection_id,
+                &creds,
+                json!({
+                    "capability": capability,
+                    "resourceId": resource_id,
+                    "regionId": region,
+                    "query": query,
+                }),
+            ),
+        )
+        .await?;
+        return serde_json::from_value(value).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "插件日志结果无法解析").with_cause(e.to_string())
+        });
+    }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
     query_logs(
         &plugin_id,
@@ -422,8 +589,8 @@ pub async fn cloud_query_logs(
         &http,
         &capability,
         &resource_id,
-        region_id.as_deref().unwrap_or(""),
-        &query.unwrap_or_default(),
+        region,
+        &query,
     )
     .await
 }

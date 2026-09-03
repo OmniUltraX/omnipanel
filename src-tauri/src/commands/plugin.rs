@@ -762,15 +762,12 @@ fn merge_service_connection_args(args: &mut Value, plugin_id: &str, conn: &omnip
 }
 
 /// 第一方/第三方统一命令网关：清单 `methods[]` 白名单 + 权限注解强制 + 审计。
-#[tauri::command]
-#[specta::specta]
-pub async fn plugin_invoke(
-    state: State<'_, AppState>,
+pub async fn invoke_plugin_method(
+    state: &AppState,
     plugin_id: String,
     method: String,
-    args: Value,
+    mut args: Value,
 ) -> Result<Value, OmniError> {
-    let mut args = args;
     if let Some(connection_id) = args
         .get("connectionId")
         .and_then(|v| v.as_str())
@@ -800,7 +797,7 @@ pub async fn plugin_invoke(
             .get("presenceTarget")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        crate::commands::presence::consume_grant(&state, token, action, target)?;
+        crate::commands::presence::consume_grant(state, token, action, target)?;
     }
     // 3a. 原生网关优先
     let native = state
@@ -848,8 +845,19 @@ pub async fn plugin_invoke(
         Ok(_) => format!("{method} {}", args_digest(&args)),
         Err(err) => format!("{method} {} err={err}", args_digest(&args)),
     };
-    audit_plugin_action(&state, "plugin.invoke", &plugin_id, status, detail);
+    audit_plugin_action(state, "plugin.invoke", &plugin_id, status, detail);
     result.map_err(Into::into)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_invoke(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    method: String,
+    args: Value,
+) -> Result<Value, OmniError> {
+    invoke_plugin_method(&state, plugin_id, method, args).await
 }
 
 /// 缺权即失败。前端 Host API 在 upsert / 选区 / SSH 探测前必须先过此闸；

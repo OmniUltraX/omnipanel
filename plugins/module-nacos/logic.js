@@ -374,7 +374,7 @@ function listServices(args) {
 
 function listInstances(args) {
   var path =
-    "/v1/ns/instance/list?serviceName=" + encode(arg(args, "serviceName", "")) +
+    "/v1/ns/instance/list?serviceName=" + encode(arg(args, "serviceName", "") || arg(args, "parentId", "")) +
     "&namespaceId=" + encode(tenant(args));
   var parsed = api(args, path, {});
   var hosts = parsed.hosts || parsed.instances || [];
@@ -428,6 +428,17 @@ function listNodes(args) {
   }
 }
 
+function listItems(args) {
+  var cap = String(args.capabilityId || "");
+  if (cap === "namespace") return listNamespaces(args);
+  if (cap === "config") return listConfigs(args);
+  if (cap === "discovery") {
+    return args.parentId ? listInstances({ ...args, serviceName: args.parentId }) : listServices(args);
+  }
+  if (cap === "cluster") return listNodes(args);
+  return { items: [] };
+}
+
 function probeHealth(args) {
   try {
     var probed = testConnection(args);
@@ -456,6 +467,7 @@ var HANDLERS = {
   listInstances: listInstances,
   updateInstance: updateInstance,
   listNodes: listNodes,
+  listItems: listItems,
   probeHealth: probeHealth,
   omni_nacos_list_namespaces: listNamespaces,
   omni_nacos_get_config: getConfig,

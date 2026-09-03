@@ -5,7 +5,7 @@ import { commands, type CloudChildRow, type CloudLogPage, type CloudMetricSeries
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { showToast } from "../../stores/toastStore";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { capabilityI18nKey, cloudBrandKind, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
+import { cloudBrandKind, cloudCapabilityLabel, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
 import { cloudCapabilityById } from "./cloudCapabilities";
 import { capabilityHasDeclaredAction } from "./cloudWorkspaceTabs";
 import {
@@ -93,27 +93,33 @@ type DetailSlot = "overview" | "metrics" | "rules" | "logs" | "security" | "reco
 
 const LIST_DETAIL_SLOTS = new Set<DetailSlot>(["metrics", "rules", "logs", "records", "members", "backups"]);
 
-function relatedRoleLabel(t: (key: string) => string, item: CloudRelatedRef): string {
+function relatedRoleLabel(
+  t: (key: string) => string,
+  item: CloudRelatedRef,
+  pluginId?: string,
+): string {
   if (item.role === "disk") return t("cloud.detail.relatedRoles.disk");
   if (item.role === "securityGroup") return t("cloud.capability.networkSecurityGroup");
   if (item.role === "vpc") return t("cloud.columns.vpcId");
   if (item.role === "instance") {
-    if (item.capability) return t(capabilityI18nKey(item.capability));
+    if (item.capability) return cloudCapabilityLabel(t, item.capability, pluginId);
     return t("cloud.detail.relatedRoles.instance");
   }
-  if (item.capability) return t(capabilityI18nKey(item.capability));
+  if (item.capability) return cloudCapabilityLabel(t, item.capability, pluginId);
   return item.role || item.resourceId;
 }
 
 function RelatedResourceCards({
   items,
   accountId,
+  pluginId,
   regionId,
   onSelect,
   t,
 }: {
   items: CloudRelatedRef[];
   accountId: string;
+  pluginId?: string;
   regionId: string;
   onSelect: (accountId: string, capability: string, resourceId: string, regionId: string, mode: "permanent") => void;
   t: (key: string) => string;
@@ -128,7 +134,7 @@ function RelatedResourceCards({
         const body = (
           <>
             <strong>{item.name || item.resourceId}</strong>
-            <span>{relatedRoleLabel(t, item)}</span>
+            <span>{relatedRoleLabel(t, item, pluginId)}</span>
           </>
         );
         return clickable ? (
@@ -488,7 +494,7 @@ export function CloudResourceDetailPanel({
               <span className={`cloud-pill cloud-pill--${statusTone}`}>
                 {formatCloudFieldValue(t, "status", detail.status || "") || "—"}
               </span>
-              <span className="cloud-chip">{t(capabilityI18nKey(capability))}</span>
+              <span className="cloud-chip">{cloudCapabilityLabel(t, capability, account.pluginId)}</span>
               {detail.regionId ? (
                 <span className="cloud-chip">{cloudRegionLabel(detail.regionId)}</span>
               ) : null}
@@ -730,6 +736,7 @@ export function CloudResourceDetailPanel({
               <RelatedResourceCards
                 items={relatedDisks}
                 accountId={account.id}
+                pluginId={account.pluginId}
                 regionId={regionId}
                 onSelect={selectResource}
                 t={t}
@@ -742,6 +749,7 @@ export function CloudResourceDetailPanel({
               <RelatedResourceCards
                 items={[...relatedSecurityGroups, ...relatedOthers]}
                 accountId={account.id}
+                pluginId={account.pluginId}
                 regionId={regionId}
                 onSelect={selectResource}
                 t={t}
@@ -768,6 +776,7 @@ export function CloudResourceDetailPanel({
           <RelatedResourceCards
             items={(detail.related ?? []).filter((item) => item.role === "securityGroup")}
             accountId={account.id}
+            pluginId={account.pluginId}
             regionId={regionId}
             onSelect={selectResource}
             t={t}
@@ -878,6 +887,7 @@ export function CloudResourceDetailPanel({
               <RelatedResourceCards
                 items={(detail.related ?? []).filter((item) => item.role === "instance")}
                 accountId={account.id}
+                pluginId={account.pluginId}
                 regionId={regionId}
                 onSelect={selectResource}
                 t={t}
@@ -912,6 +922,7 @@ export function CloudResourceDetailPanel({
               <RelatedResourceCards
                 items={relatedDisks}
                 accountId={account.id}
+                pluginId={account.pluginId}
                 regionId={regionId}
                 onSelect={selectResource}
                 t={t}

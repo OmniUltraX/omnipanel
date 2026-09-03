@@ -8,12 +8,18 @@ import {
   type DbTablesPanelGridColumn,
   type DbTablesPanelGridSortDirection,
 } from "../../../database/workspace/DbTablesPanelGrid";
-import { createOnePanelClient } from "../../../../lib/onepanel";
-import { createBtPanelClient } from "../../../../lib/btpanel";
+import {
+  getPanelDriver,
+  hasInprocPanelDriver,
+  panelConnectionCtx,
+} from "../../../../lib/panelDriverRegistry";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
 import type { ServerEntry } from "../serverConnection";
-import { isBtPanelService, isOnePanelService, panelHasCapability } from "../panelPlugin";
+import {
+  panelHasCapability,
+  panelTabCreateSpec,
+} from "../panelPlugin";
 import { useServerCertificates } from "../useServerCertificates";
 import {
   certificateExpiryInfo,
@@ -29,6 +35,7 @@ import {
   websiteCertificateDaysBadgeStyle,
 } from "../serverResourceLabels";
 import { CreateCertificateDialog } from "../ServerResourceCreateDialogs";
+import { PluginFormDialog } from "../PluginFormDialog";
 import { CertificateLogsSubWindow } from "../WebsiteActionSubWindows";
 
 interface Props {
@@ -84,9 +91,17 @@ export function ServerCertificatesTab({ server }: Props) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const isOnePanel = isOnePanelService(server.serviceType);
-  const isBt = isBtPanelService(server.serviceType);
+  const driver = getPanelDriver(server.serviceType);
+  const inproc = hasInprocPanelDriver(server.serviceType);
   const canManage = panelHasCapability(server.serviceType, "certificates");
+  const pluginCreate = panelTabCreateSpec(server.serviceType, "certificates");
+  const canCreate =
+    canManage &&
+    (Boolean(pluginCreate) || (inproc && typeof driver?.createCertificate === "function"));
+  const canDeleteCert = canManage && typeof driver?.deleteCertificate === "function";
+  const canDownloadCert = typeof driver?.downloadCertificate === "function";
+  const canUpdateCert = typeof driver?.updateCertificate === "function";
+  const showAcmeHint = inproc && !canDownloadCert;
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 280);
@@ -217,12 +232,15 @@ export function ServerCertificatesTab({ server }: Props) {
 
   const handleDownload = useCallback(
     async (row: CertGridRow) => {
-      if (!isOnePanel || row.certId == null || actionBusyId != null) return;
+      if (!canDownloadCert || row.certId == null || actionBusyId != null) return;
       setActionBusyId(row.certId);
       setActionError(null);
       try {
-        const client = createOnePanelClient(server.address, server.key, server.id);
-        const { filename, bytes } = await client.downloadWebsiteSsl(row.certId);
+        const next = getPanelDriver(server.serviceType);
+        if (!next?.downloadCertificate) return;
+        const { filename, bytes } = await next.downloadCertificate(panelConnectionCtx(server), {
+          id: row.certId,
+        });
         const safeName =
           filename.trim() ||
           `${row.domain.replace(/[^\w.-]+/g, "_") || `ssl-${row.certId}`}.zip`;
@@ -240,12 +258,12 @@ export function ServerCertificatesTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, isOnePanel, server.address, server.key, t],
+    [actionBusyId, canDownloadCert, server, t],
   );
 
   const handleDelete = useCallback(
     async (row: CertGridRow) => {
-      if (!canManage || (row.certId == null && !row.certHash) || actionBusyId != null) return;
+      if (!canDeleteCert || (row.certId == null && !row.certHash) || actionBusyId != null) return;
       const confirmed = await appConfirm(
         t("server.certificates.deleteConfirm", { name: row.domain }),
       );
@@ -254,17 +272,12 @@ export function ServerCertificatesTab({ server }: Props) {
       setActionBusyId(busyKey);
       setActionError(null);
       try {
-        if (isBt) {
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          await client.removeSslCert({
-            id: row.certId ?? undefined,
-            hash: row.certHash ?? undefined,
-          });
-        } else {
-          if (row.certId == null) return;
-          const client = createOnePanelClient(server.address, server.key, server.id);
-          await client.deleteWebsiteSsl([row.certId]);
-        }
+        const next = getPanelDriver(server.serviceType);
+        if (!next?.deleteCertificate) return;
+        await next.deleteCertificate(panelConnectionCtx(server), {
+          id: row.certId ?? undefined,
+          hash: row.certHash ?? undefined,
+        });
         showToast(t("server.certificates.deleteSuccess"));
         await refresh();
       } catch (err) {
@@ -273,20 +286,21 @@ export function ServerCertificatesTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, canManage, isBt, refresh, server.address, server.key, t],
+    [actionBusyId, canDeleteCert, refresh, server, t],
   );
 
   const handleToggleAutoRenew = useCallback(
     async (row: CertGridRow) => {
-      if (!isOnePanel || row.certId == null || row.autoRenewEnabled == null || actionBusyId != null) {
+      if (!canUpdateCert || row.certId == null || row.autoRenewEnabled == null || actionBusyId != null) {
         return;
       }
       const next = !row.autoRenewEnabled;
       setActionBusyId(row.certId);
       setActionError(null);
       try {
-        const client = createOnePanelClient(server.address, server.key, server.id);
-        await client.updateWebsiteSsl({
+        const panel = getPanelDriver(server.serviceType);
+        if (!panel?.updateCertificate) return;
+        await panel.updateCertificate(panelConnectionCtx(server), {
           id: row.certId,
           primaryDomain: row.domain,
           provider: row.provider === "—" ? "manual" : row.provider,
@@ -305,7 +319,7 @@ export function ServerCertificatesTab({ server }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, isOnePanel, refresh, server.address, server.key, t],
+    [actionBusyId, canUpdateCert, refresh, server, t],
   );
 
   const columns = useMemo((): DbTablesPanelGridColumn<CertGridRow>[] => {
@@ -319,7 +333,7 @@ export function ServerCertificatesTab({ server }: Props) {
         defaultWidth: 200,
         minWidth: 120,
         render: (row) => {
-          const canDownload = isOnePanel && row.certId != null;
+          const canDownload = canDownloadCert && row.certId != null;
           const busy = actionBusyId === row.certId;
           return (
             <div className="server-resource-path-cell" onClick={(event) => event.stopPropagation()}>
@@ -412,7 +426,7 @@ export function ServerCertificatesTab({ server }: Props) {
           if (row.autoRenewEnabled == null) {
             return <span className="text-muted">—</span>;
           }
-          const canToggle = isOnePanel && row.certId != null;
+          const canToggle = canUpdateCert && row.certId != null;
           const busy = actionBusyId === row.certId;
           const label = row.autoRenewEnabled
             ? t("server.certificates.autoRenewYes")
@@ -468,9 +482,9 @@ export function ServerCertificatesTab({ server }: Props) {
         defaultWidth: 108,
         minWidth: 108,
         render: (row) => {
-          const canLogs = isOnePanel && row.certId != null;
-          const canEdit = isOnePanel && row.certId != null;
-          const canDelete = canManage && (row.certId != null || Boolean(row.certHash));
+          const canLogs = canUpdateCert && row.certId != null;
+          const canEdit = inproc && row.certId != null;
+          const canDelete = canDeleteCert && (row.certId != null || Boolean(row.certHash));
           const busy = actionBusyId === row.certId;
           return (
             <div
@@ -527,6 +541,7 @@ export function ServerCertificatesTab({ server }: Props) {
     ];
   }, [
     actionBusyId,
+    canDeleteCert,
     canManage,
     formatProvider,
     formatStatus,
@@ -534,7 +549,9 @@ export function ServerCertificatesTab({ server }: Props) {
     handleDownload,
     handleEdit,
     handleToggleAutoRenew,
-    isOnePanel,
+    canDownloadCert,
+    canUpdateCert,
+    inproc,
     t,
   ]);
 
@@ -598,9 +615,9 @@ export function ServerCertificatesTab({ server }: Props) {
             type="button"
             variant="icon"
             size="icon-xs"
-            disabled={!canManage || busy}
-            title={canManage ? t("server.certificates.create") : t("server.create.panelOnly")}
-            aria-label={canManage ? t("server.certificates.create") : t("server.create.panelOnly")}
+            disabled={!canCreate || busy}
+            title={canCreate ? t("server.certificates.create") : t("server.create.panelOnly")}
+            aria-label={canCreate ? t("server.certificates.create") : t("server.create.panelOnly")}
             onClick={() => setCreateOpen(true)}
           >
             <IconPlus size={14} />
@@ -630,13 +647,13 @@ export function ServerCertificatesTab({ server }: Props) {
           </Button>
         </div>
       </div>
-      {isBt ? <div className="form-hint" style={{ padding: "0 12px 8px" }}>{t("server.certificates.btAcmeHint")}</div> : null}
+      {showAcmeHint ? <div className="form-hint" style={{ padding: "0 12px 8px" }}>{t("server.certificates.btAcmeHint")}</div> : null}
       {(error || actionError) && gridRows.length > 0 ? (
         <div className="db-tables-panel-error">{actionError ?? error}</div>
       ) : null}
       <div className="db-tables-panel-grid-wrap server-websites-grid-wrap">{renderTable()}</div>
       <CreateCertificateDialog
-        open={createOpen || editId != null}
+        open={(createOpen && inproc && !pluginCreate) || (editId != null && inproc)}
         server={server}
         editId={editId}
         onClose={() => {
@@ -644,6 +661,19 @@ export function ServerCertificatesTab({ server }: Props) {
           setEditId(null);
         }}
         onCreated={() => void refresh()}
+      />
+      <PluginFormDialog
+        open={createOpen && Boolean(pluginCreate)}
+        title={t("server.certificates.create")}
+        fields={pluginCreate?.formFields ?? []}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={async (values) => {
+          const driver = getPanelDriver(server.serviceType);
+          if (!driver?.createCertificate) throw new Error(t("server.create.panelOnly"));
+          await driver.createCertificate(panelConnectionCtx(server), values);
+          showToast(t("server.certificates.createSuccess"));
+          await refresh();
+        }}
       />
       <CertificateLogsSubWindow
         open={logsTarget != null}

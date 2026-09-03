@@ -1,0 +1,37 @@
+{
+  "id": "omni.importer.starter",
+  "version": "0.1.0",
+  "displayName": "Importer Starter",
+  "kind": "importer",
+  "permissions": ["connections:write", "net:connect", "vault:read"],
+  "entry": { "logic": "logic.js" },
+  "methods": [
+    { "name": "fetchTargets", "permissions": ["net:connect", "vault:read"] }
+  ],
+  "contributes": {
+    "ui": {
+      "home": {
+        "show": true,
+        "title": "Importer Starter",
+        "open": { "kind": "importer", "id": "starter" }
+      }
+    },
+    "importers": [
+      {
+        "id": "starter",
+        "title": "Importer Starter",
+        "hint": "第三方导入器样板",
+        "fetchMethod": "fetchTargets",
+        "defaultGroup": "Starter",
+        "resourceKinds": ["ssh"],
+        "defaultTag": "starter",
+        "fields": [
+          { "key": "name", "kind": "text", "label": "名称" },
+          { "key": "baseUrl", "kind": "url", "label": "地址", "required": true },
+          { "key": "token", "kind": "secret", "label": "令牌", "required": true }
+        ],
+        "entry": ["commandPalette", "settings", "home"]
+      }
+    ]
+  }
+}

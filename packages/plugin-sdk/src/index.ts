@@ -199,8 +199,15 @@ export const cloudDetailSlotSchema = z.enum([
   "backups",
 ]);
 
+export const cloudRegionDeclSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1).optional(),
+});
+
 export const cloudCapabilitySchema = z.object({
   id: z.string().min(1),
+  /** 工作台页头 / 树节点文案；缺省回退宿主 i18n 或 id。 */
+  label: z.string().min(1).optional(),
   scope: cloudCapabilityScopeSchema,
   columns: z.array(cloudColumnSchema).default([]),
   actions: z.array(cloudActionDeclSchema).default([]),
@@ -209,14 +216,63 @@ export const cloudCapabilitySchema = z.object({
 
 export type CloudCapabilityScope = z.infer<typeof cloudCapabilityScopeSchema>;
 export type CloudCapabilityDecl = z.infer<typeof cloudCapabilitySchema>;
+export type CloudRegionDecl = z.infer<typeof cloudRegionDeclSchema>;
 
 /** module 工作台能力 id 建议值；未知 id 由 Host 空态承接，便于后续 topic/queue。 */
 export const MODULE_CAPABILITY_IDS = ["namespace", "config", "discovery", "cluster"] as const;
 
+export const moduleCapabilityDetailSchema = z.enum([
+  "none",
+  "editor",
+  "children",
+  "form",
+  "kv",
+  "logs",
+  "metrics",
+  "facts",
+  "tree",
+]);
+
+export const moduleActionTargetSchema = z.enum(["toolbar", "row", "editor", "child", "history"]);
+
+export const moduleActionDeclSchema = cloudActionDeclSchema.extend({
+  label: z.string().min(1).optional(),
+  /** 缺省用 `id` 当 L2 method。 */
+  method: z.string().min(1).optional(),
+  target: moduleActionTargetSchema.optional(),
+  /** 子行动作：调用前把该布尔字段取反（启停等）。 */
+  toggle: z.string().min(1).optional(),
+});
+
 export const moduleCapabilitySchema = z.object({
   id: z.string().min(1),
+  /** 侧栏 / 页头文案；缺省回退宿主 i18n 或 id。 */
+  label: z.string().min(1).optional(),
   columns: z.array(cloudColumnSchema).default([]),
-  actions: z.array(cloudActionDeclSchema).default([]),
+  actions: z.array(moduleActionDeclSchema).default([]),
+  /** 缺省 `listItems`；兼容旧包可写 listConfigs 等。 */
+  listMethod: z.string().min(1).optional(),
+  getMethod: z.string().min(1).optional(),
+  /** 行主键字段，缺省 `id`；逗号分隔表示复合键。 */
+  itemKey: z.string().min(1).optional(),
+  /**
+   * 工作台壳：
+   * none=表；editor=表+代码；form=表+字段；kv=表+值；
+   * children=表+子表；logs=日志；metrics=指标；facts=键值事实；
+   * tree=树（可懒加载子节点）+ 可选右侧编辑器。
+   */
+  detail: moduleCapabilityDetailSchema.optional(),
+  /** 新建弹窗 / form 右侧字段。 */
+  formFields: z.array(cloudColumnSchema).optional(),
+  historyMethod: z.string().min(1).optional(),
+  childColumns: z.array(cloudColumnSchema).optional(),
+  childItemKey: z.string().min(1).optional(),
+  /** 缺省复用 listMethod，并传 parentId。 */
+  childListMethod: z.string().min(1).optional(),
+  /** editor/kv 语法，缺省 yaml。 */
+  language: z.enum(["yaml", "json", "text", "sql", "ini", "shell", "python"]).optional(),
+  /** get 结果里的正文键，缺省 content。 */
+  valueKey: z.string().min(1).optional(),
 });
 
 export const moduleProbeSchema = z.object({
@@ -245,11 +301,40 @@ export const moduleContributesSchema = z
   });
 
 export type ModuleCapabilityDecl = z.infer<typeof moduleCapabilitySchema>;
+export type ModuleActionDecl = z.infer<typeof moduleActionDeclSchema>;
+export type ModuleActionTarget = z.infer<typeof moduleActionTargetSchema>;
 export type ModuleProbeDecl = z.infer<typeof moduleProbeSchema>;
+
+/** panel 页签动作：工具栏新建 / 行内删除等；缺省 target=toolbar。 */
+export const panelTabActionTargetSchema = z.enum(["toolbar", "row"]);
+
+export const panelTabActionDeclSchema = z.object({
+  id: z.string().min(1),
+  method: z.string().min(1),
+  label: z.string().min(1).optional(),
+  target: panelTabActionTargetSchema.optional(),
+});
+
+/**
+ * 第三方面板槽声明。第一方仍可只写 `{ id }`；
+ * 点名 create 时必须带 formFields，Host 用通用表单渲染。
+ */
+export const panelTabDeclSchema = z.object({
+  id: z.string().min(1),
+  listMethod: z.string().min(1).optional(),
+  formFields: z.array(cloudColumnSchema).optional(),
+  actions: z.array(panelTabActionDeclSchema).optional(),
+});
+
+export type PanelTabActionDecl = z.infer<typeof panelTabActionDeclSchema>;
+export type PanelTabActionTarget = z.infer<typeof panelTabActionTargetSchema>;
+export type PanelTabDecl = z.infer<typeof panelTabDeclSchema>;
 
 export const pluginManifestSchema = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
+  /** 侧栏 / 插件中心显示名；缺省回退宿主 i18n 或 id。 */
+  displayName: z.string().min(1).optional(),
   kind: pluginKindSchema,
   permissions: z.array(pluginPermissionSchema).default([]),
   methods: z.array(pluginMethodSchema).optional(),
@@ -265,7 +350,7 @@ export const pluginManifestSchema = z.object({
           sidebar: z.boolean().optional(),
           moduleKey: z.string().optional(),
           connectionForm: z.unknown().optional(),
-          panelTabs: z.array(z.unknown()).optional(),
+          panelTabs: z.array(panelTabDeclSchema).optional(),
           commands: z.array(z.unknown()).optional(),
           workbench: z
             .object({
@@ -289,6 +374,8 @@ export const pluginManifestSchema = z.object({
       cloud: z
         .object({
           capabilities: z.array(cloudCapabilitySchema).default([]),
+          /** 连接对话框地区预置；空则由宿主第一方列表或用户自填。 */
+          regions: z.array(cloudRegionDeclSchema).default([]),
         })
         .optional(),
       module: moduleContributesSchema.optional(),

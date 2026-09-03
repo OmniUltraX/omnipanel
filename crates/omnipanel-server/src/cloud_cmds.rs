@@ -109,8 +109,10 @@ pub(crate) fn normalize_cloud_connection(
     .unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
     let provider = if plugin_id == PLUGIN_ID_TENCENT {
         "tencent"
-    } else {
+    } else if plugin_id == PLUGIN_ID_ALIYUN {
         "aliyun"
+    } else {
+        plugin_id.as_str()
     };
     connection.config = serde_json::to_string(&serde_json::json!({
         "pluginId": plugin_id,

@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import type { Connection } from "../ipc/bindings";
 import { connectionToServerEntry } from "../modules/server/panel/panelConnection";
-import { isOnePanelService } from "../modules/server/panel/panelPlugin";
+import { panelHasCapability } from "../modules/server/panel/panelPlugin";
 import {
   EMPTY_SERVER_PANEL_RESOURCE_CACHE,
   normalizeServerPanelResourceCache,
@@ -230,7 +230,7 @@ export const useServerPanelCacheStore = create<ServerPanelCacheState>()(
           await Promise.all(
             list.flatMap((server) => {
               const tasks: Promise<unknown>[] = [get().refreshServer(server)];
-              if (isOnePanelService(server.serviceType)) {
+              if (panelHasCapability(server.serviceType, "apps")) {
                 tasks.push(get().refreshServerApps(server));
               }
               return tasks;

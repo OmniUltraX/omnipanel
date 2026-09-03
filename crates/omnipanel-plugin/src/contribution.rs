@@ -35,6 +35,17 @@ pub struct PluginContributes {
 pub struct CloudContributes {
     #[serde(default)]
     pub capabilities: Vec<CloudCapabilityDecl>,
+    /// 连接对话框地区预置；空则由宿主第一方列表或用户自填。
+    #[serde(default)]
+    pub regions: Vec<CloudRegionDecl>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudRegionDecl {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
@@ -50,10 +61,34 @@ pub struct ModuleContributes {
 #[serde(rename_all = "camelCase")]
 pub struct ModuleCapabilityDecl {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(default)]
     pub columns: Vec<Value>,
     #[serde(default)]
     pub actions: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub get_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_fields: Option<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_columns: Option<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_item_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_list_method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
@@ -71,6 +106,8 @@ pub struct ModuleProbeDecl {
 #[serde(rename_all = "camelCase")]
 pub struct CloudCapabilityDecl {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     #[serde(default)]
     pub scope: String,
     #[serde(default)]

@@ -206,9 +206,16 @@ describe("pluginManifests 单源目录", () => {
         "publishConfig",
         "rollbackConfig",
         "listServices",
+        "listItems",
         "probeHealth",
         "omni_nacos_list_namespaces",
       ]),
+    );
+    expect(manifest?.contributes.module?.capabilities.find((c) => c.id === "config")?.detail).toBe(
+      "editor",
+    );
+    expect(manifest?.contributes.module?.capabilities.find((c) => c.id === "discovery")?.childListMethod).toBe(
+      "listInstances",
     );
     expect(manifest?.contributes.launcher?.prefix).toBe("nacos");
     expect(manifest?.contributes.discovery?.some((item) => item.probeId === "module-http")).toBe(true);

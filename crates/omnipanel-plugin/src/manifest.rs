@@ -89,6 +89,8 @@ impl PluginEntryDecl {
 pub struct PluginManifest {
     pub id: String,
     pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub kind: PluginKind,
     #[serde(default)]
     pub contributes: PluginContributes,

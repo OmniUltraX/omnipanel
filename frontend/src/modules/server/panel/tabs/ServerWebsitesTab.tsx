@@ -22,10 +22,16 @@ import {
   type DbTablesPanelGridColumn,
   type DbTablesPanelGridSortDirection,
 } from "../../../database/workspace/DbTablesPanelGrid";
-import { createBtPanelClient, fetchBtMergedWebsiteList } from "../../../../lib/btpanel";
-import { createOnePanelClient } from "../../../../lib/onepanel";
+import {
+  getPanelDriver,
+  hasInprocPanelDriver,
+  panelConnectionCtx,
+} from "../../../../lib/panelDriverRegistry";
 import type { ServerEntry } from "../serverConnection";
-import { isBtPanelService, panelHasCapability } from "../panelPlugin";
+import {
+  panelHasCapability,
+  panelTabCreateSpec,
+} from "../panelPlugin";
 import { useServerWebsites } from "../useServerWebsites";
 import { useServerCertificates } from "../useServerCertificates";
 import {
@@ -55,6 +61,7 @@ import {
   WebsiteLogsSubWindow,
 } from "../WebsiteActionSubWindows";
 import { CreateWebsiteDialog, EditWebsiteDialog } from "../ServerResourceCreateDialogs";
+import { PluginFormDialog } from "../PluginFormDialog";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
 import { enrichWebsitesWithGroups } from "../serverPanelCacheRefresh";
@@ -153,8 +160,15 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
 
-  const isBt = isBtPanelService(server.serviceType);
+  const driver = getPanelDriver(server.serviceType);
+  const inproc = hasInprocPanelDriver(server.serviceType);
   const canManage = panelHasCapability(server.serviceType, "websites");
+  const pluginCreate = panelTabCreateSpec(server.serviceType, "websites");
+  const canCreate =
+    canManage && (Boolean(pluginCreate) || (inproc && typeof driver?.createWebsite === "function"));
+  const canToggleWebsite = canManage && typeof driver?.setWebsiteStatus === "function";
+  const canDeleteWebsite = canManage && typeof driver?.deleteWebsite === "function";
+  const remoteWebsiteFilter = Boolean(driver?.remoteWebsiteFilter);
 
   useEffect(() => {
     setGroupFilter("");
@@ -175,9 +189,9 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  // 宝塔：筛选项变化时远端局部重拉（type / search），失败则回退本地筛选
+  // 声明 remoteWebsiteFilter 的 driver：筛选项变化时带 query 重拉
   useEffect(() => {
-    if (!isBt) {
+    if (!remoteWebsiteFilter) {
       setRemoteRows(null);
       setRemoteError(null);
       setRemoteLoading(false);
@@ -196,13 +210,11 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         setRemoteLoading(true);
         setRemoteError(null);
         try {
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          const typeId =
-            groupFilter && /^-?\d+$/.test(groupFilter) ? Number(groupFilter) : -1;
-          const websites = await fetchBtMergedWebsiteList(client, {
-            limit: 200,
-            type: typeId,
+          const next = getPanelDriver(server.serviceType);
+          if (!next?.listWebsites) return;
+          const websites = await next.listWebsites(panelConnectionCtx(server), {
             search: searchQuery || undefined,
+            groupId: groupFilter || undefined,
           });
           if (cancelled) return;
           const enriched = enrichWebsitesWithGroups(websites, siteGroups ?? []);
@@ -220,7 +232,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [groupFilter, isBt, searchQuery, server.address, server.id, server.key, siteGroups]);
+  }, [groupFilter, remoteWebsiteFilter, searchQuery, server, siteGroups]);
 
   const formatWebsiteType = useCallback(
     (type: string) => {
@@ -279,7 +291,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   }, [formatWebsiteType, rows]);
 
   const filteredRows = useMemo(() => {
-    const remoteActive = isBt && remoteRows != null;
+    const remoteActive = remoteRows != null;
     const q = searchQuery.trim().toLowerCase();
     return gridRows.filter((row) => {
       // 分组 / 搜索：宝塔远端已筛时不再本地复筛
@@ -313,7 +325,6 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   }, [
     gridRows,
     groupFilter,
-    isBt,
     remoteRows,
     searchQuery,
     sslFilter,
@@ -348,7 +359,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
 
   const handleToggleStatus = useCallback(
     async (row: WebsiteGridRow) => {
-      if (!canManage || row.websiteId == null || statusBusyId != null) return;
+      if (!canToggleWebsite || row.websiteId == null || statusBusyId != null) return;
       const running = isWebsiteRunning(row.status);
       const stopped = isWebsiteStopped(row.status);
       if (!running && !stopped) return;
@@ -356,18 +367,13 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
       setStatusBusyId(row.websiteId);
       setStatusError(null);
       try {
-        if (isBt) {
-          if (!row.siteName) throw new Error(t("server.websites.missingSiteName"));
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          if (operate === "stop") {
-            await client.stopWebsite(row.websiteId, row.siteName);
-          } else {
-            await client.startWebsite(row.websiteId, row.siteName);
-          }
-        } else {
-          const client = createOnePanelClient(server.address, server.key, server.id);
-          await client.operateWebsite(row.websiteId, operate);
-        }
+        const next = getPanelDriver(server.serviceType);
+        if (!next?.setWebsiteStatus) return;
+        await next.setWebsiteStatus(panelConnectionCtx(server), {
+          id: row.websiteId,
+          siteName: row.siteName ?? undefined,
+          operate,
+        });
         await refresh();
         showToast(
           operate === "stop"
@@ -380,7 +386,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         setStatusBusyId(null);
       }
     },
-    [canManage, isBt, refresh, server.address, server.id, server.key, statusBusyId, t],
+    [canToggleWebsite, refresh, server, statusBusyId, t],
   );
 
   const handleEditWebsite = useCallback((row: WebsiteGridRow) => {
@@ -390,24 +396,20 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
 
   const handleDeleteWebsite = useCallback(
     async (row: WebsiteGridRow) => {
-      if (!canManage || row.websiteId == null || actionBusyId != null) return;
+      if (!canDeleteWebsite || row.websiteId == null || actionBusyId != null) return;
       const confirmed = await appConfirm(
-        isBt
-          ? t("server.websites.deleteConfirmWithPath", { name: row.domain })
-          : t("server.websites.deleteConfirm", { name: row.domain }),
+        t("server.websites.deleteConfirm", { name: row.domain }),
       );
       if (!confirmed) return;
       setActionBusyId(row.websiteId);
       setStatusError(null);
       try {
-        if (isBt) {
-          if (!row.siteName) throw new Error(t("server.websites.missingSiteName"));
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          await client.deleteWebsite(row.websiteId, row.siteName, { path: true });
-        } else {
-          const client = createOnePanelClient(server.address, server.key, server.id);
-          await client.deleteWebsite(row.websiteId);
-        }
+        const next = getPanelDriver(server.serviceType);
+        if (!next?.deleteWebsite) return;
+        await next.deleteWebsite(panelConnectionCtx(server), {
+          id: row.websiteId,
+          siteName: row.siteName ?? undefined,
+        });
         showToast(t("server.websites.deleteSuccess"));
         await refresh();
       } catch (err) {
@@ -416,7 +418,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         setActionBusyId(null);
       }
     },
-    [actionBusyId, canManage, isBt, refresh, server.address, server.id, server.key, t],
+    [actionBusyId, canDeleteWebsite, refresh, server, t],
   );
 
   const toggleSort = (columnId: string) => {
@@ -440,7 +442,8 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         defaultWidth: 200,
         minWidth: 120,
         render: (row) => {
-          const canOpenInfo = canManage && row.websiteId != null && Boolean(row.siteName);
+          const canOpenInfo =
+            inproc && canManage && row.websiteId != null && Boolean(row.siteName);
           return (
             <div className="server-resource-path-cell" onClick={(event) => event.stopPropagation()}>
               {canOpenInfo ? (
@@ -521,7 +524,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         minWidth: 140,
         copyable: true,
         render: (row) => {
-          const canOpenDir = canManage && Boolean(row.path);
+          const canOpenDir = inproc && canManage && Boolean(row.path);
           return (
             <div className="server-resource-path-cell" onClick={(event) => event.stopPropagation()}>
               <span className="text-muted server-resource-path-text">{row.path || "—"}</span>
@@ -606,9 +609,9 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
             </span>
           );
           const canOpenCert =
+            inproc &&
             canManage &&
-            (row.hasCert || isBt) &&
-            (row.websiteId != null || row.sslId != null || Boolean(row.siteName));
+            (row.hasCert || row.websiteId != null || row.sslId != null || Boolean(row.siteName));
           if (!canOpenCert) return badge;
           return (
             <button
@@ -642,11 +645,20 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         defaultWidth: 156,
         minWidth: 156,
         render: (row) => {
-          const canAct = canManage && row.websiteId != null && Boolean(row.siteName);
+          const canFirstPartyAct =
+            inproc && canManage && row.websiteId != null && Boolean(row.siteName);
           const busy = actionBusyId === row.websiteId;
           const running = isWebsiteRunning(row.status);
           const stopped = isWebsiteStopped(row.status);
-          const canToggle = canAct && (running || stopped);
+          const canToggle =
+            canToggleWebsite &&
+            row.websiteId != null &&
+            (running || stopped) &&
+            (inproc ? Boolean(row.siteName) : true);
+          const canDeleteRow =
+            canDeleteWebsite &&
+            row.websiteId != null &&
+            (inproc ? Boolean(row.siteName) : true);
           const statusBusy = statusBusyId === row.websiteId;
           const actionLabel = running
             ? t("server.websites.stopWebsite")
@@ -681,11 +693,11 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canAct}
-                title={canAct ? t("server.websites.logs") : t("server.websites.panelOnly")}
-                aria-label={canAct ? t("server.websites.logs") : t("server.websites.panelOnly")}
+                disabled={!canFirstPartyAct}
+                title={canFirstPartyAct ? t("server.websites.logs") : t("server.websites.panelOnly")}
+                aria-label={canFirstPartyAct ? t("server.websites.logs") : t("server.websites.panelOnly")}
                 onClick={() => {
-                  if (!canAct || row.websiteId == null || !row.siteName) return;
+                  if (!canFirstPartyAct || row.websiteId == null || !row.siteName) return;
                   setAction({
                     kind: "logs",
                     websiteId: row.websiteId,
@@ -701,11 +713,11 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canAct}
-                title={canAct ? t("server.websites.config") : t("server.websites.panelOnly")}
-                aria-label={canAct ? t("server.websites.config") : t("server.websites.panelOnly")}
+                disabled={!canFirstPartyAct}
+                title={canFirstPartyAct ? t("server.websites.config") : t("server.websites.panelOnly")}
+                aria-label={canFirstPartyAct ? t("server.websites.config") : t("server.websites.panelOnly")}
                 onClick={() => {
-                  if (!canAct || row.websiteId == null || !row.siteName) return;
+                  if (!canFirstPartyAct || row.websiteId == null || !row.siteName) return;
                   setAction({
                     kind: "config",
                     websiteId: row.websiteId,
@@ -721,9 +733,9 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canAct || busy}
-                title={canAct ? t("server.websites.edit") : t("server.websites.panelOnly")}
-                aria-label={canAct ? t("server.websites.edit") : t("server.websites.panelOnly")}
+                disabled={!canFirstPartyAct || busy}
+                title={canFirstPartyAct ? t("server.websites.edit") : t("server.websites.panelOnly")}
+                aria-label={canFirstPartyAct ? t("server.websites.edit") : t("server.websites.panelOnly")}
                 onClick={() => handleEditWebsite(row)}
               >
                 <IconPencil size={14} />
@@ -732,9 +744,9 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
                 type="button"
                 variant="danger"
                 size="icon-xs"
-                disabled={!canAct || busy || actionBusyId != null}
-                title={canAct ? t("server.websites.delete") : t("server.websites.panelOnly")}
-                aria-label={canAct ? t("server.websites.delete") : t("server.websites.panelOnly")}
+                disabled={!canDeleteRow || busy || actionBusyId != null}
+                title={canDeleteRow ? t("server.websites.delete") : t("server.websites.panelOnly")}
+                aria-label={canDeleteRow ? t("server.websites.delete") : t("server.websites.panelOnly")}
                 onClick={() => void handleDeleteWebsite(row)}
               >
                 <IconTrash size={14} />
@@ -746,12 +758,14 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
     ];
   }, [
     actionBusyId,
+    canDeleteWebsite,
     canManage,
+    canToggleWebsite,
     formatWebsiteType,
     handleDeleteWebsite,
     handleEditWebsite,
     handleToggleStatus,
-    isBt,
+    inproc,
     statusBusyId,
     t,
   ]);
@@ -884,9 +898,9 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
               type="button"
               variant="icon"
               size="icon-xs"
-              disabled={!canManage || busy}
-              title={canManage ? t("server.websites.create") : t("server.create.panelOnly")}
-              aria-label={canManage ? t("server.websites.create") : t("server.create.panelOnly")}
+              disabled={!canCreate || busy}
+              title={canCreate ? t("server.websites.create") : t("server.create.panelOnly")}
+              aria-label={canCreate ? t("server.websites.create") : t("server.create.panelOnly")}
               onClick={() => setCreateOpen(true)}
             >
               <IconPlus size={14} />
@@ -997,10 +1011,23 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         onClose={() => setAction(null)}
       />
       <CreateWebsiteDialog
-        open={createOpen}
+        open={createOpen && inproc && !pluginCreate}
         server={server}
         onClose={() => setCreateOpen(false)}
         onCreated={() => void refresh()}
+      />
+      <PluginFormDialog
+        open={createOpen && Boolean(pluginCreate)}
+        title={t("server.websites.create")}
+        fields={pluginCreate?.formFields ?? []}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={async (values) => {
+          const driver = getPanelDriver(server.serviceType);
+          if (!driver?.createWebsite) throw new Error(t("server.create.panelOnly"));
+          await driver.createWebsite(panelConnectionCtx(server), values);
+          showToast(t("server.websites.createSuccess"));
+          await refresh();
+        }}
       />
       <EditWebsiteDialog
         open={editTarget != null}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPluginManifest, manifestCloudCapabilities, resolveLegacyPluginId } from "../../lib/pluginManifests";
-import { capabilityI18nKey, cloudAccountConsoleUrl, formatCloudFieldValue, maskCloudAccessKey, parseCloudDateMs, resolveCloudPluginId } from "./cloudForm";
+import { capabilityI18nKey, cloudAccountConsoleUrl, cloudBrandKind, cloudCapabilityLabel, formatCloudFieldValue, maskCloudAccessKey, parseCloudDateMs, resolveCloudPluginId } from "./cloudForm";
 import {
   formatMetricValue,
   isGuestOsMetric,
@@ -76,6 +76,7 @@ describe("cloud capabilities contract", () => {
     expect(resolveLegacyPluginId("qcloud")).toBe("omni.cloud.tencent");
     expect(resolveCloudPluginId({ provider: "tencent" })).toBe("omni.cloud.tencent");
     expect(resolveCloudPluginId({ pluginId: "omni.cloud.tencent" })).toBe("omni.cloud.tencent");
+    expect(resolveCloudPluginId({ pluginId: "omni.cloud.aws" })).toBe("omni.cloud.aws");
   });
 
   it("账户控制台只给已知厂商首页", () => {
@@ -124,6 +125,13 @@ describe("cloud tree keys", () => {
     expect(capabilityI18nKey("database")).toBe("cloud.capability.database");
     expect(capabilityI18nKey("database.cache")).toBe("cloud.capability.databaseCache");
     expect(capabilityI18nKey("network.eip")).toBe("cloud.capability.networkEip");
+  });
+
+  it("第三方云品牌与能力文案不回落阿里云", () => {
+    expect(cloudBrandKind("omni.cloud.aws")).toBe("server");
+    expect(cloudBrandKind("omni.cloud.aliyun")).toBe("aliyun");
+    expect(cloudBrandKind("omni.cloud.tencent")).toBe("tencent");
+    expect(cloudCapabilityLabel((key) => key, "topic", "omni.cloud.unknown")).toBe("topic");
   });
 });
 

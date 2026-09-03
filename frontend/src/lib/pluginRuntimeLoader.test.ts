@@ -33,6 +33,8 @@ describe("pluginRuntimeLoader 差量生命周期", () => {
     ]);
     expect(findPanelProbeMapper("1panel")?.pluginId).toBe("omni.panel.1panel");
     expect(findPanelDriver("omni.panel.1panel")?.listDatabases).toEqual(expect.any(Function));
+    expect(findPanelDriver("omni.panel.1panel")?.getDashboard).toEqual(expect.any(Function));
+    expect(findPanelDriver("omni.panel.1panel")?.listWebsites).toEqual(expect.any(Function));
 
     await sync([lifecycle("omni.panel.1panel", false, false)]);
     expect(findPanelProbeMapper("1panel")).toBeNull();
@@ -48,6 +50,8 @@ describe("pluginRuntimeLoader 差量生命周期", () => {
 
     expect(findPanelProbeMapper("baota")?.pluginId).toBe("omni.panel.bt");
     expect(findPanelDriver("omni.panel.bt")?.createDatabase).toEqual(expect.any(Function));
+    expect(findPanelDriver("omni.panel.bt")?.getDashboard).toEqual(expect.any(Function));
+    expect(findPanelDriver("omni.panel.bt")?.remoteWebsiteFilter).toBe(true);
     expect(findPanelProbeMapper("unknown-panel")).toBeNull();
 
     resetPluginLifecycleForTests();
