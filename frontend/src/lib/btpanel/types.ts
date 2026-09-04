@@ -23,8 +23,17 @@ export interface BtSystemTotal {
 /** GET /system?action=GetDiskInfo */
 export interface BtDiskInfo {
   path: string;
-  inodes: string[];
-  size: string[];
+  inodes?: Array<string | number>;
+  /**
+   * 官方顺序：`[总大小, 已用, 可用, 使用率%, …]`（人类可读字符串，如 `19.5 GB`）。
+   * @see https://docs.bt.cn/api/system/GetDiskInfo
+   */
+  size?: Array<string | number>;
+  /** 官方：`[总字节, 已用字节, 剩余字节]`，监控换算优先用此字段 */
+  byte_size?: number[];
+  filesystem?: string;
+  type?: string;
+  d_size?: string;
 }
 
 /** GET /system?action=GetNetWork */

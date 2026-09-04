@@ -34,7 +34,7 @@ function KvPanel({
   error,
   emptyText,
 }: {
-  rows: Array<{ label: string; value: string }>;
+  rows: Array<{ id: string; label: string; value: string }>;
   loading?: boolean;
   error?: string | null;
   emptyText?: string;
@@ -57,7 +57,7 @@ function KvPanel({
     <div className="drawer-section server-website-detail">
       <dl className="drawer-kv">
         {rows.map((row) => (
-          <div key={row.label} style={{ display: "contents" }}>
+          <div key={row.id} style={{ display: "contents" }}>
             <dt>{row.label}</dt>
             <dd>
               <pre className="server-website-detail__value">{row.value}</pre>
@@ -67,6 +67,27 @@ function KvPanel({
       </dl>
     </div>
   );
+}
+
+/** preferred 字段别名共用同一文案时只取首个有值的键，避免「域名」等重复行与重复 React key。 */
+function buildPreferredKvRows(
+  data: Record<string, unknown>,
+  preferred: ReadonlyArray<readonly [string, string]>,
+): { rows: Array<{ id: string; label: string; value: string }>; usedKeys: Set<string> } {
+  const usedKeys = new Set<string>();
+  const usedLabels = new Set<string>();
+  const rows: Array<{ id: string; label: string; value: string }> = [];
+  for (const [key, label] of preferred) {
+    if (!(key in data)) continue;
+    if (usedLabels.has(label)) {
+      usedKeys.add(key);
+      continue;
+    }
+    usedKeys.add(key);
+    usedLabels.add(label);
+    rows.push({ id: key, label, value: formatValue(data[key]) });
+  }
+  return { rows, usedKeys };
 }
 
 export function WebsiteInfoSubWindow({
@@ -159,17 +180,11 @@ export function WebsiteInfoSubWindow({
       ["php", t("server.create.website.phpVersion")],
       ["domains", t("server.websites.fields.domains")],
     ] as const;
-    const used = new Set<string>();
-    const out: Array<{ label: string; value: string }> = [];
-    for (const [key, label] of preferred) {
-      if (!(key in data)) continue;
-      used.add(key);
-      out.push({ label, value: formatValue(data[key]) });
-    }
+    const { rows: out, usedKeys } = buildPreferredKvRows(data, preferred);
     for (const [key, value] of Object.entries(data)) {
-      if (used.has(key)) continue;
+      if (usedKeys.has(key)) continue;
       if (value && typeof value === "object") continue;
-      out.push({ label: key, value: formatValue(value) });
+      out.push({ id: key, label: key, value: formatValue(value) });
     }
     return out;
   }, [data, t]);
@@ -596,17 +611,11 @@ export function WebsiteCertSubWindow({
       ["status", t("server.websites.columns.status")],
       ["description", t("server.websites.fields.description")],
     ] as const;
-    const used = new Set<string>();
-    const out: Array<{ label: string; value: string }> = [];
-    for (const [key, label] of preferred) {
-      if (!(key in data)) continue;
-      used.add(key);
-      out.push({ label, value: formatValue(data[key]) });
-    }
+    const { rows: out, usedKeys } = buildPreferredKvRows(data, preferred);
     for (const [key, value] of Object.entries(data)) {
-      if (used.has(key)) continue;
+      if (usedKeys.has(key)) continue;
       if (key === "key" || key === "csr" || key === "private_key" || key === "cert") continue;
-      out.push({ label: key, value: formatValue(value) });
+      out.push({ id: key, label: key, value: formatValue(value) });
     }
     return out;
   }, [data, t]);

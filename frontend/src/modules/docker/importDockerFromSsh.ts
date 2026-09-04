@@ -1,8 +1,7 @@
 /**
- * 从 SSH 主机一键导入 Docker：
- * 优先级 1Panel > 宝塔 > 裸 Docker Engine；同一 SSH 只导入一种；
- * 任一面板存在但无 Docker 时不回退裸 Engine；已绑定该 SSH 的 Docker 连接则跳过。
- * 可通过 `sshConnectionIds` 限定扫描范围（未传则扫描全部 SSH）。
+ * 从 SSH 主机导入 Docker：
+ * 弹窗中由用户勾选主机并指定连接方式（SSH Engine / 1Panel / 宝塔）；
+ * 确认后按选定方式写入；已绑定该 SSH 的 Docker 连接则跳过。
  */
 import { commands, type Connection, type PanelProbeItem } from "@/ipc/bindings";
 import { formatIpcError, unwrapCommand } from "@/ipc/result";
@@ -34,6 +33,16 @@ export type ImportDockerFromSshResult = {
   noDocker: number;
   errors: string[];
   taskId: string;
+  /** 本次成功写入的 Docker 连接 id，供导入后刷新侧栏缓存 */
+  addedIds: string[];
+};
+
+/** 弹窗中用户为每台 SSH 选定的 Docker 连接方式（不先探测）。 */
+export type DockerImportSshSource = "ssh-engine" | "onepanel" | "btpanel";
+
+export type DockerImportSshSelection = {
+  sshConnectionId: string;
+  source: DockerImportSshSource;
 };
 
 type SaveConn = (draft: Connection) => Promise<Connection | null | undefined>;
@@ -159,24 +168,25 @@ async function resolvePanelApiKey(
 }
 
 /**
- * 遍历 SSH 主机，按 1Panel → 宝塔 → 裸 Docker 优先级导入。
+ * 按用户在弹窗中选定的 SSH + 连接方式导入（确认后才探测面板/API Key）。
  * 进度写入左下角后台任务（可取消）。
  */
-export async function importDockerFromSshConnections(options: {
+export async function importDockerFromSshSelections(options: {
   connections: Connection[];
+  selections: DockerImportSshSelection[];
   saveConn: SaveConn;
   onProgress?: (progress: ImportDockerFromSshProgress) => void;
   enableApiIfNeeded?: boolean;
-  /** 仅扫描这些 SSH 连接；未传则扫描全部 SSH */
-  sshConnectionIds?: string[];
 }): Promise<ImportDockerFromSshResult> {
-  const { connections, saveConn, onProgress, enableApiIfNeeded = true, sshConnectionIds } = options;
-  const idSet = sshConnectionIds ? new Set(sshConnectionIds) : null;
-  const sshList = connections.filter((c) => {
-    if (c.kind !== "ssh") return false;
-    if (idSet && !idSet.has(c.id)) return false;
-    return true;
-  });
+  const { connections, selections, saveConn, onProgress, enableApiIfNeeded = true } = options;
+  const sshById = new Map(connections.filter((c) => c.kind === "ssh").map((c) => [c.id, c]));
+  const workList = selections
+    .map((sel) => {
+      const ssh = sshById.get(sel.sshConnectionId);
+      return ssh ? { ssh, source: sel.source } : null;
+    })
+    .filter((entry): entry is { ssh: Connection; source: DockerImportSshSource } => Boolean(entry));
+
   let latest = [...connections];
   const result: ImportDockerFromSshResult = {
     added: 0,
@@ -185,6 +195,7 @@ export async function importDockerFromSshConnections(options: {
     noDocker: 0,
     errors: [],
     taskId: `import-docker-ssh-${Date.now()}`,
+    addedIds: [],
   };
 
   const startedAt = Date.now();
@@ -199,21 +210,21 @@ export async function importDockerFromSshConnections(options: {
       id: result.taskId,
       title: "一键导入 Docker",
       status: "running",
-      progress: sshList.length === 0 ? "无 SSH 主机" : `准备扫描 ${sshList.length} 台主机…`,
+      progress: workList.length === 0 ? "未选择主机" : `准备导入 ${workList.length} 台主机…`,
       index: 0,
-      total: Math.max(sshList.length, 1),
+      total: Math.max(workList.length, 1),
       startedAt,
     }),
   );
 
   try {
-    if (sshList.length === 0) {
+    if (workList.length === 0) {
       upsertLocalBackgroundTask(
         makeTask({
           id: result.taskId,
           title: "一键导入 Docker",
           status: "completed",
-          progress: "暂无 SSH 连接",
+          progress: "未选择主机",
           index: 0,
           total: 1,
           startedAt,
@@ -224,19 +235,19 @@ export async function importDockerFromSshConnections(options: {
     }
 
     let index = 0;
-    for (const ssh of sshList) {
+    for (const { ssh, source } of workList) {
       if (cancelled) break;
       index += 1;
       const hostLabel = ssh.name || ssh.id;
-      onProgress?.({ total: sshList.length, current: index, hostName: hostLabel });
+      onProgress?.({ total: workList.length, current: index, hostName: hostLabel });
       upsertLocalBackgroundTask(
         makeTask({
           id: result.taskId,
           title: "一键导入 Docker",
           status: "running",
-          progress: `正在扫描：${hostLabel}`,
+          progress: `正在导入：${hostLabel}`,
           index,
-          total: sshList.length,
+          total: workList.length,
           startedAt,
         }),
       );
@@ -246,94 +257,83 @@ export async function importDockerFromSshConnections(options: {
         continue;
       }
 
+      const dockerName = `Docker - ${hostLabel}`;
+      const dockerId = `docker-bound-${ssh.id}`;
+
       try {
-        const probe = await unwrapCommand(commands.sshPoolProbePanels(ssh.id));
-        if (cancelled) break;
-        const panels = (Array.isArray(probe.panels) ? probe.panels : []).filter((p) => p?.installed);
-        const onePanel = panels.find((p) => p.kind === "1panel");
-        const btPanel = panels.find((p) => p.kind === "bt");
-
-        const dockerName = `Docker - ${hostLabel}`;
-        const dockerId = `docker-bound-${ssh.id}`;
-
-        const tryImportPanel = async (
-          panel: PanelProbeItem,
-          source: "onepanel" | "btpanel",
-        ): Promise<"added" | "failed" | "no_docker"> => {
-          const dockerProbe = await unwrapCommand(commands.dockerProbeSshDocker(ssh.id));
-          if (!dockerProbe.available) {
-            return "no_docker";
-          }
-          upsertLocalBackgroundTask(
-            makeTask({
-              id: result.taskId,
-              title: "一键导入 Docker",
-              status: "running",
-              progress: `${hostLabel}：准备 ${source === "onepanel" ? "1Panel" : "宝塔"} API…`,
-              index,
-              total: sshList.length,
-              startedAt,
-            }),
-          );
-          let apiKey = await resolvePanelApiKey(ssh.id, panel, enableApiIfNeeded);
-          if (!apiKey) {
-            result.errors.push(
-              `${hostLabel} · ${source === "onepanel" ? "1Panel" : "宝塔"}: 未获取到 API Key`,
-            );
-            return "failed";
-          }
-          const addr = realPanelAddress(panel, ssh);
-          if (!addr || panel.port === 0) {
-            result.errors.push(
-              `${hostLabel} · ${source === "onepanel" ? "1Panel" : "宝塔"}: 无法解析面板地址`,
-            );
-            return "failed";
-          }
+        if (source === "ssh-engine") {
           const draft = buildDockerDraft({
             id: dockerId,
             name: dockerName,
-            source,
+            source: "ssh-engine",
             ssh,
-            panelBaseUrl: addr,
-            panelApiKey: apiKey,
-            panelInsecure: true,
           });
           const saved = await saveConn(draft);
           if (!saved?.id) {
+            result.failed += 1;
             result.errors.push(`${hostLabel}: 保存失败`);
-            return "failed";
+          } else {
+            latest = [...latest.filter((c) => c.id !== saved.id), saved];
+            result.added += 1;
+            result.addedIds.push(saved.id);
           }
-          latest = [...latest.filter((c) => c.id !== saved.id), saved];
-          return "added";
-        };
-
-        if (onePanel) {
-          const outcome = await tryImportPanel(onePanel, "onepanel");
-          if (outcome === "added") result.added += 1;
-          else if (outcome === "failed") result.failed += 1;
-          else result.noDocker += 1;
           continue;
         }
 
-        if (btPanel) {
-          const outcome = await tryImportPanel(btPanel, "btpanel");
-          if (outcome === "added") result.added += 1;
-          else if (outcome === "failed") result.failed += 1;
-          else result.noDocker += 1;
+        const panelKind = source === "onepanel" ? "1panel" : "bt";
+        const panelLabel = source === "onepanel" ? "1Panel" : "宝塔";
+        upsertLocalBackgroundTask(
+          makeTask({
+            id: result.taskId,
+            title: "一键导入 Docker",
+            status: "running",
+            progress: `${hostLabel}：探测 ${panelLabel}…`,
+            index,
+            total: workList.length,
+            startedAt,
+          }),
+        );
+        const probe = await unwrapCommand(commands.sshPoolProbePanels(ssh.id));
+        if (cancelled) break;
+        const panels = (Array.isArray(probe.panels) ? probe.panels : []).filter((p) => p?.installed);
+        const panel = panels.find((p) => p.kind === panelKind);
+        if (!panel) {
+          result.failed += 1;
+          result.errors.push(`${hostLabel} · ${panelLabel}: 未检测到已安装的面板`);
           continue;
         }
 
-        // 两面板都不存在 → 裸 Docker
-        const dockerProbe = await unwrapCommand(commands.dockerProbeSshDocker(ssh.id));
-        if (!dockerProbe.available) {
-          result.noDocker += 1;
+        upsertLocalBackgroundTask(
+          makeTask({
+            id: result.taskId,
+            title: "一键导入 Docker",
+            status: "running",
+            progress: `${hostLabel}：准备 ${panelLabel} API…`,
+            index,
+            total: workList.length,
+            startedAt,
+          }),
+        );
+        const apiKey = await resolvePanelApiKey(ssh.id, panel, enableApiIfNeeded);
+        if (!apiKey) {
+          result.failed += 1;
+          result.errors.push(`${hostLabel} · ${panelLabel}: 未获取到 API Key`);
+          continue;
+        }
+        const addr = realPanelAddress(panel, ssh);
+        if (!addr || panel.port === 0) {
+          result.failed += 1;
+          result.errors.push(`${hostLabel} · ${panelLabel}: 无法解析面板地址`);
           continue;
         }
         const draft = buildDockerDraft({
           id: dockerId,
           name: dockerName,
-          source: "ssh-engine",
+          source,
           ssh,
+          panelBaseUrl: addr,
+          panelApiKey: apiKey,
+          panelInsecure: true,
         });
         const saved = await saveConn(draft);
         if (!saved?.id) {
@@ -342,6 +342,7 @@ export async function importDockerFromSshConnections(options: {
         } else {
           latest = [...latest.filter((c) => c.id !== saved.id), saved];
           result.added += 1;
+          result.addedIds.push(saved.id);
         }
       } catch (err) {
         result.failed += 1;
@@ -364,21 +365,21 @@ export async function importDockerFromSshConnections(options: {
           status: "cancelled",
           progress: `已取消 · 新增 ${result.added}，跳过 ${result.skipped}`,
           index,
-          total: sshList.length,
+          total: workList.length,
           startedAt,
           finishedAt,
         }),
       );
     } else {
-      const summary = `新增 ${result.added}，跳过 ${result.skipped}，无 Docker ${result.noDocker}，失败 ${result.failed}`;
+      const summary = `新增 ${result.added}，跳过 ${result.skipped}，失败 ${result.failed}`;
       upsertLocalBackgroundTask(
         makeTask({
           id: result.taskId,
           title: "一键导入 Docker",
           status: result.failed > 0 && result.added === 0 ? "failed" : "completed",
           progress: summary,
-          index: sshList.length,
-          total: sshList.length,
+          index: workList.length,
+          total: workList.length,
           startedAt,
           finishedAt,
           error:
@@ -396,7 +397,7 @@ export async function importDockerFromSshConnections(options: {
         status: "failed",
         progress: formatIpcError(err),
         index: 0,
-        total: Math.max(sshList.length, 1),
+        total: Math.max(workList.length, 1),
         startedAt,
         finishedAt: Date.now(),
         error: formatIpcError(err),
