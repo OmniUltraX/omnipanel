@@ -30,8 +30,8 @@ import { ConnectionInfoSlot } from "./workbench/ConnectionInfoSlot";
 import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPane";
 import { useDbMysqlLogNavStore } from "./stores/dbMysqlLogNavStore";
 import { DbSchemaProvider } from "./schema/DbSchemaContext";
-import { ConnectionDialog } from "./connection/ConnectionDialog";
-import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPreviewDialog";
+import { DatabaseDialogsHost } from "./workspace/DatabaseDialogsHost";
+import { DatabaseWorkspaceDock } from "./workspace/DatabaseWorkspaceDock";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { appConfirm } from "../../lib/appConfirm";
 import { appAlert } from "../../lib/appAlert";
@@ -122,7 +122,6 @@ import { DB_CONNECTIONS_CHANGED_EVENT } from "../../stores/dbConnectionListStore
 import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
 import { useDbConnectionRuntimeStore } from "../../stores/dbConnectionRuntimeStore";
 import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
-import { CreateDatabaseDialog } from "./workspace/CreateDatabaseDialog";
 import { CsvExportDialog } from "./workspace/CsvExportDialog";
 import {
   probeMysqlDeployment,
@@ -144,8 +143,6 @@ import {
   submitDbMysqlImport,
   type MysqlImportSource,
 } from "./mysqlImport";
-import { MysqlImportDialog } from "./workspace/MysqlImportDialog";
-import { MysqlExportDialog } from "./workspace/MysqlExportDialog";
 import { parseDatabaseNodeId, parseTableNodeId } from "./schema/schemaTreeIds";
 import type { DatabaseSchema } from "./types";
 import {
@@ -227,7 +224,6 @@ import {
   type QueryResult,
   resolveConnIdForWorkspaceTab,
 } from "./workspace/dbWorkspaceState";
-import { DatabaseWorkspaceDock } from "./workspace/DatabaseWorkspaceDock";
 import {
   buildDatabasePanelContentKeysByTab,
   buildSqlTabPanelKeySeed,
@@ -6364,71 +6360,39 @@ export function DatabasePanel() {
       </div>
     </ModuleWorkspaceLayout>
     </DbSchemaProvider>
-    <CreateDatabaseDialog
-      open={createDbDialog !== null}
-      connection={
-        createDbDialog
-          ? connections.find((c) => c.id === createDbDialog.connId) ?? null
-          : null
-      }
-      onCancel={() => setCreateDbDialog(null)}
-      onCreated={(_created) => {
-        const connId = createDbDialog?.connId;
-        setCreateDbDialog(null);
-        if (connId) {
-          refreshConnDatabases(connId);
-          setActiveConnId(connId);
-        }
-      }}
-    />
-    <MysqlExportDialog
-      open={exportDialog !== null}
-      sourceConnection={exportDialog?.connection ?? null}
-      sourceDatabase={exportDialog?.databaseName ?? ""}
+    <DatabaseDialogsHost
       connections={connections}
-      submitting={exportSubmitting}
-      onClose={() => {
-        if (!exportSubmitting) {
-          setExportDialog(null);
-        }
+      createDbDialog={createDbDialog}
+      onCloseCreateDb={() => setCreateDbDialog(null)}
+      onCreatedDatabase={(connId) => {
+        refreshConnDatabases(connId);
+        setActiveConnId(connId);
       }}
-      onConfirm={(destination) => {
+      exportDialog={exportDialog}
+      exportSubmitting={exportSubmitting}
+      onCloseExport={() => setExportDialog(null)}
+      onConfirmExport={(destination) => {
         void handleConfirmExportDatabase(destination);
       }}
-    />
-    <MysqlImportDialog
-      open={importDialog !== null}
-      connection={importDialog?.connection ?? null}
-      databaseName={importDialog?.databaseName ?? ""}
-      submitting={importSubmitting}
-      onClose={() => {
-        if (!importSubmitting) {
-          setImportDialog(null);
-        }
-      }}
-      onConfirm={(source) => {
+      importDialog={importDialog}
+      importSubmitting={importSubmitting}
+      onCloseImport={() => setImportDialog(null)}
+      onConfirmImport={(source) => {
         void handleConfirmImportDatabase(source);
       }}
-    />
-    <ConnectionDialog
-      open={dialogOpen}
-      onClose={() => {
+      dialogOpen={dialogOpen}
+      editingConnection={editingConnection}
+      onCloseConnectionDialog={() => {
         setDialogOpen(false);
         setEditingConnection(null);
       }}
-      onSaved={() => {
+      onSavedConnection={() => {
         setSchemaRefreshToken((token) => token + 1);
         setEditingConnection(null);
       }}
-      initialConnection={editingConnection}
-    />
-    <ConnectionImportPreviewDialog
-      open={importPreview !== null}
-      fileName={importPreview?.fileName ?? ""}
-      items={importPreview?.items ?? []}
-      existingConnections={connections}
-      onClose={() => setImportPreview(null)}
-      onImported={() => {
+      importPreview={importPreview}
+      onCloseImportPreview={() => setImportPreview(null)}
+      onImportedConnections={() => {
         setSchemaRefreshToken((token) => token + 1);
         void refreshConnections();
       }}

@@ -42,6 +42,7 @@ import {
 import { TableDataGridFilterPopover } from "./TableDataGridOverlays";
 import { TableDataGridCellOverlay } from "./TableDataGridCellOverlay";
 import { TableColumnRelationDialog } from "./TableColumnRelationDialog";
+import { useTableDataGridColumnVisibility } from "./useTableDataGridColumnVisibility";
 import {
   formatColumnRelationLabel,
   buildRelationDisplayColumnLabel,
@@ -394,39 +395,13 @@ export const TableDataGrid = memo(function TableDataGrid({
     }
     return [];
   }, [columns, columnMeta]);
-  const isHiddenColumnsControlled = onHiddenColumnsChange != null;
-  const isTransposedControlled = onTransposedChange != null;
-  const [localHiddenColumns, setLocalHiddenColumns] = useState<Set<string>>(() => new Set());
-  const [localTransposed, setLocalTransposed] = useState(false);
-  const hiddenColumns = useMemo(() => {
-    if (isHiddenColumnsControlled) {
-      return new Set(hiddenColumnsProp ?? []);
-    }
-    return localHiddenColumns;
-  }, [isHiddenColumnsControlled, hiddenColumnsProp, localHiddenColumns]);
-  const transposed = isTransposedControlled ? (transposedProp ?? false) : localTransposed;
-  const setHiddenColumns = useCallback(
-    (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-      const next = typeof updater === "function" ? updater(hiddenColumns) : updater;
-      if (isHiddenColumnsControlled) {
-        onHiddenColumnsChange!([...next]);
-        return;
-      }
-      setLocalHiddenColumns(next);
-    },
-    [hiddenColumns, isHiddenColumnsControlled, onHiddenColumnsChange],
-  );
-  const setTransposed = useCallback(
-    (updater: boolean | ((prev: boolean) => boolean)) => {
-      const next = typeof updater === "function" ? updater(transposed) : updater;
-      if (isTransposedControlled) {
-        onTransposedChange!(next);
-        return;
-      }
-      setLocalTransposed(next);
-    },
-    [transposed, isTransposedControlled, onTransposedChange],
-  );
+  const { hiddenColumns, transposed, setHiddenColumns, setTransposed } =
+    useTableDataGridColumnVisibility({
+      hiddenColumnsProp,
+      onHiddenColumnsChange,
+      transposedProp,
+      onTransposedChange,
+    });
   const [cellOverlay, setCellOverlay] = useState<CellOverlayState | null>(null);
   const cellOverlayRef = useRef(cellOverlay);
   cellOverlayRef.current = cellOverlay;

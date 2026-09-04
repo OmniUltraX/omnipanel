@@ -20,10 +20,17 @@ import {
   isDashboardPath,
   isPluginsPath,
   isWorkspacePath,
+  moduleKeyFromPath,
 } from "../../lib/paths";
-import { OVERLAY_MODULE_KEYS, isShellRoutePath } from "../../lib/routePanels";
+import {
+  OVERLAY_MODULE_KEYS,
+  isOverlayModuleKey,
+  isShellRoutePath,
+} from "../../lib/routePanels";
 import { LazyPluginsPanel, LazyUserWorkspace } from "../../routes/lazyModules";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { prepareModuleLocale } from "../../i18n";
 import { ModuleHost } from "./ModuleHost";
 import { ensureBuiltinModulesRegistered } from "./builtinModules";
 import { notifyModuleEvicted } from "./sessionServices";
@@ -37,8 +44,20 @@ ensureBuiltinModulesRegistered();
 export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
   const location = useLocation();
   const pathname = location.pathname;
+  const locale = useSettingsStore((s) => s.locale);
   const isPlugins = isPluginsPath(pathname);
   const isShellRoute = isShellRoutePath(pathname) && !isDashboardPath(pathname);
+
+  useEffect(() => {
+    const key = moduleKeyFromPath(pathname);
+    if (key && isOverlayModuleKey(key)) {
+      void prepareModuleLocale(locale, key);
+    } else if (isPluginsPath(pathname)) {
+      void prepareModuleLocale(locale, "plugins");
+    } else if (isDashboardPath(pathname)) {
+      void prepareModuleLocale(locale, "dashboard");
+    }
+  }, [pathname, locale]);
 
   const [keepAlive, setKeepAlive] = useState<OverlayKeepAliveState>(() =>
     createInitialKeepAliveState(pathname),

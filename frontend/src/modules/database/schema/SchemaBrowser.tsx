@@ -39,10 +39,10 @@ import {
 } from "../api";
 import { makeQueryRunId } from "../sql/queryRun";
 import { resolveSqlPresenceToken } from "../sql/sqlPresence";
-import { useDbSchemaFilterStore } from "../../../stores/dbSchemaFilterStore";
 import { useDbSqlFileStore, type DbSqlFileNode } from "../../../stores/dbSqlFileStore";
 import { useDbSchemaTreeExpandedStore } from "../../../stores/dbSchemaTreeExpandedStore";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
+import { useSchemaBrowserFilters } from "./useSchemaBrowserFilters";
 import {
   useDbConnectionRuntimeStore,
   resolveDbConnectionRuntimeStatus,
@@ -801,16 +801,20 @@ export function SchemaBrowser({
   const [internalConnections, setInternalConnections] = useState<LoadedConnection[]>([]);
   const [internalLoading, setInternalLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const databaseFilters = useDbSchemaFilterStore((s) => s.databaseFilters);
-  const tableFilters = useDbSchemaFilterStore((s) => s.tableFilters);
-  const filtersHydrated = useDbSchemaFilterStore((s) => s.hydrated);
-  const hydrateSchemaFilters = useDbSchemaFilterStore((s) => s.hydrate);
-  const setDatabaseFilters = useDbSchemaFilterStore((s) => s.setDatabaseFilters);
-  const setTableFilters = useDbSchemaFilterStore((s) => s.setTableFilters);
-  const [filterDialogConnId, setFilterDialogConnId] = useState<string | null>(null);
-  const [filterDialogTable, setFilterDialogTable] = useState<{ connId: string; dbName: string } | null>(
-    null
-  );
+  const {
+    databaseFilters,
+    tableFilters,
+    filtersHydrated,
+    hydrateSchemaFilters,
+    setDatabaseFilters,
+    setTableFilters,
+    filterDialogConnId,
+    setFilterDialogConnId,
+    filterDialogTable,
+    setFilterDialogTable,
+    syncDatabaseFilter,
+    syncTableFilter,
+  } = useSchemaBrowserFilters();
   const [schemaCtxMenu, setSchemaCtxMenu] = useState<
     | {
         x: number;
@@ -875,24 +879,6 @@ export function SchemaBrowser({
   const loading = useExternalConnections
     ? !connectionsReady && connectionConfigs.length === 0 && !cacheHydrated
     : internalLoading;
-
-  const syncDatabaseFilter = useCallback((connId: string, names: string[]) => {
-    setDatabaseFilters((prev) => ({
-      ...prev,
-      [connId]: mergeFilter(prev[connId], names),
-    }));
-  }, []);
-
-  const syncTableFilter = useCallback(
-    (connId: string, dbName: string, names: string[], options?: { showAll?: boolean }) => {
-      const key = makeTableFilterKey(connId, dbName);
-      setTableFilters((prev) => ({
-        ...prev,
-        [key]: mergeFilter(prev[key], names, options),
-      }));
-    },
-    [],
-  );
 
   const schemaRefreshHooks = useMemo<SchemaTreeRefreshHooks>(
     () => ({

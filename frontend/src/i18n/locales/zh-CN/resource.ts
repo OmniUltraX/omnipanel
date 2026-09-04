@@ -1,0 +1,23 @@
+export default {
+    profile: {
+      title: "资源档案",
+      viewProfile: "查看档案",
+      lastObserved: "最近观测",
+      collect: "采集快照",
+      collecting: "采集中…",
+      collectedKinds: "已采集",
+      collectErrors: "采集失败",
+      clearAll: "清空档案",
+      confirmDelete: "确定要清空该资源的全部观测记录吗？此操作不可撤销。",
+      noObservations: "暂无观测记录",
+      collectHint: "点击上方「采集快照」按钮从主机/数据库拉取最新状态",
+      observations: "观测记录",
+      observer: "来源",
+      observedAt: "观测时间",
+      selectKind: "请在左侧选择一种观测记录",
+      similarResources: "相似资源",
+      kindsCount: "观测种类数",
+      knowledgeCount: "关联知识数",
+      diffSinceLast: "自上次 {time} 以来变化",
+    },
+  } as const;
