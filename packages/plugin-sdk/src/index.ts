@@ -265,6 +265,8 @@ export const moduleCapabilitySchema = z.object({
   /** 新建弹窗 / form 右侧字段。 */
   formFields: z.array(cloudColumnSchema).optional(),
   historyMethod: z.string().min(1).optional(),
+  /** 读取单条历史正文，缺省按 id=config 回退 getConfigHistory。 */
+  historyGetMethod: z.string().min(1).optional(),
   childColumns: z.array(cloudColumnSchema).optional(),
   childItemKey: z.string().min(1).optional(),
   /** 缺省复用 listMethod，并传 parentId。 */

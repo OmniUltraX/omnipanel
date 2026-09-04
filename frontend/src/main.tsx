@@ -2,6 +2,7 @@ import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 // CSS 必须静态按序引入：动态 Promise.all 会打乱级联，且 Tailwind v4 入口扫描依赖静态图
 import "./styles/global.css";
+import "./styles/workbench.css";
 import "./styles/react-json-view-lite.css";
 import "./styles/subwindow.css";
 import "./styles/modules/terminal.css";

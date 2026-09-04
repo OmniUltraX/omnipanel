@@ -3,7 +3,8 @@ import { commands } from "../../../../ipc/bindings";
 import type { SshTunnelInfo } from "../../../../ipc/bindings";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
 import { useI18n } from "../../../../i18n";
-import { Button } from "../../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
+import { WorkbenchPanelHeader } from "../../../../components/ui/primitives/WorkbenchPanelHeader";
 import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { TunnelFlowList } from "./TunnelFlowList";
@@ -110,21 +111,18 @@ export function TunnelsModuleView({ sshResources }: Props) {
 
   return (
     <div className="ssh-detail">
-      <div className="ssh-detail-header">
-        <div>
-          <div className="host-title">{t("ssh.tunnels.moduleTitle")}</div>
-          <div className="host-addr-detail">{t("ssh.tunnels.moduleSubtitle")}</div>
-        </div>
-        <Button
-          variant="primary"
-          size="sm"
-          style={{ marginLeft: "auto" }}
-          onClick={() => setShowCreate((v) => !v)}
-          disabled={sshResources.length === 0}
-        >
-          + {t("ssh.tunnels.create")}
-        </Button>
-      </div>
+      <WorkbenchPanelHeader
+        label={t("ssh.tunnels.moduleTitle")}
+        tags={[{ text: t("ssh.tunnels.moduleSubtitle") }]}
+        actions={
+          <WorkbenchActionButton
+            onClick={() => setShowCreate((v) => !v)}
+            disabled={sshResources.length === 0}
+          >
+            + {t("ssh.tunnels.create")}
+          </WorkbenchActionButton>
+        }
+      />
 
       {error && <div className="sftp-error">{error}</div>}
 

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ModuleActionDecl, ModuleCapabilityDecl } from "@omnipanel/plugin-sdk";
 import { Button } from "../../components/ui/primitives/Button";
+import { headerActionButtonClass } from "../../components/ui/primitives/headerActionButton";
 import { CodeEditor } from "../../components/ui/content/CodeEditor";
 import { FormDialog } from "../../components/ui/form/FormDialog";
 import { TextInput } from "../../components/ui/form/TextInput";
@@ -8,6 +9,8 @@ import { useI18n } from "../../i18n";
 import type { Connection } from "../../ipc/bindings";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { invokeModuleMethod } from "./moduleInvoke";
+import { ModuleHistoryInspectDialog, type HistoryInspectMode } from "./ModuleHistoryInspectDialog";
+import { editorLanguageFromType, formatHistoryTime, historyItemId } from "./moduleHostHistory";
 import {
   actionLabel,
   actionMethod,
@@ -15,6 +18,7 @@ import {
   capabilityChildItemKey,
   capabilityChildListMethod,
   capabilityGetMethod,
+  capabilityHistoryGetMethod,
   capabilityItemKey,
   capabilityLabel,
   capabilityLanguage,
@@ -22,6 +26,7 @@ import {
   capabilityPane,
   capabilityValueKey,
   emptyFormDraft,
+  extractContent,
   extractFacts,
   extractItems,
   extractMetrics,
@@ -71,10 +76,16 @@ export function GenericCapabilityPane({
   const [loading, setLoading] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [inspect, setInspect] = useState<{
+    mode: HistoryInspectMode;
+    item: Record<string, unknown>;
+    preview: string;
+  } | null>(null);
 
   const listMethod = capabilityListMethod(capability);
   const childListMethod = capabilityChildListMethod(capability);
   const getMethod = capabilityGetMethod(capability);
+  const historyGetMethod = capabilityHistoryGetMethod(capability);
   const itemKey = capabilityItemKey(capability);
   const childItemKey = capabilityChildItemKey(capability);
   const detail = capabilityPane(capability);
@@ -110,6 +121,12 @@ export function GenericCapabilityPane({
   const searchActive = Boolean(keyword.trim());
 
   const selected = items.find((row) => rowItemKey(row, itemKey) === selectedKey) ?? null;
+  const keywordRef = useRef(keyword);
+  keywordRef.current = keyword;
+  const editorLanguage = editorLanguageFromType(
+    selected ? rowField(selected, "type") || rowField(selected, "dataId") : "",
+    language,
+  );
 
   const toggleNode = async (node: ModuleTreeNode) => {
     const next = new Set(expanded);
@@ -139,7 +156,7 @@ export function GenericCapabilityPane({
           {
             capabilityId: capability.id,
             namespaceId,
-            keyword,
+            keyword: keywordRef.current,
             parentId: parentId ?? "",
           },
           { connection },
@@ -176,6 +193,7 @@ export function GenericCapabilityPane({
           setSelectedKey(null);
           setContent("");
           setHistory([]);
+          setInspect(null);
         }
         setError(null);
       } catch (err) {
@@ -184,7 +202,7 @@ export function GenericCapabilityPane({
         setLoading(false);
       }
     },
-    [capability.id, childListMethod, connection, detail, getMethod, itemKey, keyword, listMethod, namespaceId, pluginId],
+    [capability.id, childListMethod, connection, detail, getMethod, itemKey, listMethod, namespaceId, pluginId],
   );
 
   useEffect(() => {
@@ -207,7 +225,7 @@ export function GenericCapabilityPane({
           { ...row, capabilityId: capability.id, namespaceId },
           { connection },
         );
-        setContent(String(payload[valueKey] ?? payload.content ?? payload.value ?? ""));
+        setContent(extractContent(payload, valueKey));
         setError(null);
       } catch (err) {
         if (!isCancelled(err)) setError(err instanceof Error ? err.message : String(err));
@@ -241,7 +259,7 @@ export function GenericCapabilityPane({
         { ...row, capabilityId: capability.id, namespaceId },
         { connection },
       );
-      setContent(String(payload[valueKey] ?? payload.content ?? payload.value ?? ""));
+      setContent(extractContent(payload, valueKey));
       if (capability.historyMethod) {
         const hist = await invokeModuleMethod(pluginId, capability.historyMethod, {
           ...row,
@@ -252,6 +270,25 @@ export function GenericCapabilityPane({
       } else {
         setHistory([]);
       }
+      setError(null);
+    } catch (err) {
+      if (!isCancelled(err)) setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const inspectHistory = async (item: Record<string, unknown>, mode: HistoryInspectMode) => {
+    if (!selected || !historyGetMethod) {
+      setError(t("moduleHost.historyUnavailable"));
+      return;
+    }
+    try {
+      const payload = await invokeModuleMethod<Record<string, unknown>>(
+        pluginId,
+        historyGetMethod,
+        { ...selected, ...item, capabilityId: capability.id, namespaceId },
+        { connection },
+      );
+      setInspect({ mode, item, preview: extractContent(payload, valueKey) });
       setError(null);
     } catch (err) {
       if (!isCancelled(err)) setError(err instanceof Error ? err.message : String(err));
@@ -349,7 +386,8 @@ export function GenericCapabilityPane({
                       key={action.id}
                       type="button"
                       size="sm"
-                      variant={isDangerAction(action) ? "danger" : "ghost"}
+                      variant="ghost"
+                      className={headerActionButtonClass(isDangerAction(action))}
                       disabled={locked}
                       title={locked ? t("moduleHost.cannotDeletePublic") : undefined}
                       onClick={() => (isEdit && formFields.length ? openEdit(row) : void runAction(action, row))}
@@ -392,11 +430,23 @@ export function GenericCapabilityPane({
               copyable={false}
               size="sm"
             />
-            <Button type="button" size="sm" variant="ghost" onClick={() => void load()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={headerActionButtonClass()}
+              onClick={() => void load()}
+            >
               {t("common.refresh")}
             </Button>
             {formFields.length > 0 && toolbarActions.length > 0 ? (
-              <Button type="button" size="sm" variant="primary" onClick={openCreate}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={headerActionButtonClass()}
+                onClick={openCreate}
+              >
                 {actionLabel(toolbarActions[0], t)}
               </Button>
             ) : (
@@ -405,7 +455,8 @@ export function GenericCapabilityPane({
                   key={action.id}
                   type="button"
                   size="sm"
-                  variant="primary"
+                  variant="ghost"
+                  className={headerActionButtonClass(isDangerAction(action))}
                   onClick={() => void runAction(action)}
                 >
                   {actionLabel(action, t)}
@@ -438,7 +489,13 @@ export function GenericCapabilityPane({
           <header className="db-tables-panel-header db-connection-info-header">
             <span className="db-tables-panel-header-label">{title}</span>
             <div className="db-tables-panel-header-actions">
-              <Button type="button" size="sm" variant="ghost" onClick={() => void load()}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={headerActionButtonClass()}
+                onClick={() => void load()}
+              >
                 {t("common.refresh")}
               </Button>
             </div>
@@ -470,7 +527,13 @@ export function GenericCapabilityPane({
               </span>
             </div>
             <div className="db-tables-panel-header-actions">
-              <Button type="button" size="sm" variant="ghost" onClick={() => void load()}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={headerActionButtonClass()}
+                onClick={() => void load()}
+              >
                 {t("common.refresh")}
               </Button>
             </div>
@@ -519,11 +582,23 @@ export function GenericCapabilityPane({
                 copyable={false}
                 size="sm"
               />
-              <Button type="button" size="sm" variant="ghost" onClick={() => void load()}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={headerActionButtonClass()}
+                onClick={() => void load()}
+              >
                 {t("common.refresh")}
               </Button>
               {formFields.length > 0 && toolbarActions.length > 0 ? (
-                <Button type="button" size="sm" variant="primary" onClick={openCreate}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={headerActionButtonClass()}
+                  onClick={openCreate}
+                >
                   {actionLabel(toolbarActions[0], t)}
                 </Button>
               ) : (
@@ -532,7 +607,8 @@ export function GenericCapabilityPane({
                     key={action.id}
                     type="button"
                     size="sm"
-                    variant="primary"
+                    variant="ghost"
+                    className={headerActionButtonClass(isDangerAction(action))}
                     onClick={() => void runAction(action)}
                   >
                     {actionLabel(action, t)}
@@ -575,7 +651,8 @@ export function GenericCapabilityPane({
                       key={action.id}
                       type="button"
                       size="sm"
-                      variant={isDangerAction(action) ? "danger" : "primary"}
+                      variant="ghost"
+                      className={headerActionButtonClass(isDangerAction(action))}
                       onClick={() => void runAction(action, selected)}
                     >
                       {actionLabel(action, t)}
@@ -596,28 +673,83 @@ export function GenericCapabilityPane({
                       ))}
                   </div>
                 ) : (
-                  <CodeEditor value={content} onChange={setContent} language={language} height="100%" />
+                  <CodeEditor
+                    className="module-host-code-editor"
+                    value={content}
+                    onChange={setContent}
+                    language={editorLanguage}
+                    height="100%"
+                  />
                 )}
-                {history.length > 0 ? (
+                {capability.historyMethod ? (
                   <div className="module-host-history-wrap">
-                    <h4 className="cloud-overview__title">{t("moduleHost.history")}</h4>
-                    <ul className="module-host-history">
-                      {history.map((item) => (
-                        <li key={rowItemKey(item, "nid") || JSON.stringify(item)}>
-                          <span>{rowField(item, "lastModified") || rowItemKey(item, "nid")}</span>
-                          {historyActions.map((action) => (
-                            <Button
-                              key={action.id}
-                              type="button"
-                              size="sm"
-                              onClick={() => void runAction(action, { ...selected, ...item })}
-                            >
-                              {actionLabel(action, t)}
-                            </Button>
-                          ))}
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="module-host-history-head">
+                      <h4 className="cloud-overview__title">{t("moduleHost.history")}</h4>
+                      <span className="db-tables-panel-header-tag">
+                        {t("moduleHost.listCount", { count: String(history.length) })}
+                      </span>
+                    </div>
+                    {history.length > 0 ? (
+                      <ul className="module-host-history">
+                        {history.map((item) => {
+                          const id = historyItemId(item);
+                          return (
+                            <li key={id || JSON.stringify(item)}>
+                              <button
+                                type="button"
+                                className="module-host-history-meta"
+                                onClick={() => void inspectHistory(item, "preview")}
+                              >
+                                <span className="module-host-history-time">
+                                  {formatHistoryTime(item.lastModified) || id || "—"}
+                                </span>
+                                {rowField(item, "srcUser") ? (
+                                  <span className="module-host-history-user">{rowField(item, "srcUser")}</span>
+                                ) : null}
+                              </button>
+                              <div className="module-host-row-actions">
+                                {historyGetMethod ? (
+                                  <>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      className={headerActionButtonClass()}
+                                      onClick={() => void inspectHistory(item, "preview")}
+                                    >
+                                      {t("moduleHost.preview")}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      className={headerActionButtonClass()}
+                                      onClick={() => void inspectHistory(item, "compare")}
+                                    >
+                                      {t("moduleHost.compare")}
+                                    </Button>
+                                  </>
+                                ) : null}
+                                {historyActions.map((action) => (
+                                  <Button
+                                    key={action.id}
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    className={headerActionButtonClass(isDangerAction(action))}
+                                    onClick={() => void runAction(action, { ...selected, ...item })}
+                                  >
+                                    {actionLabel(action, t)}
+                                  </Button>
+                                ))}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <p className="module-host-history-empty">{t("moduleHost.historyEmpty")}</p>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -644,7 +776,8 @@ export function GenericCapabilityPane({
                         key={action.id}
                         type="button"
                         size="sm"
-                        variant={isDangerAction(action) ? "danger" : "primary"}
+                        variant="ghost"
+                        className={headerActionButtonClass(isDangerAction(action))}
                         onClick={() => void runAction(action, { ...selected, ...draft })}
                       >
                         {actionLabel(action, t)}
@@ -705,6 +838,8 @@ export function GenericCapabilityPane({
                                   key={action.id}
                                   type="button"
                                   size="sm"
+                                  variant="ghost"
+                                  className={headerActionButtonClass(isDangerAction(action))}
                                   onClick={() => void runAction(action, row)}
                                 >
                                   {action.toggle
@@ -745,6 +880,27 @@ export function GenericCapabilityPane({
           </label>
         ))}
       </FormDialog>
+      <ModuleHistoryInspectDialog
+        open={inspect !== null}
+        mode={inspect?.mode ?? "preview"}
+        title={
+          inspect?.mode === "compare" ? t("moduleHost.historyCompare") : t("moduleHost.historyPreview")
+        }
+        subtitle={
+          selected
+            ? `${rowField(selected, "dataId") || rowItemKey(selected, itemKey)} · ${
+                formatHistoryTime(inspect?.item.lastModified) || historyItemId(inspect?.item ?? {})
+              }`
+            : undefined
+        }
+        language={editorLanguage}
+        preview={inspect?.preview ?? ""}
+        leftLabel={t("moduleHost.historyVersion")}
+        rightLabel={t("moduleHost.historyCurrent")}
+        left={inspect?.preview ?? ""}
+        right={content}
+        onClose={() => setInspect(null)}
+      />
     </div>
   );
 }

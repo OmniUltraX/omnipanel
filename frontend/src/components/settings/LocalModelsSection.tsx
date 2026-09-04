@@ -16,6 +16,7 @@ import {
   type BackgroundTaskInfo,
 } from "../../stores/backgroundTaskStore";
 import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../ui/form/TextInput";
 
 function statusTone(status: string): string {
@@ -461,42 +462,36 @@ export function LocalModelsSection() {
         <div className="local-runtime-actions">
           {ollamaStatus === "not_installed" ? (
             <>
-              <Button
-                variant="primary"
-                size="sm"
+              <WorkbenchActionButton
                 disabled={actionsDisabled}
                 onClick={() => void handleInstall()}
               >
                 {installing
                   ? t("settings.localModels.installing")
                   : t("settings.localModels.install")}
-              </Button>
+              </WorkbenchActionButton>
               <Button variant="ghost" size="sm" onClick={() => void openManualDownload()}>
                 {t("settings.localModels.manualDownload")}
               </Button>
             </>
           ) : null}
           {ollamaStatus === "installed_not_running" ? (
-            <Button
-              variant="primary"
-              size="sm"
+            <WorkbenchActionButton
               disabled={actionsDisabled}
               onClick={() => void handleStart()}
             >
               {busy === "start" ? t("settings.localModels.starting") : t("settings.localModels.start")}
-            </Button>
+            </WorkbenchActionButton>
           ) : null}
           {ollamaStatus === "running" ? (
-            <Button
-              variant="primary"
-              size="sm"
+            <WorkbenchActionButton
               disabled={actionsDisabled}
               onClick={() => void handleLinkOllama()}
             >
               {busy === "link"
                 ? t("settings.localModels.linking")
                 : t("settings.localModels.linkOllama")}
-            </Button>
+            </WorkbenchActionButton>
           ) : null}
         </div>
 
@@ -607,14 +602,12 @@ export function LocalModelsSection() {
               }
             }}
           />
-          <Button
-            variant="primary"
-            size="sm"
+          <WorkbenchActionButton
             disabled={ollamaStatus !== "running" || actionsDisabled || !customModelName.trim()}
             onClick={() => void handleCustomPull()}
           >
             {t("settings.localModels.pull")}
-          </Button>
+          </WorkbenchActionButton>
         </div>
         {ollamaStatus !== "running" ? (
           <p className="setting-hint">{t("settings.localModels.needRunning")}</p>

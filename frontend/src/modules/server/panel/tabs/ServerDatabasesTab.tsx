@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 import { IconPlus, IconRefresh, IconTrash } from "../../../../components/ui/Icons";
 import {
   DbTablesPanelGrid,
@@ -194,17 +195,16 @@ export function ServerDatabasesTab({ server }: Props) {
               className="db-tables-panel-grid__row-actions"
               onClick={(event) => event.stopPropagation()}
             >
-              <Button
-                type="button"
-                variant="danger"
-                size="icon-xs"
+              <WorkbenchActionButton
+                icon
+                danger
                 disabled={!canAct || busy || actionBusyId != null}
                 title={canAct ? t("server.databases.delete") : t("server.create.panelOnly")}
                 aria-label={canAct ? t("server.databases.delete") : t("server.create.panelOnly")}
                 onClick={() => void handleDelete(row)}
               >
                 <IconTrash size={14} />
-              </Button>
+              </WorkbenchActionButton>
             </div>
           );
         },

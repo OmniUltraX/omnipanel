@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
@@ -119,14 +119,9 @@ export function KnowledgeMarkdownWorkspace() {
         <WorkspaceEmptyPage
           prompt={t("knowledge.selectEntry")}
           actions={
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={() => void createDocument()}
-            >
+            <WorkbenchActionButton onClick={() => void createDocument()}>
               {t("knowledge.tree.newDocument")}
-            </Button>
+            </WorkbenchActionButton>
           }
         />
       </div>

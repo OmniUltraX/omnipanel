@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { Select } from "../../components/ui/form/Select";
 import { TextInput } from "../../components/ui/form/TextInput";
 
@@ -119,8 +119,8 @@ export function WsPanel() {
           style={{ flex: 1 }}
           disabled={status === "connected"}
         />
-        <Button
-          variant={status === "connected" ? "danger" : "primary"}
+        <WorkbenchActionButton
+          danger={status === "connected"}
           onClick={handleConnect}
         >
           {status === "connected"
@@ -128,7 +128,7 @@ export function WsPanel() {
             : status === "connecting"
               ? "…"
               : t("protocol.common.connect")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
 
       {/* Status bar */}
@@ -194,14 +194,12 @@ export function WsPanel() {
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           disabled={status !== "connected"}
         />
-        <Button
-          variant="primary"
-          size="sm"
+        <WorkbenchActionButton
           onClick={handleSend}
           disabled={status !== "connected"}
         >
           {t("protocol.common.send")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
     </div>
   );

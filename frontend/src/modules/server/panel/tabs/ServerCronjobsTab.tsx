@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import {
   IconPencil,
@@ -349,17 +350,16 @@ export function ServerCronjobsTab({ server }: Props) {
               >
                 <IconPencil size={14} />
               </Button>
-              <Button
-                type="button"
-                variant="danger"
-                size="icon-xs"
+              <WorkbenchActionButton
+                icon
+                danger
                 disabled={!canDeleteRow || busy || actionBusyId != null}
                 title={canDeleteRow ? t("server.cronjobs.delete") : t("server.create.panelOnly")}
                 aria-label={canDeleteRow ? t("server.cronjobs.delete") : t("server.create.panelOnly")}
                 onClick={() => void handleDelete(row)}
               >
                 <IconTrash size={14} />
-              </Button>
+              </WorkbenchActionButton>
             </div>
           );
         },

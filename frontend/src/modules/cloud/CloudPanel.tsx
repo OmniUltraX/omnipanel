@@ -4,7 +4,7 @@ import type { DockHeaderIconKind } from "../../components/dock/DockHeaderIcon";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { ModuleLeftHeaderActions } from "../../components/ai/ModuleLeftHeaderActions";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -370,9 +370,9 @@ export function CloudPanel() {
               title={t("shell.nav.cloud")}
               prompt={t("cloud.empty.prompt")}
               actions={
-                <Button type="button" variant="primary" onClick={handleCreateCloud}>
+                <WorkbenchActionButton onClick={handleCreateCloud}>
                   {t("server.cloud.sidebar.addAccount")}
-                </Button>
+                </WorkbenchActionButton>
               }
             />
           }

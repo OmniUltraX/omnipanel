@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { IconDownload, IconFile, IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from "../../../../components/ui/Icons";
 import {
@@ -521,10 +522,9 @@ export function ServerCertificatesTab({ server }: Props) {
               >
                 <IconPencil size={14} />
               </Button>
-              <Button
-                type="button"
-                variant="danger"
-                size="icon-xs"
+              <WorkbenchActionButton
+                icon
+                danger
                 disabled={!canDelete || busy || actionBusyId != null}
                 title={canDelete ? t("server.certificates.delete") : t("server.create.panelOnly")}
                 aria-label={
@@ -533,7 +533,7 @@ export function ServerCertificatesTab({ server }: Props) {
                 onClick={() => void handleDelete(row)}
               >
                 <IconTrash size={14} />
-              </Button>
+              </WorkbenchActionButton>
             </div>
           );
         },

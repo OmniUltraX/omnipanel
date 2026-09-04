@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { Modal } from "./Modal";
-import { Button } from "../primitives/Button";
+import { WorkbenchActionButton } from "../primitives/WorkbenchActionButton";
 import type { AppDialogAction } from "../../../stores/appDialogStore";
 
 const WARN_ICON = (
@@ -116,25 +116,24 @@ export function WarnAlert({
         <div className="warn-alert-footer">
           {hasActions ? (
             actions!.map((action) => (
-              <Button
+              <WorkbenchActionButton
                 key={action.id}
-                type="button"
-                variant={action.variant ?? "secondary"}
+                danger={action.variant === "danger"}
                 onClick={() => onChoose?.(action.id)}
               >
                 {action.label}
-              </Button>
+              </WorkbenchActionButton>
             ))
           ) : (
             <>
               {!alertOnly && (
-                <Button type="button" variant="secondary" onClick={onClose}>
+                <WorkbenchActionButton onClick={onClose}>
                   {cancelLabel}
-                </Button>
+                </WorkbenchActionButton>
               )}
-              <Button type="button" variant="warn" onClick={handleConfirm}>
+              <WorkbenchActionButton danger onClick={handleConfirm}>
                 {confirmLabel}
-              </Button>
+              </WorkbenchActionButton>
             </>
           )}
         </div>

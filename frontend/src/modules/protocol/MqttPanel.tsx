@@ -1,6 +1,7 @@
 import { useRef, useEffect } from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { PasswordInput } from "../../components/ui/form/PasswordInput";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { Select } from "../../components/ui/form/Select";
@@ -54,8 +55,8 @@ export function MqttPanel() {
           onChange={(value) => mqtt.setPassword(value)}
           disabled={locked}
         />
-        <Button
-          variant={connected ? "danger" : "primary"}
+        <WorkbenchActionButton
+          danger={connected}
           onClick={() => void mqtt.toggleConnection()}
         >
           {connected
@@ -63,7 +64,7 @@ export function MqttPanel() {
             : mqtt.status === "connecting"
               ? "…"
               : t("protocol.common.connect")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
 
       <div className="proto-pub-options">
@@ -281,9 +282,9 @@ export function MqttPanel() {
           }}
           disabled={!connected}
         />
-        <Button variant="primary" size="sm" onClick={() => void mqtt.publish()} disabled={!connected}>
+        <WorkbenchActionButton onClick={() => void mqtt.publish()} disabled={!connected}>
           {t("protocol.mqtt.publish")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
     </div>
   );

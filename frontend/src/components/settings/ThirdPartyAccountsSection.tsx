@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import {
   useThirdPartyAccountsStore,
@@ -49,9 +50,7 @@ export function ThirdPartyAccountsSection() {
           <h2>{t("settings.accounts.title")}</h2>
           <p className="section-desc">{t("settings.accounts.desc")}</p>
         </div>
-        <Button
-          variant="primary"
-          size="sm"
+        <WorkbenchActionButton
           className="ai-models-add-btn"
           onClick={openAddDialog}
           title={t("settings.accounts.add.title")}
@@ -60,7 +59,7 @@ export function ThirdPartyAccountsSection() {
             <path d="M12 5v14M5 12h14" />
           </svg>
           <span>{t("settings.accounts.add.title")}</span>
-        </Button>
+        </WorkbenchActionButton>
       </div>
 
       {storeError ? <p className="setting-update-error">{storeError}</p> : null}

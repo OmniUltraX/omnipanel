@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button, type buttonVariants } from "../primitives/Button";
+import { headerActionButtonClass } from "../primitives/headerActionButton";
 import type { VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +28,7 @@ export function ToolbarMenuButton({
   label,
   title,
   disabled = false,
-  variant = "secondary",
+  variant = "ghost",
   size = "sm",
   className,
   items,
@@ -128,7 +129,11 @@ export function ToolbarMenuButton({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-controls={open ? menuId : undefined}
-          className={cn("toolbar-menu-button__trigger", open && "toolbar-menu-button__trigger--open")}
+          className={cn(
+            "toolbar-menu-button__trigger",
+            headerActionButtonClass(),
+            open && "toolbar-menu-button__trigger--open",
+          )}
           onClick={() => setOpen((value) => !value)}
         >
           <span>{label}</span>

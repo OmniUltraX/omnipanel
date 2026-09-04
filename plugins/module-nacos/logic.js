@@ -261,7 +261,7 @@ function deleteNamespace(args) {
 
 function listConfigs(args) {
   var pageNo = Number(arg(args, "pageNo", 1)) || 1;
-  var pageSize = Number(arg(args, "pageSize", 20)) || 20;
+  var pageSize = Number(arg(args, "pageSize", 100)) || 100;
   var dataId = String(arg(args, "dataId", arg(args, "keyword", "")));
   var group = String(arg(args, "group", ""));
   var path =
@@ -327,7 +327,7 @@ function listConfigHistory(args) {
     "/v1/cs/history?search=accurate&dataId=" + encode(arg(args, "dataId", "")) +
     "&group=" + encode(arg(args, "group", "DEFAULT_GROUP")) +
     "&tenant=" + encode(tenant(args)) +
-    "&pageNo=1&pageSize=20";
+    "&pageNo=1&pageSize=50";
   var parsed = api(args, path, {});
   var items = parsed.pageItems || parsed.histories || [];
   return {

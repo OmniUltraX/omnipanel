@@ -4,15 +4,23 @@ import { Slot } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * 变体陷阱：CVA 默认 `default`/`primary` 都是实心蓝，`danger` 是浅红块。
+ * 工作台页头/行内操作不要用这三档，改用 `WorkbenchActionButton`。
+ * 实心色只留给空态主 CTA、对话框确认、二次确认里的破坏性提交。
+ */
 const buttonVariants = cva(
   "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
+        /** 实心主色。省略 variant 时就是它——对话框确认用，工作台工具栏禁用。 */
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        /** 与 default 同款，仅语义别名。 */
         primary: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
           "bg-destructive hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 text-white",
+        /** 浅红底色块。只用于对话框里的破坏性确认，不要放进页头/行操作。 */
         danger:
           "bg-danger-soft text-danger hover:bg-danger hover:text-white",
         warn: "bg-warn text-white hover:brightness-90",

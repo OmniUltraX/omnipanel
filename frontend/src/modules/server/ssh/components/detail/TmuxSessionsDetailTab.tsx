@@ -16,6 +16,7 @@ import { useTerminalStore } from "@/stores/terminalStore";
 import { showToast } from "@/stores/toastStore";
 import { isProdHost } from "@/modules/server/ssh/utils/sshProdGuard";
 import { useTmuxPaneSessionIndex } from "@/modules/terminal/tmuxPaneSessionIndex";
+import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
 
 type Props = {
   activeResource: WorkspaceResource | null;
@@ -294,22 +295,18 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
       <div className="tmux-sessions__header">
         <div className="tmux-sessions__intro">{t("ssh.tmuxSessions.intro")}</div>
         <div className="tmux-sessions__header-actions">
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
+          <WorkbenchActionButton
             onClick={() => connectionId && openSshTerminalSession(connectionId)}
             disabled={!connectionId}
           >
             {t("ssh.tmuxSessions.openTerminal")}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
+          </WorkbenchActionButton>
+          <WorkbenchActionButton
             onClick={() => void load()}
             disabled={loading || !connectionId}
           >
             {t("common.refresh")}
-          </button>
+          </WorkbenchActionButton>
         </div>
       </div>
 
@@ -388,9 +385,7 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
                         : t("ssh.tmuxSessions.detached")}
                     </td>
                     <td className="tmux-sessions__actions">
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary"
+                      <WorkbenchActionButton
                         onClick={() => void handleEnterSession(session)}
                         disabled={attaching === session.name}
                       >
@@ -399,15 +394,14 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
                           : isLinked
                             ? t("ssh.tmuxSessions.switchToTab")
                             : t("ssh.tmuxSessions.enter")}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm tmux-sessions__btn-danger"
+                      </WorkbenchActionButton>
+                      <WorkbenchActionButton
+                        danger
                         onClick={() => void handleKill(session)}
                         disabled={killing === session.name}
                       >
                         {t("ssh.tmuxSessions.kill")}
-                      </button>
+                      </WorkbenchActionButton>
                     </td>
                   </tr>
                   {isOpen ? (
@@ -456,9 +450,7 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
                                       )}
                                     </div>
                                     <div className="tmux-sessions__window-actions">
-                                      <button
-                                        type="button"
-                                        className="btn btn-sm btn-primary"
+                                      <WorkbenchActionButton
                                         disabled={busy}
                                         onClick={() => void handleEnterPane(session.name, win.paneId)}
                                       >
@@ -469,7 +461,7 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
                                             : hasHistory
                                               ? t("ssh.tmuxSessions.restoreWindow")
                                               : t("ssh.tmuxSessions.enterWindow")}
-                                      </button>
+                                      </WorkbenchActionButton>
                                     </div>
                                   </li>
                                 );
@@ -477,16 +469,14 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
                             </ul>
                           ) : null}
                           <div className="tmux-sessions__tree-footer">
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
+                            <WorkbenchActionButton
                               disabled={attaching === `new:${session.name}`}
                               onClick={() => void handleNewWindow(session)}
                             >
                               {attaching === `new:${session.name}`
                                 ? t("ssh.tmuxSessions.enterBusy")
                                 : t("ssh.tmuxSessions.newWindow")}
-                            </button>
+                            </WorkbenchActionButton>
                           </div>
                         </div>
                       </td>

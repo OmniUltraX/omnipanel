@@ -3,6 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { PasswordInput } from "../../components/ui/form/PasswordInput";
 import { TextInput } from "../../components/ui/form/TextInput";
 
@@ -254,13 +255,13 @@ export function RedisPubSubPanel({
           onChange={setPassword}
           disabled={locked}
         />
-        <Button variant={connected ? "danger" : "primary"} onClick={() => void handleConnect()}>
+        <WorkbenchActionButton danger={connected} onClick={() => void handleConnect()}>
           {connected
             ? t("protocol.common.disconnect")
             : status === "connecting"
               ? "…"
               : t("protocol.common.connect")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
 
       <div className="proto-pub-status">
@@ -349,9 +350,9 @@ export function RedisPubSubPanel({
           }}
           disabled={!connected}
         />
-        <Button variant="primary" size="sm" onClick={() => void handlePublish()} disabled={!connected}>
+        <WorkbenchActionButton onClick={() => void handlePublish()} disabled={!connected}>
           {t("protocol.pubsub.publish")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
     </div>
   );

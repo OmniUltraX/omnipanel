@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../ui/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../ui/form/TextInput";
 import { WechatLoginPanel } from "./WechatLoginPanel";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -77,16 +77,14 @@ function GithubLoginPanel() {
   return (
     <div className="login-page__panel">
       <p className="login-page__panel-desc">{t("app.login.github.desc")}</p>
-      <Button
-        type="button"
-        variant="secondary"
+      <WorkbenchActionButton
         className="login-page__oauth-btn"
         disabled={busy}
         onClick={() => void onLogin()}
       >
         <img src={githubIcon} alt="" width={16} height={16} aria-hidden />
         {busy ? t("app.login.github.waiting") : t("app.login.github.action")}
-      </Button>
+      </WorkbenchActionButton>
       {error ? <p className="login-page__hint is-error">{error}</p> : null}
     </div>
   );
@@ -191,10 +189,7 @@ function EmailLoginPanel() {
             copyable={false}
             size="md"
           />
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
+          <WorkbenchActionButton
             disabled={sending || cooldown > 0}
             onClick={() => void onSendCode()}
           >
@@ -203,12 +198,12 @@ function EmailLoginPanel() {
               : sending
                 ? t("app.login.email.sending")
                 : t("app.login.email.sendCode")}
-          </Button>
+          </WorkbenchActionButton>
         </div>
       </label>
-      <Button type="submit" variant="primary" className="login-page__submit" disabled={submitting}>
+      <WorkbenchActionButton type="submit" className="login-page__submit" disabled={submitting}>
         {submitting ? t("app.login.email.submitting") : t("app.login.email.action")}
-      </Button>
+      </WorkbenchActionButton>
       {hint ? <p className="login-page__hint">{hint}</p> : null}
       {error ? <p className="login-page__hint is-error">{error}</p> : null}
     </form>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n, getEnvLabel } from "../../i18n";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { commands } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -178,9 +178,9 @@ export function CloudAccountOverview({
           </span>
         </div>
         <div className="db-tables-panel-header-actions">
-          <Button type="button" size="sm" variant="outline" disabled={testing || !cloudConn} onClick={() => void handleTest()}>
+          <WorkbenchActionButton disabled={testing || !cloudConn} onClick={() => void handleTest()}>
             {testing ? t("server.cloud.create.testing") : t("server.cloud.create.test")}
-          </Button>
+          </WorkbenchActionButton>
         </div>
       </header>
       <div className="cloud-overview__body">

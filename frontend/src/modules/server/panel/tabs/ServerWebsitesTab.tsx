@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import {
@@ -740,17 +741,16 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
               >
                 <IconPencil size={14} />
               </Button>
-              <Button
-                type="button"
-                variant="danger"
-                size="icon-xs"
+              <WorkbenchActionButton
+                icon
+                danger
                 disabled={!canDeleteRow || busy || actionBusyId != null}
                 title={canDeleteRow ? t("server.websites.delete") : t("server.websites.panelOnly")}
                 aria-label={canDeleteRow ? t("server.websites.delete") : t("server.websites.panelOnly")}
                 onClick={() => void handleDeleteWebsite(row)}
               >
                 <IconTrash size={14} />
-              </Button>
+              </WorkbenchActionButton>
             </div>
           );
         },

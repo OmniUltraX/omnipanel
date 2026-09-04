@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { IconRefresh } from "../../components/ui/Icons";
 import { usePersistedModuleTab } from "../../hooks/usePersistedModuleTab";
 import { useI18n } from "../../i18n";
@@ -324,17 +325,14 @@ export function DockerConnectionInfoPanel({
             <IconRefresh size={14} className={statusRefreshing ? "is-spinning" : undefined} />
           </Button>
           {!showLocalStartGate ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
+            <WorkbenchActionButton
               disabled={!canRestart || restartBusy}
               onClick={handleRestartDocker}
             >
               {restartBusy
                 ? t("docker.connectionPanel.restartingDocker")
                 : t("docker.connectionPanel.restartDocker")}
-            </Button>
+            </WorkbenchActionButton>
           ) : null}
         </div>
       </header>
@@ -343,15 +341,12 @@ export function DockerConnectionInfoPanel({
         <div className="docker-connection-info-start">
           <p className="docker-connection-info-start__hint">{t("docker.empty.localEngine")}</p>
           {canStartLocal ? (
-            <Button
-              type="button"
-              variant="primary"
-              size="default"
+            <WorkbenchActionButton
               disabled={startingLocal}
               onClick={handleStartLocalDocker}
             >
               {startingLocal ? t("docker.empty.startingDocker") : t("docker.empty.startDocker")}
-            </Button>
+            </WorkbenchActionButton>
           ) : (
             <p className="docker-connection-info-start__manual">{t("docker.empty.manualStartHint")}</p>
           )}

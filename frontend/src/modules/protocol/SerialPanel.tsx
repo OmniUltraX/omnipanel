@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { useI18n } from "../../i18n";
 import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { Select } from "../../components/ui/form/Select";
 import { TextInput } from "../../components/ui/form/TextInput";
 
@@ -250,8 +251,8 @@ export function SerialPanel() {
         <div className="serial-field">
           <label>{" "}</label>
           <div style={{ display: "flex", gap: "var(--sp-1)" }}>
-            <Button
-              variant={status === "connected" ? "danger" : "primary"}
+            <WorkbenchActionButton
+              danger={status === "connected"}
               style={{ flex: 1 }}
               onClick={handleConnect}
             >
@@ -260,7 +261,7 @@ export function SerialPanel() {
                 : status === "connecting"
                   ? "…"
                   : t("protocol.common.connect")}
-            </Button>
+            </WorkbenchActionButton>
             <Button variant="ghost" onClick={handleScanPorts} title={t("protocol.serial.scanPorts")}>
               &#x21bb;
             </Button>
@@ -374,14 +375,12 @@ export function SerialPanel() {
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
               disabled={status !== "connected"}
             />
-            <Button
-              variant="primary"
-              size="sm"
+            <WorkbenchActionButton
               onClick={handleSend}
               disabled={status !== "connected"}
             >
               {t("protocol.common.send")}
-            </Button>
+            </WorkbenchActionButton>
           </div>
         </div>
         <div className="serial-panel">

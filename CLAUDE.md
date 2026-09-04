@@ -147,6 +147,12 @@ cd frontend && npx tsc -b
 - Memory per terminal tab: <20MB
 - VT emulation compatibility: >98% (VT100/VT220)
 
+## Workbench UI（数据库 / SSH 事实源）
+
+工作台页头必须用 `WorkbenchPanelHeader` + `WorkbenchActionButton`（`frontend/src/components/ui/primitives/`）。视觉事实源是数据库表页头：10px 标签、芯片、幽灵操作。
+
+`Button` 省略 `variant` 时是 **实心蓝**；`danger` 是浅红底色块。页头、行内、空态、对话框 footer、设置、登录、协议发送一律用 `WorkbenchActionButton`，不要 `primary` / `secondary` / `danger`。尺寸统一扁平硬朗：11px / 4×8 / 4px 圆角，不要再传 `size`。不要新写 `xxx-panel__header`。详见 `.cursor/rules/workbench-actions.mdc`。
+
 ## Tauri IPC Pattern
 
 正式业务路径是 **tauri-specta** 生成的 `commands.*`（见 `frontend/src/ipc/bindings.ts`），不是裸 `invoke`。

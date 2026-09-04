@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../ui/form/TextInput";
 import { useI18n } from "../../i18n";
 import {
@@ -112,9 +113,9 @@ function ModelListItem({
         />
         {editError ? <div className="form-error ai-provider-model-edit-error">{editError}</div> : null}
         <div className="ai-provider-model-edit-actions">
-          <Button variant="primary" size="sm" onClick={onEditSave}>
+          <WorkbenchActionButton onClick={onEditSave}>
             {t("settings.aiModels.modelList.editSave")}
-          </Button>
+          </WorkbenchActionButton>
           <Button variant="ghost" size="sm" onClick={onEditCancel}>
             {t("settings.aiModels.modelList.editCancel")}
           </Button>

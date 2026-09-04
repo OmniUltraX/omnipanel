@@ -15,6 +15,7 @@ import {
 import { showToast } from "../../stores/toastStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { Button } from "../ui/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../ui/form/TextInput";
 
 export type AccountLinkKind = "wechat" | "github" | "email";
@@ -330,11 +331,11 @@ function EmailLinkPanel({
       {hint ? <p className="user-center-account-bind__hint">{hint}</p> : null}
       {error ? <p className="user-center-account-bind__hint is-error">{error}</p> : null}
       <div className="user-center-account-bind__actions">
-        <Button type="submit" variant="primary" size="sm" disabled={submitting}>
+        <WorkbenchActionButton type="submit" disabled={submitting}>
           {submitting
             ? t("userCenter.accountLinks.binding")
             : t("userCenter.accountLinks.bindEmail")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
     </form>
   );
@@ -384,9 +385,9 @@ function GithubLinkPanel({
     <div className="user-center-account-bind">
       <p className="user-center-section__desc">{t("userCenter.accountLinks.githubDesc")}</p>
       <div className="user-center-account-bind__actions">
-        <Button type="button" variant="primary" size="sm" disabled={busy} onClick={() => void onBind()}>
+        <WorkbenchActionButton disabled={busy} onClick={() => void onBind()}>
           {busy ? t("userCenter.accountLinks.githubWaiting") : t("userCenter.accountLinks.bindGithub")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
       {error ? <p className="user-center-account-bind__hint is-error">{error}</p> : null}
     </div>

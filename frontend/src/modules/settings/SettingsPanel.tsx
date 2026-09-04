@@ -73,6 +73,7 @@ import {
 import { ThirdPartyAccountsSection } from "../../components/settings/ThirdPartyAccountsSection";
 import { AiGatewaySettings } from "../ai-gateway/AiGatewaySettings";
 import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { Select } from "../../components/ui/form/Select";
 import { useI18n } from "../../i18n";
@@ -614,9 +615,7 @@ function ModelsSection() {
           <h2>{t("settings.aiModels.title")}</h2>
           <p className="section-desc">{t("settings.aiModels.description")}</p>
         </div>
-        <Button
-          variant="primary"
-          size="sm"
+        <WorkbenchActionButton
           className="ai-models-add-btn"
           onClick={openAddDialog}
           title={t("settings.aiModels.add.title")}
@@ -633,7 +632,7 @@ function ModelsSection() {
             <path d="M12 5v14M5 12h14" />
           </svg>
           <span>{t("settings.aiModels.add.title")}</span>
-        </Button>
+        </WorkbenchActionButton>
       </div>
 
       {providers.length === 0 ? (
@@ -719,16 +718,15 @@ function ModelsSection() {
                   <div className="ai-model-row-actions">
                     {isConfirmingDelete ? (
                       <>
-                        <Button
-                          variant="danger"
-                          size="sm"
+                        <WorkbenchActionButton
+                          danger
                           onClick={() => {
                             removeProvider(provider.id);
                             setConfirmDeleteId(null);
                           }}
                         >
                           {t("settings.aiModels.confirmDelete")}
-                        </Button>
+                        </WorkbenchActionButton>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1411,9 +1409,9 @@ export function SettingsPanel() {
                       {checking ? t("settings.update.checking") : t("settings.update.checkBtn")}
                     </Button>
                     {updateInfo?.available && !updating && (
-                      <Button variant="primary" size="sm" onClick={installUpdateFn}>
+                      <WorkbenchActionButton onClick={installUpdateFn}>
                         {t("settings.update.installBtn")}
-                      </Button>
+                      </WorkbenchActionButton>
                     )}
                     {updating && downloadPercent != null && (
                       <div className="update-progress-bar">

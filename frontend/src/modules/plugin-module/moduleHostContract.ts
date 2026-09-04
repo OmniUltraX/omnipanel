@@ -102,6 +102,22 @@ export function capabilityValueKey(cap: ModuleCapabilityDecl): string {
   return cap.valueKey?.trim() || "content";
 }
 
+const FALLBACK_HISTORY_GET: Record<string, string> = {
+  config: "getConfigHistory",
+};
+
+export function capabilityHistoryGetMethod(cap: ModuleCapabilityDecl): string | null {
+  const declared = cap.historyGetMethod?.trim();
+  if (declared) return declared;
+  return FALLBACK_HISTORY_GET[cap.id] || null;
+}
+
+export function extractContent(payload: unknown, valueKey = "content"): string {
+  if (!payload || typeof payload !== "object") return "";
+  const row = payload as Record<string, unknown>;
+  return String(row[valueKey] ?? row.content ?? row.value ?? row.data ?? "");
+}
+
 export function actionMethod(action: Pick<ModuleActionDecl, "id" | "method">): string {
   return action.method?.trim() || action.id;
 }

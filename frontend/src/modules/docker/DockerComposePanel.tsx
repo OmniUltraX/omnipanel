@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DockHandle, DockLayout, DockPanel } from "../../components/dock";
-import { Button } from "../../components/ui/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { WorkbenchPanelHeader } from "../../components/ui/primitives/WorkbenchPanelHeader";
 import { CodeEditor, codeEditorLanguageFromPath, type CodeEditorLanguage } from "../../components/ui/content/CodeEditor";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
@@ -69,9 +70,9 @@ const EditorPane = memo(function EditorPane({
             <span className="docker-compose-panel__editor-path">{pathHint}</span>
           ) : null}
         </div>
-        <Button size="xs" variant="secondary" disabled={readOnly || !dirty || saving} onClick={onSave}>
+        <WorkbenchActionButton disabled={readOnly || !dirty || saving} onClick={onSave}>
           {saving ? "…" : saveLabel}
-        </Button>
+        </WorkbenchActionButton>
       </div>
       <div className="docker-compose-panel__editor-body">
         <CodeEditor
@@ -605,63 +606,53 @@ export function DockerComposePanel({
       className={`docker-compose-panel${isActive ? "" : " docker-compose-panel--inactive"}`}
       aria-hidden={!isActive}
     >
-      <div className="docker-compose-panel__header">
-        <h2
-          className="docker-compose-panel__title"
-          title={[connection.name, connection.hostLabel, workingDir].filter(Boolean).join(" · ")}
-        >
-          <span className="docker-compose-panel__title-name">{composeProject}</span>
-          <span className="docker-compose-panel__title-meta">
-            {connection.name}
-            {connection.hostLabel ? ` · ${connection.hostLabel}` : ""}
-            {workingDir ? ` · ${workingDir}` : ""}
-          </span>
-        </h2>
-        <div className="docker-compose-panel__header-actions">
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={composeActionPending != null}
-            onClick={() => handleComposeLifecycle("stop")}
-          >
-            {composeActionPending === "stop"
-              ? t("docker.composePanel.stopping")
-              : t("docker.composePanel.stop")}
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={composeActionPending != null}
-            onClick={() => handleComposeLifecycle("restart")}
-          >
-            {composeActionPending === "restart"
-              ? t("docker.composePanel.restarting")
-              : t("docker.composePanel.restart")}
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={composeActionPending != null}
-            onClick={() => handleComposeLifecycle("rebuild")}
-          >
-            {composeActionPending === "rebuild"
-              ? t("docker.composePanel.rebuilding")
-              : t("docker.composePanel.rebuild")}
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={composeActionPending != null}
-            onClick={() => handleComposeLifecycle("down")}
-          >
-            {composeActionPending === "down"
-              ? t("docker.composePanel.downing")
-              : t("docker.composePanel.down")}
-          </Button>
-          {saveMessage ? <span className="docker-compose-panel__toast">{saveMessage}</span> : null}
-          {actionMessage ? <span className="docker-compose-panel__toast">{actionMessage}</span> : null}
-        </div>
-      </div>
+      <WorkbenchPanelHeader
+        label={composeProject}
+        tags={[
+          { text: connection.name },
+          ...(connection.hostLabel ? [{ text: connection.hostLabel }] : []),
+          ...(workingDir ? [{ text: workingDir, title: workingDir }] : []),
+        ]}
+        actions={
+          <>
+            <WorkbenchActionButton
+              disabled={composeActionPending != null}
+              onClick={() => handleComposeLifecycle("stop")}
+            >
+              {composeActionPending === "stop"
+                ? t("docker.composePanel.stopping")
+                : t("docker.composePanel.stop")}
+            </WorkbenchActionButton>
+            <WorkbenchActionButton
+              disabled={composeActionPending != null}
+              onClick={() => handleComposeLifecycle("restart")}
+            >
+              {composeActionPending === "restart"
+                ? t("docker.composePanel.restarting")
+                : t("docker.composePanel.restart")}
+            </WorkbenchActionButton>
+            <WorkbenchActionButton
+              disabled={composeActionPending != null}
+              onClick={() => handleComposeLifecycle("rebuild")}
+            >
+              {composeActionPending === "rebuild"
+                ? t("docker.composePanel.rebuilding")
+                : t("docker.composePanel.rebuild")}
+            </WorkbenchActionButton>
+            <WorkbenchActionButton
+              danger
+              disabled={composeActionPending != null}
+              onClick={() => handleComposeLifecycle("down")}
+            >
+              {composeActionPending === "down"
+                ? t("docker.composePanel.downing")
+                : t("docker.composePanel.down")}
+            </WorkbenchActionButton>
+            {saveMessage ? <span className="docker-compose-panel__toast">{saveMessage}</span> : null}
+            {actionMessage ? <span className="docker-compose-panel__toast">{actionMessage}</span> : null}
+          </>
+        }
+      />
 
       {filesError || actionError ? (
         <div className="docker-compose-panel__error">{filesError ?? actionError}</div>

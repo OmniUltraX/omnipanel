@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { useI18n } from "../../i18n";
 import { ScopedSearch } from "../../components/ui/search/ScopedSearch";
 import { IconSearch } from "../../components/ui/icons/Icons";
@@ -342,17 +343,16 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
           const pending = Boolean(pendingRemove[image.id]);
           return (
             <div className="docker-image-panel__actions" onClick={(event) => event.stopPropagation()}>
-              <Button
-                type="button"
-                variant="danger"
-                size="icon-xs"
+              <WorkbenchActionButton
+                icon
+                danger
                 title={t("docker.imagesPanel.remove")}
                 aria-label={t("docker.imagesPanel.remove")}
                 disabled={pending || loading}
                 onClick={() => handleRemove(image)}
               >
                 <TrashIcon />
-              </Button>
+              </WorkbenchActionButton>
             </div>
           );
         },

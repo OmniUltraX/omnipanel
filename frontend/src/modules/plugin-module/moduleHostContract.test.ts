@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   actionTarget,
   capabilityDetail,
+  capabilityHistoryGetMethod,
   capabilityItemKey,
   capabilityLabel,
   capabilityListMethod,
   capabilityPane,
+  extractContent,
   extractFacts,
   extractItems,
   extractMetrics,
@@ -37,6 +39,8 @@ describe("moduleHostContract", () => {
       "DEFAULT_GROUP:app.yaml",
     );
     expect(isProtectedRow({ namespaceId: "" }, "namespaceId")).toBe(true);
+    expect(capabilityHistoryGetMethod({ id: "config", columns: [], actions: [] })).toBe("getConfigHistory");
+    expect(extractContent({ value: "cfg" })).toBe("cfg");
   });
 
   it("抽出 items", () => {

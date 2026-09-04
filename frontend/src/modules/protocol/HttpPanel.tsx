@@ -25,6 +25,7 @@ import { buildHttpCurlCommand } from "./httpCurlCommand";
 import { HttpHeaderKvRow } from "./HttpHeaderKvRow";
 import { HttpResponseSessionsDock } from "./HttpResponseSessionsDock";
 import { HttpSsePanel } from "./HttpSsePanel";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { HttpWebSocketPanel } from "./HttpWebSocketPanel";
 import { useSseSession } from "./useSseSession";
 import { useWebSocketSession } from "./useWebSocketSession";
@@ -528,8 +529,8 @@ export function HttpPanel() {
                     ? t("protocol.common.connected")
                     : t("protocol.common.disconnected")}
               </span>
-              <button
-                className={`btn ${liveStatus === "connected" ? "btn-danger" : "btn-primary"}`}
+              <WorkbenchActionButton
+                danger={liveStatus === "connected"}
                 onClick={() => void (isWebSocket ? toggleWsConnect() : toggleSseConnect())}
                 disabled={liveStatus === "connecting" || !canSendRequest}
               >
@@ -538,19 +539,17 @@ export function HttpPanel() {
                   : liveStatus === "connecting"
                     ? t("protocol.common.connecting")
                     : t("protocol.common.connect")}
-              </button>
+              </WorkbenchActionButton>
             </>
           ) : (
-            <button
-              className="btn btn-primary"
+            <WorkbenchActionButton
               onClick={() => void handleSend()}
               disabled={sending || !canSendRequest}
             >
               {sending ? t("protocol.common.sending") : t("protocol.common.send")}
-            </button>
+            </WorkbenchActionButton>
           )}
-          <button
-            className="btn btn-secondary"
+          <WorkbenchActionButton
             onClick={() => {
               if (selectedRequestId) {
                 void handlePersist();
@@ -561,7 +560,7 @@ export function HttpPanel() {
             title={t("protocol.http.saveShortcut")}
           >
             {t("protocol.common.save")}
-          </button>
+          </WorkbenchActionButton>
         </div>
 
         <div className="http-sse-row">

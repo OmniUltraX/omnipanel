@@ -114,6 +114,7 @@
           "listMethod": "listConfigs",
           "getMethod": "getConfig",
           "historyMethod": "listConfigHistory",
+          "historyGetMethod": "getConfigHistory",
           "itemKey": "group,dataId",
           "detail": "editor",
           "columns": [

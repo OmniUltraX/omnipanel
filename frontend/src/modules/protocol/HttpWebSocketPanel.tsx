@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { Select } from "../../components/ui/form/Select";
 import { TextInput } from "../../components/ui/form/TextInput";
 import type { WsMessage } from "./useWebSocketSession";
@@ -62,9 +62,9 @@ export function HttpWebSocketPanel({
           onKeyDown={(e) => e.key === "Enter" && void onSend()}
           disabled={!connected}
         />
-        <Button variant="primary" size="sm" onClick={() => void onSend()} disabled={!connected}>
+        <WorkbenchActionButton onClick={() => void onSend()} disabled={!connected}>
           {t("protocol.common.send")}
-        </Button>
+        </WorkbenchActionButton>
       </div>
     </div>
   );
