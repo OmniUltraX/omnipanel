@@ -26,10 +26,12 @@ import {
   type BtCreateDockerAppParams,
   type BtDockerApp,
   type BtDockerAppsResult,
+  type BtCloudServer,
   type BtInstalledApp,
   type BtInstalledAppsParams,
   type BtInstalledAppsResult,
   type BtJavaProject,
+  type BtMySQLInfo,
   type BtJavaProjectListParams,
   type BtJavaProjectLoadInfo,
   type BtSoftItem,
@@ -825,6 +827,60 @@ export class BtPanelClient {
       p: params.p,
       limit: params.limit ?? 100,
     });
+  }
+
+  /** POST /database?action=GetMySQLInfo — 本地 MySQL/MariaDB 数据目录与端口。 */
+  async getMySQLInfo(): Promise<BtMySQLInfo> {
+    const data = await this.request<BtMySQLInfo | Record<string, unknown>>({
+      path: "/database?action=GetMySQLInfo",
+    });
+    if (!data || typeof data !== "object") return {};
+    const row = data as Record<string, unknown>;
+    return {
+      datadir: typeof row.datadir === "string" ? row.datadir : undefined,
+      port: (row.port as string | number | undefined) ?? undefined,
+    };
+  }
+
+  /**
+   * POST /data?action=getKey — 读取配置表字段（如 mysql_root 明文密码）。
+   * @see aaPanel: table=config, key=mysql_root, id=1
+   */
+  async getConfigKey(params: {
+    key: string;
+    table?: string;
+    id?: number;
+  }): Promise<string> {
+    const data = await this.request<unknown>({
+      path: "/data?action=getKey",
+      params: {
+        table: params.table ?? "config",
+        key: params.key,
+        id: params.id ?? 1,
+      },
+    });
+    if (typeof data === "string") return data;
+    if (typeof data === "number" && Number.isFinite(data)) return String(data);
+    if (data && typeof data === "object") {
+      const row = data as Record<string, unknown>;
+      for (const field of ["data", "msg", "value", "password", params.key]) {
+        const v = row[field];
+        if (typeof v === "string" && v.trim()) return v.trim();
+      }
+    }
+    return "";
+  }
+
+  /** POST /database?action=GetCloudServer — 本地/远程数据库服务器列表。 */
+  async getCloudServers(): Promise<BtCloudServer[]> {
+    const data = await this.request<unknown>({
+      path: "/database?action=GetCloudServer",
+    });
+    if (!Array.isArray(data)) return [];
+    return data.filter(
+      (item): item is BtCloudServer =>
+        Boolean(item) && typeof item === "object" && !Array.isArray(item),
+    );
   }
 
   /** /database?action=AddDatabase — 创建数据库。 */

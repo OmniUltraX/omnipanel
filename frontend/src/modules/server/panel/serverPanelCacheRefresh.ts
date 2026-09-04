@@ -9,6 +9,7 @@ import {
   type OnePanelApp,
   type OnePanelInstalledApp,
 } from "../../../lib/onepanel";
+import { stripHtmlToPlainText } from "../../../lib/stripHtmlToPlainText";
 import type {
   ServerPanelCacheServerMeta,
   ServerPanelResourceCache,
@@ -94,14 +95,15 @@ export function btDockerAppToMarketApp(app: BtDockerApp): OnePanelApp {
   } else if (key) {
     icon = btDockerAppIconPath(key);
   }
+  const desc = stripHtmlToPlainText(app.appdesc);
   return {
     id: Number(app.appid) || 0,
     name: (app.apptitle || key || "—").trim(),
     key,
     type: app.apptype,
     icon,
-    description: app.appdesc,
-    shortDescZh: app.appdesc,
+    description: desc || undefined,
+    shortDescZh: desc || undefined,
     installed: Boolean(app.installed),
     versions: versionLabel ? [versionLabel] : [],
     tags: app.apptype ? [{ key: app.apptype, name: app.apptype }] : [],
@@ -190,15 +192,18 @@ export function btSoftItemToMarketApp(
   const typeTitle =
     item.type != null && typeTitleById ? typeTitleById.get(Number(item.type)) : undefined;
   const installVersion = pickSoftInstallVersion(item);
+  // 宝塔 `ps` / `ps_en` 常带 HTML（如 description-line），卡片只展示纯文本
+  const descZh = stripHtmlToPlainText(item.ps);
+  const descEn = stripHtmlToPlainText(item.ps_en);
   return {
     id: Number(item.id) || 0,
     name: (item.title || key || "—").trim(),
     key,
     type: typeTitle || (item.type != null ? String(item.type) : undefined),
     icon: item.icon,
-    description: item.ps,
-    shortDescZh: item.ps,
-    shortDescEn: item.ps_en,
+    description: descZh || undefined,
+    shortDescZh: descZh || undefined,
+    shortDescEn: descEn || undefined,
     installed: Boolean(item.setup),
     versions: installVersion ? [installVersion] : [],
     tags: typeTitle ? [{ key: String(item.type ?? typeTitle), name: typeTitle }] : [],

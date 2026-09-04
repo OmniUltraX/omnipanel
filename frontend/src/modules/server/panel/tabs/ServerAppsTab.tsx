@@ -6,12 +6,13 @@ import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { IconRefresh, IconSearch } from "../../../../components/ui/icons/Icons";
 import { isBtPanelAuthFailureMessage } from "../../../../lib/btpanel";
-import { panelHasCapability } from "../panelPlugin";
+import { panelHasCapability, isBtPanelService } from "../panelPlugin";
 import {
   getPanelDriver,
   panelConnectionCtx,
 } from "../../../../lib/panelDriverRegistry";
 import type { OnePanelApp, OnePanelAppInstalledParams, OnePanelInstalledApp } from "../../../../lib/onepanel";
+import { stripHtmlToPlainText } from "../../../../lib/stripHtmlToPlainText";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { quickInput } from "../../../../lib/quickInput";
 import { showToast } from "../../../../stores/toastStore";
@@ -55,20 +56,15 @@ function formatError(err: unknown): string {
 }
 
 function appDescription(app: OnePanelApp, locale: string): string {
+  // 宝塔等面板描述可能带 HTML；展示与搜索都用纯文本（兼容旧缓存）
   if (locale.startsWith("zh")) {
-    return (
-      app.shortDescZh ||
-      app.description ||
-      app.shortDescEn ||
-      ""
-    ).trim();
+    return stripHtmlToPlainText(
+      app.shortDescZh || app.description || app.shortDescEn || "",
+    );
   }
-  return (
-    app.shortDescEn ||
-    app.description ||
-    app.shortDescZh ||
-    ""
-  ).trim();
+  return stripHtmlToPlainText(
+    app.shortDescEn || app.description || app.shortDescZh || "",
+  );
 }
 
 function pickLatestVersion(versions: string[] | undefined): string | null {
@@ -121,9 +117,9 @@ function appMatchesQuery(app: OnePanelApp, query: string): boolean {
     app.name,
     app.key,
     app.type,
-    app.description,
-    app.shortDescZh,
-    app.shortDescEn,
+    stripHtmlToPlainText(app.description),
+    stripHtmlToPlainText(app.shortDescZh),
+    stripHtmlToPlainText(app.shortDescEn),
     ...(app.tags ?? []).flatMap((tag) => [tag.name, tag.key]),
   ]
     .filter(Boolean)
@@ -573,7 +569,11 @@ export function ServerAppsTab({ server }: Props) {
               const busy = installingKey === app.key;
               const cardKey = `${app.id || "app"}:${app.key || app.name || index}`;
               const canOpenParams =
-                canOpenInstalledParams && app.installState === "installed" && app.installId != null;
+                canOpenInstalledParams &&
+                app.installState === "installed" &&
+                app.installId != null &&
+                // 宝塔目前仅 MySQL/MariaDB 能拉安装参数；其它已装应用不开放参数入口
+                (!isBtPanelService(server.serviceType) || isPanelAppManagedByDatabase(app));
               const canManageInDatabase = canOpenParams && isPanelAppManagedByDatabase(app);
               const openParams = () => {
                 if (app.installId == null) return;
