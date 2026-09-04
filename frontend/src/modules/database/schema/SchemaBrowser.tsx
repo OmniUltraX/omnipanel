@@ -9,6 +9,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
@@ -678,6 +679,59 @@ export type SchemaContextMenuContext = {
   selectedConnections?: DbConnectionConfig[];
 };
 
+/** Ctrl+A 全选 / Delete 删除（仅侧栏指针激活时响应，避免误触右侧面板）。 */
+function SchemaTreeHotkeys({
+  allKeys,
+  armedRef,
+  onDeleteSelected,
+}: {
+  allKeys: readonly string[];
+  armedRef: MutableRefObject<boolean>;
+  onDeleteSelected: (selected: ReadonlySet<string>) => boolean | Promise<boolean>;
+}) {
+  const selection = useSidebarTreeSelection();
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (!armedRef.current) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "input, textarea, select, [contenteditable=''], [contenteditable='true']",
+        )
+      ) {
+        return;
+      }
+
+      const mod = event.ctrlKey || event.metaKey;
+      if (mod && event.key.toLowerCase() === "a") {
+        if (allKeys.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        selectionRef.current?.setSelectedIds(allKeys);
+        return;
+      }
+
+      if (event.key === "Delete") {
+        const selected = selectionRef.current?.selectedIds;
+        if (!selected || selected.size === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void Promise.resolve(onDeleteSelected(selected)).then((deleted) => {
+          if (deleted) selectionRef.current?.clearSelection();
+        });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [allKeys, armedRef, onDeleteSelected]);
+
+  return null;
+}
+
 export interface SchemaBrowserProps {
   activeConnId?: string | null;
   onCreateConnection?: () => void;
@@ -695,6 +749,10 @@ export interface SchemaBrowserProps {
     item: SchemaTreeItem,
     context: SchemaContextMenuContext,
   ) => ContextMenuItem[];
+  /** Delete 快捷键删除连接时由 DatabasePanel 处理确认与落库 */
+  onDeleteConnections?: (
+    connections: DbConnectionConfig[],
+  ) => boolean | Promise<boolean>;
   onSchemaCacheConnectionPatched?: (connId: string, entry: SchemaCacheConnectionEntry) => void;
   activeTableKey?: string | null;
   activeDatabaseKey?: string | null;
@@ -717,6 +775,7 @@ export function SchemaBrowser({
   onSelectDatabase,
   onOpenSqlFile,
   buildSchemaContextMenuItems,
+  onDeleteConnections,
   onSchemaCacheConnectionPatched,
   activeTableKey = null,
   activeDatabaseKey = null,
@@ -1030,13 +1089,13 @@ export function SchemaBrowser({
   );
 
   const handleDeleteSchemaNode = useCallback(
-    async (connection: DbConnectionConfig, item: SchemaTreeItem) => {
+    async (connection: DbConnectionConfig, item: SchemaTreeItem): Promise<boolean> => {
       if (!isSchemaNodeDeletable(item.type)) {
-        return;
+        return false;
       }
       if (!isSchemaNodeDropSupported(connection.db_type, item.type)) {
         void appAlert(t("database.schemaTree.dropUnsupported"));
-        return;
+        return false;
       }
 
       const targetIds = resolveSidebarTreeDeleteTargets(item.id, selectedIdsRef.current, {
@@ -1062,7 +1121,7 @@ export function SchemaBrowser({
         .filter((entry): entry is SchemaTreeItem => Boolean(entry));
 
       if (targets.length === 0) {
-        return;
+        return false;
       }
 
       const tableLike = targets.filter((item) => item.type === "table" || item.type === "view");
@@ -1096,16 +1155,17 @@ export function SchemaBrowser({
           }),
           confirmLabel: t("database.schemaTree.deleteTable"),
         });
-        if (!token) return;
+        if (!token) return false;
         try {
           await unwrapCommand(commands.dbDropTable(connection, objects, token));
           for (const item of tableLike) {
             await deleteOneSchemaNode(connection, item, { alreadyDropped: true });
           }
+          return true;
         } catch (err) {
           void appAlert(t("database.schemaTree.dropFailed", { message: String(err) }));
+          return false;
         }
-        return;
       }
       if (databases.length === targets.length) {
         const names = databases.map(
@@ -1119,31 +1179,35 @@ export function SchemaBrowser({
           message: t("database.schemaTree.confirmDeleteDatabase", { name: joined }),
           reason: t("database.schemaTree.confirmDeleteDatabase", { name: joined }),
         });
-        if (!token) return;
+        if (!token) return false;
         try {
           await unwrapCommand(commands.dbDropDatabase(connection, names, token));
           for (const item of databases) {
             await deleteOneSchemaNode(connection, item, { alreadyDropped: true });
           }
+          return true;
         } catch (err) {
           void appAlert(t("database.schemaTree.dropFailed", { message: String(err) }));
+          return false;
         }
-        return;
       }
 
       if (targets.length === 1) {
-        await deleteOneSchemaNode(connection, targets[0]!);
-        return;
+        return deleteOneSchemaNode(connection, targets[0]!);
       }
 
       const confirmed = await appConfirm(
         t("sidebarTree.confirmDeleteSelected", { count: String(targets.length) }),
         t("database.schemaTree.confirmDeleteTitle"),
       );
-      if (!confirmed) return;
+      if (!confirmed) return false;
+      let anyOk = false;
       for (const target of targets) {
-        await deleteOneSchemaNode(connection, target);
+        if (await deleteOneSchemaNode(connection, target)) {
+          anyOk = true;
+        }
       }
+      return anyOk;
     },
     [deleteOneSchemaNode, t],
   );
@@ -1270,11 +1334,89 @@ export function SchemaBrowser({
         t("database.sidebar.deleteFolderTitle"),
       );
       if (!confirmed) {
-        return;
+        return false;
       }
       deleteLayoutFolder(folderId);
+      return true;
     },
     [deleteLayoutFolder, t],
+  );
+
+  const handleHotkeyDeleteLayoutFolders = useCallback(
+    async (folderIds: string[]) => {
+      if (folderIds.length === 0) return false;
+      if (folderIds.length === 1) {
+        return handleDeleteLayoutFolder(folderIds[0]!);
+      }
+      const confirmed = await appConfirm(
+        t("sidebarTree.confirmDeleteSelected", { count: String(folderIds.length) }),
+        t("database.sidebar.deleteFolderTitle"),
+      );
+      if (!confirmed) return false;
+      for (const folderId of folderIds) {
+        deleteLayoutFolder(folderId);
+      }
+      return true;
+    },
+    [deleteLayoutFolder, handleDeleteLayoutFolder, t],
+  );
+
+  const sidebarHotkeysArmedRef = useRef(false);
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      sidebarHotkeysArmedRef.current = Boolean(sidebarRef.current?.contains(event.target as Node));
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
+
+  const handleHotkeyDelete = useCallback(
+    async (selected: ReadonlySet<string>): Promise<boolean> => {
+      if (selected.size === 0) return false;
+
+      const orderedSelected = flatRowsRef.current
+        .filter(
+          (row): row is Extract<SchemaFlatRow, { kind: "node" }> =>
+            row.kind === "node" && selected.has(row.item.id),
+        )
+        .map((row) => row.item);
+
+      const primary = orderedSelected.find(
+        (item) =>
+          item.type === "connection-folder" ||
+          item.type === "connection" ||
+          isSchemaNodeDeletable(item.type),
+      );
+      if (!primary) return false;
+
+      if (primary.type === "connection-folder") {
+        const folderIds = orderedSelected
+          .filter((item) => item.type === "connection-folder")
+          .map((item) => item.id);
+        return handleHotkeyDeleteLayoutFolders(folderIds);
+      }
+
+      if (primary.type === "connection") {
+        if (!onDeleteConnections) return false;
+        const configs = orderedSelected
+          .filter((item) => item.type === "connection")
+          .map((item) => {
+            const connId = item.connId ?? (item.id.startsWith("conn:") ? item.id.slice(5) : item.id);
+            return connectionsRef.current.find((entry) => entry.config.id === connId)?.config;
+          })
+          .filter((entry): entry is DbConnectionConfig => Boolean(entry));
+        if (configs.length === 0) return false;
+        return Promise.resolve(onDeleteConnections(configs));
+      }
+
+      const connection = connectionsRef.current.find(
+        (entry) => entry.config.id === primary.connId,
+      )?.config;
+      if (!connection) return false;
+      return handleDeleteSchemaNode(connection, primary);
+    },
+    [handleDeleteSchemaNode, handleHotkeyDeleteLayoutFolders, onDeleteConnections],
   );
 
   const applyLayoutDrop = useCallback(
@@ -2642,6 +2784,11 @@ export function SchemaBrowser({
           orderedKeys={selectableNodeIds}
           onSelectedIdsChange={handleSelectedIdsChange}
         >
+        <SchemaTreeHotkeys
+          allKeys={selectableNodeIds}
+          armedRef={sidebarHotkeysArmedRef}
+          onDeleteSelected={handleHotkeyDelete}
+        />
         <SchemaTreeSelectionSync targetId={sidebarScrollTargetId} />
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>

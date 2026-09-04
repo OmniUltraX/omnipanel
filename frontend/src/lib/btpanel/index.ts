@@ -65,6 +65,12 @@ export {
 } from "./client";
 export { parseBtJavaProjectLoadInfo, parseJvmRuntimeHints, parseJvmSizeArg } from "./javaLoadInfo";
 export {
+  parseBtDiskUsage,
+  parseBtDiskUsageList,
+  parseBtHumanSizeToBytes,
+  type BtDiskUsageBytes,
+} from "./diskInfo";
+export {
   fetchBtMergedWebsiteList,
   isPidInfoPresent,
   javaProjectRunStatus,

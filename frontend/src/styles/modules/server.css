@@ -290,6 +290,25 @@
         margin: 0;
     }
 
+    .ssh-config-import__row--with-source {
+        cursor: default;
+    }
+
+    .ssh-config-import__row-check {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        flex: 1;
+        min-width: 0;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .ssh-config-import__source {
+        flex: 0 0 132px;
+        min-width: 120px;
+    }
+
     .ssh-config-import__row:last-child {
         border-bottom: none;
     }

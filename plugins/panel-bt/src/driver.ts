@@ -1,6 +1,7 @@
 import {
   createBtPanelClient,
   fetchBtMergedWebsiteList,
+  parseBtDiskUsageList,
   type BtAddSiteParams,
 } from "../../../frontend/src/lib/btpanel";
 import {
@@ -168,9 +169,7 @@ export const btPanelDriver: PanelDriver = {
     const disks = await bt.getDiskInfo();
     const memPct = total.memTotal ? ((total.memRealUsed ?? 0) / total.memTotal) * 100 : 0;
     const cpuPct = network.cpu?.[0] ?? total.cpuRealUsed ?? 0;
-    const rootDisk = disks[0];
-    const diskUsed = rootDisk?.size?.[0] ? Number.parseFloat(String(rootDisk.size[0])) : 0;
-    const diskTotal = rootDisk?.size?.[1] ? Number.parseFloat(String(rootDisk.size[1])) : 0;
+    const diskUsages = parseBtDiskUsageList(Array.isArray(disks) ? disks : []);
     return {
       hostname: total.system,
       os: total.system,
@@ -185,16 +184,13 @@ export const btPanelDriver: PanelDriver = {
         load1: network.load?.one,
         load5: network.load?.five,
         load15: network.load?.fifteen,
-        diskData: rootDisk
-          ? [
-              {
-                path: rootDisk.path,
-                total: diskTotal,
-                used: diskUsed,
-                usedPercent: diskTotal ? (diskUsed / diskTotal) * 100 : 0,
-              },
-            ]
-          : [],
+        diskData: diskUsages.map((d) => ({
+          path: d.path,
+          total: d.total,
+          used: d.used,
+          free: d.free,
+          usedPercent: d.usedPercent,
+        })),
       },
     };
   },

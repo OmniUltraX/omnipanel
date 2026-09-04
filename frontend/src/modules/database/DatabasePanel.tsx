@@ -3132,9 +3132,9 @@ export function DatabasePanel() {
   }, []);
 
   const handleDeleteConnection = useCallback(
-    async (connection: DbConnectionConfig | DbConnectionConfig[]) => {
+    async (connection: DbConnectionConfig | DbConnectionConfig[]): Promise<boolean> => {
       const targets = Array.isArray(connection) ? connection : [connection];
-      if (targets.length === 0) return;
+      if (targets.length === 0) return false;
 
       const confirmed = await appConfirm(
         targets.length === 1
@@ -3148,7 +3148,7 @@ export function DatabasePanel() {
         },
       );
       if (!confirmed) {
-        return;
+        return false;
       }
 
       for (const target of targets) {
@@ -3186,6 +3186,7 @@ export function DatabasePanel() {
 
       await reloadSchemaSidecarAfterConnectionDelete();
       setSchemaRefreshToken((token) => token + 1);
+      return true;
     },
     [
       t,
@@ -6382,6 +6383,7 @@ export function DatabasePanel() {
           onSelectTable={handleSelectTable}
           onSelectDatabase={handleSelectDatabase}
           buildSchemaContextMenuItems={buildSchemaContextMenuItems}
+          onDeleteConnections={handleDeleteConnection}
           onSchemaCacheConnectionPatched={handleSchemaCacheConnectionPatched}
           refreshToken={schemaRefreshToken}
           connectionConfigs={sidebarConnections}

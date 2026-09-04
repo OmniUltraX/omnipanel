@@ -672,7 +672,7 @@ export function DockerPanelTreeSidebar({
         <Button
           type="button"
           variant="icon"
-          className={`server-sidebar-group-add${importingFromSsh ? " tree-action-btn--busy" : ""}`}
+          className="server-sidebar-group-add"
           title={t("docker.sidebar.importFromSsh")}
           disabled={importingFromSsh}
           onClick={onImportFromSsh}

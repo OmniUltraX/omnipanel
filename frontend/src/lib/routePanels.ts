@@ -39,8 +39,7 @@ export function isShellRoutePath(pathname: string): boolean {
 
 /**
  * 叠层模块初始挂载：仅当前路由对应模块。
- * 禁止在启动首帧同步将全部模块置 true（会阻塞 LCP）；
- * 全量 ShellReady 应走 idle/`startTransition` 的 `scheduleIdleOverlayShellWarm`。
+ * 运行时挂载由 overlayKeepAlive「当前 + 最近 1」控制；禁止 idle 全量挂壳。
  */
 export function createInitialOverlayMounted(
   pathname: string,
@@ -58,7 +57,7 @@ export function createInitialOverlayMounted(
 /**
  * @deprecated 勿在首帧调用。
  * 若需要「逻辑上全 false 的空表」请用 createInitialOverlayMounted("")；
- * 全量挂壳请用 moduleWarmup.scheduleIdleOverlayShellWarm。
+ * chunk 预热请用 moduleWarmup.scheduleIdleOverlayShellWarm（不再挂壳）。
  */
 export function createOverlayMountedAll(): Record<OverlayModuleKey, boolean> {
   return createInitialOverlayMounted("");

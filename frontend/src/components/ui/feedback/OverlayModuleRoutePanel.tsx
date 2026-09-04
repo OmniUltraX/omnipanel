@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { SuspendedModulePanel } from "./SuspendedModulePanel";
 
 interface OverlayModuleRoutePanelProps {
@@ -11,15 +11,21 @@ interface OverlayModuleRoutePanelProps {
    * 不参与 content-visibility:hidden 优化，避免量到 0 宽后 api.layout 压扁。
    */
   keepLayout?: boolean;
+  /** 叠层面板 id（冻结 Location） */
+  panelId?: string;
   children: ReactNode;
 }
 
-/** dock 模块叠层路由：始终 absolute 铺满，仅切 visibility */
-export function OverlayModuleRoutePanel({
+/**
+ * dock 模块叠层路由：始终 absolute 铺满，仅切 visibility。
+ * memo：路由切换时 active/mounted 未变的模块整树跳过重渲（需配合稳定 children 引用）。
+ */
+export const OverlayModuleRoutePanel = memo(function OverlayModuleRoutePanel({
   active,
   mounted = true,
   suspendWhenHidden = true,
   keepLayout = false,
+  panelId,
   children,
 }: OverlayModuleRoutePanelProps) {
   if (!mounted) return null;
@@ -34,9 +40,13 @@ export function OverlayModuleRoutePanel({
 
   return (
     <div className={className}>
-      <SuspendedModulePanel active={active} suspendWhenHidden={suspendWhenHidden}>
+      <SuspendedModulePanel
+        active={active}
+        suspendWhenHidden={suspendWhenHidden}
+        panelId={panelId}
+      >
         {children}
       </SuspendedModulePanel>
     </div>
   );
-}
+});

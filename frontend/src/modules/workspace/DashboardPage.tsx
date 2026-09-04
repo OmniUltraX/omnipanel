@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock } from "../../components/dock";
 import { WorkspaceSwitcher } from "../../components/shell/WorkspaceSwitcher";
 import {
@@ -11,9 +10,9 @@ import {
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
 import { appConfirm } from "../../lib/appConfirm";
-import { DASHBOARD_PATH } from "../../lib/paths";
 import { quickInput } from "../../lib/quickInput";
 import { useI18n } from "../../i18n";
+import { useModuleVisibility } from "../../lib/moduleVisibility";
 import { useShareUiStore } from "../../stores/shareUiStore";
 import { buildCustomPanelSharePayload } from "../share/resourceShare";
 import { HomeBoardView } from "./HomeBoardView";
@@ -45,8 +44,7 @@ function closedCustomPanels(
 /** 独立看板页：/dashboard — 可关闭 / 可新建内置页与自定义面板 */
 export function DashboardPage() {
   const { t } = useI18n();
-  const location = useLocation();
-  const isActiveRoute = location.pathname === DASHBOARD_PATH;
+  const { active: isActiveRoute } = useModuleVisibility();
   const activeTabId = useDashboardStore((s) => s.homeTabId);
   const openTabIds = useDashboardStore((s) => s.openTabIds);
   const customPanels = useDashboardStore((s) => s.customPanels);
