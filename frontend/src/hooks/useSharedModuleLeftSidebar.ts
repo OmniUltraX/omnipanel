@@ -109,6 +109,12 @@ export function useSharedModuleLeftSidebar({
       const justActivated = !prevModuleActiveRef.current && moduleActive;
       prevModuleActiveRef.current = moduleActive;
       if (!justActivated) return;
+
+      // 激活瞬间：expand/resize 放到 paint 之后，避免 useLayoutEffect 同步布局堵首帧
+      const raf = requestAnimationFrame(() => {
+        syncFromStore();
+      });
+      return () => cancelAnimationFrame(raf);
     }
 
     if (!syncFromStore()) {

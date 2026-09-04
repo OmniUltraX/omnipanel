@@ -8,8 +8,8 @@ import {
 } from "react-router-dom";
 import {
   useEffect,
+  useMemo,
   useState,
-  startTransition,
 } from "react";
 import { Sidebar } from "./components/shell/Sidebar";
 import { CommandPalette } from "./components/shell/CommandPalette";
@@ -31,15 +31,18 @@ import { SuspendedModulePanel, OverlayModuleRoutePanel } from "./components/ui/f
 import { WorkspaceShell } from "./components/workspace/WorkspaceShell";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
 import { useWorkspaceBottomDockStore } from "./stores/workspaceBottomDockStore";
+import { isShellRoutePath } from "./lib/routePanels";
+import { scheduleIdleOverlayShellWarm } from "./lib/moduleWarmup";
 import {
-  createInitialOverlayMounted,
-  isOverlayModuleKey,
-  isShellRoutePath,
-} from "./lib/routePanels";
-import {
-  scheduleIdleOverlayShellWarm,
-  subscribeModuleShellWarm,
-} from "./lib/moduleWarmup";
+  collectPinnedKeepAliveIds,
+  createInitialKeepAliveState,
+  keepAliveIdFromPath,
+  overlayMountedRecordFromKeepAlive,
+  pluginKeysFromKeepAlive,
+  resolveOverlayKeepAliveMounted,
+  touchOverlayKeepAlive,
+  type OverlayKeepAliveState,
+} from "./lib/overlayKeepAlive";
 import { WindowResize } from "./components/shell/WindowResize";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { UserCenterWindow } from "./components/user/UserCenterWindow";
@@ -79,7 +82,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useAppUpdateStore } from "./stores/appUpdateStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
-import { DASHBOARD_PATH, MODULE_PATHS, MODULE_PREFIX, PLUGINS_PATH, WORKSPACE_PATHS, isDashboardPath, isPluginsPath, isWorkspacePath, moduleKeyFromPath, modulePathForType, navModuleKeyFromPath, pluginModuleKeyFromPath } from "./lib/paths";
+import { DASHBOARD_PATH, MODULE_PATHS, MODULE_PREFIX, PLUGINS_PATH, WORKSPACE_PATHS, isDashboardPath, isPluginsPath, isWorkspacePath, modulePathForType, navModuleKeyFromPath, pluginModuleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { usePluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { PluginModuleHost } from "./modules/plugin-module/PluginModuleHost";
@@ -450,48 +453,34 @@ function AppShell() {
   const isPlugins = isPluginsPath(location.pathname);
   const isShellRoute = isShellRoutePath(location.pathname) && !isDashboard;
 
-  // 叠层模块按需挂载：启动时不全量挂载，避免首页主线程被终端/数据库等重型面板堵死
-  const [overlayMounted, setOverlayMounted] = useState(() =>
-    createInitialOverlayMounted(location.pathname),
+  // 叠层保活：当前 + 最近 1 个；其余卸载（dock/会话由各模块 store 持久化）
+  const [keepAlive, setKeepAlive] = useState<OverlayKeepAliveState>(() =>
+    createInitialKeepAliveState(location.pathname),
+  );
+  const tabsByWorkspace = useWorkspaceBottomDockStore((s) => s.tabsByWorkspace);
+  const pinnedKeepAlive = useMemo(
+    () => collectPinnedKeepAliveIds(tabsByWorkspace),
+    [tabsByWorkspace],
+  );
+  const keepAliveMounted = useMemo(
+    () => resolveOverlayKeepAliveMounted(keepAlive, pinnedKeepAlive),
+    [keepAlive, pinnedKeepAlive],
+  );
+  const overlayMounted = useMemo(
+    () => overlayMountedRecordFromKeepAlive(keepAliveMounted),
+    [keepAliveMounted],
+  );
+  const keptPluginKeys = useMemo(
+    () => pluginKeysFromKeepAlive(keepAliveMounted),
+    [keepAliveMounted],
   );
 
   useEffect(() => {
-    const key = moduleKeyFromPath(location.pathname);
-    if (isOverlayModuleKey(key)) {
-      setOverlayMounted((prev) =>
-        prev[key] ? prev : { ...prev, [key]: true },
-      );
-    }
+    const nextId = keepAliveIdFromPath(location.pathname);
+    setKeepAlive((prev) => touchOverlayKeepAlive(prev, nextId));
   }, [location.pathname]);
 
-  // 悬停 / 空闲预热：提前挂载模块壳（路由未激活时仍 suspended）
-  useEffect(() => {
-    return subscribeModuleShellWarm((key) => {
-      startTransition(() => {
-        setOverlayMounted((prev) =>
-          prev[key] ? prev : { ...prev, [key]: true },
-        );
-      });
-    });
-  }, []);
-
-  // 工作区已有数据库 Tab 时预挂载，避免切到其他功能后底部 SQL 失效
-  useEffect(() => {
-    const { tabsByWorkspace } = useWorkspaceBottomDockStore.getState();
-    for (const tabs of Object.values(tabsByWorkspace)) {
-      for (const tab of tabs ?? []) {
-        if (
-          (tab.kind === "mirrored" && tab.originScope === "database") ||
-          (tab.kind === "payload" && tab.payload?.module === "database")
-        ) {
-          setOverlayMounted((prev) =>
-            prev.database ? prev : { ...prev, database: true },
-          );
-          return;
-        }
-      }
-    }
-  }, []);
+  // 空闲仅预拉 JS chunk，不再全量挂壳（与 LRU 保活冲突）
 
   const aiDisplayMode = useSettingsStore((s) => s.aiDisplayMode);
   const drawerOpen = useAiStore((s) => s.drawerOpen);
@@ -587,95 +576,124 @@ function AppShell() {
     aiDisplayMode === "dockview" && drawerOpen ? `${aiDockWidth}px` : "0px";
   const dockOpen = aiDisplayMode === "dockview" && drawerOpen;
 
+  // 稳定 children 引用，让 OverlayModuleRoutePanel memo 在 inactive 时跳过整树重渲
+  const dashboardPanelChild = useMemo(() => <LazyDashboardPage />, []);
+  const terminalPanelChild = useMemo(() => <LazyTerminalPanel />, []);
+  const sshPanelChild = useMemo(() => <LazySshPanel />, []);
+  const dockerPanelChild = useMemo(() => <LazyDockerPanel />, []);
+  const databasePanelChild = useMemo(() => <LazyDatabasePanel />, []);
+  const filesPanelChild = useMemo(() => <LazyFilesPanel />, []);
+  const serverPanelChild = useMemo(() => <LazyServerPanel />, []);
+  const protocolPanelChild = useMemo(() => <LazyProtocolPanel />, []);
+  const workflowPanelChild = useMemo(() => <LazyWorkflowPanel />, []);
+  const knowledgePanelChild = useMemo(() => <LazyKnowledgePanel />, []);
+  const tasksPanelChild = useMemo(() => <LazyTaskCenterPanel />, []);
+  const cloudPanelChild = useMemo(() => <LazyCloudPanel />, []);
+
   const routePanels = (
     <div className="content-routes">
       {/* Dashboard 常驻挂载：避免每次从功能页切回首页时重新创建 dockview 实例导致延迟 */}
-      <OverlayModuleRoutePanel active={isDashboard} mounted keepLayout>
-        <LazyDashboardPage />
+      <OverlayModuleRoutePanel active={isDashboard} mounted keepLayout panelId="dashboard">
+        {dashboardPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isTerminal}
         mounted={overlayMounted.terminal}
         keepLayout
+        panelId="terminal"
       >
-        <LazyTerminalPanel />
+        {terminalPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isSsh}
         mounted={overlayMounted.ssh}
         keepLayout
+        panelId="ssh"
       >
-        <LazySshPanel />
+        {sshPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isDocker}
         mounted={overlayMounted.docker}
         keepLayout
+        panelId="docker"
       >
-        <LazyDockerPanel />
+        {dockerPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isDatabase}
         mounted={overlayMounted.database}
         keepLayout
+        panelId="database"
       >
-        <LazyDatabasePanel />
+        {databasePanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isFiles}
         mounted={overlayMounted.files}
         keepLayout
+        panelId="files"
       >
-        <LazyFilesPanel />
+        {filesPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isServer}
         mounted={overlayMounted.server}
         keepLayout
+        panelId="server"
       >
-        <LazyServerPanel />
+        {serverPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isProtocol}
         mounted={overlayMounted.protocol}
         keepLayout
+        panelId="protocol"
       >
-        <LazyProtocolPanel />
+        {protocolPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isWorkflow}
         mounted={overlayMounted.workflow}
         keepLayout
+        panelId="workflow"
       >
-        <LazyWorkflowPanel />
+        {workflowPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isKnowledge}
         mounted={overlayMounted.knowledge}
         keepLayout
+        panelId="knowledge"
       >
-        <LazyKnowledgePanel />
+        {knowledgePanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isTasks}
         mounted={overlayMounted.tasks}
         keepLayout
+        panelId="tasks"
       >
-        <LazyTaskCenterPanel />
+        {tasksPanelChild}
       </OverlayModuleRoutePanel>
       <OverlayModuleRoutePanel
         active={isCloud}
         mounted={overlayMounted.cloud}
         keepLayout
+        panelId="cloud"
       >
-        <LazyCloudPanel />
+        {cloudPanelChild}
       </OverlayModuleRoutePanel>
-      <OverlayModuleRoutePanel
-        active={Boolean(pluginModuleKey)}
-        mounted={Boolean(pluginModuleKey)}
-      >
-        {pluginModuleKey ? <PluginModuleHost moduleKey={pluginModuleKey} /> : null}
-      </OverlayModuleRoutePanel>
+      {keptPluginKeys.map((key) => (
+        <OverlayModuleRoutePanel
+          key={`plugin:${key}`}
+          active={pluginModuleKey === key}
+          mounted
+          panelId={`plugin:${key}`}
+        >
+          <PluginModuleHost moduleKey={key} />
+        </OverlayModuleRoutePanel>
+      ))}
       <div className={`route-panel${isShellRoute ? " route-panel--active" : ""}`}>
         <Routes>
             <Route path="/" element={<Navigate to={DASHBOARD_PATH} replace />} />

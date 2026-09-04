@@ -7,7 +7,7 @@ import {
   navigateToFeature,
   toggleWorkspaceFromChromeIcon,
 } from "../../lib/workspaceNavigation";
-import { isDashboardPath, moduleKeyFromPath } from "../../lib/paths";
+import { isDashboardPath, isModulePath, moduleKeyFromPath } from "../../lib/paths";
 import { isOverlayModulePath } from "../../lib/routePanels";
 import { scheduleNavHoverWarm } from "../../lib/moduleWarmup";
 import { getNavVisibleModuleKeys, useAppModuleStore } from "../../stores/appModuleStore";
@@ -56,8 +56,10 @@ export function Sidebar() {
   };
 
   const go = (path: string) => {
+    // 所有 /module/*（含插件模块）同步 navigate，避免 startTransition 把切换推入过渡帧
+    const sync = isBottomFullscreen || isOverlayModulePath(path) || isModulePath(path);
     // 叠层模块（终端/数据库等）须同步 navigate，避免 startTransition 延迟造成切换钝感
-    if (isBottomFullscreen || isOverlayModulePath(path)) {
+    if (sync) {
       navigateToFeature(path, navigate);
       return;
     }

@@ -103,37 +103,30 @@ export function overlayKeyFromNavPath(path: string): OverlayModuleKey | null {
 }
 
 /**
- * 悬停意图：先拉 chunk，停留超过 hoverMs 再请求挂载壳。
+ * 悬停意图：只预拉 JS chunk，不挂载 React 壳（挂载由 overlayKeepAlive LRU 控制）。
  * 返回取消函数（mouseleave 时调用）。
  */
 export function scheduleNavHoverWarm(
   path: string,
-  hoverMs = 140,
+  _hoverMs = 140,
 ): () => void {
   const key = overlayKeyFromNavPath(path);
   if (!key) return () => {};
-
   void preloadOverlayModuleChunk(key);
-  const timer = window.setTimeout(() => {
-    requestModuleShellWarm(key);
-  }, hoverMs);
-
-  return () => {
-    window.clearTimeout(timer);
-  };
+  return () => {};
 }
 
 export interface IdleOverlayShellWarmOptions {
   keys?: readonly OverlayModuleKey[];
-  /** 首个模块开始 shell 预热的 idle timeout（ms） */
+  /** 首个模块开始 chunk 预热的 idle timeout（ms） */
   initialShellTimeoutMs?: number;
   /** 后续每个模块之间的 idle timeout（ms） */
   stepShellTimeoutMs?: number;
 }
 
 /**
- * 空闲错峰：逐个 preload chunk → requestModuleShellWarm。
- * 不堵首帧；挂壳后仍由 ModuleVisibility.suspended / moduleLive 抑制 Live 重活。
+ * 空闲错峰：仅 preload chunk，不 requestModuleShellWarm。
+ * 全量挂壳会与「当前+最近1」保活冲突并拖慢切换。
  */
 export function scheduleIdleOverlayShellWarm(
   options?: IdleOverlayShellWarmOptions,
@@ -147,7 +140,7 @@ export function scheduleIdleOverlayShellWarm(
 
   const warmNext = () => {
     if (cancelled) return;
-    while (index < keys.length && shellWarmRequested.has(keys[index]!)) {
+    while (index < keys.length && chunkReady.has(keys[index]!)) {
       index += 1;
     }
     if (index >= keys.length) return;
@@ -155,7 +148,6 @@ export function scheduleIdleOverlayShellWarm(
     index += 1;
     void preloadOverlayModuleChunk(key).finally(() => {
       if (cancelled) return;
-      requestModuleShellWarm(key);
       cancelScheduled = scheduleIdleOrTimeout(warmNext, stepShellTimeoutMs);
     });
   };

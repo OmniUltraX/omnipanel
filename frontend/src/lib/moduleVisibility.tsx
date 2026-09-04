@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 export interface ModuleVisibilityState {
   /** 当前路由是否为该模块的 active 路由 */
@@ -22,8 +22,13 @@ export function ModuleVisibilityProvider({
   children: ReactNode;
 }) {
   const isSuspended = suspended ?? !active;
+  // 稳定引用：active/suspended 未变时不触发下游 useModuleVisibility 消费者重渲
+  const value = useMemo(
+    () => ({ active, suspended: isSuspended }),
+    [active, isSuspended],
+  );
   return (
-    <ModuleVisibilityContext.Provider value={{ active, suspended: isSuspended }}>
+    <ModuleVisibilityContext.Provider value={value}>
       {children}
     </ModuleVisibilityContext.Provider>
   );
