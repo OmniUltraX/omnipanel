@@ -18,7 +18,7 @@ import { ProtocolHttpProvider, useProtocolHttpOptional } from "./ProtocolHttpCon
 
 function ProtocolPanelInner() {
   const { t } = useI18n();
-  const { isActiveRoute } = useModuleRouteActive("protocol");
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("protocol");
   const protocolLabTabs = useSettingsStore((s) => s.protocolLabTabs);
   const http = useProtocolHttpOptional();
   const savedRequests = http?.savedRequests ?? [];
@@ -188,7 +188,7 @@ function ProtocolPanelInner() {
         dockScope="protocol-workspace"
         moduleTitle={t("routes.protocol")}
         enabled={isActiveRoute}
-        contentSuspended={!isActiveRoute}
+        contentSuspended={!moduleLive}
         stickyVisit
         windowControl
         tabs={dockTabs}

@@ -10,13 +10,16 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useLocation } from "react-router-dom";
 import { ModuleSegmentDock, openDockTabNow, closeDockTabNow } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { ModuleLeftHeaderActions } from "../../components/ai/ModuleLeftHeaderActions";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
+import {
+  clearHistoryState,
+  peekHistoryStateField,
+} from "../../lib/historyLocationState";
 import { useConnectionStore } from "../../stores/connectionStore";
 import {
   importDockerFromSshSelections,
@@ -65,6 +68,7 @@ import {
 import type { DockerSidebarNavTarget } from "./dockerSidebarNav";
 import { useDockerConnections } from "./hooks/useDockerConnections";
 import type { Connection, DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bindings";
+import { getDockerSessionService } from "./dockerSessionService";
 
 const DockerContainerDockPanel = lazy(() =>
   import("./DockerContainerDockPanel").then((mod) => ({ default: mod.DockerContainerDockPanel })),
@@ -84,7 +88,6 @@ function DockerPanelLoadingFallback() {
 
 export function DockerPanel() {
   const { t } = useI18n();
-  const location = useLocation();
   const { isActiveRoute, moduleLive } = useModuleRouteActive("docker");
 
   const storedConnections = useConnectionStore((s) => s.connections);
@@ -476,14 +479,22 @@ export function DockerPanel() {
 
   const dockerDeepLinkHandledRef = useRef(false);
   useEffect(() => {
-    if (dockerDeepLinkHandledRef.current || connectionsLoading) return;
-    const state = location.state as { selectDockerConnectionId?: string } | null;
-    const targetId = state?.selectDockerConnectionId;
+    if (!moduleLive || dockerDeepLinkHandledRef.current || connectionsLoading) return;
+    const targetId = peekHistoryStateField<string>("selectDockerConnectionId");
     if (!targetId || !connections.some((c) => c.connectionId === targetId)) return;
     dockerDeepLinkHandledRef.current = true;
     handleNavigate({ connectionId: targetId }, "permanent");
-    window.history.replaceState({}, "");
-  }, [connections, connectionsLoading, handleNavigate, location.state]);
+    clearHistoryState();
+  }, [moduleLive, connections, connectionsLoading, handleNavigate]);
+
+  useEffect(() => {
+    if (!moduleLive || !activeTabId) return;
+    return getDockerSessionService().bindView(activeTabId, {
+      push: () => {
+        /* P2：状态事件预留 */
+      },
+    });
+  }, [moduleLive, activeTabId]);
 
   const moduleDockTabs = useMemo(
     () =>

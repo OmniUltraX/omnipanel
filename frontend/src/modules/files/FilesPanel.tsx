@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { useLocation } from "react-router-dom";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import {
@@ -15,6 +14,7 @@ import {
   ModuleWorkspaceLayout,
 } from "../../components/workspace";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
+import { peekHistoryStateRecord } from "../../lib/historyLocationState";
 import { ModuleLeftHeaderActions } from "../../components/ai/ModuleLeftHeaderActions";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
@@ -79,8 +79,7 @@ type FavCtxState = { x: number; y: number; favorite: FileFavorite } | null;
 
 function FilesBrowserView() {
   const { t } = useI18n();
-  const location = useLocation();
-  const { isActiveRoute } = useModuleRouteActive("files");
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("files");
   const refreshConnections = useConnectionStore((s) => s.refresh);
   const removeConnection = useConnectionStore((s) => s.remove);
   const storedConnections = useConnectionStore((s) => s.connections);
@@ -526,7 +525,8 @@ function FilesBrowserView() {
 
   // 处理从 SSH 模块跳转过来的 SFTP 深链接：优先打开已关联连接，缺失则自动创建
   useEffect(() => {
-    const fromState = location.state as Partial<SshSftpDeepLink> | null;
+    if (!moduleLive) return;
+    const fromState = peekHistoryStateRecord() as Partial<SshSftpDeepLink> | null;
     if (fromState?.openSftpForSshId) {
       consumeSftpDeepLink(
         {
@@ -542,7 +542,7 @@ function FilesBrowserView() {
     if (fromStorage) {
       consumeSftpDeepLink(fromStorage, false);
     }
-  }, [consumeSftpDeepLink, location.state]);
+  }, [consumeSftpDeepLink, moduleLive]);
 
   useEffect(() => {
     const onOpenSftp = (event: Event) => {
@@ -1023,7 +1023,7 @@ function FilesBrowserView() {
 
   return (
     <>
-      <FilesModuleContextBridge active={isActiveRoute} context={filesAiContext} />
+      <FilesModuleContextBridge active={moduleLive} context={filesAiContext} />
       <ModuleWorkspaceLayout
         className="files-workspace"
         leftColumnTitle={t("routes.files")}
@@ -1141,7 +1141,7 @@ function FilesBrowserView() {
               dockScope="files-browser"
               moduleTitle={t("routes.files")}
               enabled={isActiveRoute}
-              contentSuspended={!isActiveRoute}
+              contentSuspended={!moduleLive}
               stickyVisit
               windowControl
               tabs={dockTabs}

@@ -102,7 +102,7 @@ function emptyStep(order: number): SaveStepRequest {
 // ═══════════════════════════════════════════════════════════
 export function WorkflowPanel() {
   const { t } = useI18n();
-  const { isActiveRoute } = useModuleRouteActive("workflow");
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("workflow");
   const [tab, setTab] = usePersistedModuleTab("workflow", "workflows", WF_TABS);
 
   const {
@@ -473,7 +473,7 @@ export function WorkflowPanel() {
           activeTabId={tab}
           onActiveTabChange={(id) => setTab(id as WfTab)}
           enabled={isActiveRoute}
-          contentSuspended={!isActiveRoute}
+          contentSuspended={!moduleLive}
           stickyVisit
           renderPanel={renderPanel}
         />

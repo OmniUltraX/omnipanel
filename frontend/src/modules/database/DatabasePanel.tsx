@@ -58,6 +58,10 @@ import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
 import { quickInput } from "../../lib/quickInput";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
+import {
+  getDatabaseSessionService,
+  registerDatabaseTabCloser,
+} from "./databaseSessionService";
 import { isSqlEditorFocused, sqlAtOffset } from "./sqlIntel/sqlStatement";
 import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
 import { resolveSqlPresenceToken } from "./sql/sqlPresence";
@@ -269,7 +273,6 @@ import {
   sanitizeWorkspaceSession,
   tablePreviewStateFromSnapshot,
   type DbClosedPanelEntry,
-  type DbSqlTabStateSnapshot,
 } from "./workspace/dbWorkspaceSession";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { publishDbWorkspaceMirror } from "../../stores/dbWorkspaceMirrorStore";
@@ -284,6 +287,16 @@ import { dbTabToSnapshot } from "../../lib/workspaceTabActions";
 import { subscribeDockviewTransfer, relayoutDockviewInstances } from "../../lib/dockviewRegistry";
 import { deliverSnapshotToWorkspace } from "../../lib/workspaceSnapshotDelivery";
 import type { DbTabSnapshot } from "../../stores/workspaceTabStore";
+import { useDbWorkspaceDockTabsStore } from "../../stores/dbWorkspaceDockTabsStore";
+import {
+  applyDefaultWorkspaceSession,
+  parseQdrantPointId,
+  readRowKeyValue,
+  restoreSqlTabStateFromSnapshot,
+  tabMatchesConnectionSelection,
+  tabMatchesDatabaseSelection,
+  tabMatchesTableSelection,
+} from "./workspace/dbWorkspaceTabHelpers";
 import { connectionNodeId } from "./schema/schemaTreeExpanded";
 import { loadNavicatImportPreview } from "./navicatImport/loadNavicatNcxFile";
 import type { NavicatImportPreviewItem } from "./navicatImport/types";
@@ -291,82 +304,6 @@ import type { NavicatImportPreviewItem } from "./navicatImport/types";
 type DbModuleTab = "query" | "dataSync" | "schemaSync";
 const DB_MODULE_TABS: DbModuleTab[] = ["query", "dataSync", "schemaSync"];
 const EMPTY_DOCKED_DATABASE_TABS: string[] = [];
-
-function tabMatchesTableSelection(
-  tab: DbWorkspaceTab,
-  connId: string,
-  dbName: string,
-  tableName: string,
-): boolean {
-  return (
-    tab.kind === "table" &&
-    tab.connId === connId &&
-    tab.dbName === dbName &&
-    tab.tableName === tableName
-  );
-}
-
-function tabMatchesDatabaseSelection(
-  tab: DbWorkspaceTab,
-  connId: string,
-  dbName: string,
-  isRedis: boolean,
-): boolean {
-  if (isRedis) {
-    return tab.kind === "redis-query" && tab.connId === connId && tab.dbName === dbName;
-  }
-  return tab.kind === "database" && tab.connId === connId && tab.dbName === dbName;
-}
-
-function tabMatchesConnectionSelection(
-  tab: DbWorkspaceTab,
-  connId: string,
-  _isRedis: boolean,
-): boolean {
-  return tab.kind === "connection" && tab.connId === connId;
-}
-
-function restoreSqlTabStateFromSnapshot(snap: DbSqlTabStateSnapshot): SqlTabState {
-  return {
-    ...createDefaultSqlTabState(snap.database, snap.connId ?? ""),
-    sql: snap.sql,
-    database: snap.database,
-    connId: snap.connId ?? "",
-    cursorOffset: snap.cursorOffset,
-  };
-}
-
-function applyDefaultWorkspaceSession(
-  setWorkspaceTabs: (tabs: DbWorkspaceTab[]) => void,
-  activateTab: (id: string) => void,
-): void {
-  setWorkspaceTabs([]);
-  activateTab("");
-  useDbWorkspaceTabStore.getState().resetTabWorkspace();
-}
-
-
-/** 把行主键拼成的字符串（"col=val&col=val"）解析回单列值，rowKey 中空字符串表示 NULL */
-function readRowKeyValue(rowKey: string, colName: string): string {
-  for (const part of rowKey.split("&")) {
-    const eq = part.indexOf("=");
-    if (eq < 0) continue;
-    if (part.slice(0, eq) === colName) {
-      return part.slice(eq + 1);
-    }
-  }
-  return "";
-}
-
-/** Qdrant point id：数字保持 number，其余按字符串（UUID）。 */
-function parseQdrantPointId(raw: string): string | number | null {
-  if (raw === "") return null;
-  if (/^-?\d+$/.test(raw)) {
-    const n = Number(raw);
-    if (Number.isSafeInteger(n)) return n;
-  }
-  return raw;
-}
 
 export function DatabasePanel() {
   const { t } = useI18n();
@@ -438,19 +375,21 @@ export function DatabasePanel() {
   const openConnectionInfoTabRef = useRef<
     (connId: string, mode?: SchemaDockOpenMode, options?: { expandTree?: boolean }) => void
   >(() => {});
-  const [workspaceTabs, setWorkspaceTabsState] = useState<DbWorkspaceTab[]>([]);
-  const setWorkspaceTabs = useCallback(
-    (update: DbWorkspaceTab[] | ((prev: DbWorkspaceTab[]) => DbWorkspaceTab[])) => {
-      setWorkspaceTabsState((prev) => {
-        const next = typeof update === "function" ? update(prev) : update;
-        workspaceTabsRef.current = next;
-        return next;
-      });
-    },
-    [],
-  );
+  const workspaceTabs = useDbWorkspaceDockTabsStore((s) => s.tabs);
+  const setWorkspaceTabs = useDbWorkspaceDockTabsStore((s) => s.setTabs);
+  const workspaceInitialized = useDbWorkspaceDockTabsStore((s) => s.initialized);
+  const setWorkspaceInitialized = useDbWorkspaceDockTabsStore((s) => s.setInitialized);
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState("");
-  const [workspaceInitialized, setWorkspaceInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!moduleLive || !activeWorkspaceTabId) return;
+    return getDatabaseSessionService().bindView(activeWorkspaceTabId, {
+      push: () => {
+        /* Tab 列表在 dockTabsStore；此处仅绑定 View 生命周期 */
+      },
+    });
+  }, [moduleLive, activeWorkspaceTabId]);
+
   const recentClosedPanels = useDbWorkspaceSessionStore((s) => s.recentClosedPanels);
   const pushRecentClosedPanel = useDbWorkspaceSessionStore((s) => s.pushRecentClosedPanel);
   const removeRecentClosedPanel = useDbWorkspaceSessionStore((s) => s.removeRecentClosedPanel);
@@ -1150,7 +1089,11 @@ export function DatabasePanel() {
     const bootstrapWorkspace = () => {
       const session = sanitizeWorkspaceSession(useDbWorkspaceSessionStore.getState().session);
       if (!session) {
-        applyDefaultWorkspaceSession(setWorkspaceTabs, activateWorkspaceTab);
+        applyDefaultWorkspaceSession(
+          setWorkspaceTabs,
+          activateWorkspaceTab,
+          () => useDbWorkspaceTabStore.getState().resetTabWorkspace(),
+        );
         useDbDockLayoutStore.getState().setSavedLayout(null);
         setWorkspaceInitialized(true);
         return;
@@ -6257,6 +6200,11 @@ export function DatabasePanel() {
     (tabId: string) => requestTabAction({ kind: "close", tabId }),
     [requestTabAction],
   );
+
+  useEffect(() => {
+    registerDatabaseTabCloser(handleCloseDockTab);
+    return () => registerDatabaseTabCloser(null);
+  }, [handleCloseDockTab]);
 
   const sidebarLinkageConnId = useMemo(() => {
     if (activeTableKey) {
