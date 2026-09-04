@@ -1,3 +1,5 @@
+import { getPluginManifest } from "../../lib/pluginManifests";
+
 const PLUGIN_ID_EVERYTHING = "omni.addon.everything";
 
 const PLUGIN_NAME_KEYS: Record<string, string> = {
@@ -26,6 +28,8 @@ export function pluginDisplayName(
   t: (key: string) => string,
   fallback?: string,
 ): string {
+  const declared = getPluginManifest(id)?.displayName?.trim();
+  if (declared) return declared;
   const key = PLUGIN_NAME_KEYS[id];
   if (key) return t(key);
   if (fallback?.trim()) return fallback;

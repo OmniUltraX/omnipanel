@@ -261,7 +261,7 @@ function deleteNamespace(args) {
 
 function listConfigs(args) {
   var pageNo = Number(arg(args, "pageNo", 1)) || 1;
-  var pageSize = Number(arg(args, "pageSize", 20)) || 20;
+  var pageSize = Number(arg(args, "pageSize", 100)) || 100;
   var dataId = String(arg(args, "dataId", arg(args, "keyword", "")));
   var group = String(arg(args, "group", ""));
   var path =
@@ -327,7 +327,7 @@ function listConfigHistory(args) {
     "/v1/cs/history?search=accurate&dataId=" + encode(arg(args, "dataId", "")) +
     "&group=" + encode(arg(args, "group", "DEFAULT_GROUP")) +
     "&tenant=" + encode(tenant(args)) +
-    "&pageNo=1&pageSize=20";
+    "&pageNo=1&pageSize=50";
   var parsed = api(args, path, {});
   var items = parsed.pageItems || parsed.histories || [];
   return {
@@ -374,7 +374,7 @@ function listServices(args) {
 
 function listInstances(args) {
   var path =
-    "/v1/ns/instance/list?serviceName=" + encode(arg(args, "serviceName", "")) +
+    "/v1/ns/instance/list?serviceName=" + encode(arg(args, "serviceName", "") || arg(args, "parentId", "")) +
     "&namespaceId=" + encode(tenant(args));
   var parsed = api(args, path, {});
   var hosts = parsed.hosts || parsed.instances || [];
@@ -428,6 +428,17 @@ function listNodes(args) {
   }
 }
 
+function listItems(args) {
+  var cap = String(args.capabilityId || "");
+  if (cap === "namespace") return listNamespaces(args);
+  if (cap === "config") return listConfigs(args);
+  if (cap === "discovery") {
+    return args.parentId ? listInstances({ ...args, serviceName: args.parentId }) : listServices(args);
+  }
+  if (cap === "cluster") return listNodes(args);
+  return { items: [] };
+}
+
 function probeHealth(args) {
   try {
     var probed = testConnection(args);
@@ -456,6 +467,7 @@ var HANDLERS = {
   listInstances: listInstances,
   updateInstance: updateInstance,
   listNodes: listNodes,
+  listItems: listItems,
   probeHealth: probeHealth,
   omni_nacos_list_namespaces: listNamespaces,
   omni_nacos_get_config: getConfig,

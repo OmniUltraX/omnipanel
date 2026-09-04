@@ -315,6 +315,7 @@ mod tests {
         PluginManifest {
             id: id.into(),
             version: "0.1.0".into(),
+            display_name: None,
             kind: PluginKind::Addon,
             contributes: PluginContributes {
                 launcher: Some(LauncherContribution {
@@ -423,6 +424,7 @@ mod tests {
         let manifest = PluginManifest {
             id: "omni.theme.default".into(),
             version: "0.1.0".into(),
+            display_name: None,
             kind: PluginKind::Theme,
             contributes: PluginContributes::default(),
             permissions: vec![PluginPermission::NetConnect],

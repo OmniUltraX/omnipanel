@@ -1,5 +1,5 @@
 import type { Connection } from "../../ipc/bindings";
-import { resolveLegacyPluginId } from "../../lib/pluginManifests";
+import { getPluginManifest, resolveLegacyPluginId } from "../../lib/pluginManifests";
 
 export type CloudFormData = {
   name: string;
@@ -27,8 +27,15 @@ export function isTencentCloud(pluginId: string | null | undefined): boolean {
   return id === PLUGIN_ID_TENCENT || id === "tencent" || id === "qcloud";
 }
 
-export function cloudBrandKind(pluginId: string | null | undefined): "aliyun" | "tencent" {
-  return isTencentCloud(pluginId) ? "tencent" : "aliyun";
+export function isAliyunCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_ALIYUN || id === "aliyun";
+}
+
+export function cloudBrandKind(pluginId: string | null | undefined): "aliyun" | "tencent" | "server" {
+  if (isTencentCloud(pluginId)) return "tencent";
+  if (isAliyunCloud(pluginId)) return "aliyun";
+  return "server";
 }
 
 /** 常用阿里云 Region（添加账户时可多选）。 */
@@ -77,7 +84,12 @@ export const TENCENT_REGION_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export function cloudRegionOptions(pluginId: string | null | undefined): { value: string; label: string }[] {
-  return isTencentCloud(pluginId) ? TENCENT_REGION_OPTIONS : ALIYUN_REGION_OPTIONS;
+  if (isTencentCloud(pluginId)) return TENCENT_REGION_OPTIONS;
+  if (isAliyunCloud(pluginId) || !(pluginId ?? "").trim()) return ALIYUN_REGION_OPTIONS;
+  const declared = getPluginManifest(pluginId ?? "")?.contributes.cloud?.regions ?? [];
+  return declared
+    .map((r) => ({ value: r.id.trim(), label: r.label?.trim() || r.id.trim() }))
+    .filter((r) => r.value);
 }
 
 const REGION_LABEL_MAP = new Map(
@@ -140,10 +152,15 @@ export function parseCloudConfig(connection: Connection): CloudConfigJson {
   }
 }
 
+function looksLikePluginId(raw: string): boolean {
+  return raw.includes(".") && !/\s/.test(raw);
+}
+
 export function resolveCloudPluginId(cfg: CloudConfigJson): string {
+  const raw = (cfg.pluginId ?? cfg.provider ?? "").trim();
   return (
-    resolveLegacyPluginId(cfg.pluginId) ??
-    resolveLegacyPluginId(cfg.provider) ??
+    resolveLegacyPluginId(raw) ??
+    (looksLikePluginId(raw) ? raw : null) ??
     PLUGIN_ID_ALIYUN
   );
 }
@@ -184,7 +201,11 @@ export function buildCloudConnection(
   const pluginId = form.pluginId.trim() || PLUGIN_ID_ALIYUN;
   const config: CloudConfigJson = {
     pluginId,
-    provider: isTencentCloud(pluginId) ? "tencent" : pluginId === PLUGIN_ID_ALIYUN ? "aliyun" : pluginId,
+    provider: isTencentCloud(pluginId)
+      ? "tencent"
+      : isAliyunCloud(pluginId)
+        ? "aliyun"
+        : pluginId,
     regions,
     region: regions[0],
     accessKeyId: form.accessKeyId.trim(),
@@ -240,6 +261,22 @@ export function connectionToCloudAccount(connection: Connection): CloudAccount |
 export function capabilityI18nKey(capabilityId: string): string {
   const camel = capabilityId.replace(/\.([a-zA-Z])/g, (_, letter: string) => letter.toUpperCase());
   return `cloud.capability.${camel}`;
+}
+
+/** 清单 label → 宿主 i18n → capability id。 */
+export function cloudCapabilityLabel(
+  t: (key: string) => string,
+  capabilityId: string,
+  pluginId?: string | null,
+): string {
+  const caps = pluginId
+    ? (getPluginManifest(pluginId)?.contributes.cloud?.capabilities ?? [])
+    : [];
+  const declared = caps.find((cap) => cap.id === capabilityId)?.label?.trim();
+  if (declared) return declared;
+  const key = capabilityI18nKey(capabilityId);
+  const mapped = t(key);
+  return mapped && mapped !== key ? mapped : capabilityId;
 }
 
 export function formatCloudFieldValue(t: (key: string) => string, key: string, value: string): string {

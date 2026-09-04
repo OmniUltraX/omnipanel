@@ -1,0 +1,114 @@
+{
+  "id": "omni.panel.starter",
+  "version": "0.1.0",
+  "displayName": "Panel Starter",
+  "kind": "panel",
+  "permissions": ["connections:write", "net:connect", "vault:read"],
+  "entry": { "logic": "logic.js" },
+  "methods": [
+    { "name": "testConnection", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listDatabases", "permissions": ["net:connect", "vault:read"] },
+    { "name": "createDatabase", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "deleteDatabase",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "panel.database.delete"
+    },
+    { "name": "listWebsites", "permissions": ["net:connect", "vault:read"] },
+    { "name": "createWebsite", "permissions": ["net:connect", "vault:read"] },
+    { "name": "setWebsiteStatus", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "deleteWebsite",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "panel.website.delete"
+    },
+    { "name": "listCertificates", "permissions": ["net:connect", "vault:read"] },
+    { "name": "createCertificate", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "deleteCertificate",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "panel.certificate.delete"
+    },
+    { "name": "listCronjobs", "permissions": ["net:connect", "vault:read"] },
+    { "name": "createCronjob", "permissions": ["net:connect", "vault:read"] },
+    { "name": "setCronjobStatus", "permissions": ["net:connect", "vault:read"] },
+    { "name": "runCronjob", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "deleteCronjob",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "panel.cronjob.delete"
+    },
+    { "name": "listApps", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listInstalledApps", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getDashboard", "permissions": ["net:connect", "vault:read"] },
+    { "name": "installApp", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "uninstallApp",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "panel.app.uninstall"
+    }
+  ],
+  "contributes": {
+    "ui": {
+      "panelTabs": [
+        { "id": "overview" },
+        {
+          "id": "websites",
+          "listMethod": "listWebsites",
+          "formFields": [
+            { "key": "name", "label": "名称" },
+            { "key": "domain", "label": "域名" }
+          ],
+          "actions": [
+            { "id": "create", "method": "createWebsite", "target": "toolbar" },
+            { "id": "delete", "method": "deleteWebsite", "target": "row" }
+          ]
+        },
+        {
+          "id": "apps",
+          "listMethod": "listApps",
+          "actions": [
+            { "id": "install", "method": "installApp", "target": "toolbar" },
+            { "id": "uninstall", "method": "uninstallApp", "target": "row" }
+          ]
+        },
+        {
+          "id": "certificates",
+          "listMethod": "listCertificates",
+          "formFields": [
+            { "key": "domain", "label": "域名" }
+          ],
+          "actions": [
+            { "id": "create", "method": "createCertificate", "target": "toolbar" },
+            { "id": "delete", "method": "deleteCertificate", "target": "row" }
+          ]
+        },
+        {
+          "id": "cronjobs",
+          "listMethod": "listCronjobs",
+          "formFields": [
+            { "key": "name", "label": "名称" },
+            { "key": "schedule", "label": "计划" }
+          ],
+          "actions": [
+            { "id": "create", "method": "createCronjob", "target": "toolbar" },
+            { "id": "delete", "method": "deleteCronjob", "target": "row" }
+          ]
+        },
+        {
+          "id": "databases",
+          "listMethod": "listDatabases",
+          "formFields": [
+            { "key": "name", "label": "名称" },
+            { "key": "dbUser", "label": "用户" },
+            { "key": "password", "label": "密码" }
+          ],
+          "actions": [
+            { "id": "create", "method": "createDatabase", "target": "toolbar" },
+            { "id": "delete", "method": "deleteDatabase", "target": "row" }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -10,6 +10,7 @@ import { AddMcpServiceDialog } from "./AddMcpServiceDialog";
 import { ImportMcpJsonDialog } from "./ImportMcpJsonDialog";
 import { McpServiceToolList } from "./McpServiceToolList";
 import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 
 export interface McpServicesSectionProps {
@@ -68,9 +69,7 @@ export function McpServicesSection({
       >
         {t("settings.mcpServices.import.title")}
       </Button>
-      <Button
-        variant="primary"
-        size="sm"
+      <WorkbenchActionButton
         className="ai-models-add-btn"
         onClick={openAddDialog}
         title={t("settings.mcpServices.add.title")}
@@ -80,7 +79,7 @@ export function McpServicesSection({
           <path d="M12 5v14M5 12h14" />
         </svg>
         <span>{t("settings.mcpServices.add.title")}</span>
-      </Button>
+      </WorkbenchActionButton>
     </div>
   );
 

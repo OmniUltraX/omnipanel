@@ -1,0 +1,10 @@
+{
+  "id": "omni.addon.starter",
+  "version": "0.1.0",
+  "displayName": "Addon Starter",
+  "kind": "addon",
+  "permissions": [],
+  "contributes": {
+    "launcher": { "prefix": "starter" }
+  }
+}

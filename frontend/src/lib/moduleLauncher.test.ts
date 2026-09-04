@@ -27,4 +27,26 @@ describe("syncModuleLauncherProviders", () => {
     expect(parseQuickLaunchQuery("demo foo").kind).toBe("plain");
     setInstalledPluginManifests([]);
   });
+
+  it("addon 启动条前缀启用时可搜到，禁用后卸除", () => {
+    const manifest = parsePluginManifest({
+      id: "omni.addon.starter",
+      version: "0.1.0",
+      kind: "addon",
+      contributes: {
+        launcher: { prefix: "starter" },
+      },
+    });
+    setInstalledPluginManifests([manifest]);
+    syncModuleLauncherProviders([{ id: "omni.addon.starter", enabled: true, activated: true }]);
+    expect(parseQuickLaunchQuery("starter foo")).toMatchObject({
+      kind: "module",
+      filter: "foo",
+      pluginId: "omni.addon.starter",
+      prefix: "starter",
+    });
+    syncModuleLauncherProviders([{ id: "omni.addon.starter", enabled: false, activated: false }]);
+    expect(parseQuickLaunchQuery("starter foo").kind).toBe("plain");
+    setInstalledPluginManifests([]);
+  });
 });

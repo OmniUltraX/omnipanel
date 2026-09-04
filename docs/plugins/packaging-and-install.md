@@ -1,5 +1,7 @@
 # 打包、签名与安装
 
+完整开发合同见 [README](./README.md)。
+
 ## 包结构（.omni-plugin）
 
 ```
@@ -17,6 +19,9 @@ my-plugin.omni-plugin        # zip 容器
 ## 打包
 
 ```bash
+# 打包前校验清单 / 入口 / logic.js
+node scripts/validate-plugin.mjs <plugin_dir>
+
 # dev 签名（内置开发公钥；仅 dev 构建可安装）
 cargo run -p omnipanel-plugin-pkg --bin pack -- <plugin_dir> out.omni-plugin
 

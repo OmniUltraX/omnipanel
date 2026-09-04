@@ -67,7 +67,7 @@ describe("enginePicker", () => {
     expect(items.find((i) => i.id === "neo4j")?.fromDbx).toBe(true);
     expect(items.find((i) => i.id === "oracle")?.available).toBe(true);
     expect(items.find((i) => i.id === "oracle")?.fromDbx).toBe(true);
-    expect(items.find((i) => i.id === "oracle")?.label).toBe("oracle");
+    expect(items.find((i) => i.id === "oracle")?.pluginId).toBe("omni.engine.oracle");
   });
 
   it("目录已装且第一方已有时仍保持可用并带上 catalogKey", () => {

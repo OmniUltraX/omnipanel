@@ -5914,9 +5914,14 @@ dependencies = [
 name = "omnipanel-plugin"
 version = "0.0.5"
 dependencies = [
+ "base64 0.22.1",
+ "hex",
+ "hmac 0.12.1",
  "omnipanel-error",
  "serde",
  "serde_json",
+ "sha1 0.10.6",
+ "sha2 0.10.9",
  "specta",
  "thiserror 2.0.18",
  "tokio",

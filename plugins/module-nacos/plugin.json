@@ -1,6 +1,7 @@
 {
   "id": "omni.module.nacos",
   "version": "0.2.0",
+  "displayName": "Nacos",
   "kind": "module",
   "permissions": [
     "ui:sidebar",
@@ -60,6 +61,7 @@
       "dangerAction": "module.discovery.update"
     },
     { "name": "listNodes", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listItems", "permissions": ["net:connect", "vault:read"] },
     { "name": "probeHealth", "permissions": ["net:connect"] },
     { "name": "omni_nacos_list_namespaces", "permissions": ["net:connect", "vault:read", "ai:tools"] },
     { "name": "omni_nacos_get_config", "permissions": ["net:connect", "vault:read", "ai:tools"] },
@@ -87,38 +89,85 @@
       "capabilities": [
         {
           "id": "namespace",
-          "columns": [{ "key": "name" }, { "key": "namespaceId" }],
-          "actions": [{ "id": "create", "kind": "plugin" }, { "id": "delete", "kind": "plugin" }]
+          "label": "命名空间",
+          "listMethod": "listNamespaces",
+          "itemKey": "namespaceId",
+          "columns": [
+            { "key": "name", "label": "名称" },
+            { "key": "namespaceId", "label": "ID" },
+            { "key": "configCount", "label": "配置数" }
+          ],
+          "formFields": [
+            { "key": "name", "label": "名称" },
+            { "key": "namespaceId", "label": "ID" },
+            { "key": "description", "label": "描述" }
+          ],
+          "actions": [
+            { "id": "create", "method": "createNamespace", "target": "toolbar", "kind": "plugin", "label": "新建" },
+            { "id": "update", "method": "updateNamespace", "target": "row", "kind": "plugin", "label": "编辑" },
+            { "id": "delete", "method": "deleteNamespace", "target": "row", "kind": "plugin", "label": "删除" }
+          ]
         },
         {
           "id": "config",
+          "label": "配置",
+          "listMethod": "listConfigs",
+          "getMethod": "getConfig",
+          "historyMethod": "listConfigHistory",
+          "historyGetMethod": "getConfigHistory",
+          "itemKey": "group,dataId",
+          "detail": "editor",
           "columns": [
-            { "key": "dataId" },
-            { "key": "group" },
-            { "key": "type" },
-            { "key": "appName" }
+            { "key": "dataId", "label": "Data ID" },
+            { "key": "group", "label": "Group" },
+            { "key": "type", "label": "类型" },
+            { "key": "appName", "label": "应用" }
+          ],
+          "formFields": [
+            { "key": "dataId", "label": "Data ID" },
+            { "key": "group", "label": "Group" },
+            { "key": "type", "label": "类型" }
           ],
           "actions": [
-            { "id": "publish", "kind": "plugin" },
-            { "id": "delete", "kind": "plugin" },
-            { "id": "rollback", "kind": "plugin" }
+            { "id": "create", "method": "publishConfig", "target": "toolbar", "kind": "plugin", "label": "新建" },
+            { "id": "publish", "method": "publishConfig", "target": "editor", "kind": "plugin", "label": "发布" },
+            { "id": "delete", "method": "deleteConfig", "target": "editor", "kind": "plugin", "label": "删除" },
+            { "id": "rollback", "method": "rollbackConfig", "target": "history", "kind": "plugin", "label": "回滚" }
           ]
         },
         {
           "id": "discovery",
-          "columns": [
-            { "key": "serviceName" },
-            { "key": "ip" },
-            { "key": "port" },
-            { "key": "healthy" },
-            { "key": "weight" },
-            { "key": "enabled" }
+          "label": "服务发现",
+          "listMethod": "listServices",
+          "childListMethod": "listInstances",
+          "itemKey": "serviceName",
+          "detail": "children",
+          "columns": [{ "key": "serviceName", "label": "服务" }],
+          "childColumns": [
+            { "key": "ip", "label": "IP" },
+            { "key": "port", "label": "端口" },
+            { "key": "healthy", "label": "健康" },
+            { "key": "weight", "label": "权重" },
+            { "key": "enabled", "label": "启用" }
           ],
-          "actions": [{ "id": "updateInstance", "kind": "plugin" }]
+          "childItemKey": "ip,port",
+          "actions": [
+            {
+              "id": "updateInstance",
+              "method": "updateInstance",
+              "target": "child",
+              "toggle": "enabled",
+              "kind": "plugin",
+              "label": "启停"
+            }
+          ]
         },
         {
           "id": "cluster",
-          "columns": [{ "key": "address" }, { "key": "state" }],
+          "label": "集群",
+          "listMethod": "listNodes",
+          "itemKey": "address",
+          "columns": [{ "key": "address", "label": "地址" }, { "key": "state", "label": "状态" }],
           "actions": []
         }
       ],

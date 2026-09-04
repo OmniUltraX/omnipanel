@@ -121,6 +121,34 @@ async fn host_vault_and_state_roundtrip() {
     assert!(out.contains(r#""state":"ready""#), "actual: {out}");
 }
 
+const HMAC_JS: &[u8] = br#"
+globalThis.call = function () {
+  var hex = host.hmac(JSON.stringify({
+    alg: "sha256",
+    key: "key",
+    data: "The quick brown fox jumps over the lazy dog"
+  }));
+  return JSON.stringify({ hex: hex });
+};
+"#;
+
+#[tokio::test]
+async fn host_hmac_sha256() {
+    let executor = JsExecutor::new();
+    let mut inst = executor
+        .instantiate(
+            "omni.addon.demo",
+            &LogicPackage::Js(HMAC_JS.to_vec()),
+            Arc::new(NullHost),
+        )
+        .expect("实例化失败");
+    let out = inst.call("x", "{}").await.expect("call 失败");
+    assert!(
+        out.contains("f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"),
+        "actual: {out}"
+    );
+}
+
 #[tokio::test]
 async fn missing_call_contract_fails_cleanly() {
     let executor = JsExecutor::new();

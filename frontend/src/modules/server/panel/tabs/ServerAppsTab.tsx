@@ -5,13 +5,13 @@ import { Button } from "../../../../components/ui/Button";
 import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { IconRefresh, IconSearch } from "../../../../components/ui/icons/Icons";
-import { createBtPanelClient, isBtPanelAuthFailureMessage } from "../../../../lib/btpanel";
-import { isBtPanelService, isOnePanelService, panelHasCapability } from "../panelPlugin";
+import { isBtPanelAuthFailureMessage } from "../../../../lib/btpanel";
+import { panelHasCapability } from "../panelPlugin";
 import {
-  createOnePanelClient,
-  type OnePanelApp,
-  type OnePanelInstalledApp,
-} from "../../../../lib/onepanel";
+  getPanelDriver,
+  panelConnectionCtx,
+} from "../../../../lib/panelDriverRegistry";
+import type { OnePanelApp, OnePanelAppInstalledParams, OnePanelInstalledApp } from "../../../../lib/onepanel";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { quickInput } from "../../../../lib/quickInput";
 import { showToast } from "../../../../stores/toastStore";
@@ -76,27 +76,6 @@ function pickLatestVersion(versions: string[] | undefined): string | null {
   return versions[0] ?? null;
 }
 
-/** 从详情 params.formFields 提取默认安装参数。 */
-function defaultParamsFromDetail(params: unknown): Record<string, unknown> {
-  if (!params || typeof params !== "object") return {};
-  const obj = params as Record<string, unknown>;
-  const fields = obj.formFields ?? obj.fields;
-  if (!Array.isArray(fields)) return {};
-  const out: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (!field || typeof field !== "object") continue;
-    const f = field as Record<string, unknown>;
-    const key = String(f.envKey ?? f.key ?? "").trim();
-    if (!key) continue;
-    if ("default" in f && f.default !== undefined) {
-      out[key] = f.default;
-    } else if ("value" in f && f.value !== undefined) {
-      out[key] = f.value;
-    }
-  }
-  return out;
-}
-
 function resolveMarketCard(
   app: OnePanelApp,
   installedApps: OnePanelInstalledApp[],
@@ -155,9 +134,12 @@ function appMatchesQuery(app: OnePanelApp, query: string): boolean {
 
 export function ServerAppsTab({ server }: Props) {
   const { t, locale } = useI18n();
-  const isOnePanel = isOnePanelService(server.serviceType);
-  const isBt = isBtPanelService(server.serviceType);
+  const driver = getPanelDriver(server.serviceType);
   const supportsApps = panelHasCapability(server.serviceType, "apps");
+  const canInstall = supportsApps && typeof driver?.installApp === "function";
+  const canUninstall = supportsApps && typeof driver?.uninstallApp === "function";
+  const canFetchIcons = typeof driver?.getAppIconDataUrl === "function";
+  const canOpenInstalledParams = typeof driver?.getInstalledAppParams === "function";
 
   const {
     apps,
@@ -248,18 +230,13 @@ export function ServerAppsTab({ server }: Props) {
     setSyncing(true);
     setActionError(null);
     try {
-      if (isOnePanel) {
-        const client = createOnePanelClient(server.address, server.key, server.id);
-        await client.syncAppsRemote();
-      } else if (isBt) {
-        const client = createBtPanelClient(server.address, server.key, server.id);
-        // force=1 触发软件商店远端刷新
-        await client.getSoftList({ p: 1, type: 0, query: "", force: 1, row: 50 });
-        try {
-          await client.getDockerApps();
-          setDockerHint(null);
-        } catch {
+      const next = getPanelDriver(server.serviceType);
+      if (next?.syncApps) {
+        const result = await next.syncApps(panelConnectionCtx(server));
+        if (result && result.dockerAvailable === false) {
           setDockerHint(t("server.appMarket.dockerStoreHint"));
+        } else {
+          setDockerHint(null);
         }
       }
       showToast(t("server.appMarket.syncSuccess"));
@@ -269,13 +246,11 @@ export function ServerAppsTab({ server }: Props) {
     } finally {
       setSyncing(false);
     }
-  }, [isBt, isOnePanel, refresh, refreshing, server.address, server.id, server.key, supportsApps, syncing, t]);
+  }, [refresh, refreshing, server, supportsApps, syncing, t]);
 
   const hasInstallingApps = useMemo(
-    () =>
-      isOnePanel &&
-      installedApps.some((item) => isAppInstallInProgress(readInstalledAppStatus(item))),
-    [installedApps, isOnePanel],
+    () => installedApps.some((item) => isAppInstallInProgress(readInstalledAppStatus(item))),
+    [installedApps],
   );
 
   useEffect(() => {
@@ -301,9 +276,9 @@ export function ServerAppsTab({ server }: Props) {
       .filter((app) => !installedOnly || app.installState !== "available");
   }, [apps, category, installedApps, installedOnly, query]);
 
-  // 懒加载缺失图标（1Panel / 宝塔均走后端代理为 data URL）
+  // 懒加载缺失图标（有 getAppIconDataUrl 的 driver 走后端代理为 data URL）
   useEffect(() => {
-    if (!supportsApps || cards.length === 0) return;
+    if (!supportsApps || !canFetchIcons || cards.length === 0) return;
     let cancelled = false;
 
     const missing = cards
@@ -315,7 +290,6 @@ export function ServerAppsTab({ server }: Props) {
         if (iconInflightRef.current.has(key)) return false;
         const app = cards.find((item) => item.key === key);
         if (!app) return false;
-        // data:/blob: 可直接显示；相对路径 / http(s) 需代理
         return !resolveIconSrc(app.icon, iconCacheRef.current);
       })
       .slice(0, 16);
@@ -326,19 +300,14 @@ export function ServerAppsTab({ server }: Props) {
     void (async () => {
       const next: Record<string, string> = {};
       const failed: string[] = [];
-      // 宝塔图标走鉴权下载：串行，避免一次挂载并发十几路把验证失败打满
       const loadOne = async (key: string) => {
         try {
           const app = cards.find((item) => item.key === key);
-          const url = isBt
-            ? await createBtPanelClient(server.address, server.key, server.id).getAppIconDataUrl(
-                key,
-                app?.icon,
-              )
-            : await createOnePanelClient(server.address, server.key, server.id).getAppIconDataUrl(
-                key,
-              );
-          // 非 data URL 在 WebView 中不可靠，视为失败走占位
+          const panel = getPanelDriver(server.serviceType);
+          const url = await panel?.getAppIconDataUrl?.(panelConnectionCtx(server), {
+            key,
+            icon: app?.icon,
+          });
           if (url?.startsWith("data:") || url?.startsWith("blob:")) {
             next[key] = url;
             const iconKey = (app?.icon || "").trim();
@@ -348,7 +317,7 @@ export function ServerAppsTab({ server }: Props) {
           }
         } catch (err) {
           failed.push(key);
-          if (isBt && isBtPanelAuthFailureMessage(String(err))) {
+          if (isBtPanelAuthFailureMessage(String(err))) {
             throw err;
           }
         } finally {
@@ -358,16 +327,11 @@ export function ServerAppsTab({ server }: Props) {
 
       let stoppedByAuth = false;
       try {
-        if (isBt) {
-          for (const key of missing) {
-            if (cancelled) break;
-            await loadOne(key);
-          }
-        } else {
-          await Promise.all(missing.map((key) => loadOne(key)));
+        for (const key of missing) {
+          if (cancelled) break;
+          await loadOne(key);
         }
       } catch {
-        // 宝塔鉴权/封禁：已熔断，剩余图标不再请求
         stoppedByAuth = true;
         for (const key of missing) iconInflightRef.current.delete(key);
       }
@@ -385,7 +349,6 @@ export function ServerAppsTab({ server }: Props) {
           return merged;
         });
       }
-      // 鉴权失败后不再拉下一批，避免空转刷熔断错误
       if (!stoppedByAuth) {
         setIconLoadTick((n) => n + 1);
       }
@@ -394,7 +357,7 @@ export function ServerAppsTab({ server }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [cards, iconLoadTick, isBt, server.address, server.id, server.key, supportsApps]);
+  }, [canFetchIcons, cards, iconLoadTick, server, supportsApps]);
 
   const handleSearch = () => {
     setQuery(search.trim());
@@ -402,7 +365,7 @@ export function ServerAppsTab({ server }: Props) {
 
   const handleInstall = useCallback(
     async (app: MarketCard) => {
-      if (!supportsApps || installingKey || app.installState !== "available") return;
+      if (!canInstall || installingKey || app.installState !== "available") return;
       const label = app.name || app.key;
       const versionHint = pickLatestVersion(app.versions);
       const confirmed = await appConfirm(
@@ -416,67 +379,13 @@ export function ServerAppsTab({ server }: Props) {
       setInstallingKey(app.key);
       setActionError(null);
       try {
-        if (isBt) {
-          const client = createBtPanelClient(server.address, server.key, server.id);
-          const version = pickLatestVersion(app.versions) || "";
-          // 优先走软件商店安装；找不到版本时再尝试 Docker 商店定义
-          if (version) {
-            const msg = await client.installSoft(app.key, version);
-            showToast(msg || t("server.appMarket.btInstallQueued", { name: label }));
-          } else {
-            const market = await client.getDockerApps();
-            const def = market.items.find(
-              (item) =>
-                (item.appname || "").trim().toLowerCase() === (app.key || "").trim().toLowerCase(),
-            );
-            if (!def) {
-              throw new Error(t("server.appMarket.btNoAppDefinition"));
-            }
-            const msg = await client.installDockerAppFromDefinition(def);
-            showToast(msg || t("server.appMarket.btInstallQueued", { name: label }));
-          }
-          try {
-            const tasks = await client.getTaskCount();
-            if (typeof tasks === "number" && tasks > 0) {
-              showToast(t("server.appMarket.btInstallQueued", { name: label }));
-            }
-          } catch {
-            // 任务计数失败不影响安装成功提示
-          }
-          await refresh();
-          return;
-        }
-
-        const client = createOnePanelClient(server.address, server.key, server.id);
-        let versions = app.versions ?? [];
-        let appId = app.id;
-        let appType = app.type || "runtime";
-
-        if (versions.length === 0 || !appId) {
-          const detail = await client.getApp(app.key);
-          versions = detail.versions ?? versions;
-          appId = detail.id || appId;
-          appType = detail.type || appType;
-        }
-
-        const version = pickLatestVersion(versions);
-        if (!version || !appId) {
-          throw new Error(t("server.appMarket.installNoVersion"));
-        }
-
-        const appDetail = await client.getAppDetail(appId, version, appType);
-        if (!appDetail.id) {
-          throw new Error(t("server.appMarket.installNoDetail"));
-        }
-
-        const defaults = defaultParamsFromDetail(appDetail.params);
-        const instanceName = app.key || app.name;
-        await client.installApp({
-          appDetailId: appDetail.id,
-          name: instanceName,
-          params: defaults,
-          pullImage: true,
-          allowPort: true,
+        const next = getPanelDriver(server.serviceType);
+        if (!next?.installApp) throw new Error(t("server.appMarket.unsupported"));
+        await next.installApp(panelConnectionCtx(server), {
+          key: app.key,
+          name: app.name,
+          version: versionHint ?? undefined,
+          id: app.id,
         });
         showToast(t("server.appMarket.installQueued", { name: label }));
         await refresh();
@@ -486,12 +395,42 @@ export function ServerAppsTab({ server }: Props) {
         setInstallingKey(null);
       }
     },
-    [installingKey, isBt, refresh, server.address, server.id, server.key, supportsApps, t],
+    [canInstall, installingKey, refresh, server, t],
+  );
+
+  const handleUninstall = useCallback(
+    async (app: MarketCard) => {
+      if (!canUninstall || installingKey || app.installState !== "installed") return;
+      const label = app.name || app.key;
+      const confirmed = await appConfirm(
+        t("server.appMarket.uninstallConfirm", { name: label }),
+        t("server.appMarket.uninstall"),
+      );
+      if (!confirmed) return;
+      setInstallingKey(app.key);
+      setActionError(null);
+      try {
+        const driver = getPanelDriver(server.serviceType);
+        if (!driver?.uninstallApp) throw new Error(t("server.appMarket.unsupported"));
+        await driver.uninstallApp(panelConnectionCtx(server), {
+          key: app.key,
+          name: app.name,
+          id: app.id ?? app.installId ?? undefined,
+        });
+        showToast(t("server.appMarket.uninstallQueued", { name: label }));
+        await refresh();
+      } catch (err) {
+        setActionError(formatError(err));
+      } finally {
+        setInstallingKey(null);
+      }
+    },
+    [canUninstall, installingKey, refresh, server, t],
   );
 
   const handleManageInDatabase = useCallback(
     async (app: MarketCard) => {
-      if (!isOnePanel || app.installState !== "installed" || app.installId == null) return;
+      if (!canOpenInstalledParams || app.installState !== "installed" || app.installId == null) return;
       if (!isPanelAppManagedByDatabase(app) || managingKey) return;
       const appLabel = app.name || app.key || "—";
       const name = await quickInput({
@@ -505,17 +444,17 @@ export function ServerAppsTab({ server }: Props) {
       setManagingKey(app.key);
       setActionError(null);
       try {
-        const config = await createOnePanelClient(
-          server.address,
-          server.key,
-          server.id,
-        ).getInstalledAppParams(app.installId);
+        const config = await getPanelDriver(server.serviceType)?.getInstalledAppParams?.(
+          panelConnectionCtx(server),
+          { id: app.installId },
+        );
+        if (!config) throw new Error(t("server.appMarket.unsupported"));
         const result = await importPanelAppToDatabase({
           server,
           appLabel,
           appKey: app.key,
           appType: app.type,
-          config,
+          config: config as OnePanelAppInstalledParams,
           name: name.trim(),
         });
         showToast(
@@ -529,7 +468,7 @@ export function ServerAppsTab({ server }: Props) {
         setManagingKey(null);
       }
     },
-    [isOnePanel, managingKey, server, t],
+    [canOpenInstalledParams, managingKey, server, t],
   );
 
   const busyMeta = loading || refreshing || syncing;
@@ -634,7 +573,7 @@ export function ServerAppsTab({ server }: Props) {
               const busy = installingKey === app.key;
               const cardKey = `${app.id || "app"}:${app.key || app.name || index}`;
               const canOpenParams =
-                isOnePanel && app.installState === "installed" && app.installId != null;
+                canOpenInstalledParams && app.installState === "installed" && app.installId != null;
               const canManageInDatabase = canOpenParams && isPanelAppManagedByDatabase(app);
               const openParams = () => {
                 if (app.installId == null) return;
@@ -700,7 +639,7 @@ export function ServerAppsTab({ server }: Props) {
                         title={t("server.appMarket.viewInstallLog")}
                         onClick={(event) => {
                           event.stopPropagation();
-                          if (app.installId != null) {
+                          if (canOpenInstalledParams && app.installId != null) {
                             setLogTarget({
                               installId: app.installId,
                               label: app.name || app.key || "—",
@@ -718,7 +657,7 @@ export function ServerAppsTab({ server }: Props) {
                         title={t("server.appMarket.viewInstallLog")}
                         onClick={(event) => {
                           event.stopPropagation();
-                          if (app.installId != null) {
+                          if (canOpenInstalledParams && app.installId != null) {
                             setLogTarget({
                               installId: app.installId,
                               label: app.name || app.key || "—",
@@ -762,13 +701,29 @@ export function ServerAppsTab({ server }: Props) {
                         type="button"
                         variant="secondary"
                         size="sm"
-                        disabled={!supportsApps || busy || installingKey != null}
+                        disabled={!canInstall || busy || installingKey != null}
                         onClick={(event) => {
                           event.stopPropagation();
                           void handleInstall(app);
                         }}
                       >
                         {busy ? t("server.appMarket.installing") : t("server.appMarket.install")}
+                      </Button>
+                    </div>
+                  ) : null}
+                  {canUninstall && app.installState === "installed" ? (
+                    <div className="server-app-card__footer">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy || installingKey != null}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleUninstall(app);
+                        }}
+                      >
+                        {t("server.appMarket.uninstall")}
                       </Button>
                     </div>
                   ) : null}

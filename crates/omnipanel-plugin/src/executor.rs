@@ -83,6 +83,10 @@ pub trait PluginHostBridge: Send + Sync {
     fn ping(&self) -> i32 {
         0
     }
+    /// 本地 HMAC（sha256 / sha1 → hex / base64）。不经网络、不需权限。
+    fn hmac(&self, spec_json: &str) -> Result<String, String> {
+        crate::crypto::hmac_digest(spec_json)
+    }
     fn net_fetch(&self, _url: &str) -> Result<String, String> {
         Err("net.fetch 未装配".into())
     }

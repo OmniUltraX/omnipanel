@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMous
 import { ModuleSegmentDock, closeDockTabNow, openDockTabNow } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import {
   ContextMenu,
   buildTabCloseMenuItems,
@@ -64,7 +64,9 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
   const manifest = pluginId ? getPluginManifest(pluginId) : null;
   const nameKey = desc?.labelI18nKey;
   const translated = nameKey ? t(nameKey) : moduleKey;
-  const name = translated === nameKey ? moduleKey : translated;
+  const name =
+    manifest?.displayName?.trim() ||
+    (translated === nameKey ? moduleKey : translated);
   const activated = desc ? isPluginActivated(desc.pluginId) : false;
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
@@ -148,11 +150,13 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
   const capabilityLabel = useCallback(
     (id: string) => {
       if (id === "overview") return t("moduleHost.overview");
+      const declared = capabilities.find((cap) => cap.id === id)?.label?.trim();
+      if (declared) return declared;
       const key = `moduleHost.capability.${id}`;
       const label = t(key);
       return label === key ? id : label;
     },
-    [t],
+    [capabilities, t],
   );
 
   const handleNavigate = useCallback(
@@ -383,6 +387,7 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
           moduleTitle={name}
           tabs={moduleDockTabs}
           activeTabId={activeTabId ?? ""}
+          softRefreshKey={`${selected?.id ?? ""}:${namespaceId}`}
           onActiveTabChange={setActiveTabId}
           onCloseTab={handleCloseTab}
           onTabContextMenu={(event: ReactMouseEvent, tabId: string, index: number) => {
@@ -400,16 +405,14 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
               title={name}
               prompt={t("plugins.moduleShell.hint", { name })}
               actions={
-                <Button
-                  type="button"
-                  variant="primary"
+                <WorkbenchActionButton
                   onClick={() => {
                     setEditConnection(undefined);
                     setDialogOpen(true);
                   }}
                 >
                   {t("moduleHost.newConnection")}
-                </Button>
+                </WorkbenchActionButton>
               }
             />
           }

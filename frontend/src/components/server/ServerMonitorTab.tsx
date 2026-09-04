@@ -11,9 +11,8 @@ import {
 } from "@/components/ui/primitives/dialog";
 import type { ServerEntry } from "@/modules/server/panel/serverConnection";
 import { findSshForPanel, parseSshConfig } from "@/modules/server/panel/serverConnection";
-import { dashboardToHostStats } from "./panelMonitorStats";
-import { createOnePanelClient } from "@/lib/onepanel";
-import { createBtPanelClient, isBtPanelAuthFailureMessage, parseBtDiskUsageList } from "@/lib/btpanel";
+import { asPanelDashboard, dashboardToHostStats } from "./panelMonitorStats";
+import { isBtPanelAuthFailureMessage } from "@/lib/btpanel";
 import type { OnePanelDashboardBase } from "@/lib/onepanel/types";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { commands } from "@/ipc/bindings";
@@ -21,7 +20,7 @@ import type { HostSystemStats } from "@/stores/sshStatsStore";
 import { MonMetricCards } from "@/modules/server/ssh/components/monitoring/MonMetricCards";
 import { computeByteRate } from "@/modules/server/ssh/components/monitoring/monitoringUtils";
 import { useMonitorSparklines } from "@/modules/server/ssh/components/monitoring/useMonitorSparklines";
-import { isBtPanelService, isOnePanelService } from "@/modules/server/panel/panelPlugin";
+import { getPanelDriver, panelConnectionCtx } from "@/lib/panelDriverRegistry";
 
 interface Props {
   server: ServerEntry;
@@ -96,55 +95,26 @@ export function ServerMonitorTab({ server, active = true }: Props) {
   const refreshDashboardCurrent = useCallback(
     async (options?: { silent?: boolean }): Promise<"ok" | "auth" | "error"> => {
       try {
-        if (isOnePanelService(server.serviceType)) {
-          const op = createOnePanelClient(server.address, server.key, server.id, server.panelUser);
-          const current = await op.getDashboardCurrent();
-          setDashboard((prev) =>
-            prev ? { ...prev, currentInfo: current } : { currentInfo: current },
-          );
-        } else {
-          const bt = createBtPanelClient(server.address, server.key, server.id);
-          // 串行：避免每 2s 并发 3 路把宝塔验证失败计数打满
-          const total = await bt.getSystemTotal();
-          const network = await bt.getNetwork();
-          const disks = await bt.getDiskInfo();
-          const memPct = total.memTotal ? ((total.memRealUsed ?? 0) / total.memTotal) * 100 : 0;
-          const cpuPct = network.cpu?.[0] ?? total.cpuRealUsed ?? 0;
-          const diskUsages = parseBtDiskUsageList(Array.isArray(disks) ? disks : []);
-          setDashboard((prev) => ({
-            ...(prev ?? {
-              hostname: total.system,
-              os: total.system,
-              platformVersion: total.version,
-              cpuCores: total.cpuNum,
-            }),
-            currentInfo: {
-              cpuUsedPercent: cpuPct,
-              memoryTotal: (total.memTotal ?? 0) * 1024 * 1024,
-              memoryUsed: (total.memRealUsed ?? 0) * 1024 * 1024,
-              memoryAvailable: ((total.memTotal ?? 0) - (total.memRealUsed ?? 0)) * 1024 * 1024,
-              memoryUsedPercent: memPct,
-              load1: network.load?.one,
-              load5: network.load?.five,
-              load15: network.load?.fifteen,
-              diskData: diskUsages.map((d) => ({
-                path: d.path,
-                total: d.total,
-                used: d.used,
-                free: d.free,
-                usedPercent: d.usedPercent,
-              })),
-            },
-          }));
+        const driver = getPanelDriver(server.serviceType);
+        if (!driver?.getDashboard) {
+          throw new Error(t("server.create.panelOnly"));
         }
+        const raw = await driver.getDashboard(panelConnectionCtx(server), {
+          currentOnly: Boolean(options?.silent),
+        });
+        const next = asPanelDashboard(raw);
+        setDashboard((prev) =>
+          prev
+            ? { ...prev, ...next, currentInfo: next.currentInfo ?? prev.currentInfo }
+            : next,
+        );
         if (!options?.silent) {
           setError(null);
         }
         return "ok";
       } catch (e) {
         const msg = String(e);
-        const auth =
-          isBtPanelService(server.serviceType) && isBtPanelAuthFailureMessage(msg);
+        const auth = isBtPanelAuthFailureMessage(msg);
         // 鉴权/封禁始终展示，避免静默轮询把状态藏起来
         if (!options?.silent || auth) {
           setError(msg);
@@ -155,21 +125,19 @@ export function ServerMonitorTab({ server, active = true }: Props) {
         return "error";
       }
     },
-    [server.address, server.id, server.key, server.panelUser, server.serviceType],
+    [server, t],
   );
 
   const load = useCallback(async () => {
       setLoading(true);
       setError(null);
       try {
-        if (isOnePanelService(server.serviceType)) {
-          const op = createOnePanelClient(server.address, server.key, server.id, server.panelUser);
-          const base = await op.getDashboardBase().catch(() => op.getOsInfo());
-          const current = await op.getDashboardCurrent().catch(() => base.currentInfo);
-          setDashboard({ ...base, currentInfo: current ?? base.currentInfo });
-        } else {
-          await refreshDashboardCurrent();
+        const driver = getPanelDriver(server.serviceType);
+        if (!driver?.getDashboard) {
+          throw new Error(t("server.create.panelOnly"));
         }
+        const raw = await driver.getDashboard(panelConnectionCtx(server));
+        setDashboard(asPanelDashboard(raw));
       } catch (e) {
         setError(String(e));
         setDashboard(null);
@@ -177,7 +145,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
         setLoading(false);
       }
     },
-    [refreshDashboardCurrent, server.address, server.key, server.panelUser, server.serviceType],
+    [server, t],
   );
 
   useEffect(() => {

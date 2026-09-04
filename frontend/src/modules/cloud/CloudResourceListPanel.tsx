@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../../components/ui/form/TextInput";
 import {
   DbTablesPanelGrid,
@@ -10,7 +10,7 @@ import { commands, type CloudResourceRow } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { showToast } from "../../stores/toastStore";
-import { capabilityI18nKey, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
+import { cloudCapabilityLabel, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
 import { cloudCapabilityById, isGlobalCloudCapability } from "./cloudCapabilities";
 import { capabilityHasDeclaredAction } from "./cloudWorkspaceTabs";
 import {
@@ -173,25 +173,22 @@ export function CloudResourceListPanel({
         return (
           <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
             {capabilityHasDeclaredAction(cap?.actions, "start") ? (
-              <Button type="button" size="xs" variant="outline" disabled={busyId === row.id} onClick={(e) => { e.stopPropagation(); void invokePluginAction(row, "start"); }}>
+              <WorkbenchActionButton disabled={busyId === row.id} onClick={(e) => { e.stopPropagation(); void invokePluginAction(row, "start"); }}>
                 {t("cloud.actions.start")}
-              </Button>
+              </WorkbenchActionButton>
             ) : null}
             {capabilityHasDeclaredAction(cap?.actions, "stop") ? (
-              <Button type="button" size="xs" variant="outline" disabled={busyId === row.id} onClick={(e) => { e.stopPropagation(); void invokePluginAction(row, "stop"); }}>
+              <WorkbenchActionButton disabled={busyId === row.id} onClick={(e) => { e.stopPropagation(); void invokePluginAction(row, "stop"); }}>
                 {t("cloud.actions.stop")}
-              </Button>
+              </WorkbenchActionButton>
             ) : null}
             {capabilityHasDeclaredAction(cap?.actions, "reboot") ? (
-              <Button type="button" size="xs" variant="outline" disabled={busyId === row.id} onClick={(e) => { e.stopPropagation(); void invokePluginAction(row, "reboot"); }}>
+              <WorkbenchActionButton disabled={busyId === row.id} onClick={(e) => { e.stopPropagation(); void invokePluginAction(row, "reboot"); }}>
                 {t("cloud.actions.reboot")}
-              </Button>
+              </WorkbenchActionButton>
             ) : null}
             {capabilityHasDeclaredAction(cap?.actions, "addSsh") ? (
-              <Button
-                type="button"
-                size="xs"
-                variant="outline"
+              <WorkbenchActionButton
                 disabled={Boolean(sshLinked) || busyId === row.id}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -217,13 +214,10 @@ export function CloudResourceListPanel({
                 }}
               >
                 {sshLinked ? t("server.cloud.actions.alreadySsh") : t("server.cloud.actions.addSsh")}
-              </Button>
+              </WorkbenchActionButton>
             ) : null}
             {capabilityHasDeclaredAction(cap?.actions, "addToFiles") && cloudConnection ? (
-              <Button
-                type="button"
-                size="xs"
-                variant="outline"
+              <WorkbenchActionButton
                 disabled={Boolean(ossLinked) || busyId === row.id}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -243,13 +237,10 @@ export function CloudResourceListPanel({
                 }}
               >
                 {ossLinked ? t("server.cloud.actions.alreadyOss") : t("server.cloud.actions.addOss")}
-              </Button>
+              </WorkbenchActionButton>
             ) : null}
             {capabilityHasDeclaredAction(cap?.actions, "addToDatabase") ? (
-              <Button
-                type="button"
-                size="xs"
-                variant="outline"
+              <WorkbenchActionButton
                 disabled={busyId === row.id}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -271,7 +262,7 @@ export function CloudResourceListPanel({
                 }}
               >
                 {t("cloud.actions.addToDatabase")}
-              </Button>
+              </WorkbenchActionButton>
             ) : null}
           </span>
         );
@@ -283,7 +274,7 @@ export function CloudResourceListPanel({
   return (
     <div className="cloud-resource-list">
       <header className="db-tables-panel-header db-connection-info-header">
-        <span className="db-tables-panel-header-label">{t(capabilityI18nKey(capability))}</span>
+        <span className="db-tables-panel-header-label">{cloudCapabilityLabel(t, capability, account.pluginId)}</span>
         <div className="db-tables-panel-header-tags">
           <span className="db-tables-panel-header-tag">{account.name}</span>
           <span className="db-tables-panel-header-tag">
@@ -307,9 +298,9 @@ export function CloudResourceListPanel({
             copyable={false}
             size="sm"
           />
-          <Button type="button" size="sm" variant="ghost" disabled={refreshing} onClick={() => void reload(true)}>
+          <WorkbenchActionButton disabled={refreshing} onClick={() => void reload(true)}>
             {refreshing ? t("server.refreshing") : t("server.refresh")}
-          </Button>
+          </WorkbenchActionButton>
         </div>
       </header>
       {listEntry?.error ? (

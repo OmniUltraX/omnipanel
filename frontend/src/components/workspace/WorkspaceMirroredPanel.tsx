@@ -3,7 +3,7 @@ import { useI18n } from "../../i18n";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
 import { DatabaseTabDockPane } from "../../modules/database/workspace/DatabaseTabDockPane";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
-import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import type { WorkspaceDockTabHostContext } from "./WorkspaceDockTabPanel";
 import type { WorkspaceDockTab } from "../../stores/workspaceBottomDockStore";
 import { ensureTerminalTabFromSnapshot } from "../../lib/workspaceTabActions";
@@ -105,9 +105,9 @@ export function WorkspaceMirroredPanel({
           title={t("routes.docker")}
           prompt={t("shell.workspacePanel.payloadUnavailable", { module: t("routes.docker") })}
           actions={
-            <Button variant="primary" size="sm" onClick={() => window.location.assign("/module/docker")}>
+            <WorkbenchActionButton onClick={() => window.location.assign("/module/docker")}>
               {t("shell.workspacePanel.openSourceModule")}
-            </Button>
+            </WorkbenchActionButton>
           }
         />
       </div>

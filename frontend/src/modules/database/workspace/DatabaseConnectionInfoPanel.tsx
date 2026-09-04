@@ -5,6 +5,7 @@ import { useI18n } from "../../../i18n";
 import { appAlert } from "../../../lib/appAlert";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { Button } from "../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
 import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
 import { useConnectionStore } from "../../../stores/connectionStore";
@@ -1000,9 +1001,8 @@ export function DatabaseConnectionInfoPanel({
           const processId = resolveProcessId(row, idColumn);
           const isKilling = processId != null && killingId === processId;
           return (
-            <Button
-              variant="danger"
-              size="xs"
+            <WorkbenchActionButton
+              danger
               disabled={processId == null || killingId != null}
               onClick={(event: MouseEvent<HTMLButtonElement>) => {
                 event.stopPropagation();
@@ -1010,7 +1010,7 @@ export function DatabaseConnectionInfoPanel({
               }}
             >
               {isKilling ? t("database.connectionInfo.killing") : t("database.connectionInfo.kill")}
-            </Button>
+            </WorkbenchActionButton>
           );
         },
       },

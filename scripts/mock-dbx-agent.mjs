@@ -106,6 +106,7 @@ rl.on("line", (line) => {
       reply(id, "CREATE TABLE EMP (ID NUMBER, NAME VARCHAR2(64))");
       break;
     case "execute":
+    case "preview":
       reply(id, {
         columns: ["X"],
         rows: [[1]],

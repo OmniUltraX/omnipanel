@@ -1,4 +1,9 @@
 export { Button, buttonVariants } from "./Button";
+export { headerActionButtonClass } from "./headerActionButton";
+export { WorkbenchActionButton } from "./WorkbenchActionButton";
+export { WorkbenchPanelHeader } from "./WorkbenchPanelHeader";
+export type { WorkbenchActionButtonProps } from "./WorkbenchActionButton";
+export type { WorkbenchHeaderTag, WorkbenchPanelHeaderProps } from "./WorkbenchPanelHeader";
 export {
   Dialog,
   DialogClose,

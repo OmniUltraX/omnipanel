@@ -20,6 +20,7 @@ import nginxIcon from "@/assets/icons/nginx.svg";
 
 import { selectCapabilities, useCapabilitiesStore } from "../../stores/capabilitiesStore";
 import { DockerConnectionDialog } from "@/modules/docker/DockerConnectionDialog";
+import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
 import { PanelProbeSection } from "./PanelProbeSection";
 
 type Props = {
@@ -247,15 +248,13 @@ export function CapabilitiesDetailTab({ activeResource }: Props) {
     <div className="capabilities">
       <div className="capabilities__header">
         <div className="capabilities__header-actions">
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
+          <WorkbenchActionButton
             onClick={() => load(true)}
             disabled={entry.loading || !resourceId}
             title={t("ssh.toolCapabilities.refreshHint")}
           >
             {entry.loading ? t("common.loading") : t("common.refresh")}
-          </button>
+          </WorkbenchActionButton>
         </div>
       </div>
 

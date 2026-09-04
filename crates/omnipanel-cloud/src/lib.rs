@@ -26,7 +26,14 @@ pub fn resolve_plugin_id(raw: &str) -> Result<String, OmniError> {
     {
         return Ok(PLUGIN_ID_TENCENT.to_string());
     }
+    if value.contains('.') && !value.contains(char::is_whitespace) {
+        return Ok(value.to_string());
+    }
     Err(OmniError::invalid_input(format!("未知云厂商插件: {raw}")))
+}
+
+pub fn is_first_party_cloud(plugin_id: &str) -> bool {
+    plugin_id == PLUGIN_ID_ALIYUN || plugin_id == PLUGIN_ID_TENCENT
 }
 
 pub fn default_region(plugin_id: &str) -> &'static str {
@@ -49,12 +56,22 @@ pub fn is_tencent(plugin_id: &str) -> bool {
     plugin_id == PLUGIN_ID_TENCENT
 }
 
+fn native_or_l2(plugin_id: &str) -> Result<String, OmniError> {
+    let id = resolve_plugin_id(plugin_id)?;
+    if is_first_party_cloud(&id) {
+        return Ok(id);
+    }
+    Err(OmniError::invalid_input(format!(
+        "云厂商 {id} 由插件 L2 承接"
+    )))
+}
+
 pub async fn test_account(
     plugin_id: &str,
     creds: &AliyunCredentials,
     http: &Client,
 ) -> Result<String, OmniError> {
-    if resolve_plugin_id(plugin_id)? == PLUGIN_ID_TENCENT {
+    if native_or_l2(plugin_id)? == PLUGIN_ID_TENCENT {
         TencentCloudDriver.test_account(creds, http).await
     } else {
         AliyunCloudDriver.test_account(creds, http).await
@@ -67,7 +84,7 @@ pub async fn list_regions(
     http: &Client,
     configured: &[String],
 ) -> Result<Vec<CloudRegion>, OmniError> {
-    if resolve_plugin_id(plugin_id)? == PLUGIN_ID_TENCENT {
+    if native_or_l2(plugin_id)? == PLUGIN_ID_TENCENT {
         TencentCloudDriver
             .list_regions(creds, http, configured)
             .await
@@ -83,7 +100,7 @@ pub async fn get_account(
     creds: &AliyunCredentials,
     http: &Client,
 ) -> Result<CloudAccountSnapshot, OmniError> {
-    if resolve_plugin_id(plugin_id)? == PLUGIN_ID_TENCENT {
+    if native_or_l2(plugin_id)? == PLUGIN_ID_TENCENT {
         TencentCloudDriver.get_account(creds, http).await
     } else {
         AliyunCloudDriver.get_account(creds, http).await
@@ -97,7 +114,7 @@ pub async fn list_resources(
     capability: &str,
     filter: &CloudResourceFilter,
 ) -> Result<Vec<CloudResourceRow>, OmniError> {
-    if resolve_plugin_id(plugin_id)? == PLUGIN_ID_TENCENT {
+    if native_or_l2(plugin_id)? == PLUGIN_ID_TENCENT {
         TencentCloudDriver
             .list_resources(creds, http, capability, filter)
             .await
@@ -116,7 +133,7 @@ pub async fn get_resource(
     resource_id: &str,
     region_id: &str,
 ) -> Result<CloudResourceDetail, OmniError> {
-    if resolve_plugin_id(plugin_id)? == PLUGIN_ID_TENCENT {
+    if native_or_l2(plugin_id)? == PLUGIN_ID_TENCENT {
         TencentCloudDriver
             .get_resource(creds, http, capability, resource_id, region_id)
             .await
@@ -133,7 +150,7 @@ pub async fn invoke_action(
     http: &Client,
     action: &CloudAction,
 ) -> Result<CloudActionResult, OmniError> {
-    if resolve_plugin_id(plugin_id)? == PLUGIN_ID_TENCENT {
+    if native_or_l2(plugin_id)? == PLUGIN_ID_TENCENT {
         TencentCloudDriver.invoke_action(creds, http, action).await
     } else {
         AliyunCloudDriver.invoke_action(creds, http, action).await
@@ -149,7 +166,7 @@ pub async fn get_metrics(
     region_id: &str,
     query: &CloudMetricQuery,
 ) -> Result<Vec<CloudMetricSeries>, OmniError> {
-    if resolve_plugin_id(plugin_id)? == PLUGIN_ID_TENCENT {
+    if native_or_l2(plugin_id)? == PLUGIN_ID_TENCENT {
         TencentCloudDriver
             .get_metrics(creds, http, capability, resource_id, region_id, query)
             .await
@@ -169,7 +186,7 @@ pub async fn query_logs(
     region_id: &str,
     query: &CloudLogQuery,
 ) -> Result<CloudLogPage, OmniError> {
-    if resolve_plugin_id(plugin_id)? == PLUGIN_ID_TENCENT {
+    if native_or_l2(plugin_id)? == PLUGIN_ID_TENCENT {
         TencentCloudDriver
             .query_logs(creds, http, capability, resource_id, region_id, query)
             .await
@@ -194,6 +211,11 @@ mod tests {
             resolve_plugin_id("omni.cloud.tencent").unwrap(),
             PLUGIN_ID_TENCENT
         );
-        assert!(resolve_plugin_id("omni.cloud.aws").is_err());
+        assert_eq!(
+            resolve_plugin_id("omni.cloud.aws").unwrap(),
+            "omni.cloud.aws"
+        );
+        assert!(!is_first_party_cloud("omni.cloud.aws"));
+        assert!(is_first_party_cloud(PLUGIN_ID_ALIYUN));
     }
 }

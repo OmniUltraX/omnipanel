@@ -1,0 +1,29 @@
+---
+description: 全应用统一幽灵操作，禁止实心蓝和浅红块
+globs: frontend/**/*.{tsx,css}
+alwaysApply: true
+---
+
+# 工作台 UI（数据库 / SSH 事实源）
+
+页头、表格行、历史条、分栏工具栏、空态 CTA、对话框 footer、设置、登录、协议发送一律安静：10px 标签 + 芯片 + 幽灵操作。
+不要再写 `xxx-panel__header` / `__header-actions`，不要用 `Button` 默认实心蓝。
+
+## 必须用共享件
+
+```tsx
+<WorkbenchPanelHeader label="配置" tags={[{ text: name, emphasis: true }]} actions={
+  <>
+    <WorkbenchActionButton onClick={refresh}>{t("common.refresh")}</WorkbenchActionButton>
+    <WorkbenchActionButton danger onClick={remove}>{t("common.delete")}</WorkbenchActionButton>
+  </>
+} />
+```
+
+对话框用 `FormDialog`（footer 已是幽灵操作）。手写 footer / 空态 / 发送 / 登录提交也用 `WorkbenchActionButton`。
+
+- 新建 / 刷新 / 保存 / 发送 / 发布：用 `WorkbenchActionButton`，不要 `primary` / `secondary` / `outline`。
+- 尺寸统一扁平硬朗：11px 字 / 4×8 内边距 / 4px 圆角；图标 22px。不要再传 `size="sm"`。
+- 悬停对齐 SSH 页头：白底 + 细强调描边 + 字色变蓝，**不要** `hover:bg-accent` 实心块。
+- 删除：还是幽灵，`danger` 只表示悬停描边/字变红，**不要** `variant="danger"`。
+- 不要改 `Button` 的 `defaultVariants`。新模块禁止自造页头样式。

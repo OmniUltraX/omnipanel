@@ -10,6 +10,8 @@
     "gen:bindings": "node scripts/gen-ipc-bindings.mjs",
     "check:ipc-registry": "node scripts/check-ipc-command-registry.mjs",
     "check:plugin-manifests": "node scripts/check-plugin-manifests.mjs",
+    "plugin:validate": "node scripts/validate-plugin.mjs",
+    "plugin:smoke": "node scripts/smoke-plugin-samples.mjs",
     "tauri": "node scripts/tauri.mjs",
     "tauri:dev": "node scripts/tauri.mjs dev",
     "dev:frontend": "npm run dev --prefix frontend",

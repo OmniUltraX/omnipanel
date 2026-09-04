@@ -2,6 +2,7 @@
 
 mod candidate;
 mod contribution;
+mod crypto;
 mod engine_sidecar;
 mod error;
 mod executor;
@@ -16,8 +17,10 @@ mod registry;
 mod source;
 
 pub use candidate::{ImportCandidate, upsert_candidates};
+pub use crypto::hmac_digest;
 pub use contribution::{
     AiContributes, AiToolContribution, AiToolExecKind, CloudCapabilityDecl, CloudContributes,
+    CloudRegionDecl,
     DiscoveryContribution, HomeContribution, HomeOpenContribution, LauncherContribution,
     ModuleCapabilityDecl, ModuleContributes, ModuleProbeDecl, PluginContributes, ThemeContribution,
     UiContributes,

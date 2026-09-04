@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n, getEnvLabel } from "../../i18n";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { commands } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -8,8 +8,8 @@ import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { ServerTreeIcon } from "../server/panel/serverTreeIcons";
 import { pluginDisplayName } from "../plugins/pluginDisplayName";
 import {
-  capabilityI18nKey,
   cloudBrandKind,
+  cloudCapabilityLabel,
   cloudRegionLabel,
   maskCloudAccessKey,
   type CloudAccount,
@@ -178,9 +178,9 @@ export function CloudAccountOverview({
           </span>
         </div>
         <div className="db-tables-panel-header-actions">
-          <Button type="button" size="sm" variant="outline" disabled={testing || !cloudConn} onClick={() => void handleTest()}>
+          <WorkbenchActionButton disabled={testing || !cloudConn} onClick={() => void handleTest()}>
             {testing ? t("server.cloud.create.testing") : t("server.cloud.create.test")}
-          </Button>
+          </WorkbenchActionButton>
         </div>
       </header>
       <div className="cloud-overview__body">
@@ -290,7 +290,7 @@ export function CloudAccountOverview({
                         onOpenResource(item.capability, item.row.id, item.row.regionId ?? "")
                       }
                     >
-                      <td>{t(capabilityI18nKey(item.capability))}</td>
+                      <td>{cloudCapabilityLabel(t, item.capability, account.pluginId)}</td>
                       <td>
                         <strong>{item.row.name || item.row.id}</strong>
                         {item.row.regionId ? (
@@ -342,7 +342,7 @@ export function CloudAccountOverview({
                   className="cloud-overview__card"
                   onClick={() => onOpenCapability(cap.id, "permanent")}
                 >
-                  <span className="cloud-overview__card-label">{t(capabilityI18nKey(cap.id))}</span>
+                  <span className="cloud-overview__card-label">{cloudCapabilityLabel(t, cap.id, account.pluginId)}</span>
                   <strong className="cloud-overview__card-value">{value}</strong>
                   <span className="cloud-overview__card-hint">{t("cloud.overview.openList")}</span>
                 </button>

@@ -1,6 +1,6 @@
 import type { DangerCheckResult, DangerLevel } from "../../lib/commandGuard";
 import { Modal } from "../ui/overlay/Modal";
-import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 
 interface Props {
   command: string;
@@ -18,7 +18,7 @@ const LEVEL_STYLES: Record<DangerLevel, { bg: string; border: string; icon: stri
 
 export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Props) {
   const style = LEVEL_STYLES[result.level];
-  const confirmVariant = result.level === "low" || result.level === "medium" ? "primary" : "danger";
+  const confirmDanger = result.level !== "low" && result.level !== "medium";
 
   return (
     <Modal open onClose={onCancel}>
@@ -55,12 +55,12 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
-          <Button variant="secondary" size="sm" onClick={onCancel}>
+          <WorkbenchActionButton onClick={onCancel}>
             取消
-          </Button>
-          <Button variant={confirmVariant} size="sm" onClick={onConfirm}>
+          </WorkbenchActionButton>
+          <WorkbenchActionButton danger={confirmDanger} onClick={onConfirm}>
             确认执行
-          </Button>
+          </WorkbenchActionButton>
         </div>
       </div>
     </Modal>

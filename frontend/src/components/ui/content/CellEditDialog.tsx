@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode } from "react";
 import { Modal } from "../overlay/Modal";
 import { Button } from "../primitives/Button";
+import { WorkbenchActionButton } from "../primitives/WorkbenchActionButton";
 import { useI18n } from "../../../i18n";
 
 export interface CellEditDialogProps {
@@ -71,13 +72,13 @@ export function CellEditDialog({
         <div className="modal-body cell-edit-dialog__body">{children}</div>
 
         <div className="modal-footer">
-          <Button type="button" variant="secondary" size="sm" onClick={onCancel}>
+          <WorkbenchActionButton onClick={onCancel}>
             {cancelLabel ?? t("common.cancel")}
-          </Button>
+          </WorkbenchActionButton>
           <div className="modal-footer-spacer" />
-          <Button type="submit" variant="primary" size="sm" disabled={confirmDisabled}>
+          <WorkbenchActionButton type="submit" disabled={confirmDisabled}>
             {confirmLabel ?? t("common.confirm")}
-          </Button>
+          </WorkbenchActionButton>
         </div>
       </form>
     </Modal>

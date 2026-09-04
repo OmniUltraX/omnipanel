@@ -563,10 +563,10 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         <ToolbarMenuButton
           label={t("database.runSql")}
           title={t("database.runSql")}
-          variant="primary"
+          variant="ghost"
           size="xs"
           disabled={!canRunSql || tabState.running}
-          className="sql-toolbar-run"
+          className="sql-toolbar-run workbench-panel-header-action-btn"
           items={runSqlMenuItems}
         />
       </div>

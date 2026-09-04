@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../i18n";
-import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { WorkspaceEmptyPage } from "../ui/workspace/WorkspaceEmptyPage";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
 import { DatabaseTabDockPane } from "../../modules/database/workspace/DatabaseTabDockPane";
@@ -35,9 +35,9 @@ function PayloadFallback({
       prompt={t("shell.workspacePanel.payloadUnavailable", { module })}
       className="workspace-payload-fallback"
       actions={
-        <Button variant="primary" size="sm" onClick={() => navigate(path)}>
+        <WorkbenchActionButton onClick={() => navigate(path)}>
           {t("shell.workspacePanel.openSourceModule")}
-        </Button>
+        </WorkbenchActionButton>
       }
     />
   );

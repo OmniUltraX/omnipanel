@@ -5,6 +5,8 @@ import { Select } from "../../../../components/ui/form/Select";
 import { PasswordInput } from "../../../../components/ui/form/PasswordInput";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { useI18n } from "../../../../i18n";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
+import { WorkbenchPanelHeader } from "../../../../components/ui/primitives/WorkbenchPanelHeader";
 
 export function KeysModuleView() {
   const { t } = useI18n();
@@ -141,32 +143,30 @@ export function KeysModuleView() {
 
   return (
     <div className="ssh-detail">
-      <div className="ssh-detail-header">
-        <div>
-          <div className="host-title">{t("ssh.keys.title")}</div>
-          <div className="host-addr-detail">{t("ssh.keys.subtitle")}</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              setShowGenerate(true);
-              setShowImport(false);
-            }}
-          >
-            {t("ssh.keys.generate")}
-          </button>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              setShowImport(true);
-              setShowGenerate(false);
-            }}
-          >
-            + {t("ssh.keys.import")}
-          </button>
-        </div>
-      </div>
+      <WorkbenchPanelHeader
+        label={t("ssh.keys.title")}
+        tags={[{ text: t("ssh.keys.subtitle") }]}
+        actions={
+          <>
+            <WorkbenchActionButton
+              onClick={() => {
+                setShowGenerate(true);
+                setShowImport(false);
+              }}
+            >
+              {t("ssh.keys.generate")}
+            </WorkbenchActionButton>
+            <WorkbenchActionButton
+              onClick={() => {
+                setShowImport(true);
+                setShowGenerate(false);
+              }}
+            >
+              + {t("ssh.keys.import")}
+            </WorkbenchActionButton>
+          </>
+        }
+      />
 
       {error && <div className="sftp-error">{error}</div>}
 

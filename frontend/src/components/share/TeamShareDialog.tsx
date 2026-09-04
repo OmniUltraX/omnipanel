@@ -12,6 +12,7 @@ import { useUserProfileStore } from "../../stores/userProfileStore";
 import { useShareUiStore, type SharePayload } from "../../stores/shareUiStore";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { IconClose } from "../ui/icons/Icons";
 import { Modal } from "../ui/overlay/Modal";
 
@@ -254,18 +255,15 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
         </div>
 
         <div className="team-share-dialog__actions">
-          <Button type="button" variant="secondary" size="sm" onClick={onClose} disabled={sharing}>
+          <WorkbenchActionButton onClick={onClose} disabled={sharing}>
             {t("share.cancel")}
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
+          </WorkbenchActionButton>
+          <WorkbenchActionButton
             disabled={!canShare}
             onClick={() => void handleShare()}
           >
             {sharing ? t("share.sending") : t("share.confirm", { count: selectedCount })}
-          </Button>
+          </WorkbenchActionButton>
         </div>
       </div>
     </Modal>

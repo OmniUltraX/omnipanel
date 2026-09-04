@@ -2,6 +2,10 @@
 
 This project uses CLAUDE.md as the primary guidance file. See CLAUDE.md for full project context, architecture, and conventions.
 
+## Workbench UI（数据库 / SSH 事实源）
+
+工作台、空态、对话框 footer、设置、登录、协议发送必须用 `WorkbenchPanelHeader` + `WorkbenchActionButton`。禁止实心蓝 / 浅红块，禁止新写 `xxx-panel__header`。详见 CLAUDE.md「Workbench UI」与 `.cursor/rules/workbench-actions.mdc`。
+
 ## Mandatory Type Check (强校验)
 
 **所有前端代码变更完成后，必须运行 `tsc -b` 通过后才能视为完成。** 这是 CI 流水线（`tauri-apps/tauri-action` → `build:ci` → `tsc -b && vite build`）的强校验门禁，本地不通过则 CI 必挂。

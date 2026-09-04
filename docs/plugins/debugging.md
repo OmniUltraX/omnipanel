@@ -1,5 +1,7 @@
 # 调试指南
 
+完整开发合同见 [README](./README.md)。
+
 ## Dev 快速通道
 
 1. **未签名/开发签名包**：dev 构建（`cargo run` / `npm run tauri:dev`）接受
@@ -45,7 +47,8 @@ URL 主机命中某条 `env_tag=prod` 连接。弹窗 60s 未响应按拒绝处�
 - 引擎级样例：`crates/omnipanel-plugin-wasm/tests/abi.rs`（wat 客体）、
   `crates/omnipanel-plugin-js/tests/behavior.rs`；
 - L1 安装链路端到端：`crates/omnipanel-plugin-pkg/tests/l1_install_chain.rs`；
-- 清单校验：`npm run check:plugin-manifests`（CI 同款）。
+- 第三方包：`node scripts/validate-plugin.mjs <plugin-dir>`（或 `npm run plugin:validate -- <dir>`）；
+- 第一方仓库门禁：`npm run check:plugin-manifests`（CI 同款）。
 
 ## AI 工具调试
 

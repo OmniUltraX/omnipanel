@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import {
   isRedisConnection,
@@ -750,14 +751,12 @@ export function RedisQueryPanel({ connection, fixedDbName }: RedisQueryPanelProp
               <Button variant="ghost" size="sm" onClick={() => setCreateOpen(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button
-                variant="primary"
-                size="sm"
+              <WorkbenchActionButton
                 onClick={() => void handleCreate()}
                 disabled={creating || !createKey.trim()}
               >
                 {t("common.confirm")}
-              </Button>
+              </WorkbenchActionButton>
             </div>
           </div>
         </div>

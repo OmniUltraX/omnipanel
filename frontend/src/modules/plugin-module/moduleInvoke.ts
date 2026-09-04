@@ -4,6 +4,7 @@ import { requireStepUp } from "../../lib/stepUp";
 import { pipeTarget } from "../../lib/presenceTargets";
 import { isProdEnvTag } from "../../lib/envTag";
 import type { Connection } from "../../ipc/bindings";
+import { getPluginManifest } from "../../lib/pluginManifests";
 
 export const ACTION_MODULE_CONFIG_PUBLISH = "module.config.publish";
 export const ACTION_MODULE_CONFIG_DELETE = "module.config.delete";
@@ -31,7 +32,9 @@ export async function invokeModuleMethod<T = unknown>(
   if (opts?.connection && !payload.connectionId) {
     payload.connectionId = opts.connection.id;
   }
-  const action = WRITE_METHODS[method];
+  const action =
+    WRITE_METHODS[method] ??
+    getPluginManifest(pluginId)?.methods?.find((item) => item.name === method)?.dangerAction;
   if (action) {
     const target = pipeTarget(pluginId, String(payload.connectionId ?? ""), method);
     const token = await requireStepUp({

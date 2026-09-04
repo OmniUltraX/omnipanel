@@ -6,6 +6,7 @@ import { appConfirm } from "../../lib/appConfirm";
 import { ALL_AGENT_IDS, getAgentDefinition, isAgentId, type AgentId } from "../../lib/ai/agents";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { BuiltinToolsSettingsSection } from "./BuiltinToolsSettingsSection";
 import { McpServicesSection } from "./McpServicesSection";
@@ -129,15 +130,12 @@ function PromptEditor({
             >
               {t("settings.agent.prompts.reset")}
             </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
+            <WorkbenchActionButton
               disabled={saving || !dirty}
               onClick={() => void handleSave()}
             >
               {saving ? t("settings.agent.prompts.saving") : t("settings.agent.prompts.save")}
-            </Button>
+            </WorkbenchActionButton>
           </div>
         </div>
         <div className="skills-field skills-field--body">

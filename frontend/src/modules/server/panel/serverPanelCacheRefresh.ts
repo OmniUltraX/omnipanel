@@ -1,14 +1,11 @@
 import {
   btDockerAppIconPath,
-  createBtPanelClient,
-  fetchBtMergedWebsiteList,
   isBtPanelAuthFailureMessage,
   type BtDockerApp,
   type BtInstalledApp,
   type BtSoftItem,
 } from "../../../lib/btpanel";
 import {
-  createOnePanelClient,
   type OnePanelApp,
   type OnePanelInstalledApp,
 } from "../../../lib/onepanel";
@@ -19,7 +16,11 @@ import type {
 } from "./serverPanelCache";
 import { emptyServerPanelResourceCache } from "./serverPanelCache";
 import { websiteRowGroup, websiteRowGroupId } from "./serverResourceLabels";
-import { isBtPanelService, isOnePanelService } from "./panelPlugin";
+import {
+  getPanelDriver,
+  panelConnectionCtx,
+} from "../../../lib/panelDriverRegistry";
+import { panelHasCapability } from "./panelPlugin";
 
 function formatError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -52,7 +53,7 @@ export function enrichWebsitesWithGroups(
   });
 }
 
-function btInstalledToOnePanel(item: BtInstalledApp): OnePanelInstalledApp {
+export function btInstalledToOnePanel(item: BtInstalledApp): OnePanelInstalledApp {
   return {
     id: Number(item.appid) || 0,
     name: item.service_name || item.apptitle || item.appname,
@@ -118,6 +119,68 @@ function pickSoftInstallVersion(item: BtSoftItem): string | null {
   return current || null;
 }
 
+function normalizeThirdPartyAppRow(row: Record<string, unknown>): OnePanelApp {
+  const tagsRaw = row.tags;
+  const tags = Array.isArray(tagsRaw)
+    ? tagsRaw
+        .map((tag) => {
+          if (typeof tag === "string" && tag.trim()) {
+            return { key: tag.trim(), name: tag.trim() };
+          }
+          if (tag && typeof tag === "object" && !Array.isArray(tag)) {
+            const item = tag as Record<string, unknown>;
+            const key = String(item.key ?? item.name ?? "").trim();
+            const name = String(item.name ?? item.key ?? "").trim();
+            if (!key && !name) return null;
+            return { key: key || name, name: name || key };
+          }
+          return null;
+        })
+        .filter((item): item is { key: string; name: string } => item != null)
+    : undefined;
+  return {
+    id: Number(row.id) || 0,
+    name: String(row.name ?? row.title ?? row.appName ?? "—"),
+    key: String(row.key ?? row.appKey ?? row.name ?? ""),
+    type: row.type != null ? String(row.type) : undefined,
+    icon: typeof row.icon === "string" ? row.icon : undefined,
+    description: row.description != null ? String(row.description) : undefined,
+    shortDescZh: row.shortDescZh != null ? String(row.shortDescZh) : undefined,
+    shortDescEn: row.shortDescEn != null ? String(row.shortDescEn) : undefined,
+    installed: Boolean(row.installed),
+    versions: Array.isArray(row.versions) ? row.versions.map(String) : undefined,
+    tags,
+  };
+}
+
+function normalizeThirdPartyInstalledAppRow(row: Record<string, unknown>): OnePanelInstalledApp {
+  return {
+    id: Number(row.id) || 0,
+    name: String(row.name ?? row.appName ?? "—"),
+    appName: row.appName != null ? String(row.appName) : undefined,
+    appKey:
+      row.appKey != null
+        ? String(row.appKey)
+        : row.key != null
+          ? String(row.key)
+          : undefined,
+    appType:
+      row.appType != null
+        ? String(row.appType)
+        : row.type != null
+          ? String(row.type)
+          : undefined,
+    version: row.version != null ? String(row.version) : undefined,
+    status: row.status != null ? String(row.status) : undefined,
+    message: row.message != null ? String(row.message) : undefined,
+    icon: typeof row.icon === "string" ? row.icon : undefined,
+  };
+}
+
+function isAuthFailure(err: unknown): boolean {
+  return isBtPanelAuthFailureMessage(formatError(err));
+}
+
 /** 将宝塔软件商店条目适配为应用市场卡片模型。 */
 export function btSoftItemToMarketApp(
   item: BtSoftItem,
@@ -148,82 +211,53 @@ export async function fetchServerPanelResources(
 ): Promise<ServerPanelResourceCache> {
   const entry = emptyServerPanelResourceCache();
   try {
-    if (isOnePanelService(server.serviceType)) {
-      const client = createOnePanelClient(server.address, server.key, server.id);
-      const [websitesResult, certificatesResult, groupsResult] = await Promise.allSettled([
-        client.searchWebsites(),
-        client.searchCertificates(),
-        client.searchGroups("website"),
-      ]);
-      const errors: string[] = [];
-      let websites: Record<string, unknown>[] = [];
-      if (websitesResult.status === "fulfilled") {
-        const raw = websitesResult.value as unknown;
-        websites = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
-      } else {
-        errors.push(`网站：${formatError(websitesResult.reason)}`);
-      }
-      if (certificatesResult.status === "fulfilled") {
-        const raw = certificatesResult.value as unknown;
-        entry.certificates = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
-      } else {
-        errors.push(`证书：${formatError(certificatesResult.reason)}`);
-      }
-      if (groupsResult.status === "fulfilled") {
-        const raw = groupsResult.value;
-        entry.siteGroups = (Array.isArray(raw) ? raw : [])
-          .map((g) => ({ id: String(g.id), name: g.name.trim() }))
-          .filter((g) => g.id && g.name);
-      }
-      entry.websites = enrichWebsitesWithGroups(websites, entry.siteGroups);
-      if (errors.length > 0 && entry.websites.length === 0 && entry.certificates.length === 0) {
-        throw new Error(errors.join("；"));
-      }
-      entry.error = errors.length > 0 ? errors.join("；") : null;
-    } else if (isBtPanelService(server.serviceType)) {
-      const client = createBtPanelClient(server.address, server.key, server.id);
-      // 串行：任一鉴权/封禁失败立刻停，避免 Promise.all 并发把验证失败次数打满
-      const errors: string[] = [];
-      let websites: Record<string, unknown>[] = [];
+    const driver = getPanelDriver(server.serviceType);
+    if (!driver) {
+      entry.error = "当前面板未激活或没有 driver";
+      entry.refreshedAt = Date.now();
+      return entry;
+    }
+    const ctx = panelConnectionCtx(server);
+    const errors: string[] = [];
+    let websites: Record<string, unknown>[] = [];
+
+    if (panelHasCapability(server.serviceType, "websites") && driver.listWebsites) {
       try {
-        // sites + 官方 Java project_list 合并（进程运行态以后者为准）
-        websites = await fetchBtMergedWebsiteList(client, { limit: 200, type: -1 });
+        websites = await driver.listWebsites(ctx);
       } catch (err) {
         errors.push(`网站：${formatError(err)}`);
-        if (isBtPanelAuthFailureMessage(formatError(err))) {
+        if (isAuthFailure(err)) {
           entry.error = errors.join("；");
           entry.refreshedAt = Date.now();
           return entry;
         }
       }
+    }
+    if (panelHasCapability(server.serviceType, "certificates") && driver.listCertificates) {
       try {
-        const certificates = await client.getSslList();
-        const raw = certificates as unknown;
-        entry.certificates = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
+        entry.certificates = await driver.listCertificates(ctx);
       } catch (err) {
         errors.push(`证书：${formatError(err)}`);
-        if (isBtPanelAuthFailureMessage(formatError(err))) {
+        if (isAuthFailure(err)) {
           entry.websites = websites;
           entry.error = errors.join("；");
           entry.refreshedAt = Date.now();
           return entry;
         }
       }
+    }
+    if (driver.listSiteGroups) {
       try {
-        const types = await client.getSiteTypes();
-        const raw = types;
-        entry.siteGroups = (Array.isArray(raw) ? raw : [])
-          .map((g) => ({ id: String(g.id), name: (g.name || "").trim() }))
-          .filter((g) => g.name);
+        entry.siteGroups = await driver.listSiteGroups(ctx);
       } catch (err) {
         errors.push(`分组：${formatError(err)}`);
       }
-      entry.websites = enrichWebsitesWithGroups(websites, entry.siteGroups);
-      if (errors.length > 0 && entry.websites.length === 0 && entry.certificates.length === 0) {
-        throw new Error(errors.join("；"));
-      }
-      entry.error = errors.length > 0 ? errors.join("；") : null;
     }
+    entry.websites = enrichWebsitesWithGroups(websites, entry.siteGroups);
+    if (errors.length > 0 && entry.websites.length === 0 && entry.certificates.length === 0) {
+      throw new Error(errors.join("；"));
+    }
+    entry.error = errors.length > 0 ? errors.join("；") : null;
     entry.refreshedAt = Date.now();
     return entry;
   } catch (err) {
@@ -242,149 +276,67 @@ export async function fetchServerPanelApps(
     appsError: null,
   };
 
-  if (isOnePanelService(server.serviceType)) {
-    try {
-      const client = createOnePanelClient(server.address, server.key, server.id);
-      const [marketResult, installedResult] = await Promise.allSettled([
-        client.searchApps({ page: 1, pageSize: 200, name: "" }),
-        client.searchInstalledApps({ page: 1, pageSize: 500, all: true }),
-      ]);
-
-      const errors: string[] = [];
-      let apps: OnePanelApp[] | undefined;
-      let installedApps: OnePanelInstalledApp[] | undefined;
-
-      if (marketResult.status === "fulfilled") {
-        apps = marketResult.value.items;
-      } else {
-        errors.push(`应用市场：${formatError(marketResult.reason)}`);
-      }
-      if (installedResult.status === "fulfilled") {
-        installedApps = installedResult.value.items;
-      } else {
-        errors.push(`已安装：${formatError(installedResult.reason)}`);
-      }
-
-      if (errors.length > 0 && apps == null && installedApps == null) {
-        throw new Error(errors.join("；"));
-      }
-
-      return {
-        apps,
-        installedApps,
-        appsRefreshedAt: Date.now(),
-        appsError: errors.length > 0 ? errors.join("；") : null,
-      };
-    } catch (err) {
-      return {
-        ...empty,
-        appsError: formatError(err),
-      };
-    }
+  const driver = getPanelDriver(server.serviceType);
+  if (!driver || (!driver.listApps && !driver.listInstalledApps)) {
+    return {
+      ...empty,
+      appsError: "当前面板类型不支持应用市场",
+    };
   }
 
-  if (isBtPanelService(server.serviceType)) {
-    try {
-      const client = createBtPanelClient(server.address, server.key, server.id);
-      // 串行：鉴权/封禁失败立刻停，避免 3 路并发打满宝塔验证计数
-      const errors: string[] = [];
-      let apps: OnePanelApp[] = [];
-      let installedApps: OnePanelInstalledApp[] = [];
-      const seen = new Set<string>();
-      let softOk = false;
+  try {
+    const ctx = panelConnectionCtx(server);
+    const errors: string[] = [];
+    let apps: OnePanelApp[] | undefined;
+    let installedApps: OnePanelInstalledApp[] | undefined;
 
+    if (driver.listApps) {
       try {
-        const soft = await client.getSoftList({ p: 1, type: 0, query: "", force: 0, row: 300 });
-        softOk = true;
-        const typeMap = new Map(soft.types.map((t) => [t.id, t.title]));
-        for (const item of soft.items) {
-          const mapped = btSoftItemToMarketApp(item, typeMap);
-          const key = mapped.key.toLowerCase();
-          if (!key || seen.has(key)) continue;
-          seen.add(key);
-          apps.push(mapped);
-          if (mapped.installed) {
-            installedApps.push({
-              id: mapped.id,
-              name: mapped.name,
-              appKey: mapped.key,
-              appName: mapped.name,
-              version: mapped.versions?.[0],
-              status: "Installed",
-            });
-          }
-        }
+        apps = (await driver.listApps(ctx)).map(normalizeThirdPartyAppRow);
       } catch (err) {
-        errors.push(`软件商店：${formatError(err)}`);
-        if (isBtPanelAuthFailureMessage(formatError(err))) {
+        errors.push(`应用市场：${formatError(err)}`);
+        if (isAuthFailure(err)) {
           return {
-            ...(apps.length > 0 ? { apps } : {}),
-            ...(installedApps.length > 0 ? { installedApps } : {}),
+            ...(apps && apps.length > 0 ? { apps } : {}),
             appsRefreshedAt: Date.now(),
             appsError: errors.join("；"),
           };
         }
       }
-
+    }
+    if (driver.listInstalledApps) {
       try {
-        const installed = await client.getInstalledApps({ p: 1, row: 500, appType: "all" });
-        for (const item of installed.items) {
-          installedApps.push(btInstalledToOnePanel(item));
-        }
+        installedApps = (await driver.listInstalledApps(ctx)).map(
+          normalizeThirdPartyInstalledAppRow,
+        );
       } catch (err) {
         errors.push(`已安装：${formatError(err)}`);
-        if (isBtPanelAuthFailureMessage(formatError(err))) {
+        if (isAuthFailure(err)) {
           return {
-            ...(apps.length > 0 ? { apps } : {}),
-            ...(installedApps.length > 0 ? { installedApps } : {}),
+            ...(apps && apps.length > 0 ? { apps } : {}),
+            ...(installedApps && installedApps.length > 0 ? { installedApps } : {}),
             appsRefreshedAt: Date.now(),
             appsError: errors.join("；"),
           };
         }
       }
-
-      try {
-        const dockerApps = await client.getDockerApps();
-        const installedKeys = new Set(
-          installedApps
-            .map((item) => (item.appKey || item.name || "").trim().toLowerCase())
-            .filter(Boolean),
-        );
-        for (const item of dockerApps.items) {
-          const mapped = btDockerAppToMarketApp(item);
-          const key = mapped.key.toLowerCase();
-          if (!key || seen.has(key)) continue;
-          seen.add(key);
-          if (installedKeys.has(key)) mapped.installed = true;
-          apps.push(mapped);
-        }
-      } catch (err) {
-        // Docker 商店未初始化时忽略；仅当软商店也失败时记错误
-        if (!softOk) {
-          errors.push(`Docker 应用：${formatError(err)}`);
-        }
-      }
-
-      if (errors.length > 0 && apps.length === 0 && installedApps.length === 0) {
-        throw new Error(errors.join("；"));
-      }
-
-      return {
-        apps,
-        installedApps,
-        appsRefreshedAt: Date.now(),
-        appsError: errors.length > 0 ? errors.join("；") : null,
-      };
-    } catch (err) {
-      return {
-        ...empty,
-        appsError: formatError(err),
-      };
     }
-  }
 
-  return {
-    ...empty,
-    appsError: "当前面板类型不支持应用市场",
-  };
+    if (errors.length > 0 && apps == null && installedApps == null) {
+      throw new Error(errors.join("；"));
+    }
+
+    return {
+      apps,
+      installedApps,
+      appsRefreshedAt: Date.now(),
+      appsError: errors.length > 0 ? errors.join("；") : null,
+    };
+  } catch (err) {
+    return {
+      ...empty,
+      appsError: formatError(err),
+    };
+  }
 }
+

@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { FormDialog } from "../../../components/ui/form/FormDialog";
 import { PasswordInput } from "../../../components/ui/form/PasswordInput";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { useConnectionStore } from "../../../stores/connectionStore";
-import { createBtPanelClient, BtPanelApiError, clearBtPanelLockout } from "../../../lib/btpanel";
-import { createOnePanelClient } from "../../../lib/onepanel";
+import { BtPanelApiError, clearBtPanelLockout } from "../../../lib/btpanel";
 import { commands, type Connection } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
 import {
@@ -18,7 +17,24 @@ import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../../tags/tagKinds";
 import onePanelIcon from "../../../assets/icons/1Panel.svg";
 import baotaIcon from "../../../assets/icons/Baota.svg";
-import { isBtPanelService, isOnePanelService } from "./panelPlugin";
+import {
+  isOnePanelService,
+  canonicalPanelPluginId,
+  PLUGIN_ID_PANEL_1PANEL,
+  PLUGIN_ID_PANEL_BT,
+} from "./panelPlugin";
+import {
+  getPanelDriver,
+  unwrapPanelTestConnection,
+} from "../../../lib/panelDriverRegistry";
+import { listPluginManifests } from "../../../lib/pluginManifests";
+import { isPluginActivated, usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
+import { pluginDisplayName } from "../../plugins/pluginDisplayName";
+
+const PANEL_ICONS: Record<string, string> = {
+  [PLUGIN_ID_PANEL_BT]: baotaIcon,
+  [PLUGIN_ID_PANEL_1PANEL]: onePanelIcon,
+};
 
 interface ServerConnectionDialogProps {
   open: boolean;
@@ -41,6 +57,8 @@ export function ServerConnectionDialog({
 }: ServerConnectionDialogProps) {
   const { t } = useI18n();
   const saveConn = useConnectionStore((s) => s.save);
+  const hydrated = usePluginRuntimeStore((s) => s.hydrated);
+  const pluginItems = usePluginRuntimeStore((s) => s.items);
   const [form, setForm] = useState<PanelFormData>(EMPTY_PANEL_FORM);
   const [tags, setTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -53,15 +71,27 @@ export function ServerConnectionDialog({
 
   const isEdit = !!editPanelConnection?.id;
 
+  const activatedPlugins = useMemo(() => {
+    void hydrated;
+    void pluginItems;
+    return listPluginManifests("panel").filter((item) => isPluginActivated(item.id));
+  }, [hydrated, pluginItems]);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
 
-    setForm(
-      editPanelConnection
-        ? panelConnectionToForm(editPanelConnection)
-        : { ...EMPTY_PANEL_FORM, ...initialForm },
-    );
+    const next = editPanelConnection
+      ? panelConnectionToForm(editPanelConnection)
+      : { ...EMPTY_PANEL_FORM, ...initialForm };
+    if (
+      !editPanelConnection &&
+      activatedPlugins[0] &&
+      !activatedPlugins.some((item) => item.id === canonicalPanelPluginId(next.serviceType))
+    ) {
+      next.serviceType = activatedPlugins[0].id;
+    }
+    setForm(next);
     setTags(userConnectionTags(editPanelConnection?.tags));
     setError(null);
     setPanelStatus(null);
@@ -87,7 +117,7 @@ export function ServerConnectionDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, editPanelConnection, initialForm]);
+  }, [open, editPanelConnection, initialForm, activatedPlugins]);
 
   const update = <K extends keyof PanelFormData>(key: K, value: PanelFormData[K]) => {
     setError(null);
@@ -98,6 +128,7 @@ export function ServerConnectionDialog({
   const validate = (): string | null => {
     if (!form.name.trim()) return t("server.create.nameRequired");
     if (!form.panelAddress.trim()) return t("server.create.addressRequired");
+    if (!form.serviceType.trim()) return t("server.create.pluginRequired");
     // 编辑时可留空密钥（保留 Vault）；新建必须填写
     if (!isEdit && !form.panelKey.trim()) return t("server.create.keyRequired");
     return null;
@@ -126,28 +157,24 @@ export function ServerConnectionDialog({
       const connectionId = inlineKey ? undefined : editPanelConnection?.id;
       const address = form.panelAddress.trim();
       clearBtPanelLockout(address);
-      if (isOnePanelService(form.serviceType)) {
-        const client = createOnePanelClient(
-          address,
-          inlineKey,
-          connectionId,
-          form.panelUser,
-        );
-        const info = await client.getDeviceBase();
-        const hostname = info.hostname ?? address;
-        setPanelStatus({
-          kind: "success",
-          message: t("server.create.testSuccess", { hostname }),
-        });
-      } else {
-        const client = createBtPanelClient(address, inlineKey, connectionId);
-        const info = await client.getSystemTotal();
-        const hostname = info.system ?? info.version ?? address;
-        setPanelStatus({
-          kind: "success",
-          message: t("server.create.testSuccess", { hostname }),
-        });
+      const pluginId = canonicalPanelPluginId(form.serviceType);
+
+      const driver = getPanelDriver(pluginId);
+      if (!driver?.testConnection) {
+        throw new Error(t("server.create.panelOnly"));
       }
+      const res = await driver.testConnection({
+        address,
+        apiKey: inlineKey,
+        connectionId: connectionId ?? "",
+        panelUser: form.panelUser,
+      });
+      const parsed = unwrapPanelTestConnection(res);
+      if (!parsed.ok) throw new Error("连接测试失败");
+      setPanelStatus({
+        kind: "success",
+        message: t("server.create.testSuccess", { hostname: parsed.hostname ?? address }),
+      });
     } catch (err) {
       const detail =
         err instanceof BtPanelApiError
@@ -209,13 +236,13 @@ export function ServerConnectionDialog({
         {
           label: testingPanel ? t("server.create.testing") : t("server.create.test"),
           variant: "ghost",
-          disabled: saving || testingPanel || !canTest,
+          disabled: saving || testingPanel || !canTest || activatedPlugins.length === 0,
           onClick: () => void handleTestPanel(),
         },
       ]}
       primaryAction={{
         label: saving ? t("ssh.dialog.saving") : isEdit ? t("common.save") : t("ssh.dialog.save"),
-        disabled: saving || testingPanel,
+        disabled: saving || testingPanel || activatedPlugins.length === 0,
         onClick: () => void handleSave(),
       }}
     >
@@ -269,28 +296,36 @@ export function ServerConnectionDialog({
 
       <div className="form-field">
         <label className="form-label">{t("server.create.serviceType")}</label>
-        <div className="engine-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <button
-            type="button"
-            className={`engine-chip${isBtPanelService(form.serviceType) ? " engine-chip--active" : ""}`}
-            onClick={() => update("serviceType", "bt")}
+        {activatedPlugins.length === 0 ? (
+          <p className="form-hint">{t("server.create.noPlugin")}</p>
+        ) : (
+          <div
+            className="engine-grid"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}
           >
-            <span className="engine-chip-icon">
-              <img src={baotaIcon} alt="" className="engine-chip-logo" draggable={false} />
-            </span>
-            <span className="engine-chip-label">{t("server.serviceType.bt")}</span>
-          </button>
-          <button
-            type="button"
-            className={`engine-chip${isOnePanelService(form.serviceType) ? " engine-chip--active" : ""}`}
-            onClick={() => update("serviceType", "1panel")}
-          >
-            <span className="engine-chip-icon">
-              <img src={onePanelIcon} alt="" className="engine-chip-logo" draggable={false} />
-            </span>
-            <span className="engine-chip-label">{t("server.serviceType.1panel")}</span>
-          </button>
-        </div>
+            {activatedPlugins.map((plugin) => {
+              const icon = PANEL_ICONS[plugin.id];
+              const active = canonicalPanelPluginId(form.serviceType) === plugin.id;
+              return (
+                <button
+                  key={plugin.id}
+                  type="button"
+                  className={`engine-chip${active ? " engine-chip--active" : ""}`}
+                  onClick={() => update("serviceType", plugin.id)}
+                >
+                  <span className="engine-chip-icon">
+                    {icon ? (
+                      <img src={icon} alt="" className="engine-chip-logo" draggable={false} />
+                    ) : (
+                      <span>{pluginDisplayName(plugin.id, t).slice(0, 2)}</span>
+                    )}
+                  </span>
+                  <span className="engine-chip-label">{pluginDisplayName(plugin.id, t)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="form-field">

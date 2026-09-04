@@ -2,7 +2,7 @@ import { useI18n } from "../../i18n";
 import { useAppUpdateStore } from "../../stores/appUpdateStore";
 import { IconClose } from "../ui/icons/Icons";
 import { Modal } from "../ui/overlay/Modal";
-import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 
 /** 版本更新弹窗：展示 changelog，提供立即更新 / 暂时跳过。 */
 export function AppUpdateDialog() {
@@ -86,29 +86,27 @@ export function AppUpdateDialog() {
         <div className="app-update-dialog__actions">
           {available ? (
             <>
-              <Button variant="secondary" disabled={updating} onClick={skipForNow}>
+              <WorkbenchActionButton disabled={updating} onClick={skipForNow}>
                 {t("userCenter.update.skip")}
-              </Button>
-              <Button
-                variant="primary"
+              </WorkbenchActionButton>
+              <WorkbenchActionButton
                 disabled={updating}
                 onClick={() => void installNow()}
               >
                 {t("userCenter.update.installNow")}
-              </Button>
+              </WorkbenchActionButton>
             </>
           ) : (
             <>
-              <Button
-                variant="secondary"
+              <WorkbenchActionButton
                 disabled={checking || updating}
                 onClick={() => void checkOnce()}
               >
                 {checking ? t("settings.update.checking") : t("settings.update.checkBtn")}
-              </Button>
-              <Button variant="primary" disabled={updating} onClick={closeDialog}>
+              </WorkbenchActionButton>
+              <WorkbenchActionButton disabled={updating} onClick={closeDialog}>
                 {t("userCenter.update.close")}
-              </Button>
+              </WorkbenchActionButton>
             </>
           )}
         </div>

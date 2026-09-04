@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Modal } from "../../../components/ui/overlay/Modal";
-import { Button } from "../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../../../components/ui/form/TextInput";
 
 interface RedisOpsDangerDialogProps {
@@ -47,12 +47,12 @@ export function RedisOpsDangerDialog({
         </label>
         <TextInput value={input} onChange={setInput} autoFocus />
         <div className="redis-ops-danger-dialog__actions">
-          <Button variant="secondary" size="sm" onClick={onCancel}>
+          <WorkbenchActionButton onClick={onCancel}>
             取消
-          </Button>
-          <Button variant="danger" size="sm" disabled={!canConfirm} onClick={onConfirm}>
+          </WorkbenchActionButton>
+          <WorkbenchActionButton danger disabled={!canConfirm} onClick={onConfirm}>
             确认执行
-          </Button>
+          </WorkbenchActionButton>
         </div>
       </div>
     </Modal>

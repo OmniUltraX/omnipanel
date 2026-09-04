@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Modal } from "../overlay/Modal";
 import { Button } from "../primitives/Button";
+import { WorkbenchActionButton } from "../primitives/WorkbenchActionButton";
 import { useI18n } from "../../../i18n";
 
 export { FormField, type FormFieldProps } from "./FormField";
@@ -17,7 +18,9 @@ export type FormDialogStatusKind = "info" | "success" | "error";
 export interface FormDialogAction {
   key?: string;
   label: ReactNode;
-  variant?: "default" | "secondary" | "ghost";
+  /** 仅 `danger` 表示悬停变红；其余变体一律按幽灵操作渲染。 */
+  variant?: "default" | "primary" | "secondary" | "ghost" | "danger";
+  /** 已忽略：工作台按钮统一扁平尺，不再按 action 变高变矮。 */
   size?: "sm" | "default";
   disabled?: boolean;
   onClick?: () => void;
@@ -52,18 +55,16 @@ export interface FormDialogProps {
 
 function renderAction(action: FormDialogAction, fallbackKey: string) {
   return (
-    <Button
+    <WorkbenchActionButton
       key={action.key ?? fallbackKey}
-      type="button"
-      variant={action.variant ?? "secondary"}
-      size={action.size ?? "sm"}
+      danger={action.variant === "danger"}
       disabled={action.disabled}
       onClick={() => {
         action.onClick?.();
       }}
     >
       {action.label}
-    </Button>
+    </WorkbenchActionButton>
   );
 }
 
@@ -84,7 +85,7 @@ export function FormDialog({
   closeDisabled = false,
   cancelLabel,
   onCancel,
-  cancelVariant = "secondary",
+  cancelVariant: _cancelVariant = "secondary",
   cancelDisabled = false,
   status,
   actions,
@@ -108,15 +109,12 @@ export function FormDialog({
     showCancel || status || (actions && actions.length > 0) || primaryAction ? (
       <div className="modal-footer">
         {showCancel && (
-          <Button
-            type="button"
-            variant={cancelVariant}
-            size="sm"
+          <WorkbenchActionButton
             onClick={handleCancel}
             disabled={cancelDisabled}
           >
             {resolvedCancelLabel}
-          </Button>
+          </WorkbenchActionButton>
         )}
         {status ? (
           <span
@@ -129,14 +127,7 @@ export function FormDialog({
           <div className="modal-footer-spacer" />
         )}
         {actions?.map((action, index) => renderAction(action, `action-${index}`))}
-        {primaryAction &&
-          renderAction(
-            {
-              ...primaryAction,
-              variant: primaryAction.variant ?? "default",
-            },
-            "primary",
-          )}
+        {primaryAction && renderAction(primaryAction, "primary")}
       </div>
     ) : null;
 

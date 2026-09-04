@@ -5,6 +5,7 @@ import { useI18n } from "../../i18n";
 import { commands, type SkillRecord } from "../../ipc/bindings";
 import { appConfirm } from "../../lib/appConfirm";
 import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { TextInput } from "../ui/form/TextInput";
 
@@ -292,14 +293,12 @@ export function SkillsSection() {
                       {t("common.cancel")}
                     </Button>
                   ) : null}
-                  <Button
-                    variant="primary"
-                    size="sm"
+                  <WorkbenchActionButton
                     disabled={saving}
                     onClick={() => void handleSave()}
                   >
                     {saving ? t("common.saving") : t("common.save")}
-                  </Button>
+                  </WorkbenchActionButton>
                 </div>
               </div>
             </div>

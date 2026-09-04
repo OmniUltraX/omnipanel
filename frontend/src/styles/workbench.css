@@ -1,0 +1,143 @@
+/*
+ * 工作台共享壳：数据库表页头是事实源。
+ * 新模块用 .workbench-panel-header*；.db-tables-panel-header* 是兼容别名。
+ */
+
+@layer components {
+
+.workbench-panel-header,
+.db-tables-panel-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--surface);
+    flex-shrink: 0;
+}
+
+.workbench-panel-header-label,
+.db-tables-panel-header-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--meta);
+    white-space: nowrap;
+}
+
+.workbench-panel-header-tags,
+.db-tables-panel-header-tags {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.workbench-panel-header-tag,
+.db-tables-panel-header-tag {
+    flex-shrink: 0;
+    max-width: min(100%, 280px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 2px 6px;
+    border-radius: var(--r-sm);
+    letter-spacing: 0.02em;
+    color: var(--fg-2);
+    background: var(--bg-deeper);
+    border: 1px solid var(--border-soft);
+}
+
+.workbench-panel-header-tag--name,
+.db-tables-panel-header-tag--name {
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.workbench-panel-header-actions,
+.db-tables-panel-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.workbench-panel-header-action-btn .is-spinning,
+.db-tables-panel-header-action-btn .is-spinning {
+    animation: workbench-panel-spin 0.8s linear infinite;
+}
+
+@keyframes workbench-panel-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes db-tables-panel-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+}
+
+/*
+ * 悬停必须写在 @layer 外，才能压过 Button ghost 的 hover:bg-accent。
+ * 手感对齐 SSH 页头：白底 + 细强调描边 + 字色变蓝，不要铺实心色块。
+ */
+.workbench-panel-header-action-btn,
+.db-tables-panel-header-action-btn {
+    height: auto;
+    min-height: 0;
+    min-width: 0;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.25;
+    letter-spacing: 0.01em;
+    border-radius: 4px;
+    gap: 4px;
+    color: var(--meta);
+    background: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.workbench-panel-header-action-btn[data-variant="icon"],
+.workbench-panel-header-action-btn[data-size^="icon"],
+.db-tables-panel-header-action-btn[data-variant="icon"],
+.db-tables-panel-header-action-btn[data-size^="icon"] {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    padding: 0;
+}
+
+.workbench-panel-header-action-btn:focus-visible,
+.db-tables-panel-header-action-btn:focus-visible {
+    box-shadow: none;
+    outline: none;
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.workbench-panel-header-action-btn:not(:disabled):hover,
+.db-tables-panel-header-action-btn:not(:disabled):hover {
+    color: var(--accent);
+    background: var(--surface);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.workbench-panel-header-action-btn--danger:not(:disabled):hover,
+.db-tables-panel-header-action-btn--danger:not(:disabled):hover {
+    color: var(--danger, #e03131);
+    background: var(--surface);
+    border-color: color-mix(in srgb, var(--danger, #e03131) 32%, var(--border));
+}

@@ -6,7 +6,7 @@ import {
 
 const registered = new Set<string>();
 
-/** 按已激活 module 清单登记/卸除启动器前缀，不写产品名特判。 */
+/** 按已激活 module / addon 清单登记/卸除启动器前缀，不写产品名特判。 */
 export function syncModuleLauncherProviders(
   items: Array<{ id: string; enabled: boolean; activated: boolean }>,
 ): void {
@@ -14,7 +14,7 @@ export function syncModuleLauncherProviders(
   for (const item of items) {
     if (!item.enabled || !item.activated) continue;
     const manifest = getPluginManifest(item.id);
-    if (manifest?.kind !== "module") continue;
+    if (manifest?.kind !== "module" && manifest?.kind !== "addon") continue;
     const prefix = manifest.contributes.launcher?.prefix?.trim();
     if (!prefix) continue;
     const moduleKey = manifest.contributes.ui?.moduleKey?.trim() || prefix;

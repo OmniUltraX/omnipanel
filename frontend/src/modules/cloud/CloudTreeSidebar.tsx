@@ -25,7 +25,7 @@ import { usePluginRuntimeStore } from "@/stores/pluginRuntimeStore";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { showToast } from "@/stores/toastStore";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
-import { capabilityI18nKey, cloudAccountConsoleUrl, cloudBrandKind, type CloudAccount } from "./cloudForm";
+import { cloudAccountConsoleUrl, cloudBrandKind, cloudCapabilityLabel, type CloudAccount } from "./cloudForm";
 import { cloudCapabilitiesForPlugin, isGlobalCloudCapability } from "./cloudCapabilities";
 import {
   capabilityHasDeclaredAction,
@@ -99,9 +99,9 @@ function CloudAccountBranch({
   const visibleCaps = useMemo(() => {
     if (!hasSidebarTreeSearch(searchQuery) || nameMatch) return capabilities;
     return capabilities.filter((cap) =>
-      sidebarTreeSearchMatches(searchQuery, t(capabilityI18nKey(cap.id))),
+      sidebarTreeSearchMatches(searchQuery, cloudCapabilityLabel(t, cap.id, account.pluginId)),
     );
-  }, [capabilities, nameMatch, searchQuery, t]);
+  }, [account.pluginId, capabilities, nameMatch, searchQuery, t]);
 
   if (!accountExpanded) return null;
   if (hasSidebarTreeSearch(searchQuery) && !nameMatch && visibleCaps.length === 0) {
@@ -193,7 +193,7 @@ function CloudCapabilityBranch({
     );
   }, [global, rows, searchQuery, selectedRegions]);
 
-  const label = t(capabilityI18nKey(capabilityId));
+  const label = cloudCapabilityLabel(t, capabilityId, account.pluginId);
 
   return (
     <>

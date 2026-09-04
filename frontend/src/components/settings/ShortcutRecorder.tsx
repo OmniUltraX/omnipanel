@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import {
   eventToKeyTokens,
   findShortcutConflict,
@@ -138,16 +139,14 @@ export function ShortcutRecorder({ id, value, disabled }: ShortcutRecorderProps)
                   other: state.conflictLabel,
                 })}
               </span>
-              <Button
-                variant="primary"
-                size="xs"
+              <WorkbenchActionButton
                 onClick={() => {
                   commitBinding(state.candidate, recordingIndex);
                   setState({ mode: "idle" });
                 }}
               >
                 {t("settings.keybindings.recorder.replace")}
-              </Button>
+              </WorkbenchActionButton>
               <Button
                 variant="ghost"
                 size="xs"
@@ -206,16 +205,14 @@ export function ShortcutRecorder({ id, value, disabled }: ShortcutRecorderProps)
               other: state.conflictLabel,
             })}
           </span>
-          <Button
-            variant="primary"
-            size="xs"
+          <WorkbenchActionButton
             onClick={() => {
               commitBinding(state.candidate, null);
               setState({ mode: "idle" });
             }}
           >
             {t("settings.keybindings.recorder.replace")}
-          </Button>
+          </WorkbenchActionButton>
           <Button
             variant="ghost"
             size="xs"

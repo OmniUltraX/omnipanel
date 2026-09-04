@@ -23,7 +23,12 @@ import { isDiscoverySkip, runDiscoveryProbe, sshDiscoveryScope, type DiscoveryCa
 import { DiscoveryImportDialog, type DiscoveryPreviewRow } from "@/components/ui/DiscoveryImportDialog";
 import { importPanelPreviewRows } from "./syncPanelsFromSsh";
 import type { ServerEntry } from "./serverConnection";
-import { isBtPanelService, isOnePanelService, panelServiceTypeI18nKey } from "./panelPlugin";
+import {
+  isBtPanelService,
+  isOnePanelService,
+  panelHasCapability,
+  panelServiceTypeLabel,
+} from "./panelPlugin";
 import { listPanelSidebarTabs } from "./panelTabIds";
 import { usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
 import { usePersistedServerTreeExpanded } from "./usePersistedServerTreeExpanded";
@@ -55,7 +60,7 @@ function ServerTreeBranch({
 }: ServerTreeBranchProps) {
   const { t } = useI18n();
   const pluginItems = usePluginRuntimeStore((s) => s.items);
-  const serviceTypeLabel = t(`server.serviceType.${panelServiceTypeI18nKey(server.serviceType)}`);
+  const serviceTypeLabel = panelServiceTypeLabel(server.serviceType, t);
   const serverNameMatch = serverEntryMatchesSearch(searchQuery, server, serviceTypeLabel);
 
   const categories = useMemo(() => {
@@ -192,7 +197,11 @@ export function ServerPanelTreeSidebar({
     (server: ServerEntry) => {
       void (async () => {
         await refreshServer(server);
-        if (isOnePanelService(server.serviceType) || isBtPanelService(server.serviceType)) {
+        if (
+          isOnePanelService(server.serviceType) ||
+          isBtPanelService(server.serviceType) ||
+          panelHasCapability(server.serviceType, "apps")
+        ) {
           await refreshServerApps(server);
         }
       })();
@@ -445,9 +454,9 @@ export function ServerPanelTreeSidebar({
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{server.name}</span>
                       <span
-                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${isBtPanelService(server.serviceType) ? "bt" : "onepanel"}`}
+                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${isBtPanelService(server.serviceType) ? "bt" : isOnePanelService(server.serviceType) ? "onepanel" : "other"}`}
                       >
-                        {t(`server.serviceType.${panelServiceTypeI18nKey(server.serviceType)}`)}
+                        {panelServiceTypeLabel(server.serviceType, t)}
                       </span>
                     </span>
                   }
