@@ -377,6 +377,14 @@ pub async fn sync_plugin_logic(state: &State<'_, AppState>) {
             }
             continue;
         };
+        // 大小闸：JS 逻辑包 ≤2MB（与 JsExecutor::MAX_JS_BYTES 一致），超限拒绝实例化
+        if logic_rel.to_ascii_lowercase().ends_with(".js") && bytes.len() > 2 * 1024 * 1024 {
+            eprintln!(
+                "[plugin-logic] JS 逻辑包超过 2MB 上限（{} bytes），拒绝实例化 {plugin_id}",
+                bytes.len()
+            );
+            continue;
+        }
         let executor = Arc::clone(executor);
         let pid = plugin_id.clone();
         let bridge = Arc::new(crate::commands::plugin_bridge::PluginBridge {
@@ -490,6 +498,20 @@ pub async fn plugin_install_from_file(
     path: String,
 ) -> Result<PluginListItem, OmniError> {
     install_plugin_from_path(&state, PathBuf::from(&path)).await
+}
+
+/// 预读本地包清单（安装前权限确认用）：只验签 + 解析，不解压不安装。
+/// 返回清单 JSON 字符串，前端以 plugin-sdk Zod 解析（与 plugin_manifests 同合同）。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_peek_manifest(path: String) -> Result<String, OmniError> {
+    let verify_path = PathBuf::from(&path);
+    let manifest =
+        tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::verify_file_dev(&verify_path))
+            .await
+            .map_err(|e| OmniError::internal(e.to_string()))?
+            .map_err(pkg_err_to_omni)?;
+    serde_json::to_string(&manifest).map_err(|e| OmniError::internal(e.to_string()))
 }
 
 /// 卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。
@@ -995,7 +1017,7 @@ fn plugin_asset_ext_allowed(rel_path: &str) -> bool {
         .map(|ext| {
             matches!(
                 ext.to_ascii_lowercase().as_str(),
-                "html" | "htm" | "css" | "txt" | "json" | "svg" | "png"
+                "html" | "htm" | "css" | "txt" | "json" | "svg" | "png" | "js"
             )
         })
         .unwrap_or(false)

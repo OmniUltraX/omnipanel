@@ -149,6 +149,15 @@ for (const dir of dirs) {
         else if (driver.startsWith("/") || driver.split(/[\\/]/).includes(".."))
           errors.push("entry.driver must be relative without '..'");
       }
+      const uiEntry = raw.entry.ui;
+      if (uiEntry != null) {
+        if (typeof uiEntry !== "string" || !uiEntry.trim()) errors.push("entry.ui required");
+        else {
+          if (!/\.js$/i.test(uiEntry)) errors.push("entry.ui must be .js");
+          if (uiEntry.startsWith("/") || uiEntry.split(/[\\/]/).includes(".."))
+            errors.push("entry.ui must be relative without '..'");
+        }
+      }
     }
   }
   if (raw.minHostApi != null && (!Number.isInteger(raw.minHostApi) || raw.minHostApi < 1)) {

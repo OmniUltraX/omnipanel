@@ -141,3 +141,42 @@
     background: var(--surface);
     border-color: color-mix(in srgb, var(--danger, #e03131) 32%, var(--border));
 }
+
+/*
+ * 选中悬浮按钮层：插件 opt-in 的选中动作（如翻译）浮现 1 字图标按钮。
+ * fixed 定位跟随鼠标，无 opt-in 贡献时不渲染，不干扰日常选中。
+ */
+.selection-float-layer {
+    position: fixed;
+    z-index: 90;
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.selection-float-btn {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--meta);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.selection-float-btn:not(:disabled):hover {
+    color: var(--accent);
+    background: var(--bg-deeper);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}

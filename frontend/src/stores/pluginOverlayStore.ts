@@ -7,6 +7,11 @@ export type PluginOverlayEntry = {
   body: string;
   /** L3：以沙箱 iframe 渲染的插件 HTML（优先于 body 文本） */
   sandboxHtml?: string;
+  /**
+   * 带参打开的初始文本（悬浮按钮点击时选区会被收起，不能依赖打开后再读选区）。
+   * 沙箱内经 `host.overlayInitial()` 一次性读取。
+   */
+  initialText?: string;
 };
 
 interface PluginOverlayState {

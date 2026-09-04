@@ -2,6 +2,7 @@ import { withOptionalBearerAuth, fetchWithNetworkHint } from "../fetchHeaders";
 import {
   firstModelSelectionId,
   resolveModelSelection,
+  resolveProviderApiKey,
   useAiModelsStore,
 } from "../../stores/aiModelsStore";
 import { resolveTerminalModelSelectionId } from "../terminalScenarioModels";
@@ -284,16 +285,27 @@ export async function requestAiCompletionOnce(
   const backend = resolveOneShotBackend();
   if (!backend) return { ok: false, reason: "no-provider" };
   if (backend.kind === "http") {
-    return requestViaHttp(
-      {
-        baseUrl: backend.httpProvider.baseUrl,
-        apiKey: backend.httpProvider.apiKey,
-        name: backend.backendId.includes("::")
-          ? backend.backendId.slice(backend.backendId.lastIndexOf("::") + 2)
-          : backend.httpProvider.providerId,
-      },
-      options,
-    );
+    // 内存明文写入 Vault 后会被清空：前端直连前先经 IPC 取回 key；
+    // 取不到则降级走 Rust 内后端（由 Rust 自行读 Vault），与对话抽屉同路。
+    // 否则前端带着空 key 直连必 401，这正是插件翻译"AI 请求失败"的根因。
+    const providers = useAiModelsStore.getState().providers;
+    const provider = providers.find((p) => p.id === backend.httpProvider.providerId);
+    const apiKey = provider
+      ? await resolveProviderApiKey(provider)
+      : backend.httpProvider.apiKey;
+    if (apiKey.trim()) {
+      return requestViaHttp(
+        {
+          baseUrl: backend.httpProvider.baseUrl,
+          apiKey: apiKey.trim(),
+          name: backend.backendId.includes("::")
+            ? backend.backendId.slice(backend.backendId.lastIndexOf("::") + 2)
+            : backend.httpProvider.providerId,
+        },
+        options,
+      );
+    }
+    return requestViaInternalBackend(backend, options);
   }
 
   return requestViaInternalBackend(backend, options);

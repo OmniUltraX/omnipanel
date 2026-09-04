@@ -15,6 +15,7 @@ import {
   KIND_FILTERS,
 } from "./pluginCenterTypes";
 import { PluginDetailPane } from "./PluginDetailPane";
+import { PluginInstallConfirmDialog } from "./PluginInstallConfirmDialog";
 import { PluginsMarketPane } from "./PluginsMarketPane";
 import { PluginsSidebar } from "./PluginsSidebar";
 import { usePluginCenter } from "./usePluginCenter";
@@ -213,6 +214,15 @@ export function PluginsPanel() {
             />
           </div>
         </div>
+      ) : null}
+      {center.pendingInstall ? (
+        <PluginInstallConfirmDialog
+          manifest={center.pendingInstall.manifest}
+          fileName={center.pendingInstall.fileName}
+          confirming={center.confirming}
+          onConfirm={() => void center.confirmPendingInstall()}
+          onCancel={() => center.cancelPendingInstall()}
+        />
       ) : null}
     </div>
   );

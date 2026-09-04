@@ -1,0 +1,22 @@
+{
+  "id": "omni.sample.translate-float",
+  "version": "0.2.0",
+  "displayName": "选中翻译（悬浮按钮 + AI）",
+  "kind": "addon",
+  "permissions": ["ui:selection", "ai:tools"],
+  "entry": { "ui": "ui/main.js" },
+  "minHostApi": 1,
+  "contributes": {
+    "overlays": [
+      { "id": "translator", "title": "选中翻译", "entry": "ui/index.html" }
+    ],
+    "ui": {
+      "home": {
+        "show": true,
+        "title": "选中翻译",
+        "icon": "icon.svg",
+        "open": { "kind": "overlay", "id": "translator" }
+      }
+    }
+  }
+}

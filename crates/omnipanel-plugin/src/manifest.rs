@@ -32,6 +32,9 @@ pub struct PluginEntryDecl {
     /// T1 sidecar 可执行文件相对路径（如 `bin/omnipanel-engine-clickhouse`）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driver: Option<String>,
+    /// 动态前端入口（如 `ui/main.js`）；位于安装目录内，仅第三方磁盘包使用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<String>,
 }
 
 /// 引擎驱动运行时。缺省 = 宿主进程内（T0）。
@@ -77,6 +80,23 @@ impl PluginEntryDecl {
         if !Self::relative_ok(path) {
             return Err(PluginError::InvalidManifest(format!(
                 "entry.driver 非法: {path}"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_ui(&self) -> Result<(), PluginError> {
+        let Some(path) = self.ui.as_deref().map(str::trim) else {
+            return Ok(());
+        };
+        if !Self::relative_ok(path)
+            || !{
+                let p = path.to_ascii_lowercase();
+                p.ends_with(".js")
+            }
+        {
+            return Err(PluginError::InvalidManifest(format!(
+                "entry.ui 非法: {path}"
             )));
         }
         Ok(())
@@ -158,6 +178,7 @@ impl PluginManifest {
         if let Some(entry) = &self.entry {
             entry.validate_logic()?;
             entry.validate_driver()?;
+            entry.validate_ui()?;
         }
         if self.runtime == Some(PluginRuntime::Sidecar) {
             let driver = self.driver_entry();
@@ -210,6 +231,15 @@ impl PluginManifest {
         self.entry
             .as_ref()
             .and_then(|e| e.driver.as_deref())
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+    }
+
+    /// 动态前端入口相对路径（未声明则 None）。
+    pub fn ui_entry(&self) -> Option<&str> {
+        self.entry
+            .as_ref()
+            .and_then(|e| e.ui.as_deref())
             .map(str::trim)
             .filter(|p| !p.is_empty())
     }

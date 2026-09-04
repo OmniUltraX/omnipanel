@@ -1,0 +1,28 @@
+{
+  "id": "omni.sample.jslogic",
+  "version": "0.1.0",
+  "displayName": "JS Logic 样板",
+  "kind": "addon",
+  "permissions": [],
+  "methods": [
+    { "name": "echo", "permissions": [] }
+  ],
+  "entry": {
+    "logic": "logic.js",
+    "ui": "ui/main.js"
+  },
+  "minHostApi": 1,
+  "contributes": {
+    "launcher": { "prefix": "jsdemo" },
+    "ai": {
+      "tools": [
+        {
+          "name": "jsdemo_echo",
+          "description": "回显输入（L2-JS 透传验证）",
+          "execKind": "native",
+          "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } } }
+        }
+      ]
+    }
+  }
+}

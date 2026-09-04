@@ -14,7 +14,12 @@ export type MenuContribution = {
   id: string;
   label: string;
   when?: MenuWhen;
-  onClick: (ctx: { selectionText: string }) => void;
+  /**
+   * 悬浮按钮 opt-in：非空时，该动作同时出现在选中悬浮按钮上。
+   * `icon` 为 1 字图标（如 "译"），缺省取 label 首字。
+   */
+  float?: { icon?: string };
+  onClick: (ctx: { selectionText: string }) => void | Promise<void>;
 };
 
 const contributions: MenuContribution[] = [];
@@ -32,6 +37,15 @@ export function unregisterMenuContributions(pluginId: string): void {
   }
 }
 
+/** 第三方 host.ui.menu.unregister：按 pluginId + id 精确卸除，避免跨插件 id 碰撞。 */
+export function unregisterMenuContributionById(pluginId: string, id: string): void {
+  for (let i = contributions.length - 1; i >= 0; i -= 1) {
+    if (contributions[i].pluginId === pluginId && contributions[i].id === id) {
+      contributions.splice(i, 1);
+    }
+  }
+}
+
 export function visibleMenuContributions(): MenuContribution[] {
   const selection = getHostSelection();
   const hasSelection = Boolean(selection?.text);
@@ -39,6 +53,21 @@ export function visibleMenuContributions(): MenuContribution[] {
     if (item.when?.hasSelection && !hasSelection) return false;
     return true;
   });
+}
+
+export type FloatContribution = MenuContribution & { selectionText: string };
+
+/**
+ * 选中悬浮按钮候选：仅 opt-in（`float` 非空）且有非空选区的动作。
+ * 内核分享项（无 float 声明）不会出现，避免打扰日常选中。
+ */
+export function visibleFloatContributions(): FloatContribution[] {
+  const selection = getHostSelection();
+  const text = selection?.text ?? "";
+  if (!text) return [];
+  return contributions
+    .filter((item) => item.float && (!item.when?.hasSelection || Boolean(text)))
+    .map((item) => ({ ...item, selectionText: text }));
 }
 
 /**

@@ -137,16 +137,43 @@ fn parse_manifest<R: Read + std::io::Seek>(
 
 /// release 验签路径：签名必须存在且在官方公钥列表内验证通过。
 pub fn verify_file(path: &Path) -> Result<PluginManifest, PkgError> {
+    verify_file_with_keys(path, &official_verifying_keys())
+}
+
+/// 多公钥验签：任一通过即放行；正式 key 可经环境注入追加（`OMNIPANEL_PLUGIN_PUBKEYS` 逗号分隔 hex）。
+/// 解析逻辑见 `extra_verifying_keys_from_env`，与内置官方 key 取并集。
+pub fn verify_file_with_keys(
+    path: &Path,
+    keys: &[VerifyingKey],
+) -> Result<PluginManifest, PkgError> {
     let file = File::open(path)?;
     let mut archive = ZipArchive::new(BufReader::new(file))?;
     let signature = read_signature(&mut archive)?.ok_or(PkgError::UnsignedRejected)?;
     let message = canonical_bytes(&mut archive)?;
-    for key in official_verifying_keys() {
+    for key in keys
+        .iter()
+        .chain(extra_verifying_keys_from_env().iter())
+    {
         if key.verify_strict(&message, &signature).is_ok() {
             return parse_manifest(&mut archive);
         }
     }
     Err(PkgError::BadSignature)
+}
+
+fn extra_verifying_keys_from_env() -> Vec<VerifyingKey> {
+    let raw = std::env::var("OMNIPANEL_PLUGIN_PUBKEYS").unwrap_or_default();
+    raw.split([',', ';', ' ', '\n'])
+        .filter_map(|hex_str| {
+            let hex_str = hex_str.trim();
+            if hex_str.is_empty() {
+                return None;
+            }
+            let bytes_raw = hex::decode(hex_str).ok()?;
+            let bytes: [u8; 32] = bytes_raw.try_into().ok()?;
+            VerifyingKey::from_bytes(&bytes).ok()
+        })
+        .collect()
 }
 
 /// dev 路径（仅 `debug_assertions` 生效）：允许无签名包；
@@ -160,7 +187,10 @@ pub fn verify_file_dev(path: &Path) -> Result<PluginManifest, PkgError> {
     match read_signature(&mut archive)? {
         Some(signature) => {
             let message = canonical_bytes(&mut archive)?;
-            for key in official_verifying_keys() {
+            for key in official_verifying_keys()
+                .into_iter()
+                .chain(extra_verifying_keys_from_env())
+            {
                 if key.verify_strict(&message, &signature).is_ok() {
                     return parse_manifest(&mut archive);
                 }

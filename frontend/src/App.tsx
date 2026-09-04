@@ -22,6 +22,7 @@ import { ImporterWizardDialog } from "./modules/importer/ImporterWizardDialog";
 import { TeamShareDialogConnected } from "./components/share/TeamShareDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
 import { PluginOverlayHost } from "./components/ui/overlay/PluginOverlayHost";
+import { SelectionFloatLayer } from "./components/plugin/SelectionFloatLayer";
 import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";
@@ -736,6 +737,7 @@ function AppShell() {
       {/* 全局应用内 confirm/alert；禁止改回 Tauri 原生 dialog */}
       <AppDialogHost />
       <PluginOverlayHost />
+      <SelectionFloatLayer />
       <CloseBehaviorDialogHost />
       <ToastHost />
       <SkillEvolutionPrompt />

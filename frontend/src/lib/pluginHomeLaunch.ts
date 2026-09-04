@@ -26,7 +26,11 @@ export function resolveHomeTitle(home: PluginHomeContribution): string {
   return translated === home.title && home.title.includes(".") ? home.title : translated;
 }
 
-export async function openPluginOverlay(pluginId: string, overlayId?: string): Promise<void> {
+export async function openPluginOverlay(
+  pluginId: string,
+  overlayId?: string,
+  initialText?: string,
+): Promise<void> {
   const manifest = getPluginManifest(pluginId);
   const overlays = (manifest?.contributes.overlays ?? []) as OverlayDecl[];
   const overlay =
@@ -40,6 +44,7 @@ export async function openPluginOverlay(pluginId: string, overlayId?: string): P
     title: titleKey ? t(titleKey) : pluginId,
     body: "",
     sandboxHtml: html,
+    initialText,
   });
 }
 

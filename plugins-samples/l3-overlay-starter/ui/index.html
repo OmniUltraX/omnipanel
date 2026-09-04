@@ -1,0 +1,32 @@
+<div>
+  <div class="omni-toolbar">
+    <button id="go" class="omni">翻译选区</button>
+    <span id="status" class="omni-status"></span>
+  </div>
+  <div class="omni-muted" style="margin-bottom:4px">原文</div>
+  <div id="src" class="omni-card" style="white-space:pre-wrap;min-height:40px">选区加载中…</div>
+  <div class="omni-muted" style="margin:10px 0 4px">结果</div>
+  <div id="dst" class="omni-card" style="white-space:pre-wrap;min-height:40px">…</div>
+  <script>
+    (async function () {
+      try {
+        var sel = await window.host.selectionGet();
+        document.getElementById("src").textContent = (sel && sel.text) || "(无选区)";
+      } catch (e) {
+        document.getElementById("src").textContent = "选区读取失败: " + e;
+      }
+      document.getElementById("go").onclick = async function () {
+        var src = document.getElementById("src").textContent || "";
+        document.getElementById("status").textContent = "执行中…";
+        try {
+          var r = await window.host.invoke("translate", { text: src });
+          document.getElementById("dst").textContent = JSON.stringify(r);
+          document.getElementById("status").textContent = "";
+        } catch (e) {
+          document.getElementById("dst").textContent = "调用失败: " + e;
+          document.getElementById("status").textContent = "失败";
+        }
+      };
+    })();
+  </script>
+</div>

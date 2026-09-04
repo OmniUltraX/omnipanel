@@ -1736,6 +1736,11 @@ export const enUS: TranslationDict = {
       title: "Install local plugin",
       hint: "Pick a .omni-plugin package. Release builds accept officially signed packages only; dev builds allow unsigned ones.",
       action: "Choose package file…",
+      confirmTitle: "Confirm plugin install",
+      confirm: "Confirm install",
+      methods: "Declared methods",
+      noPermissions: "No special permissions",
+      confirmHint: "Review permissions and methods before installing. You can toggle it anytime in the plugin center.",
     },
     catalog: {
       title: "Install database engines from DBX",

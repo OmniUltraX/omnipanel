@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { PluginHost } from "@omnipanel/plugin-sdk";
 import {
   ensurePluginContributionsLoaded,
+  evaluateDynamicPluginModule,
   resetPluginLifecycleForTests,
+  setPluginAssetReader,
   syncPluginLifecycles,
 } from "./pluginRuntimeLoader";
 import { findPanelProbeMapper } from "./panelProbeRegistry";
 import { findPanelDriver } from "./panelDriverRegistry";
+import { setInstalledPluginManifests } from "./pluginManifests";
 
 const stubHost = {} as PluginHost;
 const stubFactory = vi.fn(async () => stubHost);
@@ -55,5 +58,74 @@ describe("pluginRuntimeLoader 差量生命周期", () => {
     expect(findPanelProbeMapper("unknown-panel")).toBeNull();
 
     resetPluginLifecycleForTests();
+  });
+
+  it("第三方动态 ui/main.js 可激活，非法入口降级为 L1", async () => {
+    resetPluginLifecycleForTests();
+    ensurePluginContributionsLoaded();
+    setInstalledPluginManifests([
+      {
+        id: "omni.test.dynamic",
+        version: "0.1.0",
+        kind: "addon",
+        permissions: [],
+        methods: [],
+        entry: { ui: "ui/main.js" },
+        contributes: {},
+      } as never,
+      {
+        id: "omni.test.bad",
+        version: "0.1.0",
+        kind: "addon",
+        permissions: [],
+        methods: [],
+        entry: { ui: "ui/main.js" },
+        contributes: {},
+      } as never,
+    ]);
+    const activated: string[] = [];
+    const deactivated: string[] = [];
+    setPluginAssetReader(async (pluginId) => {
+      if (pluginId === "omni.test.dynamic") {
+        return `module.exports = definePlugin({ activate: async () => { globalThis.__dynActivated = "yes"; }, deactivate: () => {} });`;
+      }
+      return `this is not js {{{`;
+    });
+    const dynamicFactory = vi.fn(async (id: string) => {
+      if (id === "omni.test.dynamic") {
+        return {
+          selection: { get: () => null },
+          connections: { upsert: async () => {} },
+          invoke: async () => {
+            activated.push(id);
+            return null;
+          },
+          ui: { overlay: { show: () => {}, hide: () => {} } },
+        } as unknown as PluginHost;
+      }
+      return stubHost;
+    });
+    // 求值单元：合法与非法
+    expect(
+      evaluateDynamicPluginModule(`module.exports = definePlugin({ activate: () => {} });`, {
+        host: stubHost,
+        manifest: {},
+      })?.activate,
+    ).toEqual(expect.any(Function));
+    expect(
+      evaluateDynamicPluginModule(`this is not js {{{`, { host: stubHost, manifest: {} }),
+    ).toBeNull();
+
+    await syncPluginLifecycles(
+      [lifecycle("omni.test.dynamic", true, true), lifecycle("omni.test.bad", true, true)],
+      dynamicFactory,
+    );
+    expect((globalThis as Record<string, unknown>).__dynActivated).toBe("yes");
+
+    await syncPluginLifecycles([], dynamicFactory);
+    expect(deactivated).toEqual([]);
+    setInstalledPluginManifests([]);
+    resetPluginLifecycleForTests();
+    delete (globalThis as Record<string, unknown>).__dynActivated;
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { parsePluginManifest, type PluginManifest } from "@omnipanel/plugin-sdk";
 import { commands, type OfficialCatalogPlugin, type PluginListItem } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { PLUGIN_OFFICIAL_CATALOG_UPDATED } from "../../ipc/events";
@@ -29,6 +30,12 @@ export function usePluginCenter() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [pendingInstall, setPendingInstall] = useState<{
+    path: string;
+    fileName: string;
+    manifest: PluginManifest;
+  } | null>(null);
   const [installingMarketId, setInstallingMarketId] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("all");
@@ -221,14 +228,36 @@ export function usePluginCenter() {
         filters: [{ name: "OmniPanel Plugin", extensions: ["omni-plugin", "zip"] }],
       });
       if (!picked || Array.isArray(picked)) return;
-      await unwrapCommand(commands.pluginInstallFromFile(picked));
+      // 先预读清单做权限确认，不直接安装
+      const manifestJson = await unwrapCommand(commands.pluginPeekManifest(picked));
+      const manifest = parsePluginManifest(JSON.parse(manifestJson));
+      const fileName = picked.split(/[\\/]/).pop() || picked;
+      setPendingInstall({ path: picked, fileName, manifest });
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const cancelPendingInstall = useCallback(() => {
+    if (!confirming) setPendingInstall(null);
+  }, [confirming]);
+
+  const confirmPendingInstall = async () => {
+    if (!pendingInstall || confirming) return;
+    setConfirming(true);
+    try {
+      await unwrapCommand(commands.pluginInstallFromFile(pendingInstall.path));
+      setPendingInstall(null);
       await reloadInstalled();
       await reloadMarket();
       setError(null);
     } catch (err) {
       setError(String(err));
     } finally {
-      setInstalling(false);
+      setConfirming(false);
     }
   };
 
@@ -268,6 +297,10 @@ export function usePluginCenter() {
     error,
     busyId,
     installing,
+    confirming,
+    pendingInstall,
+    cancelPendingInstall,
+    confirmPendingInstall,
     installingMarketId,
     kindFilter,
     setKindFilter,

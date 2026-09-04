@@ -1,0 +1,15 @@
+{
+  "id": "omni.sample.wasm",
+  "version": "0.1.0",
+  "displayName": "WASM 回显样板",
+  "kind": "addon",
+  "permissions": [],
+  "methods": [
+    { "name": "echo", "permissions": [] }
+  ],
+  "entry": { "logic": "logic.wasm" },
+  "minHostApi": 1,
+  "contributes": {
+    "launcher": { "prefix": "wasmdemo" }
+  }
+}

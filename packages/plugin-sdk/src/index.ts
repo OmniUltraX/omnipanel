@@ -67,6 +67,12 @@ export const pluginEntrySchema = z
       .min(1)
       .refine((p) => !p.startsWith("/") && !p.startsWith("\\") && !p.split(/[\\/]/).includes(".."))
       .optional(),
+    /** L3/动态前端入口：磁盘包内前端 main 相对路径（仅 .js，禁 ..）。 */
+    ui: z
+      .string()
+      .regex(/^[^/\\][^:]*\.js$/i)
+      .refine((p) => !p.split(/[\\/]/).includes(".."))
+      .optional(),
   })
   .optional();
 
@@ -354,6 +360,7 @@ export const pluginManifestSchema = z.object({
           connectionForm: z.unknown().optional(),
           panelTabs: z.array(panelTabDeclSchema).optional(),
           commands: z.array(z.unknown()).optional(),
+          // 注意：后端 Rust reserialize 会把缺省输出为显式 null，故用 nullish（不能只 optional）
           workbench: z
             .object({
               tree: z.enum(["schema", "graph", "keyspace", "kv", "collections", "documents", "none"]).optional(),
@@ -361,8 +368,8 @@ export const pluginManifestSchema = z.object({
               preview: z.enum(["grid", "key", "points", "document", "none"]).optional(),
               connectionInfo: z.enum(["sql", "redis", "none"]).optional(),
             })
-            .optional(),
-          home: pluginHomeContributionSchema.optional(),
+            .nullish(),
+          home: pluginHomeContributionSchema.nullish(),
         })
         .optional(),
       menus: z.array(z.unknown()).optional(),
@@ -379,8 +386,8 @@ export const pluginManifestSchema = z.object({
           /** 连接对话框地区预置；空则由宿主第一方列表或用户自填。 */
           regions: z.array(cloudRegionDeclSchema).default([]),
         })
-        .optional(),
-      module: moduleContributesSchema.optional(),
+        .nullish(),
+      module: moduleContributesSchema.nullish(),
     })
     .default({}),
 })
@@ -423,10 +430,42 @@ export type PluginHost = {
     upsert: (candidate: ImportCandidate) => Promise<void>;
   };
   invoke: (method: string, args?: unknown) => Promise<unknown>;
+  /** 宿主 AI 单次补全：用用户已配模型跑纯文本补全，需 `ai:tools` 权限。 */
+  ai: {
+    complete: (spec: {
+      /** system prompt（调用方控制，如翻译指令） */
+      system: string;
+      /** 用户输入（待翻译文本等） */
+      prompt: string;
+      temperature?: number;
+      maxTokens?: number;
+    }) => Promise<{ content: string }>;
+  };
   ui: {
     overlay: {
       show: (opts: { id: string; title: string; body: string }) => void;
       hide: (id: string) => void;
+      /**
+       * 打开本插件声明的 L3 overlay（`contributes.overlays[].entry` 经沙箱渲染）。
+       * `text` 为带参打开：overlay 内经 `host.overlayInitial()` 一次性读取
+       * （点击悬浮按钮时选区会被收起，不能依赖打开后再读选区）。
+       */
+      open: (overlayId?: string, opts?: { text?: string }) => Promise<void>;
+    };
+    menu: {
+      /**
+       * 登记选中动作：`when.hasSelection` 为 true 时仅有选区才可见；
+       * `float.icon` 非空时同时出现在选中悬浮按钮上（1 字图标，如 "译"）。
+       * deactivate 时 MUST 成对调用 unregister。
+       */
+      register: (item: {
+        id: string;
+        label: string;
+        when?: { hasSelection?: boolean };
+        float?: { icon?: string };
+        onClick: (ctx: { selectionText: string }) => void | Promise<void>;
+      }) => void;
+      unregister: (id: string) => void;
     };
   };
 };

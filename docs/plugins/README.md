@@ -22,6 +22,8 @@ node scripts/create-plugin.mjs <name> panel           # 服务器面板
 node scripts/create-plugin.mjs <name> importer        # 导入向导
 node scripts/create-plugin.mjs <name> addon           # 启动条 / Overlay
 node scripts/create-plugin.mjs <name> theme           # 主题
+node scripts/create-plugin.mjs <name> js-logic        # L2-JS + 动态前端（第三方最小闭环）
+node scripts/create-plugin.mjs <name> l3-overlay      # L3 沙箱 Overlay（选区→Overlay→net）
 cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omni-plugin
 ```
 
@@ -44,6 +46,7 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omn
 顶层必填：`id`（反向域名，如 `omni.module.consul`）、`version`、`kind`。建议写 `displayName`。
 
 L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未声明的 method 一律 `UnknownMethod`。
+第三方动态前端声明 `entry.ui`（如 `ui/main.js`，CommonJS，`module.exports = definePlugin({activate,deactivate})`），经 `plugin_read_asset` 沙箱求值后与第一方同一条差量生命周期执行。
 
 ---
 

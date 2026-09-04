@@ -12,6 +12,10 @@ import {
 } from "../stores/sshSidebarTreeStore";
 import { usePluginOverlayStore } from "../stores/pluginOverlayStore";
 import { candidateDedupeKey } from "./importCandidates";
+import {
+  registerMenuContribution,
+  unregisterMenuContributionById,
+} from "./menuContributions";
 import { panelCandidateMatches } from "../modules/server/panel/panelPlugin";
 import { ensureEngineForDbType } from "../modules/database/ensureCatalogEngines";
 
@@ -364,11 +368,47 @@ export function createPluginHost(pluginId: string): PluginHost {
     },
     invoke: async (method, args) =>
       unwrapCommand(commands.pluginInvoke(pluginId, method, (args ?? null) as never)),
+    ai: {
+      complete: async (spec) => {
+        await requirePluginPermission(pluginId, "ai:tools");
+        const system = typeof spec.system === "string" ? spec.system : "";
+        const prompt = typeof spec.prompt === "string" ? spec.prompt : "";
+        if (!prompt.trim()) throw new Error("ai.complete 需要非空 prompt");
+        const { requestAiCompletionOnce } = await import("./ai/requestAiCompletionOnce");
+        const result = await requestAiCompletionOnce({
+          system,
+          user: prompt,
+          temperature: spec.temperature,
+          maxTokens: spec.maxTokens,
+        });
+        if (!result.ok) {
+          if (result.reason === "no-provider") {
+            throw new Error("未配置 AI 模型，请先在设置里配置模型后再用插件 AI 能力");
+          }
+          throw new Error(
+            result.reason === "empty-response" ? "AI 返回为空，请重试" : "AI 请求失败，请重试",
+          );
+        }
+        return { content: result.content };
+      },
+    },
     ui: {
       overlay: {
         show: ({ id, title, body }) =>
           usePluginOverlayStore.getState().show({ id, pluginId, title, body }),
         hide: (id) => usePluginOverlayStore.getState().hide(id),
+        open: async (overlayId, opts) => {
+          const { openPluginOverlay } = await import("./pluginHomeLaunch");
+          await openPluginOverlay(pluginId, overlayId, opts?.text);
+        },
+      },
+      menu: {
+        register: (item) => {
+          registerMenuContribution({ ...item, pluginId });
+        },
+        unregister: (id) => {
+          unregisterMenuContributionById(pluginId, id);
+        },
       },
     },
   };

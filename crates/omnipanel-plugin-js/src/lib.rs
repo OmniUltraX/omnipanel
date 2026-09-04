@@ -30,6 +30,9 @@ pub struct JsExecutor {
     call_timeout: Duration,
 }
 
+/// 磁盘逻辑包上限（2MB）：超出即拒绝实例化，防止大脚本拖慢宿主。
+pub const MAX_JS_BYTES: usize = 2 * 1024 * 1024;
+
 impl Default for JsExecutor {
     fn default() -> Self {
         Self {
@@ -60,6 +63,12 @@ impl PluginLogicExecutor for JsExecutor {
     ) -> Result<Box<dyn PluginLogicInstance>, PluginError> {
         match package {
             LogicPackage::Js(code) => {
+                if code.len() > MAX_JS_BYTES {
+                    return Err(PluginError::Invoke(format!(
+                        "JS 逻辑包超过 2MB 上限（{} bytes）",
+                        code.len()
+                    )));
+                }
                 let inner = JsInstanceInner::new(plugin_id, bridge, code, self.call_timeout)
                     .map_err(|e| PluginError::Invoke(format!("JS 实例化失败: {e}")))?;
                 Ok(Box::new(JsInstance {

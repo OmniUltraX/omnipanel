@@ -187,7 +187,11 @@ function kindErrors(raw, dir) {
     if (!isSafeRel(logic) || !/\.(js|wasm)$/i.test(logic)) {
       errors.push("entry.logic 必须是相对路径的 .js / .wasm");
     } else if (!existsSync(path.join(dir, logic))) {
-      errors.push(`缺少入口文件 ${logic}`);
+      // wasm 允许只提交 logic.wat 源码（构建出 logic.wasm 后再 pack）
+      const watFallback =
+        /\.wasm$/i.test(logic) &&
+        existsSync(path.join(dir, logic.replace(/\.wasm$/i, ".wat")));
+      if (!watFallback) errors.push(`缺少入口文件 ${logic}`);
     }
   }
   if (driver) {
@@ -195,6 +199,14 @@ function kindErrors(raw, dir) {
       errors.push("entry.driver 必须是相对路径且不含 ..");
     } else if (!existsSync(path.join(dir, driver))) {
       errors.push(`缺少入口文件 ${driver}`);
+    }
+  }
+  const uiEntry = raw.entry?.ui;
+  if (uiEntry) {
+    if (!isSafeRel(uiEntry) || !/\.js$/i.test(uiEntry)) {
+      errors.push("entry.ui 必须是相对路径的 .js");
+    } else if (!existsSync(path.join(dir, uiEntry))) {
+      errors.push(`缺少入口文件 ${uiEntry}`);
     }
   }
   for (const overlay of raw.contributes?.overlays ?? []) {

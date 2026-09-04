@@ -160,19 +160,42 @@ fn run_call(
     let call = instance
         .get_typed_func::<(i32, i32, i32, i32), i64>(&mut store, "call")
         .map_err(|_| PluginError::Invoke("逻辑包缺少导出 call".into()))?;
+    let memory = instance
+        .get_memory(&mut store, "memory")
+        .ok_or_else(|| PluginError::Invoke("逻辑包缺少导出 memory".into()))?;
+    let alloc = instance
+        .get_typed_func::<i32, i32>(&mut store, "omni_alloc")
+        .map_err(|_| {
+            PluginError::Invoke(
+                "逻辑包缺少导出 omni_alloc，无法透传参数（需实现 omni_alloc(size)->ptr）".into(),
+            )
+        })?;
 
-    let _ = (method, args_json);
+    // 真透传：method + args_json 经 omni_alloc 写入客体内存后再 call。
+    let write_str = |store: &mut Store<BridgeCtx<'_>>, s: &str| -> Result<(i32, i32), PluginError> {
+        if s.is_empty() {
+            return Ok((0, 0));
+        }
+        let bytes = s.as_bytes();
+        let ptr = alloc
+            .call(&mut *store, bytes.len() as i32)
+            .map_err(|e| PluginError::Invoke(format!("omni_alloc 失败: {e}")))?;
+        memory
+            .write(&mut *store, ptr.max(0) as usize, bytes)
+            .map_err(|e| PluginError::Invoke(format!("内存写入失败: {e}")))?;
+        Ok((ptr, bytes.len() as i32))
+    };
+    let (m_ptr, m_len) = write_str(&mut store, method)?;
+    let (a_ptr, a_len) = write_str(&mut store, args_json)?;
+
     let packed = call
-        .call(&mut store, (0, 0, 0, 0))
+        .call(&mut store, (m_ptr, m_len, a_ptr, a_len))
         .map_err(|e| PluginError::Invoke(format!("call 失败: {e}")))?;
 
     let len_field = ((packed as u64) >> 32) as u32;
     let error = len_field & (LEN_ERROR_BIT >> 32) as u32 != 0;
     let len = (len_field & !(LEN_ERROR_BIT >> 32) as u32) as usize;
     let ptr = (packed & 0xffff_ffff) as usize;
-    let memory = instance
-        .get_memory(&mut store, "memory")
-        .ok_or_else(|| PluginError::Invoke("逻辑包缺少导出 memory".into()))?;
     let mut buf = vec![0u8; len];
     memory
         .read(&store, ptr, &mut buf)

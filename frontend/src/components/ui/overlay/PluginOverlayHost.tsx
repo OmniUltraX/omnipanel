@@ -32,6 +32,11 @@ export function PluginOverlayHost() {
   );
 
   if (!top) return null;
+  const theme =
+    typeof document !== "undefined" &&
+    document.documentElement.getAttribute("data-theme") === "light"
+      ? "light"
+      : "dark";
   return (
     <FormDialog
       open
@@ -39,12 +44,22 @@ export function PluginOverlayHost() {
       onClose={() => hide(top.id)}
       primaryAction={{ label: t("common.close"), onClick: () => hide(top.id) }}
     >
-      <div style={{ minHeight: 320, minWidth: 480 }}>
+      <div
+        style={{
+          // 定高（非 minHeight）：iframe 的 height:100% 相对 auto 高父容器会塌陷成
+          // 默认 150px，导致内容在小框里滚、下面留大片空白。定高后 iframe 沾满，
+          // 无多余滚动条；宽度用 100% 而非 minWidth，避免顶满撑出横向滚动条。
+          height: 430,
+          width: "100%",
+          overflow: "hidden",
+        }}
+      >
         {top.sandboxHtml ? (
           <PluginSandboxFrame
             pluginId={top.pluginId}
             title={top.title}
             html={top.sandboxHtml}
+            theme={theme}
             onInvoke={handleInvoke}
             onHide={() => hide(top.id)}
           />

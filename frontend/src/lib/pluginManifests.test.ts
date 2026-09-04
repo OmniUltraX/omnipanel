@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parsePluginManifest } from "@omnipanel/plugin-sdk";
 import {
   FIRST_PARTY_PLUGIN_MANIFESTS,
   getPluginManifest,
@@ -231,5 +232,38 @@ describe("pluginManifests 单源目录", () => {
     expect(resolveLegacyPluginId("qcloud")).toBe("omni.cloud.tencent");
     expect(resolveLegacyPluginId("unknown-provider")).toBeNull();
     expect(resolveLegacyPluginId("")).toBeNull();
+  });
+
+  it("后端 reserialize 的显式 null 缺省可解析（translate-float 安装回归）", () => {
+    // plugin_peek_manifest 返回 Rust reserialize 的 JSON：缺省曾是显式 null，
+    // zod 必须容忍（nullish），否则第三方包在权限确认前就被卡死。
+    const manifest = parsePluginManifest({
+      id: "omni.sample.translate-float",
+      version: "0.1.0",
+      kind: "addon",
+      permissions: ["ui:selection", "ai:tools"],
+      entry: { ui: "ui/main.js" },
+      minHostApi: 1,
+      contributes: {
+        ui: {
+          sidebar: false,
+          moduleKey: "",
+          connectionForm: null,
+          panelTabs: [],
+          commands: [],
+          workbench: null,
+          home: null,
+        },
+        menus: [],
+        overlays: [{ id: "translator", title: "选中翻译", entry: "ui/index.html" }],
+        discovery: [],
+        importers: [],
+        cloud: null,
+        module: null,
+      },
+    });
+    expect(manifest.id).toBe("omni.sample.translate-float");
+    expect(manifest.contributes.ui?.workbench).toBeNull();
+    expect(manifest.entry?.ui).toBe("ui/main.js");
   });
 });

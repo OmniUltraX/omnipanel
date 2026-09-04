@@ -127,14 +127,15 @@ pub struct UiContributes {
     /// `kind: module` 的 AppModule key；空则不补种侧栏模块。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub module_key: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection_form: Option<Value>,
     #[serde(default)]
     pub panel_tabs: Vec<Value>,
     #[serde(default)]
     pub commands: Vec<Value>,
     /// Database Host L2 工作台插槽（tree / editor / preview）。
-    #[serde(default)]
+    /// 缺省必须省略（None → 跳过），否则 reserialize 出显式 null 会把前端 zod 卡死。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workbench: Option<Value>,
     /// 首页启动条资格：声明后由用户决定钉不钉。
     #[serde(default, skip_serializing_if = "Option::is_none")]

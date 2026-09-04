@@ -1,0 +1,131 @@
+<div>
+  <div class="omni-toolbar">
+    <select id="source" class="omni" aria-label="源语言"></select>
+    <span class="omni-muted">→</span>
+    <select id="target" class="omni" aria-label="目标语言"></select>
+    <button id="go" class="omni">翻译</button>
+    <span id="status" class="omni-status"></span>
+  </div>
+  <div class="omni-muted" style="margin-bottom:4px">原文（可直接改）</div>
+  <textarea id="src" class="omni" rows="4" style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+  <div class="omni-muted" style="margin:10px 0 4px">译文</div>
+  <div id="dst" class="omni-card" style="white-space:pre-wrap;min-height:60px;max-height:220px;overflow:auto">…</div>
+  <script>
+    // 翻译 prompt（第三方自控）：{{source}} 源语言，{{target}} 目标语言。只输出译文，不要解释。
+    var TRANSLATE_PROMPT =
+      "你是专业翻译助手。把用户给出的{{source}}文本翻译成{{target}}。" +
+      "要求：只输出译文正文，不要任何解释、前言或注音；" +
+      "保留原文的换行与代码块格式；专有名词保持原文。";
+
+    // demo 级语种识别：中文 / 日文 / 韩文 / 拉丁（默认按英文处理）。
+    // 真实产品可换模型识别或语言检测 API，这里保持零依赖。
+    var LANGS = ["简体中文", "English", "日本語", "한국어", "Français"];
+    function detectLang(text) {
+      if (/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(text)) return "简体中文";
+      if (/[\u3040-\u30ff]/.test(text)) return "日本語";
+      if (/[\uac00-\ud7af]/.test(text)) return "한국어";
+      if (/[àâäéèêëîïôöùûüçæœ]/i.test(text)) return "Français";
+      return "English";
+    }
+    function defaultTarget(source) {
+      return source === "简体中文" ? "English" : "简体中文";
+    }
+
+    function fillSelect(el, langs) {      el.innerHTML = "";
+      langs.forEach(function (name) {
+        var opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        el.appendChild(opt);
+      });
+    }
+
+    function setStatus(msg) {
+      document.getElementById("status").textContent = msg || "";
+    }
+
+    function currentSrc() {
+      return document.getElementById("src").value || "";
+    }
+
+    async function translate() {
+      var text = currentSrc();
+      if (!text.trim()) {
+        document.getElementById("dst").textContent = "（无文本）";
+        return;
+      }
+      document.getElementById("dst").textContent = "";
+      setStatus("翻译中…");
+      document.getElementById("go").disabled = true;
+      var sourceSel = document.getElementById("source");
+      var source = sourceSel.value;
+      // "自动识别"留在 prompt 里无意义：落到实际语种
+      if (source === "自动识别") source = text.trim() ? detectLang(text) : "自动";
+      var target = document.getElementById("target").value;
+      var system = TRANSLATE_PROMPT.split("{{source}}").join(source)
+        .split("{{target}}").join(target);
+      try {
+        // 宿主 AI 单次补全：用用户已配模型，需插件声明 ai:tools 权限
+        var ret = await window.host.aiComplete({ system: system, prompt: text });
+        var content = ret && ret.content ? String(ret.content) : "";
+        document.getElementById("dst").textContent = content || "（AI 返回为空，请重试）";
+        setStatus(content ? "" : "空响应");
+      } catch (e) {
+        document.getElementById("dst").textContent =
+          "翻译失败：" + (e && e.message ? e.message : e);
+        setStatus("失败");
+      } finally {
+        document.getElementById("go").disabled = false;
+      }
+    }
+
+    (async function init() {
+      var sourceSel = document.getElementById("source");
+      var targetSel = document.getElementById("target");
+      fillSelect(sourceSel, ["自动识别"].concat(LANGS));
+      fillSelect(targetSel, LANGS);
+      var initial = "";
+      try {
+        // 带参打开优先（悬浮按钮/首页传入）；否则回退读当前选区
+        var passed = await window.host.overlayInitial();
+        var sel = null;
+        try {
+          sel = await window.host.selectionGet();
+        } catch (e) {
+          void e;
+        }
+        initial = (passed || (sel && sel.text) || "").toString();
+      } catch (e) {
+        initial = "";
+      }
+      document.getElementById("src").value = initial;
+      if (initial.trim()) {
+        // 自动填充：识别源语言，目标按"非中→中、中→英"默认
+        var detected = detectLang(initial);
+        sourceSel.value = detected;
+        targetSel.value = defaultTarget(detected);
+        await translate();
+      } else {
+        sourceSel.value = "自动识别";
+        targetSel.value = "简体中文";
+        document.getElementById("dst").textContent = "（等待输入：在上面粘贴或修改原文后点翻译）";
+      }
+    })();
+
+    document.getElementById("go").onclick = translate;
+    document.getElementById("source").onchange = function () {
+      // 切源语言后目标自动跟随（除非用户刚手动定过目标——换源视为新一轮，重置）
+      var source = document.getElementById("source").value;
+      var text = currentSrc();
+      if (source === "自动识别") {
+        if (text.trim()) source = detectLang(text);
+        else return;
+      }
+      document.getElementById("target").value = defaultTarget(source);
+      if (text.trim()) translate();
+    };
+    document.getElementById("target").onchange = function () {
+      if (currentSrc().trim()) translate();
+    };
+  </script>
+</div>

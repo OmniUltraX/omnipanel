@@ -33,6 +33,9 @@ const KINDS = [
   "panel",
   "importer",
   "addon",
+  "js-logic",
+  "l3-overlay",
+  "wasm-stub",
 ];
 
 if (!name || !/^[a-z][a-z0-9-]*$/.test(name)) {
@@ -53,9 +56,45 @@ if (existsSync(dir)) {
 mkdirSync(dir, { recursive: true });
 
 const engineSidecar = kind === "engine-sidecar";
-const id = engineSidecar ? `omni.engine.${name}` : `omni.${kind}.${name}`;
+const id = engineSidecar ? `omni.engine.${name}` : kind === "js-logic" || kind === "l3-overlay" || kind === "wasm-stub" ? `omni.sample.${name}` : `omni.${kind}.${name}`;
 let manifest;
-if (engineSidecar) {
+if (kind === "wasm-stub") {
+  manifest = {
+    id,
+    version: "0.1.0",
+    displayName: name,
+    kind: "addon",
+    permissions: [],
+    methods: [{ name: "echo", permissions: [] }],
+    entry: { logic: "logic.wasm" },
+    minHostApi: 1,
+    contributes: { launcher: { prefix: name } },
+  };
+} else if (kind === "js-logic") {
+  manifest = {
+    id,
+    version: "0.1.0",
+    displayName: name,
+    kind: "addon",
+    permissions: [],
+    methods: [{ name: "echo", permissions: [] }],
+    entry: { logic: "logic.js", ui: "ui/main.js" },
+    minHostApi: 1,
+    contributes: { launcher: { prefix: name } },
+  };
+} else if (kind === "l3-overlay") {
+  manifest = {
+    id,
+    version: "0.1.0",
+    displayName: name,
+    kind: "addon",
+    permissions: ["ui:selection", "net:connect"],
+    methods: [{ name: "translate", permissions: ["net:connect"] }],
+    entry: { logic: "logic.js", ui: "ui/main.js" },
+    minHostApi: 1,
+    contributes: { overlays: [{ id: "main", title: name, entry: "ui/index.html" }] },
+  };
+} else if (engineSidecar) {
   manifest = {
     id,
     version: "0.1.0",
@@ -317,6 +356,32 @@ if (engineSidecar) {
 }
 
 writeFileSync(path.join(dir, "plugin.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+if (kind === "wasm-stub") {
+  writeFileSync(
+    path.join(dir, "logic.wat"),
+    `;; WASM 逻辑包样板（ABI：memory + call(m_ptr,m_len,a_ptr,a_len)->i64 + omni_alloc）\n;; 构建：wat2wasm logic.wat -o logic.wasm\n(module\n  (import "omni" "ping" (func $ping (result i32)))\n  (memory (export "memory") 1)\n  (global $alloc_ptr (mut i32) (i32.const 1024))\n  (func $alloc (export "omni_alloc") (param $n i32) (result i32)\n    (local $p i32)\n    (local.set $p (global.get $alloc_ptr))\n    (global.set $alloc_ptr (i32.add (global.get $alloc_ptr) (local.get $n)))\n    (local.get $p))\n  (data (i32.const 0) "{\\"echo\\":true}")\n  (func (export "call") (param $m_ptr i32) (param $m_len i32) (param $a_ptr i32) (param $a_len i32) (result i64)\n    (drop (call $ping))\n    (i64.or\n      (i64.extend_i32_u (i32.const 0))\n      (i64.shl (i64.extend_i32_u (i32.const 13)) (i64.const 32))))\n)\n`,
+  );
+}
+
+if (kind === "js-logic" || kind === "l3-overlay") {
+  mkdirSync(path.join(dir, "ui"), { recursive: true });
+  const logicBody =
+    kind === "js-logic"
+      ? `function asObj(v) {\n  if (v && typeof v === "object") return v;\n  try { return JSON.parse(String(v || "{}")); } catch (e) { return {}; }\n}\nfunction echo(args) {\n  var a = asObj(args);\n  return { echo: a.text || a || "" };\n}\nvar HANDLERS = { echo: echo };\nfunction call(method, argsJson) {\n  var handler = HANDLERS[String(method || "")];\n  if (!handler) throw new Error("UnknownMethod: " + method);\n  var result = handler(asObj(argsJson));\n  return typeof result === "string" ? result : JSON.stringify(result);\n}\nglobalThis.call = call;\n`
+      : `function asObj(v) {\n  if (v && typeof v === "object") return v;\n  try { return JSON.parse(String(v || "{}")); } catch (e) { return {}; }\n}\nfunction translate(args) {\n  var a = asObj(args);\n  return { source: a.text || "", target: "[demo] " + (a.text || "") };\n}\nvar HANDLERS = { translate: translate };\nfunction call(method, argsJson) {\n  var handler = HANDLERS[String(method || "")];\n  if (!handler) throw new Error("UnknownMethod: " + method);\n  var result = handler(asObj(argsJson));\n  return typeof result === "string" ? result : JSON.stringify(result);\n}\nglobalThis.call = call;\n`;
+  writeFileSync(path.join(dir, "logic.js"), logicBody);
+  writeFileSync(
+    path.join(dir, "ui", "main.js"),
+    `// 第三方动态前端入口：module.exports = definePlugin({ activate, deactivate })\nmodule.exports = definePlugin({\n  activate: async () => {},\n  deactivate: () => {},\n});\n`,
+  );
+  if (kind === "l3-overlay") {
+    writeFileSync(
+      path.join(dir, "ui", "index.html"),
+      `<div>\n  <div class="omni-toolbar">\n    <button id="go" class="omni">执行</button>\n    <span id="status" class="omni-status"></span>\n  </div>\n  <div class="omni-muted" style="margin-bottom:4px">原文</div>\n  <div id="src" class="omni-card" style="white-space:pre-wrap;min-height:40px">选区加载中…</div>\n  <div class="omni-muted" style="margin:10px 0 4px">结果</div>\n  <div id="dst" class="omni-card" style="white-space:pre-wrap;min-height:40px">…</div>\n  <script>\n    (async function () {\n      try {\n        var sel = await window.host.selectionGet();\n        document.getElementById("src").textContent = (sel && sel.text) || "(无选区)";\n      } catch (e) { document.getElementById("src").textContent = "选区读取失败: " + e; }\n      document.getElementById("go").onclick = async function () {\n        document.getElementById("status").textContent = "执行中…";\n        try {\n          var r = await window.host.invoke("translate", { text: document.getElementById("src").textContent });\n          document.getElementById("dst").textContent = JSON.stringify(r);\n          document.getElementById("status").textContent = "";\n        } catch (e) { document.getElementById("dst").textContent = "调用失败: " + e; document.getElementById("status").textContent = "失败"; }\n      };\n    })();\n  <\/script>\n</div>\n`,
+    );
+  }
+}
 
 if (kind === "module") {
   writeFileSync(

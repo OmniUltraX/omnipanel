@@ -1731,6 +1731,11 @@ export const zhCN = {
       title: "安装本地插件",
       hint: "选择 .omni-plugin 包文件；正式版仅接受官方签名，开发构建允许未签名包。",
       action: "选择包文件…",
+      confirmTitle: "确认安装插件",
+      confirm: "确认安装",
+      methods: "声明的方法",
+      noPermissions: "无需特殊权限",
+      confirmHint: "请核对权限与方法后再安装；启用状态可在插件中心随时开关。",
     },
     catalog: {
       title: "从 DBX 目录安装数据库引擎",

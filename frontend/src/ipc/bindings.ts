@@ -1060,6 +1060,8 @@ export const commands = {
 	 *  dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`。
 	 */
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
+	/**  预读本地包清单（安装前权限确认用）：只验签 + 解析，不解压不安装。 */
+	pluginPeekManifest: (path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_peek_manifest", { path })),
 	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。 */
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
 	/**  插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`。 */

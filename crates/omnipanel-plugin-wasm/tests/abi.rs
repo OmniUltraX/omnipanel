@@ -9,6 +9,12 @@ const ECHO_GUEST_WAT: &str = r#"
 (module
   (import "omni" "ping" (func $ping (result i32)))
   (memory (export "memory") 1)
+  (global $alloc_ptr (mut i32) (i32.const 1024))
+  (func $alloc (export "omni_alloc") (param $n i32) (result i32)
+    (local $p i32)
+    (local.set $p (global.get $alloc_ptr))
+    (global.set $alloc_ptr (i32.add (global.get $alloc_ptr) (local.get $n)))
+    (local.get $p))
   (data (i32.const 0) "{\"ok\":true}")
   (func (export "call") (param i32 i32 i32 i32) (result i64)
     (drop (call $ping))
