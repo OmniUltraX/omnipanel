@@ -118,7 +118,10 @@ import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schema/s
 import { submitSchemaCacheRefresh, probeDbConnectionRuntime, isSchemaCacheEntryOk } from "./schema/schemaCacheBackgroundTasks";
 import { takeBootstrappedDbConnections } from "./schema/initDbSchemaUiStores";
 import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../clientSync";
-import { DB_CONNECTIONS_CHANGED_EVENT } from "../../stores/dbConnectionListStore";
+import {
+  DB_CONNECTIONS_CHANGED_EVENT,
+  useDbConnectionListStore,
+} from "../../stores/dbConnectionListStore";
 import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
 import { useDbConnectionRuntimeStore } from "../../stores/dbConnectionRuntimeStore";
 import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
@@ -895,6 +898,8 @@ export function DatabasePanel() {
     try {
       const list = await listConnections();
       setConnections(list);
+      // 与自定义面板 / AI @ 菜单共享缓存保持一致（侧栏本地 state 之外）
+      useDbConnectionListStore.getState().hydrate(list);
       setActiveConnId((prev) => {
         const pickEnabled = (items: DbConnectionConfig[]) =>
           items.find((item) => isConnectionEnabled(item));

@@ -39,6 +39,17 @@ export async function enableSshMonitoring(resourceId: string): Promise<void> {
   const ok = await ensureSubscribed(resourceId);
   if (!ok) {
     useSshHostStore.getState().setMonitoringEnabled(resourceId, false);
+    return;
+  }
+  // 订阅后立刻拉首帧，避免自定义面板等路径只 subscribe、长时间停在「等待监控数据」
+  try {
+    const res = await commands.sshPoolFetchStats(resourceId);
+    if (res.status === "ok") {
+      const { useSshStatsStore } = await import("./sshStatsStore");
+      useSshStatsStore.getState().setStats([res.data]);
+    }
+  } catch {
+    // 首帧失败不影响订阅；后续由后台推送 / 恢复路径补齐
   }
 }
 

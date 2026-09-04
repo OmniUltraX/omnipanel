@@ -421,6 +421,25 @@ function CustomPanelWidgetChrome({
     }
     return connections.find((c) => c.id === id)?.name ?? null;
   }, [connections, dataSourceKind, dbConnections, liveWidget.dataSourceId]);
+
+  // 标题解析不到数据库连接名时补拉共享列表（与小组件 View 对齐）
+  const missingDbNameRefresh = useRef<string | null>(null);
+  useEffect(() => {
+    if (dataSourceKind !== "database") return;
+    const id = liveWidget.dataSourceId;
+    if (!id) {
+      missingDbNameRefresh.current = null;
+      return;
+    }
+    if (dataSourceName) {
+      missingDbNameRefresh.current = null;
+      return;
+    }
+    if (missingDbNameRefresh.current === id) return;
+    missingDbNameRefresh.current = id;
+    void useDbConnectionListStore.getState().refresh();
+  }, [dataSourceKind, dataSourceName, liveWidget.dataSourceId]);
+
   const targetLabel = useMemo(() => {
     const target = liveWidget.target;
     if (!target) return null;
