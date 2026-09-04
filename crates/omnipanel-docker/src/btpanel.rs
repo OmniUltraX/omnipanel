@@ -150,6 +150,8 @@ impl BtPanelClient {
             .cookie_provider(self.cookie_jar.clone())
             // 与面板客户端一致：宝塔普遍自签证书
             .danger_accept_invalid_certs(true)
+            // 必须 no_proxy：否则系统/环境 HTTP(S)_PROXY 会把内网面板拐走导致 Connect 失败
+            .no_proxy()
             .timeout(DEFAULT_HTTP_TIMEOUT)
             .build()
             .map_err(|e| {
@@ -398,6 +400,13 @@ fn map_http_send_error(detail: &str, url: &str) -> OmniError {
     if lower.contains("timed out") || lower.contains("timeout") {
         return OmniError::new(ErrorCode::Timeout, "连接宝塔面板超时")
             .with_cause(format!("{detail} | {url}"));
+    }
+    if lower.contains("connect") {
+        return OmniError::new(
+            ErrorCode::Connection,
+            "无法连接宝塔面板（请检查地址与端口、本机到面板的网络，以及系统/环境 HTTP 代理是否拦截了内网地址）",
+        )
+        .with_cause(format!("{detail} | {url}"));
     }
     OmniError::new(ErrorCode::Connection, "宝塔面板请求失败")
         .with_cause(format!("{detail} | {url}"))

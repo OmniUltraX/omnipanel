@@ -1,6 +1,10 @@
 import type { Locale } from "../stores/settingsStore";
 
-/** 启动必需（侧栏 / 路由标题 / 通用控件） */
+/**
+ * 启动同步 seed + 首屏必需（侧栏 / 路由 / Shell 全局文案）。
+ * Shell 会直接用到 plugins / ai / userCenter / knowledge / dataSync / homeWorkspace，
+ * 必须进 boot，否则首屏会闪 key。
+ */
 export const BOOT_LOCALE_KEYS = [
   "tags",
   "app",
@@ -23,6 +27,31 @@ export const BOOT_LOCALE_KEYS = [
   "settings",
   "workspace",
   "dashboard",
+  "homeWorkspace",
+  "plugins",
+  "ai",
+  "knowledge",
+  "userCenter",
+  "dataSync",
+] as const;
+
+/** 全部分片：切语言 / 启动时异步补齐，避免模块页显示 key */
+export const ALL_LOCALE_CHUNK_KEYS = [
+  ...BOOT_LOCALE_KEYS,
+  "cloud",
+  "moduleHost",
+  "taskCenter",
+  "files",
+  "database",
+  "terminal",
+  "ssh",
+  "docker",
+  "server",
+  "tasks",
+  "protocol",
+  "workflow",
+  "syncTeamKeySetup",
+  "syncDeviceAuth",
 ] as const;
 
 export type LocaleChunkKey = string;
@@ -128,7 +157,7 @@ function enLoader(name: string): ChunkLoader {
   return loader;
 }
 
-/** 模块路径 → 需要预热的 locale chunk */
+/** 模块路径 → 需要预热的 locale chunk（进入模块时优先拉取） */
 export const MODULE_LOCALE_KEYS: Record<string, readonly string[]> = {
   database: ["database", "dataSync"],
   terminal: ["terminal"],
@@ -141,7 +170,7 @@ export const MODULE_LOCALE_KEYS: Record<string, readonly string[]> = {
   knowledge: ["knowledge"],
   tasks: ["tasks", "taskCenter"],
   cloud: ["cloud"],
-  plugins: ["plugins"],
+  plugins: ["plugins", "moduleHost"],
   settings: ["settings", "userCenter", "syncTeamKeySetup", "syncDeviceAuth"],
   dashboard: ["dashboard", "homeWorkspace", "workspace"],
   ai: ["ai"],
@@ -153,8 +182,30 @@ const bag: Record<Locale, Record<string, unknown>> = {
   "en-US": {},
 };
 
+let localeRevision = 0;
+const localeListeners = new Set<() => void>();
+
 function keyId(locale: Locale, chunk: string) {
   return `${locale}:${chunk}`;
+}
+
+function bumpLocaleRevision() {
+  localeRevision += 1;
+  for (const listener of localeListeners) {
+    listener();
+  }
+}
+
+/** 供 useSyncExternalStore：文案分片加载完成后触发重渲 */
+export function getLocaleRevision(): number {
+  return localeRevision;
+}
+
+export function subscribeLocaleRevision(onStoreChange: () => void): () => void {
+  localeListeners.add(onStoreChange);
+  return () => {
+    localeListeners.delete(onStoreChange);
+  };
 }
 
 export function getLocaleBag(locale: Locale): Record<string, unknown> {
@@ -170,6 +221,7 @@ export function seedLocaleChunks(
   for (const name of Object.keys(chunks)) {
     loadedKeys.add(keyId(locale, name));
   }
+  bumpLocaleRevision();
 }
 
 export async function ensureLocaleChunks(
@@ -188,12 +240,14 @@ export async function ensureLocaleChunks(
       }),
     );
   }
-  if (pending.length) await Promise.all(pending);
+  if (pending.length === 0) return;
+  await Promise.all(pending);
+  bumpLocaleRevision();
 }
 
-/** 启动时同步加载 boot chunks（并行 import） */
+/** 启动 / 切语言：加载全部分片，避免模块页残留 key */
 export async function loadBootLocale(locale: Locale): Promise<void> {
-  await ensureLocaleChunks(locale, BOOT_LOCALE_KEYS);
+  await ensureLocaleChunks(locale, ALL_LOCALE_CHUNK_KEYS);
 }
 
 export async function ensureModuleLocale(
@@ -210,4 +264,5 @@ export function resetLocaleBagForTests(): void {
   loadedKeys.clear();
   bag["zh-CN"] = {};
   bag["en-US"] = {};
+  localeRevision = 0;
 }

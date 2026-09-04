@@ -1,11 +1,13 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useSettingsStore, type Locale } from "../stores/settingsStore";
 import { DASHBOARD_PATH, PLUGINS_PATH } from "../lib/paths";
 import {
   ensureModuleLocale,
   getLocaleBag,
+  getLocaleRevision,
   loadBootLocale,
   seedLocaleChunks,
+  subscribeLocaleRevision,
 } from "./loadLocale";
 
 // 启动默认 locale：同步打入 boot 包，避免首屏闪 key
@@ -30,6 +32,12 @@ import logViewer from "./locales/zh-CN/logViewer";
 import settings from "./locales/zh-CN/settings";
 import workspace from "./locales/zh-CN/workspace";
 import dashboard from "./locales/zh-CN/dashboard";
+import homeWorkspace from "./locales/zh-CN/homeWorkspace";
+import plugins from "./locales/zh-CN/plugins";
+import ai from "./locales/zh-CN/ai";
+import knowledge from "./locales/zh-CN/knowledge";
+import userCenter from "./locales/zh-CN/userCenter";
+import dataSync from "./locales/zh-CN/dataSync";
 
 export type TranslationDict = typeof import("./locales/zh-CN").zhCN;
 export type { Locale };
@@ -58,6 +66,12 @@ seedLocaleChunks("zh-CN", {
   settings,
   workspace,
   dashboard,
+  homeWorkspace,
+  plugins,
+  ai,
+  knowledge,
+  userCenter,
+  dataSync,
 });
 
 function getByPath(dict: Record<string, unknown>, path: Path): string | undefined {
@@ -84,7 +98,7 @@ export function createTranslator(locale: Locale) {
   };
 }
 
-/** 应用启动 / 切语言时调用 */
+/** 应用启动 / 切语言时调用：加载该语言全部分片 */
 export async function prepareLocale(locale: Locale): Promise<void> {
   await loadBootLocale(locale);
 }
@@ -98,6 +112,12 @@ export async function prepareModuleLocale(
 
 export function useI18n() {
   const locale = useSettingsStore((s) => s.locale);
+  // 分片异步加载完成后必须重渲，否则会一直显示 key 名
+  const localeRevision = useSyncExternalStore(
+    subscribeLocaleRevision,
+    getLocaleRevision,
+    getLocaleRevision,
+  );
   useEffect(() => {
     void prepareLocale(locale);
   }, [locale]);
@@ -105,7 +125,7 @@ export function useI18n() {
     (key: Path, params?: Record<string, string | number>) => {
       return createTranslator(locale)(key, params);
     },
-    [locale],
+    [locale, localeRevision],
   );
 
   return { locale, t };
