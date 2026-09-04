@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { commands, type TmuxSessionInfo, type TmuxTabStat, type TmuxWindowInfo } from "@/ipc/bindings";
 import { formatIpcError, unwrapCommand } from "@/ipc/result";
+import { isSshAuthHeld, noteSshAuthFailure } from "@/modules/server/ssh/sshAuthHold";
 import { useI18n } from "@/i18n";
 import { appConfirm } from "@/lib/appConfirm";
 import {
@@ -110,6 +111,7 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
 
   const load = useCallback(async () => {
     if (!connectionId) return;
+    if (isSshAuthHeld(connectionId)) return;
     setLoading(true);
     setError(null);
     try {
@@ -120,6 +122,7 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
       setSessions(sessionList);
       setTabStats(stats);
     } catch (err) {
+      noteSshAuthFailure(connectionId, err);
       setError(formatIpcError(err));
       setSessions([]);
       setTabStats([]);
@@ -135,6 +138,7 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
   useEffect(() => {
     if (!connectionId) return;
     const refresh = () => {
+      if (isSshAuthHeld(connectionId)) return;
       void unwrapCommand(commands.sshTmuxTabStats(connectionId))
         .then(setTabStats)
         .catch(() => {});

@@ -4,6 +4,7 @@ import type { Connection } from "../../ipc/bindings";
 import { parseSshConfig } from "../server/panel/serverConnection";
 import { useSshConnectionStore } from "../../stores/sshConnectionStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { isSshAuthHeld } from "../server/ssh/sshAuthHold";
 import { forceReleaseSshPoolSession } from "../../stores/sshPoolSessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import type { DbConnectionConfig } from "./api";
@@ -227,6 +228,9 @@ export function isSshConnectionEstablished(sshConnectionId: string): boolean {
 
 /** 确保 SSH 连接池或终端会话可用于远程命令执行。 */
 export async function ensureSshReady(sshConnectionId: string): Promise<boolean> {
+  if (isSshAuthHeld(sshConnectionId)) {
+    return false;
+  }
   if (isSshConnectionEstablished(sshConnectionId)) {
     return true;
   }

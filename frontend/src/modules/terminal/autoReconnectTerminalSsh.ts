@@ -1,4 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { isSshAuthHeld } from "../server/ssh/sshAuthHold";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { reconnectTerminalSession } from "./terminalReconnect";
@@ -89,6 +90,10 @@ export function scheduleAutoReconnectSsh(
   if (!isAutoReconnectEnabled()) return false;
   if (sessionTimers.has(sessionId)) return false;
   if (!isSessionLive(sessionId)) return false;
+  const resourceId = useTerminalStore
+    .getState()
+    .tabs.find((item) => item.sessionId === sessionId)?.session?.resourceId;
+  if (isSshAuthHeld(resourceId)) return false;
   scheduleNext(sessionId, callbacks ?? {});
   return true;
 }

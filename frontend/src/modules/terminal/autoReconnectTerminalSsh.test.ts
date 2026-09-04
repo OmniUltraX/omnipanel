@@ -8,7 +8,9 @@ const clearPaneBackendPendingMock = vi.fn();
 const disposeSessionBackendMock = vi.fn();
 const clearTerminalPaneSenderMock = vi.fn();
 const settingGetMock = vi.fn(() => true);
-const tabsRef: { current: Array<{ sessionId: string; status: string }> } = {
+const tabsRef: {
+  current: Array<{ sessionId: string; status: string; session?: { resourceId?: string } }>;
+} = {
   current: [],
 };
 const useTerminalStoreSubscribeMock = vi.fn(() => () => undefined);
@@ -44,6 +46,11 @@ vi.mock("./terminalPaneSenders", () => ({
   clearTerminalPaneSender: clearTerminalPaneSenderMock,
 }));
 
+const authHeldMock = vi.fn((_id?: string | null) => false);
+vi.mock("../server/ssh/sshAuthHold", () => ({
+  isSshAuthHeld: (id?: string | null) => authHeldMock(id),
+}));
+
 const importModule = async () => {
   vi.resetModules();
   return await import("./autoReconnectTerminalSsh");
@@ -61,6 +68,7 @@ describe("autoReconnectTerminalSsh", () => {
     clearTerminalPaneSenderMock.mockClear();
     useTerminalStoreSubscribeMock.mockClear();
     settingGetMock.mockReturnValue(true);
+    authHeldMock.mockReturnValue(false);
     tabsRef.current = [{ sessionId: "live-session", status: "disconnected" }];
   });
 
@@ -92,6 +100,14 @@ describe("autoReconnectTerminalSsh", () => {
     settingGetMock.mockReturnValue(false);
     const mod = await importModule();
     tabsRef.current = [{ sessionId: "s1", status: "disconnected" }];
+    expect(mod.scheduleAutoReconnectSsh("s1")).toBe(false);
+    expect(mod.getAutoReconnectAttempt("s1")).toBe(0);
+  });
+
+  it("returns false when SSH auth is already rejected", async () => {
+    authHeldMock.mockReturnValue(true);
+    const mod = await importModule();
+    tabsRef.current = [{ sessionId: "s1", status: "disconnected", session: { resourceId: "host-1" } }];
     expect(mod.scheduleAutoReconnectSsh("s1")).toBe(false);
     expect(mod.getAutoReconnectAttempt("s1")).toBe(0);
   });

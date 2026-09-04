@@ -2,6 +2,11 @@ import { useCallback, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type SshProcessInfo } from "../../../../ipc/bindings";
 import { canUseTerminalBackend } from "../../../../lib/isTauriRuntime";
+import {
+  clearSshAuthHold,
+  isSshAuthHeld,
+  noteSshAuthFailure,
+} from "../sshAuthHold";
 import { RESOURCE_TAG_KEYS } from "../../../../lib/resourceTags";
 import { persistResourceTag } from "../../../../stores/connectionStore";
 import { useSshStatsStore } from "../../../../stores/sshStatsStore";
@@ -16,7 +21,9 @@ import {
 } from "../../../../stores/sshHostStore";
 import {
   acquireOverviewPoller,
+  pauseOverviewPoller,
   releaseOverviewPoller,
+  resumeOverviewPoller,
   runOverviewLoadDedup,
   updateOverviewLoader,
 } from "./sshOverviewScheduler";
@@ -43,6 +50,7 @@ export function useSshOverview(
       statsOnly?: boolean;
     }) => {
       if (!resourceId) return;
+      if (opts?.silent && isSshAuthHeld(resourceId)) return;
 
       if (opts?.processesOnly) {
         setOverview(resourceId, { refreshing: true });
@@ -95,6 +103,9 @@ export function useSshOverview(
               refreshing: false,
             });
           } else if (!hasCache) {
+            if (noteSshAuthFailure(resourceId, statsResult.error)) {
+              pauseOverviewPoller(resourceId);
+            }
             setOverview(resourceId, {
               error: statsResult.error?.message ?? "加载概览失败",
               phase: "error",
@@ -104,6 +115,9 @@ export function useSshOverview(
             setOverview(resourceId, { refreshing: false });
           }
         } catch (e) {
+          if (noteSshAuthFailure(resourceId, e)) {
+            pauseOverviewPoller(resourceId);
+          }
           if (!hasCache) {
             setOverview(resourceId, {
               error: e instanceof Error ? e.message : String(e),
@@ -171,6 +185,10 @@ export function useSshOverview(
           }
         }
 
+        if (!statsOk && noteSshAuthFailure(resourceId, statsResult.error)) {
+          pauseOverviewPoller(resourceId);
+        }
+
         if (statsOk) {
           setOverview(resourceId, {
             phase: "ready",
@@ -193,6 +211,9 @@ export function useSshOverview(
           });
         }
       } catch (e) {
+        if (noteSshAuthFailure(resourceId, e)) {
+          pauseOverviewPoller(resourceId);
+        }
         setOverview(resourceId, {
           error: hasCache
             ? null
@@ -257,6 +278,7 @@ export function useSshOverview(
     if (!resourceId || !processPolling) return;
     void load({ silent: true, processesOnly: true });
     const timer = window.setInterval(() => {
+      if (isSshAuthHeld(resourceId)) return;
       void load({ silent: true, processesOnly: true });
     }, SSH_PROCESS_POLL_MS);
     return () => {
@@ -298,6 +320,8 @@ export function useSshOverview(
 
   const refresh = useCallback(() => {
     if (!resourceId) return;
+    clearSshAuthHold(resourceId);
+    resumeOverviewPoller(resourceId);
     const promise = runOverviewLoadDedup(resourceId);
     if (promise) void promise;
     else void load();

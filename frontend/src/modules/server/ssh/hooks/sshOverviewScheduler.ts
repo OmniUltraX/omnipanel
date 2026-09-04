@@ -27,6 +27,8 @@ interface PollerEntry {
   inflight: Promise<void> | null;
   /** load() 互斥：正在进行 silent load 时跳过新的 silent load */
   silentLoading: boolean;
+  /** 认证失败后暂停自动轮询 */
+  paused: boolean;
 }
 
 const pollers: Record<string, PollerEntry> = {};
@@ -58,6 +60,7 @@ export function acquireOverviewPoller(
     loader,
     inflight: null,
     silentLoading: false,
+    paused: false,
   };
   startTimer(pollers[resourceId]!, resourceId);
 }
@@ -124,8 +127,26 @@ export function runOverviewLoadDedup(
   return entry.loader(opts);
 }
 
+/** 认证失败后停掉自动轮询；改密码或手动刷新时再 resume。 */
+export function pauseOverviewPoller(resourceId: string): void {
+  const entry = pollers[resourceId];
+  if (!entry || entry.paused) return;
+  entry.paused = true;
+  if (entry.timer !== null) {
+    clearInterval(entry.timer);
+    entry.timer = null;
+  }
+}
+
+export function resumeOverviewPoller(resourceId: string): void {
+  const entry = pollers[resourceId];
+  if (!entry || !entry.paused) return;
+  entry.paused = false;
+  startTimer(entry, resourceId);
+}
+
 function startTimer(entry: PollerEntry, resourceId: string): void {
-  if (entry.timer !== null) return;
+  if (entry.timer !== null || entry.paused) return;
   entry.timer = setInterval(() => {
     // 默认定时器只刷新系统指标，不触发远程 ps
     void runOverviewLoadDedup(resourceId, { silent: true, statsOnly: true });

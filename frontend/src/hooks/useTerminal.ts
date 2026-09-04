@@ -4,7 +4,12 @@ import {
   commands,
 } from "../ipc/bindings";
 import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../ipc/events";
-import { formatIpcError, unwrapCommand } from "../ipc/result";
+import { formatIpcError, isAuthIpcError, unwrapCommand } from "../ipc/result";
+import {
+  isSshAuthHeld,
+  noteSshAuthFailure,
+  sshAuthHeldMessage,
+} from "../modules/server/ssh/sshAuthHold";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { safeTauriUnlisten } from "../lib/safeTauriUnlisten";
 import { Terminal, type IDisposable } from "@xterm/xterm";
@@ -65,6 +70,7 @@ import {
 import { markShellPromptReady } from "../modules/terminal/terminalShellRecovery";
 import { tryPostShellAiTrigger } from "../modules/terminal/postShellAiTrigger";
 import {
+  cancelAutoReconnectSsh,
   scheduleAutoReconnectSsh,
   AUTO_RECONNECT_MAX_ATTEMPTS,
   type AutoReconnectCallbacks,
@@ -607,6 +613,9 @@ function isSessionClosedError(err: unknown): boolean {
 async function createBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
   const pane = findPaneById(sessionId);
   if (pane?.type === "remote" && pane.resourceId) {
+    if (isSshAuthHeld(pane.resourceId)) {
+      throw new Error(sshAuthHeldMessage(pane.resourceId) ?? "SSH 密码认证被拒绝");
+    }
     if (isOpenSshHostId(pane.resourceId)) {
       const alias = openSshHostAlias(pane.resourceId);
       if (!alias) {
@@ -633,6 +642,9 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
         pane.tmuxPaneId ?? null,
       );
       if (res.status === "ok") return res.data;
+      if (noteSshAuthFailure(conn.id, res.error)) {
+        throw normalizeBackendError(res.error, "接入 tmux 会话失败");
+      }
       // 主机宕机重启后远端 tmux/会话可能已不存在，或 control 连接僵死。
       // 清掉本地绑定后走默认 connect，避免永远卡在失败的 attach。
       const store = useTerminalStore.getState();
@@ -640,10 +652,12 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
       store.setSessionTmuxPaneId(sessionId, null);
       const fallback = await commands.sshConnectConnection(conn.id, cols, rows, null);
       if (fallback.status === "ok") return fallback.data;
+      noteSshAuthFailure(conn.id, fallback.error ?? res.error);
       throw normalizeBackendError(fallback.error ?? res.error, "接入 tmux 会话失败");
     }
     const res = await commands.sshConnectConnection(conn.id, cols, rows, pane.tmuxPaneId ?? null);
     if (res.status === "ok") return res.data;
+    noteSshAuthFailure(conn.id, res.error);
     throw normalizeBackendError(res.error, "SSH 终端创建失败");
   }
   // shellSpec 回退：旧持久化数据可能没有 shellSpec 字段（只有 shellLabel）。
@@ -1770,6 +1784,12 @@ export function useTerminal(
         }
       } catch (err) {
         if (destroyed) return;
+        const pane = findPaneById(sessionId);
+        if (pane?.resourceId && noteSshAuthFailure(pane.resourceId, err)) {
+          cancelAutoReconnectSsh(sessionId);
+        } else if (isAuthIpcError(err)) {
+          cancelAutoReconnectSsh(sessionId);
+        }
         console.error(`[Terminal ${sessionId}] backend session failed:`, err);
         const formatted = formatTerminalError(err, remote);
         term?.writeln(`\r\n\x1b[31m${formatted}\x1b[0m`);

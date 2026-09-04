@@ -8,6 +8,7 @@ import {
   type RemoteToolCapability,
 } from "@/ipc/bindings";
 import { formatIpcError, unwrapCommand } from "@/ipc/result";
+import { noteSshAuthFailure, sshAuthHeldMessage } from "../sshAuthHold";
 
 /** Web 软降级可能返回 `[]`/`{}`；规范成带 `tools: []` 的探测结果，避免 `.tools` 迭代崩溃。 */
 function normalizeProbeResult(
@@ -78,6 +79,20 @@ export const useCapabilitiesStore = create<State>((set) => ({
   entries: {},
 
   probe: async (resourceId, force = false) => {
+    const heldMessage = !force ? sshAuthHeldMessage(resourceId) : null;
+    if (heldMessage) {
+      set((state) => ({
+        entries: {
+          ...state.entries,
+          [resourceId]: {
+            ...ensureEntry(state.entries, resourceId),
+            loading: false,
+            error: state.entries[resourceId]?.error ?? heldMessage,
+          },
+        },
+      }));
+      return null;
+    }
     set((state) => ({
       entries: {
         ...state.entries,
@@ -101,6 +116,7 @@ export const useCapabilitiesStore = create<State>((set) => ({
       }));
       return result;
     } catch (err) {
+      noteSshAuthFailure(resourceId, err);
       const message = formatIpcError(err);
       set((state) => ({
         entries: {

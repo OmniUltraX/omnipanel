@@ -234,6 +234,46 @@ struct PoolEntry {
     config: SshConfig,
 }
 
+/// 认证 / 权限等改密码之前不会自己好的错误：拦住后续自动建连。
+#[derive(Clone)]
+struct ConnectHold {
+    fingerprint: String,
+    error: OmniError,
+}
+
+fn connect_fingerprint(config: &SshConfig) -> String {
+    match &config.auth {
+        SshAuth::Password { password } => {
+            format!(
+                "p|{}|{}|{}|{}",
+                config.host, config.port, config.user, password
+            )
+        }
+        SshAuth::PrivateKey {
+            pem,
+            key_path,
+            key_id,
+            passphrase,
+        } => format!(
+            "k|{}|{}|{}|{}|{}|{}|{}",
+            config.host,
+            config.port,
+            config.user,
+            pem.as_deref().unwrap_or(""),
+            key_path.as_deref().unwrap_or(""),
+            key_id.as_deref().unwrap_or(""),
+            passphrase.as_deref().unwrap_or("")
+        ),
+    }
+}
+
+fn is_non_retryable_connect_error(error: &OmniError) -> bool {
+    matches!(
+        error.code,
+        ErrorCode::Auth | ErrorCode::Permission | ErrorCode::InvalidInput
+    )
+}
+
 struct CachedOverview {
     stats: HostSystemStats,
     processes: Vec<SshProcessInfo>,
@@ -249,6 +289,8 @@ pub struct SshPool {
     pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
     /// 同一 host 并发 ensure_session 时串行建连，避免双开 TCP / MaxStartups。
     session_connect_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    /// 认证失败等不可自动恢复的建连错误，避免轮询/并发调用反复握手。
+    connect_holds: Arc<Mutex<HashMap<String, ConnectHold>>>,
     overview_cache: Arc<Mutex<HashMap<String, CachedOverview>>>,
     ports_fill_inflight: Arc<Mutex<HashSet<String>>>,
     monitoring_subs: Arc<Mutex<HashMap<String, u32>>>,
@@ -269,6 +311,7 @@ impl SshPool {
             entries: Arc::new(Mutex::new(HashMap::new())),
             pool_sessions,
             session_connect_locks: Arc::new(Mutex::new(HashMap::new())),
+            connect_holds: Arc::new(Mutex::new(HashMap::new())),
             overview_cache: Arc::new(Mutex::new(HashMap::new())),
             ports_fill_inflight: Arc::new(Mutex::new(HashSet::new())),
             monitoring_subs: Arc::new(Mutex::new(HashMap::new())),
@@ -296,6 +339,7 @@ impl SshPool {
                 self.monitoring_subs.clone(),
                 self.overview_cache.clone(),
                 self.pool_sessions.clone(),
+                self.connect_holds.clone(),
                 app_handle.clone(),
                 self.log.clone(),
             );
@@ -397,7 +441,15 @@ impl SshPool {
 
         {
             let mut pool = self.entries.lock().await;
+            let mut holds = self.connect_holds.lock().await;
             for spec in &specs {
+                let fingerprint = connect_fingerprint(&spec.config);
+                let hold_stale = holds
+                    .get(&spec.resource_id)
+                    .is_some_and(|hold| hold.fingerprint != fingerprint);
+                if hold_stale {
+                    holds.remove(&spec.resource_id);
+                }
                 pool.insert(
                     spec.resource_id.clone(),
                     PoolEntry {
@@ -408,6 +460,7 @@ impl SshPool {
                     },
                 );
             }
+            holds.retain(|id, _| pool.contains_key(id));
         }
 
         if probe {
@@ -452,6 +505,7 @@ impl SshPool {
         monitoring_subs: Arc<Mutex<HashMap<String, u32>>>,
         overview_cache: Arc<Mutex<HashMap<String, CachedOverview>>>,
         pool_sessions: Arc<Mutex<HashMap<String, Arc<SshSession>>>>,
+        connect_holds: Arc<Mutex<HashMap<String, ConnectHold>>>,
         app_handle: tauri::AppHandle,
         log: LogStore,
     ) {
@@ -469,7 +523,7 @@ impl SshPool {
             loop {
                 tokio::select! {
                     _ = health_interval.tick() => {
-                        Self::health_check(&entries, &app_handle, &log).await;
+                        Self::health_check(&entries, &connect_holds, &app_handle, &log).await;
                     }
                     _ = monitor_interval.tick() => {
                         Self::poll_monitoring_subscribers(
@@ -686,6 +740,7 @@ impl SshPool {
 
     async fn health_check(
         entries: &Arc<Mutex<HashMap<String, PoolEntry>>>,
+        connect_holds: &Arc<Mutex<HashMap<String, ConnectHold>>>,
         app_handle: &tauri::AppHandle,
         log: &LogStore,
     ) {
@@ -721,11 +776,19 @@ impl SshPool {
         }))
         .await;
 
+        let held = {
+            let holds = connect_holds.lock().await;
+            holds.keys().cloned().collect::<HashSet<_>>()
+        };
         let mut pool = entries.lock().await;
         for (resource_id, open) in probes {
             let Some(entry) = pool.get_mut(&resource_id) else {
                 continue;
             };
+            if held.contains(&resource_id) {
+                // 认证已被拒绝：端口开着也不代表能登录，不要刷回 connected 诱发重试。
+                continue;
+            }
             if open {
                 entry.status = "connected".into();
                 entry.error = None;
@@ -830,11 +893,56 @@ impl SshPool {
         }
 
         let (name, mut config) = self.resolve_connect_config(resource_id).await?;
+        let fingerprint = connect_fingerprint(&config);
+        {
+            let mut holds = self.connect_holds.lock().await;
+            if let Some(hold) = holds.get(resource_id) {
+                if hold.fingerprint == fingerprint {
+                    return Err(hold.error.clone());
+                }
+                holds.remove(resource_id);
+            }
+        }
         self.log
             .log("ssh-pool", "info", &format!("正在建立 SSH 会话: {name}…"))
             .await;
 
-        let session = Arc::new(SshSession::connect_no_shell(config.clone()).await?);
+        let session = match SshSession::connect_no_shell(config.clone()).await {
+            Ok(session) => {
+                self.connect_holds.lock().await.remove(resource_id);
+                Arc::new(session)
+            }
+            Err(error) => {
+                if is_non_retryable_connect_error(&error) {
+                    let message = error.message.clone();
+                    self.connect_holds.lock().await.insert(
+                        resource_id.to_string(),
+                        ConnectHold {
+                            fingerprint,
+                            error: error.clone(),
+                        },
+                    );
+                    {
+                        let mut entries = self.entries.lock().await;
+                        if let Some(entry) = entries.get_mut(resource_id) {
+                            entry.status = "error".into();
+                            entry.error = Some(message.clone());
+                        }
+                    }
+                    if let Some(handle) = self.app_handle.lock().await.clone() {
+                        emit_status(&handle, resource_id, "error", Some(&message));
+                    }
+                    self.log
+                        .log(
+                            "ssh-pool",
+                            "warn",
+                            &format!("{name} 建连失败，已停止自动重试: {message}"),
+                        )
+                        .await;
+                }
+                return Err(error);
+            }
+        };
 
         if config.public_ip.is_none() {
             match session.exec_command("curl -s sb.ip").await {
@@ -1370,5 +1478,48 @@ mod stats_tests {
         assert_eq!(total, 0);
         assert_eq!(used, 0);
         assert_eq!(available, 0);
+    }
+}
+
+#[cfg(test)]
+mod connect_hold_tests {
+    use omnipanel_error::{ErrorCode, OmniError};
+    use omnipanel_ssh::{SshAuth, SshConfig};
+
+    use super::{connect_fingerprint, is_non_retryable_connect_error};
+
+    fn password_config(password: &str) -> SshConfig {
+        SshConfig {
+            host: "10.0.0.1".into(),
+            port: 22,
+            user: "root".into(),
+            auth: SshAuth::Password {
+                password: password.into(),
+            },
+            public_ip: None,
+        }
+    }
+
+    #[test]
+    fn fingerprint_changes_when_password_changes() {
+        let a = connect_fingerprint(&password_config("old"));
+        let b = connect_fingerprint(&password_config("new"));
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn auth_errors_are_not_retryable() {
+        assert!(is_non_retryable_connect_error(&OmniError::new(
+            ErrorCode::Auth,
+            "SSH 密码认证被拒绝"
+        )));
+        assert!(is_non_retryable_connect_error(&OmniError::new(
+            ErrorCode::Permission,
+            "无权限"
+        )));
+        assert!(!is_non_retryable_connect_error(&OmniError::new(
+            ErrorCode::Connection,
+            "连接被重置"
+        )));
     }
 }

@@ -7,6 +7,7 @@ import {
   type SshConfigSyncResult,
 } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
+import { clearSshAuthHold } from "../modules/server/ssh/sshAuthHold";
 import { scheduleAssistantSnapshotSync } from "../modules/assistant";
 import { scheduleClientModuleSync } from "../modules/clientSync";
 import { recordModuleTombstones } from "../modules/clientSync/tombstones";
@@ -181,6 +182,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const res = await commands.connSave(connection);
       if (res.status === "ok") {
         const saved = res.data;
+        if (saved.kind === "ssh") clearSshAuthHold(saved.id);
         set((state) => {
           const idx = state.connections.findIndex((c) => c.id === saved.id);
           const next =

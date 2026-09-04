@@ -30,6 +30,34 @@ export function ipcErrorCode(error: unknown): string | null {
   return typeof code === "string" && code ? code : null;
 }
 
+/** SSH / 面板等认证失败：改凭据前重试没有意义。 */
+export function isAuthIpcError(error: unknown): boolean {
+  const code = ipcErrorCode(error)?.toLowerCase();
+  if (code === "auth") return true;
+  const message = formatIpcError(error);
+  return /认证被拒绝|authentication (failed|rejected)|auth fail/i.test(message);
+}
+
+const recentIpcErrors = new Map<string, number>();
+const IPC_ERROR_LOG_DEDUP_MS = 4000;
+
+function shouldLogIpcError(error: IpcErrorLike): boolean {
+  const key =
+    typeof error === "string"
+      ? error
+      : `${error.code ?? ""}|${error.message ?? ""}|${error.cause ?? ""}`;
+  const now = Date.now();
+  const last = recentIpcErrors.get(key) ?? 0;
+  if (now - last < IPC_ERROR_LOG_DEDUP_MS) return false;
+  recentIpcErrors.set(key, now);
+  if (recentIpcErrors.size > 32) {
+    for (const [item, at] of recentIpcErrors) {
+      if (now - at >= IPC_ERROR_LOG_DEDUP_MS) recentIpcErrors.delete(item);
+    }
+  }
+  return true;
+}
+
 /** 将 OmniError / string / 未知异常格式化为面向用户的完整提示（保留 cause）。 */
 export function formatIpcError(error: IpcErrorLike | unknown): string {
   if (!isIpcErrorLike(error)) {
@@ -85,7 +113,7 @@ export function unwrapCommandResult<T>(
     return res.data as T;
   }
   const label = options?.logLabel ?? "[ipc]";
-  if (!options?.quiet) {
+  if (!options?.quiet && shouldLogIpcError(res.error)) {
     const err = res.error;
     console.error(`${label} IPC error:`, {
       ...options?.debugContext,

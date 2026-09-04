@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { commands, type PanelProbeResult } from "@/ipc/bindings";
 import { formatIpcError, unwrapCommand } from "@/ipc/result";
+import { isSshAuthHeld, noteSshAuthFailure } from "../sshAuthHold";
 import { usePanelProbeStore } from "../stores/panelProbeStore";
 
 /**
@@ -21,6 +22,7 @@ export function usePanelProbe(resourceId: string | null) {
   const lastResourceId = useRef<string | null>(null);
 
   const probe = useCallback(async (id: string) => {
+    if (isSshAuthHeld(id)) return;
     setLoading(true);
     setError(null);
     try {
@@ -28,6 +30,7 @@ export function usePanelProbe(resourceId: string | null) {
       setResult(res);
       usePanelProbeStore.getState().setResult(id, res);
     } catch (e) {
+      noteSshAuthFailure(id, e);
       setError(formatIpcError(e));
       setResult(null);
     } finally {
