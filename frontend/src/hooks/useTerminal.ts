@@ -906,8 +906,7 @@ export function disposeSessionBackend(
   }
 }
 
-async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
-  const existingSid = findPaneById(sessionId)?.backendSessionId;
+async function acquireBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {  const existingSid = findPaneById(sessionId)?.backendSessionId;
   if (existingSid && backendSessionMatchesPane(sessionId, existingSid)) {
     if (await probeBackendSessionAlive(sessionId, existingSid)) {
       return existingSid;
@@ -935,6 +934,33 @@ async function acquireBackendSession(sessionId: string, cols: number, rows: numb
     useTerminalBackendStateStore.getState().setPendingSession(sessionId, pending);
   }
   return pending;
+}
+
+/**
+ * 隐藏终端输出缓冲封顶：切后台跑大输出（构建日志、tail -f）时，
+ * 缓冲只保留最近 2MB，丢弃最旧的 chunk。数据不丢：
+ * 后端 buffer + 历史 ingest 照常跑，切回后走快照/回放补齐。
+ */
+const MAX_SUSPENDED_BUFFER_BYTES = 2 * 1024 * 1024;
+
+function pushSuspendedOutput(
+  rt: { outputBuffer: Uint8Array[]; outputBufferedBytes: number },
+  bytes: Uint8Array,
+): void {
+  rt.outputBuffer.push(bytes);
+  rt.outputBufferedBytes += bytes.byteLength;
+  while (rt.outputBufferedBytes > MAX_SUSPENDED_BUFFER_BYTES && rt.outputBuffer.length > 1) {
+    const dropped = rt.outputBuffer.shift();
+    rt.outputBufferedBytes -= dropped?.byteLength ?? 0;
+  }
+}
+
+function clearSuspendedOutput(rt: {
+  outputBuffer: Uint8Array[];
+  outputBufferedBytes: number;
+}): void {
+  rt.outputBuffer = [];
+  rt.outputBufferedBytes = 0;
 }
 
 export function useTerminal(
@@ -971,8 +997,25 @@ export function useTerminal(
     fitAddon: FitAddon | null;
     container: HTMLDivElement | null;
     outputBuffer: Uint8Array[];
+    /** outputBuffer 累积字节数（封顶，见 MAX_SUSPENDED_BUFFER_BYTES） */
+    outputBufferedBytes: number;
     initTerminal: (() => void) | null;
-  }>({ resizeObserver: null, fitAddon: null, container: null, outputBuffer: [], initTerminal: null });
+    /** WebGL 句柄镜像：suspend 时释放以省 GL context，恢复时重建 */
+    webglAddon: WebglAddon | null;
+    setupWebgl: (() => boolean) | null;
+    /** GL 延迟释放定时器（宽限期内切回则取消，避免频繁重建） */
+    glDisposeTimer: ReturnType<typeof setTimeout> | null;
+  }>({
+    resizeObserver: null,
+    fitAddon: null,
+    container: null,
+    outputBuffer: [],
+    outputBufferedBytes: 0,
+    initTerminal: null,
+    webglAddon: null,
+    setupWebgl: null,
+    glDisposeTimer: null,
+  });
   // tab 可见性（IntersectionObserver 维护）：与 module 级 suspended 独立。
   // 不可见时仍解析 block / shell history，仅跳过 term.write 渲染；恢复时 flush 累积字节。
   const visibleRef = useRef(true);
@@ -1444,7 +1487,7 @@ export function useTerminal(
         // 但 WebGL canvas 已挂起。继续写入会污染纹理图集，切回后字间距错乱（选中才重绘）。
         // 因此非 active 也必须缓冲，等切回后再 flush + refresh。
         if (suspendedRef.current || !visibleRef.current || !activeRef.current) {
-          runtimeRef.current.outputBuffer.push(merged);
+          pushSuspendedOutput(runtimeRef.current, merged);
         } else if (shouldWriteToXterm()) {
           // silent sync 期间跳过含同步噪声的 chunk（BEGIN/END 标记 / base64 blob），
           // 避免刷屏；其他 chunk（prompt、用户命令输出）正常写入 xterm，
@@ -1850,6 +1893,7 @@ export function useTerminal(
               if (webglAddon === addon) {
                 webglAddon = null;
               }
+              runtimeRef.current.webglAddon = null;
               // 下一帧重建，避免在 context loss 同步路径里再次抛错
               requestAnimationFrame(() => {
                 if (destroyed) return;
@@ -1870,6 +1914,7 @@ export function useTerminal(
             });
             term.loadAddon(addon);
             webglAddon = addon;
+            runtimeRef.current.webglAddon = addon;
             return true;
           } catch (err) {
             console.warn(
@@ -1877,9 +1922,12 @@ export function useTerminal(
               err,
             );
             webglAddon = null;
+            runtimeRef.current.webglAddon = null;
             return false;
           }
         };
+        // 挂载后登记：suspend 时经此释放 GL context，恢复时重建
+        runtimeRef.current.setupWebgl = setupWebglRenderer;
         setupWebglRenderer();
 
         term.open(container!);
@@ -2027,7 +2075,7 @@ export function useTerminal(
       for (const bytes of rt.outputBuffer) {
         term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
       }
-      rt.outputBuffer = [];
+      clearSuspendedOutput(rt);
     }
 
     // 温和重连：保留 term / WebGL / 所有 addon / output listener / batcher，
@@ -2134,7 +2182,18 @@ export function useTerminal(
       safeTauriUnlisten(unlistenOutput ?? undefined);
       safeTauriUnlisten(unlistenEvent ?? undefined);
       outputBatcher?.dispose();
-      webglAddon?.dispose();
+      // suspend 时可能已释放过：双重 dispose 必须吞错，否则 teardown 中断
+      try {
+        webglAddon?.dispose();
+      } catch {
+        /* already disposed while suspended */
+      }
+      if (runtimeRef.current.glDisposeTimer) {
+        clearTimeout(runtimeRef.current.glDisposeTimer);
+        runtimeRef.current.glDisposeTimer = null;
+      }
+      runtimeRef.current.webglAddon = null;
+      runtimeRef.current.setupWebgl = null;
       // 直通 AI 块（decoration / 占位行几何）绑在本 xterm 实例上，不进 PTY 快照。
       // 必须在 term.dispose() 前同步 teardown，避免 remount 竞态写乱 buffer。
       teardownShellAgentUi(sessionId);
@@ -2179,12 +2238,37 @@ export function useTerminal(
     const rt = runtimeRef.current;
     if (suspended) {
       rt.resizeObserver?.disconnect();
+      // 挂起 10s 后再释放 WebGL context：浏览器上限约 16 个，常驻多终端会打爆；
+      // 宽限期内的快切（A→B→A）取消释放，保留秒切。DOM renderer 接管期间无渲染开销。
+      if (rt.webglAddon && !rt.glDisposeTimer) {
+        rt.glDisposeTimer = setTimeout(() => {
+          rt.glDisposeTimer = null;
+          if (suspendedRef.current && rt.webglAddon) {
+            try {
+              rt.webglAddon.dispose();
+            } catch {
+              /* ignore */
+            }
+            rt.webglAddon = null;
+          }
+        }, 10_000);
+      }
       return;
     }
 
     const term = termRef.current;
     if (rt.container && rt.resizeObserver) {
       rt.resizeObserver.observe(rt.container);
+    }
+    // 宽限期内回来：取消延迟释放，GL 还在，秒切不受影响
+    if (rt.glDisposeTimer) {
+      clearTimeout(rt.glDisposeTimer);
+      rt.glDisposeTimer = null;
+    }
+    // 恢复时若 GL 句柄空（宽限期后释放过）则重建；已有则不动，避免闪烁。
+    // 后续 flush + clearTextureAtlas + refresh 会把 buffer 重绘到新 renderer。
+    if (!rt.webglAddon && rt.setupWebgl) {
+      rt.setupWebgl();
     }
     // 仅当前激活 tab 才初始化；非激活 tab 保活已有实例，不在此抢主线程
     if (!term && activeRef.current && rt.container && rt.initTerminal) {
@@ -2197,7 +2281,7 @@ export function useTerminal(
       for (const bytes of rt.outputBuffer) {
         term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
       }
-      rt.outputBuffer = [];
+      clearSuspendedOutput(rt);
     }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -2239,7 +2323,7 @@ export function useTerminal(
       for (const bytes of rt.outputBuffer) {
         term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
       }
-      rt.outputBuffer = [];
+      clearSuspendedOutput(rt);
     }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {

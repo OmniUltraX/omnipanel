@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from "react-router-dom";
-import { startTransition, useCallback, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { useBottomPanelStore } from "../../stores/bottomPanelStore";
 import { useI18n } from "../../i18n";
 import { AppLogo } from "../ui/layout/AppLogo";
@@ -25,7 +25,7 @@ import { SidebarMiniappButton } from "./SidebarMiniappButton";
 import { SidebarUserButton } from "./SidebarUserButton";
 import { WinControls } from "./WinControls";
 import { IconGrid } from "../ui/icons/Icons";
-import { PLUGINS_PATH, isPluginsPath } from "../../lib/paths";
+import { PLUGINS_PATH } from "../../lib/paths";
 
 export function Sidebar() {
   const { t } = useI18n();
@@ -49,10 +49,42 @@ export function Sidebar() {
     y: number;
     path: string;
   } | null>(null);
+  // 乐观高亮：pointerdown 当帧即点亮，不等路由提交（提交约 70~90ms 才到）。
+  // location 落定后由下面 effect 清掉，超时兜底防右键/未导航残留。
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
+  const pendingTimerRef = useRef<number | null>(null);
 
-  const isActive = (path: string) => {
+  const markPending = (path: string) => {
+    setPendingPath(path);
+    if (pendingTimerRef.current) window.clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = window.setTimeout(() => {
+      setPendingPath((prev) => (prev === path ? null : prev));
+    }, 500);
+  };
+
+  useEffect(() => {
+    setPendingPath(null);
+    if (pendingTimerRef.current) {
+      window.clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingTimerRef.current) window.clearTimeout(pendingTimerRef.current);
+    };
+  }, []);
+
+  const isLocationActive = (path: string) => {
     if (isWorkspaceHome) return false;
     return location.pathname.startsWith(path);
+  };
+
+  // 视觉高亮允许乐观态；导航决策必须只看 location（pending 会让"点当前项"恒为真）
+  const isActive = (path: string) => {
+    if (pendingPath) return pendingPath === path;
+    return isLocationActive(path);
   };
 
   const go = (path: string) => {
@@ -69,7 +101,7 @@ export function Sidebar() {
   };
 
   const handleModuleNav = (path: string) => {
-    if (!isBottomFullscreen && isActive(path)) {
+    if (!isBottomFullscreen && isLocationActive(path)) {
       usePanelLayoutStore.getState().toggleModuleSidebar();
       return;
     }
@@ -121,6 +153,9 @@ export function Sidebar() {
       type="button"
       className={`sidebar-item${isActive(item.path) ? " active" : ""}`}
       title={t(item.i18nKey)}
+      onPointerDownCapture={(e) => {
+        if (e.button === 0) markPending(item.path);
+      }}
       onClick={() => handleModuleNav(item.path)}
       onContextMenu={(e) => handleModuleContextMenu(item.path, e)}
       onMouseEnter={() => handleNavHoverStart(item.path)}
@@ -162,9 +197,12 @@ export function Sidebar() {
 
       <button
         type="button"
-        className={`sidebar-item${isPluginsPath(location.pathname) ? " active" : ""}`}
+        className={`sidebar-item${isActive(PLUGINS_PATH) ? " active" : ""}`}
         title={t("plugins.center.title")}
         aria-label={t("plugins.center.title")}
+        onPointerDownCapture={(e) => {
+          if (e.button === 0) markPending(PLUGINS_PATH);
+        }}
         onClick={() => go(PLUGINS_PATH)}
       >
         <IconGrid size={20} />

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import {
   collectPinnedKeepAliveIds,
   createInitialKeepAliveState,
@@ -9,10 +9,16 @@ import {
 } from "./overlayKeepAlive";
 import type { WorkspaceDockTab } from "../stores/workspaceBottomDockStore";
 
+const RETAIN_KEY = "omnipanel.keepAlive.retainAll";
+
 describe("overlayKeepAlive", () => {
+  afterEach(() => {
+    window.localStorage.removeItem(RETAIN_KEY);
+  });
+
   it("初始仅挂载当前路由模块", () => {
     const state = createInitialKeepAliveState("/module/ssh");
-    expect(state).toEqual({ current: "ssh", recent: [] });
+    expect(state).toEqual({ current: "ssh", recent: [], retained: [] });
     const mounted = resolveOverlayKeepAliveMounted(state);
     expect([...mounted]).toEqual(["ssh"]);
   });
@@ -20,11 +26,27 @@ describe("overlayKeepAlive", () => {
   it("切换后保留当前 + 最近 1 个", () => {
     let state = createInitialKeepAliveState("/module/ssh");
     state = touchOverlayKeepAlive(state, "docker");
-    expect(state).toEqual({ current: "docker", recent: ["ssh"] });
+    expect(state).toEqual({ current: "docker", recent: ["ssh"], retained: ["ssh"] });
 
     state = touchOverlayKeepAlive(state, "database");
-    expect(state).toEqual({ current: "database", recent: ["docker"] });
+    expect(state).toEqual({
+      current: "database",
+      recent: ["docker"],
+      retained: ["ssh", "docker"],
+    });
 
+    const mounted = resolveOverlayKeepAliveMounted(state);
+    expect(mounted.has("database")).toBe(true);
+    expect(mounted.has("docker")).toBe(true);
+    // retain-all 缺省开：ssh 虽掉出 recent 仍保留挂载（秒切回）
+    expect(mounted.has("ssh")).toBe(true);
+  });
+
+  it("retainAll 关时退回 LRU（对照测量用）", () => {
+    window.localStorage.setItem(RETAIN_KEY, "0");
+    let state = createInitialKeepAliveState("/module/ssh");
+    state = touchOverlayKeepAlive(state, "docker");
+    state = touchOverlayKeepAlive(state, "database");
     const mounted = resolveOverlayKeepAliveMounted(state);
     expect(mounted.has("database")).toBe(true);
     expect(mounted.has("docker")).toBe(true);
@@ -35,13 +57,13 @@ describe("overlayKeepAlive", () => {
     let state = createInitialKeepAliveState("/module/ssh");
     state = touchOverlayKeepAlive(state, "docker");
     state = touchOverlayKeepAlive(state, "ssh");
-    expect(state).toEqual({ current: "ssh", recent: ["docker"] });
+    expect(state).toEqual({ current: "ssh", recent: ["docker"], retained: ["ssh", "docker"] });
   });
 
   it("进入看板时 current 为空，仍保留最近 1 个", () => {
     let state = createInitialKeepAliveState("/module/cloud");
     state = touchOverlayKeepAlive(state, null);
-    expect(state).toEqual({ current: null, recent: ["cloud"] });
+    expect(state).toEqual({ current: null, recent: ["cloud"], retained: ["cloud"] });
   });
 
   it("pinned 模块始终保留", () => {
@@ -52,24 +74,26 @@ describe("overlayKeepAlive", () => {
     expect(mounted.has("server")).toBe(true);
     expect(mounted.has("docker")).toBe(true);
     expect(mounted.has("database")).toBe(true);
-    expect(mounted.has("ssh")).toBe(false);
+    expect(mounted.has("ssh")).toBe(true);
   });
 
-  it("插件模块同样走 LRU", () => {
+  it("插件模块同样走保活", () => {
     let state = createInitialKeepAliveState("/module/nacos");
     expect(state.current).toBe("plugin:nacos");
     state = touchOverlayKeepAlive(state, "cloud");
     expect(state).toEqual({
       current: "cloud",
       recent: ["plugin:nacos"],
+      retained: ["plugin:nacos"],
     });
     state = touchOverlayKeepAlive(state, "plugin:other");
     expect(state).toEqual({
       current: "plugin:other",
       recent: ["cloud"],
+      retained: ["plugin:nacos", "cloud"],
     });
     const mounted = resolveOverlayKeepAliveMounted(state);
-    expect(pluginKeysFromKeepAlive(mounted)).toEqual(["other"]);
+    expect(pluginKeysFromKeepAlive(mounted)).toEqual(["other", "nacos"]);
     expect(overlayMountedRecordFromKeepAlive(mounted).cloud).toBe(true);
   });
 

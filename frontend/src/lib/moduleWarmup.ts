@@ -26,6 +26,7 @@ export const IDLE_OVERLAY_SHELL_KEYS: readonly OverlayModuleKey[] = [
   "docker",
   "server",
   "files",
+  "cloud",
   "protocol",
   "workflow",
   "knowledge",
@@ -61,6 +62,7 @@ export function subscribeModuleShellWarm(listener: ShellWarmListener): () => voi
 
 /** 请求预挂载模块壳；调用方应在 startTransition 中更新 mounted 状态 */
 export function requestModuleShellWarm(key: OverlayModuleKey): void {
+  if (!shouldPremountShell()) return;
   shellWarmRequested.add(key);
   for (const listener of shellWarmListeners) {
     listener(key);
@@ -96,6 +98,25 @@ export function isOverlayModuleShellWarmRequested(key: OverlayModuleKey): boolea
   return shellWarmRequested.has(key);
 }
 
+/** 当前会话已请求预挂壳的模块快照（outlet 合并进挂载集；只增不减） */
+export function listShellWarmRequested(): OverlayModuleKey[] {
+  return [...shellWarmRequested];
+}
+
+const PREMOUNT_FLAG = "omnipanel.warm.premount";
+
+/**
+ * 壳预挂总开关（默认开）：localStorage 置 "0" 则只预热 chunk、不挂壳，
+ * 用于二分预挂载的内存/耗时影响。chunk 预热不受影响。
+ */
+export function shouldPremountShell(): boolean {
+  try {
+    return window.localStorage.getItem(PREMOUNT_FLAG) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 /** 侧栏路径 → 叠层模块 key；非叠层返回 null */
 export function overlayKeyFromNavPath(path: string): OverlayModuleKey | null {
   const key = moduleKeyFromPath(path);
@@ -103,8 +124,9 @@ export function overlayKeyFromNavPath(path: string): OverlayModuleKey | null {
 }
 
 /**
- * 悬停意图：只预拉 JS chunk，不挂载 React 壳（挂载由 overlayKeepAlive LRU 控制）。
- * 返回取消函数（mouseleave 时调用）。
+ * 悬停意图：预拉 JS chunk + 请求挂壳（suspended）。
+ * 悬停到点击通常有 200ms+，壳先挂上，首访只剩数据显示。
+ * 返回取消函数（mouseleave 时调用；已发出的请求不撤回，无害）。
  */
 export function scheduleNavHoverWarm(
   path: string,
@@ -113,6 +135,7 @@ export function scheduleNavHoverWarm(
   const key = overlayKeyFromNavPath(path);
   if (!key) return () => {};
   void preloadOverlayModuleChunk(key);
+  requestModuleShellWarm(key);
   return () => {};
 }
 
@@ -125,15 +148,17 @@ export interface IdleOverlayShellWarmOptions {
 }
 
 /**
- * 空闲错峰：仅 preload chunk，不 requestModuleShellWarm。
- * 全量挂壳会与「当前+最近1」保活冲突并拖慢切换。
+ * 空闲错峰：按序逐个“chunk 预拉 + 请求挂壳（suspended）”。
+ * retain-all 时代挂壳不再与保活冲突：反正挂上就不卸，早挂就是把
+ * 首访的 chunk 下载 + React 挂载提前到空闲时付，xterm 初始化
+ * 仍受 active/visible 门禁，不会在后台一次性全起。
  */
 export function scheduleIdleOverlayShellWarm(
   options?: IdleOverlayShellWarmOptions,
 ): () => void {
   const keys = options?.keys ?? IDLE_OVERLAY_SHELL_KEYS;
-  const initialShellTimeoutMs = options?.initialShellTimeoutMs ?? 8000;
-  const stepShellTimeoutMs = options?.stepShellTimeoutMs ?? 2500;
+  const initialShellTimeoutMs = options?.initialShellTimeoutMs ?? 2500;
+  const stepShellTimeoutMs = options?.stepShellTimeoutMs ?? 1200;
   let cancelled = false;
   let cancelScheduled: (() => void) | null = null;
   let index = 0;
@@ -148,6 +173,9 @@ export function scheduleIdleOverlayShellWarm(
     index += 1;
     void preloadOverlayModuleChunk(key).finally(() => {
       if (cancelled) return;
+      // chunk 就绪后再挂壳：挂载 suspended 树只付 React 成本，数据 effect
+      // 被 moduleLive 门禁挡住，xterm 初始化被 active/visible 门禁挡住。
+      requestModuleShellWarm(key);
       cancelScheduled = scheduleIdleOrTimeout(warmNext, stepShellTimeoutMs);
     });
   };

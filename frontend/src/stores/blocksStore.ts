@@ -92,6 +92,50 @@ export interface TerminalBlock {
 
 const MAX_BLOCK_OUTPUT_CHARS = 64_000;
 
+/**
+ * 实时输出合并窗口：PTY chunk 到达频率极高（大输出时每秒上百次 set），
+ * 每个 set 都让所有订阅树（含隐藏挂载的）走一遍 reconcile。
+ * 100ms 窗内拼成一次 set，人眼无感（idle 完成检测仍按 chunk 到达触发，不受影响）。
+ */
+const LIVE_FLUSH_MS = 100;
+const pendingLiveChunks = new Map<string, string>();
+let liveFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function applyLiveBatch(batch: Array<[string, string]>): void {
+  if (batch.length === 0) return;
+  useBlocksStore.setState((state) => {
+    let blocks = state.blocks;
+    let changed = false;
+    for (const [blockId, chunk] of batch) {
+      const next = patchSingleSessionBlock(blocks, blockId, (b, sid) => {
+        recordTerminalSessionActivity(sid, Date.now(), { command: b.command });
+        const liveOutput = ingestTerminalOutputChunk(
+          b.liveOutput ?? createEmptyOutputModel(),
+          chunk,
+        );
+        return { ...b, liveOutput };
+      });
+      if (next) {
+        blocks = next;
+        changed = true;
+      }
+    }
+    return changed ? { blocks } : state;
+  });
+}
+
+/** 仅测试：同步刷掉合并窗口内的输出 */
+export function flushBlockLiveOutputForTests(): void {
+  if (liveFlushTimer) {
+    clearTimeout(liveFlushTimer);
+    liveFlushTimer = null;
+  }
+  if (pendingLiveChunks.size === 0) return;
+  const batch = [...pendingLiveChunks.entries()];
+  pendingLiveChunks.clear();
+  applyLiveBatch(batch);
+}
+
 export const EMPTY_TERMINAL_BLOCKS: TerminalBlock[] = [];
 
 interface BlocksState {
@@ -350,17 +394,17 @@ export const useBlocksStore = create<BlocksState>((set, get) => ({
 
   appendBlockLiveOutput: (blockId, chunk) => {
     if (!chunk) return;
-    set((state) => {
-      const next = patchSingleSessionBlock(state.blocks, blockId, (b, sid) => {
-        recordTerminalSessionActivity(sid, Date.now(), { command: b.command });
-        const liveOutput = ingestTerminalOutputChunk(
-          b.liveOutput ?? createEmptyOutputModel(),
-          chunk,
-        );
-        return { ...b, liveOutput };
-      });
-      return next ? { blocks: next } : state;
-    });
+    // 合并窗口：高频 chunk 先拼起来，100ms 刷一次 set，避免 render 风暴。
+    // idle 完成检测在调用方按 chunk 到达触发，不受合并影响。
+    pendingLiveChunks.set(blockId, (pendingLiveChunks.get(blockId) ?? "") + chunk);
+    if (liveFlushTimer) return;
+    liveFlushTimer = setTimeout(() => {
+      liveFlushTimer = null;
+      if (pendingLiveChunks.size === 0) return;
+      const batch = [...pendingLiveChunks.entries()];
+      pendingLiveChunks.clear();
+      applyLiveBatch(batch);
+    }, LIVE_FLUSH_MS);
   },
 
   appendBlockReasoning: (blockId, chunk) => {

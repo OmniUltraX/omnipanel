@@ -16,6 +16,23 @@ export interface OverlayKeepAliveState {
   current: KeepAliveModuleId | null;
   /** MRU 在前，不含 current */
   recent: KeepAliveModuleId[];
+  /**
+   * 秒切回：挂载过即保留（只增不减，会话级）。
+   * 挂载费只付一次，之后全是 class 切换；内存代价见 moduleSwitchPerf 测量。
+   */
+  retained: KeepAliveModuleId[];
+}
+
+/**
+ * A/B 开关：localStorage `omnipanel.keepAlive.retainAll === "0"` 时退回
+ * LRU（current + 最近 1），用于新旧行为对照测量。缺省开（新行为）。
+ */
+export function shouldRetainAllMounted(): boolean {
+  try {
+    return window.localStorage.getItem("omnipanel.keepAlive.retainAll") !== "0";
+  } catch {
+    return true;
+  }
 }
 
 export function isKeepAliveModuleId(id: string): id is KeepAliveModuleId {
@@ -41,6 +58,7 @@ export function createInitialKeepAliveState(
   return {
     current: keepAliveIdFromPath(pathname),
     recent: [],
+    retained: [],
   };
 }
 
@@ -62,10 +80,15 @@ export function touchOverlayKeepAlive(
   }
   recent = recent.slice(0, OVERLAY_KEEP_ALIVE_RECENT_LIMIT);
 
-  return { current: nextCurrent, recent };
+  let retained = prev.retained;
+  if (prev.current != null && !retained.includes(prev.current)) {
+    retained = [...retained, prev.current];
+  }
+
+  return { current: nextCurrent, recent, retained };
 }
 
-/** 应挂载的保活集合 = current ∪ recent ∪ pinned */
+/** 应挂载的保活集合 = current ∪ recent ∪ pinned ∪ retained（retainAll 开时） */
 export function resolveOverlayKeepAliveMounted(
   state: OverlayKeepAliveState,
   pinned: ReadonlySet<KeepAliveModuleId> = new Set(),
@@ -73,6 +96,9 @@ export function resolveOverlayKeepAliveMounted(
   const mounted = new Set<KeepAliveModuleId>(pinned);
   if (state.current) mounted.add(state.current);
   for (const id of state.recent) mounted.add(id);
+  if (shouldRetainAllMounted()) {
+    for (const id of state.retained) mounted.add(id);
+  }
   return mounted;
 }
 

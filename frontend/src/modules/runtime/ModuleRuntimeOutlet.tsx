@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { SuspendedModulePanel } from "../../components/ui/feedback";
 import {
@@ -36,6 +36,11 @@ import { prepareModuleLocale } from "../../i18n";
 import { ModuleHost } from "./ModuleHost";
 import { ensureBuiltinModulesRegistered } from "./builtinModules";
 import { notifyModuleEvicted } from "./sessionServices";
+import { noteRouteLayoutCommit, recordRouteSwitch } from "../../lib/moduleSwitchPerf";
+import {
+  listShellWarmRequested,
+  subscribeModuleShellWarm,
+} from "../../lib/moduleWarmup";
 
 ensureBuiltinModulesRegistered();
 
@@ -77,18 +82,50 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
     () => resolveOverlayKeepAliveMounted(keepAlive, pinnedKeepAlive),
     [keepAlive, pinnedKeepAlive],
   );
+  // 预挂壳（空闲/悬停预热）：并入挂载集，suspended 渲染；retain-all 下永不卸载。
+  // 注意 ordered-set 语义：此处只读快照，re-render 由 warmTick 驱动。
+  const [warmTick, setWarmTick] = useState(0);
+  useEffect(() => subscribeModuleShellWarm(() => setWarmTick((t) => t + 1)), []);
+  const mountedWithWarm = useMemo(() => {
+    void warmTick;
+    const merged = new Set(keepAliveMounted);
+    for (const key of listShellWarmRequested()) merged.add(key);
+    return merged;
+  }, [keepAliveMounted, warmTick]);
   const overlayMounted = useMemo(
-    () => overlayMountedRecordFromKeepAlive(keepAliveMounted),
-    [keepAliveMounted],
+    () => overlayMountedRecordFromKeepAlive(mountedWithWarm),
+    [mountedWithWarm],
   );
   const keptPluginKeys = useMemo(
-    () => pluginKeysFromKeepAlive(keepAliveMounted),
-    [keepAliveMounted],
+    () => pluginKeysFromKeepAlive(mountedWithWarm),
+    [mountedWithWarm],
   );
 
   useEffect(() => {
     const nextId = keepAliveIdFromPath(pathname);
     setKeepAlive((prev) => touchOverlayKeepAlive(prev, nextId));
+  }, [pathname]);
+
+  // 秒切回 P0 探针：记录每次路由切换的提交+首帧耗时与堆内存
+  const prevPathRef = useRef(pathname);
+  // layout 打点：DOM 落子时刻（区分 JS 提交 vs 布局绘制），必须同步调用
+  useLayoutEffect(() => {
+    noteRouteLayoutCommit();
+  }, [pathname]);
+  useEffect(() => {
+    const from = prevPathRef.current;
+    try {
+      window.localStorage.setItem(
+        "__omniNavDbg",
+        JSON.stringify({ from, to: pathname, at: Date.now() }),
+      );
+    } catch {
+      /* ignore */
+    }
+    if (from !== pathname) {
+      recordRouteSwitch(from, pathname);
+      prevPathRef.current = pathname;
+    }
   }, [pathname]);
 
   const prevKeepAliveMountedRef = useRef(keepAliveMounted);
