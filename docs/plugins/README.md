@@ -24,6 +24,7 @@ node scripts/create-plugin.mjs <name> addon           # 启动条 / Overlay
 node scripts/create-plugin.mjs <name> theme           # 主题
 node scripts/create-plugin.mjs <name> js-logic        # L2-JS + 动态前端（第三方最小闭环）
 node scripts/create-plugin.mjs <name> l3-overlay      # L3 沙箱 Overlay（选区→Overlay→net）
+node scripts/create-plugin.mjs <name> wasm-stub       # WASM 回显模板（logic.wat，需 wat2wasm 构建出 logic.wasm）
 cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omni-plugin
 ```
 

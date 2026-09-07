@@ -22,6 +22,53 @@ pub struct PluginMethodDecl {
     pub danger_action: Option<String>,
 }
 
+/// 插件依赖声明：marketplace 安装时按拓扑序一次装齐。
+/// `version_req` 语法：`^x.y.z`（缺省）/ `>=x.y.z` / `=x.y.z`。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginDependencyDecl {
+    pub id: String,
+    pub version_req: String,
+}
+
+impl PluginDependencyDecl {
+    pub fn validate(&self, owner_id: &str) -> Result<(), PluginError> {
+        if !self.id.contains('.') {
+            return Err(PluginError::InvalidManifest(format!(
+                "dependencies id 非法: {}",
+                self.id
+            )));
+        }
+        if self.id == owner_id {
+            return Err(PluginError::InvalidManifest(
+                "dependencies 禁止自依赖".into(),
+            ));
+        }
+        parse_version_req(&self.version_req).map(|_| ()).map_err(PluginError::InvalidManifest)
+    }
+}
+
+/// 解析依赖版本约束（`^` 缺省 / `>=` / `=`），返回 `(op, version)`。
+/// 错误信息直接面向开发者（安装/校验两处复用）。
+pub fn parse_version_req(req: &str) -> Result<(&str, semver::Version), String> {
+    let trimmed = req.trim();
+    let (op, ver) = if let Some(v) = trimmed.strip_prefix(">=") {
+        (">=", v.trim())
+    } else if let Some(v) = trimmed.strip_prefix('=') {
+        ("=", v.trim())
+    } else if let Some(v) = trimmed.strip_prefix('^') {
+        ("^", v.trim())
+    } else {
+        ("^", trimmed)
+    };
+    if op == "^" && trimmed.is_empty() {
+        return Err("versionReq 不能为空".into());
+    }
+    semver::Version::parse(ver)
+        .map(|v| (op, v))
+        .map_err(|e| format!("versionReq 非法 {req}: {e}"))
+}
+
 /// 插件逻辑 / sidecar 入口声明。缺省 = 纯 L1 声明式插件。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +166,9 @@ pub struct PluginManifest {
     /// 网关白名单；未声明 method 一律 `UnknownMethod`。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub methods: Vec<PluginMethodDecl>,
+    /// 依赖的其它插件；marketplace 安装时按拓扑序一次装齐。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<PluginDependencyDecl>,
     /// L2/L3/T1 入口声明；缺省为纯声明式插件。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<PluginEntryDecl>,
@@ -172,6 +222,16 @@ impl PluginManifest {
                 return Err(PluginError::InvalidManifest(format!(
                     "methods 重复声明: {}",
                     method.name
+                )));
+            }
+        }
+        let mut seen_deps = std::collections::BTreeSet::new();
+        for dep in &self.dependencies {
+            dep.validate(&self.id)?;
+            if !seen_deps.insert(dep.id.clone()) {
+                return Err(PluginError::InvalidManifest(format!(
+                    "dependencies 重复声明: {}",
+                    dep.id
                 )));
             }
         }

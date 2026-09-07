@@ -16,6 +16,8 @@ import { nginx } from "@codemirror/legacy-modes/mode/nginx";
 import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { python } from "@codemirror/legacy-modes/mode/python";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { javascript as javascriptLegacy } from "@codemirror/legacy-modes/mode/javascript";
+import { xml as xmlLegacy } from "@codemirror/legacy-modes/mode/xml";
 import { getSearchHighlightExtension, updateSearchHighlight } from "../../../modules/database/sql/sqlSearchHighlight";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../../modules/database/sql/sqlEditorTheme";
 import { attachSqlEditorWheelZoom } from "../../../modules/database/sql/sqlEditorZoom";
@@ -39,6 +41,10 @@ const nginxLanguage = StreamLanguage.define(nginx);
 const shellLanguage = StreamLanguage.define(shell);
 /** Python 脚本语法高亮 */
 const pythonLanguage = StreamLanguage.define(python);
+/** 插件 JS 入口高亮（legacy 模式，零新依赖） */
+const javascriptLanguage = StreamLanguage.define(javascriptLegacy);
+/** 插件 overlay HTML 高亮（xml 模式覆盖标签结构） */
+const htmlLanguage = StreamLanguage.define(xmlLegacy);
 
 export type CodeEditorLanguage =
   | "text"
@@ -47,6 +53,8 @@ export type CodeEditorLanguage =
   | "yaml"
   | "shell"
   | "python"
+  | "javascript"
+  | "html"
   | "dockerfile"
   | "ini"
   | "nginx";
@@ -78,6 +86,10 @@ function languageExtension(language: CodeEditorLanguage): Extension {
       return shellLanguage;
     case "python":
       return pythonLanguage;
+    case "javascript":
+      return javascriptLanguage;
+    case "html":
+      return htmlLanguage;
     default:
       return [];
   }
@@ -96,6 +108,9 @@ function languageFromFilePath(filePath: string | null | undefined): CodeEditorLa
   if (filePath.endsWith(".yaml") || filePath.endsWith(".yml")) return "yaml";
   if (filePath.endsWith(".sh")) return "shell";
   if (filePath.endsWith(".py")) return "python";
+  if (filePath.endsWith(".js") || filePath.endsWith(".mjs")) return "javascript";
+  if (filePath.endsWith(".html") || filePath.endsWith(".htm")) return "html";
+  if (filePath.endsWith(".svg") || filePath.endsWith(".xml")) return "html";
   return "dockerfile";
 }
 

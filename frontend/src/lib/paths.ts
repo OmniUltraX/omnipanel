@@ -2,6 +2,8 @@ export const MODULE_PREFIX = "/module";
 export const WORKSPACE_PREFIX = "/workspace";
 export const DASHBOARD_PATH = "/dashboard";
 export const PLUGINS_PATH = "/plugins";
+/** 插件工程面板（IDE P1）：独立路由，不占模块键（不碰侧栏模块体系）。 */
+export const STUDIO_PATH = "/studio";
 
 export const MODULE_PATHS = {
   terminal: `${MODULE_PREFIX}/terminal`,
@@ -58,6 +60,10 @@ export function isDashboardPath(pathname: string): boolean {
 
 export function isPluginsPath(pathname: string): boolean {
   return pathname === PLUGINS_PATH || pathname.startsWith(`${PLUGINS_PATH}/`);
+}
+
+export function isStudioPath(pathname: string): boolean {
+  return pathname === STUDIO_PATH || pathname.startsWith(`${STUDIO_PATH}/`);
 }
 
 export function modulePathForType(type: string): string {

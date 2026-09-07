@@ -163,6 +163,28 @@ for (const dir of dirs) {
   if (raw.minHostApi != null && (!Number.isInteger(raw.minHostApi) || raw.minHostApi < 1)) {
     errors.push("minHostApi must be a positive integer");
   }
+  if (raw.dependencies != null) {
+    if (!Array.isArray(raw.dependencies)) errors.push("dependencies must be an array");
+    else {
+      const seen = new Set();
+      for (const d of raw.dependencies) {
+        if (!d || typeof d !== "object") {
+          errors.push("dependencies[] entries must be objects");
+          continue;
+        }
+        if (typeof d.id !== "string" || !d.id.includes(".")) {
+          errors.push("dependencies[].id must be reverse-domain with a dot");
+        } else if (d.id === raw.id) {
+          errors.push("dependencies must not self-depend");
+        } else if (seen.has(d.id)) {
+          errors.push(`duplicate dependency ${d.id}`);
+        } else seen.add(d.id);
+        if (typeof d.versionReq !== "string" || !/^(\^|>=|=)?\d+\.\d+\.\d+$/.test(d.versionReq.trim())) {
+          errors.push(`dependencies[].versionReq illegal for ${d.id} (only ^x.y.z / >=x.y.z / =x.y.z)`);
+        }
+      }
+    }
+  }
   const home = raw.contributes?.ui?.home;
   if (home != null) {
     if (typeof home !== "object" || Array.isArray(home)) {

@@ -225,6 +225,42 @@ describe("pluginManifests 单源目录", () => {
     expect(writeTools).toHaveLength(4);
   });
 
+  it("dependencies 非法声明被拒绝（重复/自依赖/坏约束）", () => {
+    const base = {
+      id: "omni.sample.deps",
+      version: "0.1.0",
+      kind: "addon",
+      permissions: [],
+      contributes: { overlays: [{ id: "x", entry: "ui/index.html" }] },
+    };
+    expect(() =>
+      parsePluginManifest({
+        ...base,
+        dependencies: [
+          { id: "omni.sample.lib", versionReq: "^1.0.0" },
+          { id: "omni.sample.lib", versionReq: ">=1.0.0" },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      parsePluginManifest({
+        ...base,
+        dependencies: [{ id: "omni.sample.deps", versionReq: "^1.0.0" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      parsePluginManifest({
+        ...base,
+        dependencies: [{ id: "omni.sample.lib", versionReq: "latest" }],
+      }),
+    ).toThrow();
+    const ok = parsePluginManifest({
+      ...base,
+      dependencies: [{ id: "omni.sample.lib", versionReq: ">=1.2.0" }],
+    });
+    expect(ok.dependencies).toEqual([{ id: "omni.sample.lib", versionReq: ">=1.2.0" }]);
+  });
+
   it("legacy 别名解析到插件 id", () => {
     expect(resolveLegacyPluginId("aliyun")).toBe("omni.cloud.aliyun");
     expect(resolveLegacyPluginId(" omni.cloud.aliyun ")).toBe("omni.cloud.aliyun");

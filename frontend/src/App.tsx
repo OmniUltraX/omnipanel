@@ -83,7 +83,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useAppUpdateStore } from "./stores/appUpdateStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
-import { DASHBOARD_PATH, MODULE_PATHS, MODULE_PREFIX, PLUGINS_PATH, WORKSPACE_PATHS, isDashboardPath, isPluginsPath, isWorkspacePath, modulePathForType, navModuleKeyFromPath, pluginModuleKeyFromPath } from "./lib/paths";
+import { DASHBOARD_PATH, MODULE_PATHS, MODULE_PREFIX, PLUGINS_PATH, STUDIO_PATH, WORKSPACE_PATHS, isDashboardPath, isPluginsPath, isStudioPath, isWorkspacePath, modulePathForType, navModuleKeyFromPath, pluginModuleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { usePluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { PluginModuleHost } from "./modules/plugin-module/PluginModuleHost";
@@ -110,6 +110,7 @@ import {
   LazyWorkflowPanel,
   LazyCloudPanel,
   LazyPluginsPanel,
+  LazyStudioPanel,
   preloadModuleChunks,
 } from "./routes/lazyModules";
 
@@ -452,6 +453,7 @@ function AppShell() {
   const isCloud = location.pathname === MODULE_PATHS.cloud;
   const pluginModuleKey = pluginModuleKeyFromPath(location.pathname);
   const isPlugins = isPluginsPath(location.pathname);
+  const isStudio = isStudioPath(location.pathname);
   const isShellRoute = isShellRoutePath(location.pathname) && !isDashboard;
 
   // 叠层保活：当前 + 最近 1 个；其余卸载（dock/会话由各模块 store 持久化）
@@ -713,6 +715,14 @@ function AppShell() {
               element={
                 <SuspendedModulePanel active={isPlugins}>
                   <LazyPluginsPanel />
+                </SuspendedModulePanel>
+              }
+            />
+            <Route
+              path={STUDIO_PATH}
+              element={
+                <SuspendedModulePanel active={isStudio}>
+                  <LazyStudioPanel />
                 </SuspendedModulePanel>
               }
             />

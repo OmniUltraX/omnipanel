@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct ApiFlavor {
     prefix: &'static str,
     entrance_in_path: bool,

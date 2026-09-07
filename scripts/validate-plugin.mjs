@@ -273,6 +273,25 @@ function baseErrors(raw) {
   if (raw.minHostApi != null && (!Number.isInteger(raw.minHostApi) || raw.minHostApi < 1)) {
     errors.push("minHostApi 必须是正整数");
   }
+  if (raw.dependencies != null) {
+    if (!Array.isArray(raw.dependencies)) errors.push("dependencies 必须是数组");
+    else {
+      const seen = new Set();
+      for (const d of raw.dependencies) {
+        if (!d || typeof d !== "object") {
+          errors.push("dependencies[] 必须是对象");
+          continue;
+        }
+        if (typeof d.id !== "string" || !d.id.includes(".")) errors.push("dependencies[].id 必须是反向域名");
+        else if (d.id === raw.id) errors.push("dependencies 禁止自依赖");
+        else if (seen.has(d.id)) errors.push(`重复依赖 ${d.id}`);
+        else seen.add(d.id);
+        if (typeof d.versionReq !== "string" || !/^(\^|>=|=)?\d+\.\d+\.\d+$/.test(d.versionReq.trim())) {
+          errors.push(`依赖 ${d.id} 的 versionReq 非法（仅 ^x.y.z / >=x.y.z / =x.y.z）`);
+        }
+      }
+    }
+  }
   return errors;
 }
 

@@ -58,6 +58,7 @@ AI Agent inspection report — structured health checks grounded in live contain
 | **AI Assistant** | Context-aware ops, Plans, Skills, `omni_ask_user`, secret redaction, multi-model |
 | **Workflow / Tasks** | Templates, runbooks, task center, Quick Launcher, auditable execution |
 | **Workspace** | **Custom monitor panels** and pluggable small widgets (host / Docker / MySQL / Redis) |
+| **Plugin Studio** | Create / edit / validate / pack / install third-party plugins without leaving the workbench; AI scaffold |
 
 ### Plugin platform
 

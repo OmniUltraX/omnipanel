@@ -7,6 +7,8 @@ description = ".omni-plugin 包格式：打包、规范化字节流、ed25519 �
 
 [dependencies]
 omnipanel-plugin = { path = "../omnipanel-plugin" }
+semver = "1"
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 zip = { version = "2", default-features = false, features = ["deflate"] }
