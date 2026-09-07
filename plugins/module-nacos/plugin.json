@@ -60,6 +60,16 @@
       "permissions": ["net:connect", "vault:read"],
       "dangerAction": "module.discovery.update"
     },
+    {
+      "name": "onlineInstance",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.discovery.update"
+    },
+    {
+      "name": "offlineInstance",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "module.discovery.update"
+    },
     { "name": "listNodes", "permissions": ["net:connect", "vault:read"] },
     { "name": "listItems", "permissions": ["net:connect", "vault:read"] },
     { "name": "probeHealth", "permissions": ["net:connect"] },
@@ -142,23 +152,32 @@
           "childListMethod": "listInstances",
           "itemKey": "serviceName",
           "detail": "children",
-          "columns": [{ "key": "serviceName", "label": "服务" }],
+          "columns": [
+            { "key": "serviceName", "label": "服务" },
+            { "key": "enabled", "label": "状态" }
+          ],
           "childColumns": [
             { "key": "ip", "label": "IP" },
             { "key": "port", "label": "端口" },
             { "key": "healthy", "label": "健康" },
             { "key": "weight", "label": "权重" },
-            { "key": "enabled", "label": "启用" }
+            { "key": "enabled", "label": "状态" }
           ],
           "childItemKey": "ip,port",
           "actions": [
             {
-              "id": "updateInstance",
-              "method": "updateInstance",
+              "id": "online",
+              "method": "onlineInstance",
               "target": "child",
-              "toggle": "enabled",
               "kind": "plugin",
-              "label": "启停"
+              "label": "上线"
+            },
+            {
+              "id": "offline",
+              "method": "offlineInstance",
+              "target": "child",
+              "kind": "plugin",
+              "label": "下线"
             }
           ]
         },

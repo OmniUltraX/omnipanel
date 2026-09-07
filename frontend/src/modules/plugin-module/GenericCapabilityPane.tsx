@@ -5,11 +5,13 @@ import { headerActionButtonClass } from "../../components/ui/primitives/headerAc
 import { CodeEditor } from "../../components/ui/content/CodeEditor";
 import { FormDialog } from "../../components/ui/form/FormDialog";
 import { TextInput } from "../../components/ui/form/TextInput";
+import { registerScopedSearch } from "../../components/ui/search/scopedSearchRegistry";
 import { useI18n } from "../../i18n";
 import type { Connection } from "../../ipc/bindings";
 import { DbTablesPanelGrid, type DbTablesPanelGridColumn } from "../database/workspace/DbTablesPanelGrid";
 import { invokeModuleMethod } from "./moduleInvoke";
 import { ModuleHistoryInspectDialog, type HistoryInspectMode } from "./ModuleHistoryInspectDialog";
+import { ModuleHostSplitLayout } from "./ModuleHostSplitLayout";
 import { editorLanguageFromType, formatHistoryTime, historyItemId } from "./moduleHostHistory";
 import {
   actionLabel,
@@ -34,6 +36,7 @@ import {
   filterTree,
   flattenTree,
   formatCell,
+  isChildActionVisible,
   isDangerAction,
   isProtectedRow,
   isSplitPane,
@@ -123,9 +126,48 @@ export function GenericCapabilityPane({
   const selected = items.find((row) => rowItemKey(row, itemKey) === selectedKey) ?? null;
   const keywordRef = useRef(keyword);
   keywordRef.current = keyword;
+  const selectedKeyRef = useRef(selectedKey);
+  selectedKeyRef.current = selectedKey;
+  const paneRootRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const editorLanguage = editorLanguageFromType(
     selected ? rowField(selected, "type") || rowField(selected, "dataId") : "",
     language,
+  );
+
+  /** Ctrl/Cmd+F：聚焦页头「搜索配置」输入框（与全局 ScopedSearch 快捷键一致） */
+  useEffect(() => {
+    return registerScopedSearch({
+      getRoot: () => paneRootRef.current,
+      isEnabled: () => true,
+      isVisible: () =>
+        Boolean(keywordRef.current.trim()) || document.activeElement === searchInputRef.current,
+      onActivate: () => {
+        const input = searchInputRef.current;
+        if (!input) return;
+        input.focus({ preventScroll: true });
+        input.select();
+      },
+      onEscape: () => {
+        if (keywordRef.current) setKeyword("");
+        searchInputRef.current?.blur();
+      },
+    });
+  }, []);
+
+  /** 列表刷新后：选中项仍在则保留编辑态；已删除才清空，避免发布后内容被刷没。 */
+  const retainOrClearSelection = useCallback(
+    (rows: Record<string, unknown>[]) => {
+      const current = selectedKeyRef.current;
+      if (current == null) return;
+      const exists = rows.some((row) => rowItemKey(row, itemKey) === current);
+      if (exists) return;
+      setSelectedKey(null);
+      setContent("");
+      setHistory([]);
+      setInspect(null);
+    },
+    [itemKey],
   );
 
   const toggleNode = async (node: ModuleTreeNode) => {
@@ -177,11 +219,10 @@ export function GenericCapabilityPane({
             setError(null);
             return;
           }
+          const flat = flattenTree(nodes);
           setTree(nodes);
-          setItems(flattenTree(nodes));
-          setSelectedKey(null);
-          setContent("");
-          setHistory([]);
+          setItems(flat);
+          retainOrClearSelection(flat);
           setError(null);
           return;
         }
@@ -190,10 +231,7 @@ export function GenericCapabilityPane({
         else {
           setItems(rows);
           setChildren([]);
-          setSelectedKey(null);
-          setContent("");
-          setHistory([]);
-          setInspect(null);
+          retainOrClearSelection(rows);
         }
         setError(null);
       } catch (err) {
@@ -202,7 +240,18 @@ export function GenericCapabilityPane({
         setLoading(false);
       }
     },
-    [capability.id, childListMethod, connection, detail, getMethod, itemKey, listMethod, namespaceId, pluginId],
+    [
+      capability.id,
+      childListMethod,
+      connection,
+      detail,
+      getMethod,
+      itemKey,
+      listMethod,
+      namespaceId,
+      pluginId,
+      retainOrClearSelection,
+    ],
   );
 
   useEffect(() => {
@@ -332,7 +381,10 @@ export function GenericCapabilityPane({
       } else if ((detail === "editor" || detail === "kv" || detail === "form" || detail === "tree") && selected) {
         await openRow(selected);
       }
-      await onMutate?.();
+      // 命名空间变更才需要刷新侧栏；配置发布等不要连带 reload，避免二次 load 清掉编辑态
+      if (capability.id === "namespace") {
+        await onMutate?.();
+      }
     } catch (err) {
       if (!isCancelled(err)) setError(err instanceof Error ? err.message : String(err));
     }
@@ -410,8 +462,13 @@ export function GenericCapabilityPane({
   }));
 
   return (
-    <div className={isSplitPane(detail) ? "cloud-resource-list module-host-split" : "cloud-resource-list"}>
-      {detail !== "facts" && detail !== "metrics" && detail !== "tree" ? (
+    <div
+      ref={paneRootRef}
+      className={isSplitPane(detail) ? "cloud-resource-list module-host-split" : "cloud-resource-list"}
+    >
+      {isSplitPane(detail) ? (
+        <ModuleHostSplitLayout>
+          {detail !== "facts" && detail !== "metrics" && detail !== "tree" ? (
       <div className="module-host-col">
         <header className="db-tables-panel-header db-connection-info-header">
           <span className="db-tables-panel-header-label">{title}</span>
@@ -422,6 +479,7 @@ export function GenericCapabilityPane({
           </div>
           <div className="db-tables-panel-header-actions">
             <TextInput
+              ref={searchInputRef}
               className="cloud-resource-list__search"
               value={keyword}
               onChange={setKeyword}
@@ -483,87 +541,8 @@ export function GenericCapabilityPane({
           </div>
         )}
       </div>
-      ) : null}
-      {detail === "facts" ? (
-        <div className="cloud-overview__body">
-          <header className="db-tables-panel-header db-connection-info-header">
-            <span className="db-tables-panel-header-label">{title}</span>
-            <div className="db-tables-panel-header-actions">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={headerActionButtonClass()}
-                onClick={() => void load()}
-              >
-                {t("common.refresh")}
-              </Button>
-            </div>
-          </header>
-          {error ? <p className="form-hint cloud-resource-list__error">{error}</p> : null}
-          {facts.length === 0 ? (
-            <div className="cloud-resource-list__empty">
-              <p>{t("moduleHost.emptyList")}</p>
-            </div>
-          ) : (
-            <div className="cloud-overview__facts">
-              {facts.map((fact) => (
-                <div key={fact.key} className="cloud-overview__fact">
-                  <span className="cloud-overview__fact-label">{fact.key}</span>
-                  <span className="cloud-overview__fact-value">{fact.value || "—"}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : null}
-      {detail === "metrics" ? (
-        <div className="cloud-resource-list">
-          <header className="db-tables-panel-header db-connection-info-header">
-            <span className="db-tables-panel-header-label">{title}</span>
-            <div className="db-tables-panel-header-tags">
-              <span className="db-tables-panel-header-tag">
-                {t("moduleHost.listCount", { count: String(metrics.length) })}
-              </span>
-            </div>
-            <div className="db-tables-panel-header-actions">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={headerActionButtonClass()}
-                onClick={() => void load()}
-              >
-                {t("common.refresh")}
-              </Button>
-            </div>
-          </header>
-          {error ? <p className="form-hint cloud-resource-list__error">{error}</p> : null}
-          {metrics.length === 0 ? (
-            <div className="cloud-resource-list__empty">
-              <p>{t("moduleHost.emptyList")}</p>
-            </div>
-          ) : (
-            <div className="cloud-overview__grid">
-              {metrics.map((series) => {
-                const last = series.points[series.points.length - 1];
-                return (
-                  <div key={series.id} className="cloud-overview__card">
-                    <span className="cloud-overview__card-label">{series.label}</span>
-                    <strong className="cloud-overview__card-value">
-                      {last ? `${last.value}${series.unit ? ` ${series.unit}` : ""}` : "—"}
-                    </strong>
-                    <span className="cloud-overview__card-hint">
-                      {t("moduleHost.metricPoints", { count: String(series.points.length) })}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ) : null}
-      {detail === "tree" ? (
+          ) : null}
+          {detail === "tree" ? (
         <div className="module-host-col">
           <header className="db-tables-panel-header db-connection-info-header">
             <span className="db-tables-panel-header-label">{title}</span>
@@ -574,6 +553,7 @@ export function GenericCapabilityPane({
             </div>
             <div className="db-tables-panel-header-actions">
               <TextInput
+                ref={searchInputRef}
                 className="cloud-resource-list__search"
                 value={keyword}
                 onChange={setKeyword}
@@ -636,8 +616,8 @@ export function GenericCapabilityPane({
             </div>
           )}
         </div>
-      ) : null}
-      {detail === "editor" || detail === "kv" || detail === "tree" ? (
+          ) : null}
+          {detail === "editor" || detail === "kv" || detail === "tree" ? (
         <div className="module-host-editor">
           {selected ? (
             <>
@@ -760,8 +740,8 @@ export function GenericCapabilityPane({
             </div>
           )}
         </div>
-      ) : null}
-      {detail === "form" ? (
+          ) : null}
+          {detail === "form" ? (
         <div className="module-host-editor">
           {selected ? (
             <>
@@ -804,8 +784,8 @@ export function GenericCapabilityPane({
             </div>
           )}
         </div>
-      ) : null}
-      {detail === "children" ? (
+          ) : null}
+          {detail === "children" ? (
         <div className="module-host-col">
           <header className="db-tables-panel-header db-connection-info-header">
             <span className="db-tables-panel-header-label">{t("moduleHost.children")}</span>
@@ -830,25 +810,40 @@ export function GenericCapabilityPane({
                         {
                           id: "__childActions",
                           header: t("moduleHost.actions"),
-                          variant: "actions" as const,
+                          copyable: false as const,
+                          defaultWidth: 140,
+                          minWidth: 108,
+                          headerClassName: "module-host-actions-col",
+                          cellClassName: "module-host-actions-col",
                           render: (row: Record<string, unknown>) => (
                             <div className="module-host-row-actions">
-                              {childActions.map((action) => (
-                                <Button
-                                  key={action.id}
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  className={headerActionButtonClass(isDangerAction(action))}
-                                  onClick={() => void runAction(action, row)}
-                                >
-                                  {action.toggle
-                                    ? row[action.toggle] === false
-                                      ? t("moduleHost.enable")
-                                      : t("moduleHost.disable")
-                                    : actionLabel(action, t)}
-                                </Button>
-                              ))}
+                              {childActions.map((action) => {
+                                const inactive = !isChildActionVisible(action, row);
+                                const pair =
+                                  action.id === "online" ||
+                                  action.id === "offline" ||
+                                  action.id === "goOnline" ||
+                                  action.id === "goOffline";
+                                // 上线/下线成对展示，当前态按钮禁用；其它动作仍按可见性过滤
+                                if (inactive && !pair) return null;
+                                return (
+                                  <Button
+                                    key={action.id}
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={pair && inactive}
+                                    className={headerActionButtonClass(isDangerAction(action))}
+                                    onClick={() => void runAction(action, row)}
+                                  >
+                                    {action.toggle
+                                      ? row[action.toggle] === false
+                                        ? t("moduleHost.enable")
+                                        : t("moduleHost.disable")
+                                      : actionLabel(action, t)}
+                                  </Button>
+                                );
+                              })}
                             </div>
                           ),
                         },
@@ -857,12 +852,170 @@ export function GenericCapabilityPane({
                 ]}
                 rows={children}
                 rowKey={(row) => rowItemKey(row, childItemKey) || JSON.stringify(row)}
-                virtualizeRows
+                virtualizeRows={false}
               />
             </div>
           )}
         </div>
-      ) : null}
+          ) : null}
+        </ModuleHostSplitLayout>
+      ) : (
+        <>
+          {detail !== "facts" && detail !== "metrics" && detail !== "tree" ? (
+      <div className="module-host-col">
+        <header className="db-tables-panel-header db-connection-info-header">
+          <span className="db-tables-panel-header-label">{title}</span>
+          <div className="db-tables-panel-header-tags">
+            <span className="db-tables-panel-header-tag">
+              {loading ? "…" : t("moduleHost.listCount", { count: String(visible.length) })}
+            </span>
+          </div>
+          <div className="db-tables-panel-header-actions">
+            <TextInput
+              ref={searchInputRef}
+              className="cloud-resource-list__search"
+              value={keyword}
+              onChange={setKeyword}
+              placeholder={t("moduleHost.search")}
+              clearable
+              copyable={false}
+              size="sm"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={headerActionButtonClass()}
+              onClick={() => void load()}
+            >
+              {t("common.refresh")}
+            </Button>
+            {formFields.length > 0 && toolbarActions.length > 0 ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={headerActionButtonClass()}
+                onClick={openCreate}
+              >
+                {actionLabel(toolbarActions[0], t)}
+              </Button>
+            ) : (
+              toolbarActions.map((action) => (
+                <Button
+                  key={action.id}
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={headerActionButtonClass(isDangerAction(action))}
+                  onClick={() => void runAction(action)}
+                >
+                  {actionLabel(action, t)}
+                </Button>
+              ))
+            )}
+          </div>
+        </header>
+        {error ? <p className="form-hint cloud-resource-list__error">{error}</p> : null}
+        {!loading && visible.length === 0 ? (
+          <div className="cloud-resource-list__empty">
+            <p>{t("moduleHost.emptyList")}</p>
+          </div>
+        ) : (
+          <div className="cloud-resource-list__body">
+            <DbTablesPanelGrid
+              columns={parentGrid}
+              rows={visible}
+              rowKey={(row) => rowItemKey(row, itemKey)}
+              selectedRowKey={selectedKey}
+              onRowClick={(row) => void openRow(row)}
+              virtualizeRows
+            />
+          </div>
+        )}
+      </div>
+          ) : null}
+          {detail === "facts" ? (
+        <div className="cloud-overview__body">
+          <header className="db-tables-panel-header db-connection-info-header">
+            <span className="db-tables-panel-header-label">{title}</span>
+            <div className="db-tables-panel-header-actions">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={headerActionButtonClass()}
+                onClick={() => void load()}
+              >
+                {t("common.refresh")}
+              </Button>
+            </div>
+          </header>
+          {error ? <p className="form-hint cloud-resource-list__error">{error}</p> : null}
+          {facts.length === 0 ? (
+            <div className="cloud-resource-list__empty">
+              <p>{t("moduleHost.emptyList")}</p>
+            </div>
+          ) : (
+            <div className="cloud-overview__facts">
+              {facts.map((fact) => (
+                <div key={fact.key} className="cloud-overview__fact">
+                  <span className="cloud-overview__fact-label">{fact.key}</span>
+                  <span className="cloud-overview__fact-value">{fact.value || "—"}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+          ) : null}
+          {detail === "metrics" ? (
+        <div className="cloud-resource-list">
+          <header className="db-tables-panel-header db-connection-info-header">
+            <span className="db-tables-panel-header-label">{title}</span>
+            <div className="db-tables-panel-header-tags">
+              <span className="db-tables-panel-header-tag">
+                {t("moduleHost.listCount", { count: String(metrics.length) })}
+              </span>
+            </div>
+            <div className="db-tables-panel-header-actions">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={headerActionButtonClass()}
+                onClick={() => void load()}
+              >
+                {t("common.refresh")}
+              </Button>
+            </div>
+          </header>
+          {error ? <p className="form-hint cloud-resource-list__error">{error}</p> : null}
+          {metrics.length === 0 ? (
+            <div className="cloud-resource-list__empty">
+              <p>{t("moduleHost.emptyList")}</p>
+            </div>
+          ) : (
+            <div className="cloud-overview__grid">
+              {metrics.map((series) => {
+                const last = series.points[series.points.length - 1];
+                return (
+                  <div key={series.id} className="cloud-overview__card">
+                    <span className="cloud-overview__card-label">{series.label}</span>
+                    <strong className="cloud-overview__card-value">
+                      {last ? `${last.value}${series.unit ? ` ${series.unit}` : ""}` : "—"}
+                    </strong>
+                    <span className="cloud-overview__card-hint">
+                      {t("moduleHost.metricPoints", { count: String(series.points.length) })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+          ) : null}
+        </>
+      )}
       <FormDialog
         open={formMode !== null}
         onClose={() => setFormMode(null)}
