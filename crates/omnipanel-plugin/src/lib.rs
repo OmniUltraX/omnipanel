@@ -14,6 +14,7 @@ mod manifest;
 mod permission;
 mod platform;
 mod registry;
+mod resolve;
 mod source;
 
 pub use candidate::{ImportCandidate, upsert_candidates};
@@ -50,11 +51,16 @@ pub use installed::{InstalledPlugin, load_installed};
 pub use invoke::{InvokeFuture, InvokeGateway, InvokeHandler};
 pub use kind::PluginKind;
 pub use manifest::{
-    HOST_API_VERSION, PluginEntryDecl, PluginManifest, PluginMethodDecl, PluginRuntime,
+    HOST_API_VERSION, PluginDependencyDecl, PluginEntryDecl, PluginManifest, PluginMethodDecl,
+    PluginRuntime, parse_version_req,
 };
 pub use permission::PluginPermission;
 pub use platform::PluginPlatform;
 pub use registry::{
     ContributionIndex, PluginEntry, PluginListItem, PluginRegistry, UNSUPPORTED_REASON_PLATFORM,
+};
+pub use resolve::{
+    DependencyReq, PlanItem, ResolveError, VersionEntry, max_satisfying, resolve_install,
+    update_available,
 };
 pub use source::PluginSource;

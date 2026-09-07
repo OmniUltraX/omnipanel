@@ -12,8 +12,13 @@
 
 pub mod devkey;
 pub mod pack;
+pub mod registry;
 
 pub use pack::{extract_to, pack_dir, pack_dir_with_entries};
+pub use registry::{
+    RegistryArtifact, RegistryFile, RegistryPlugin, RegistryVersion, canonical_registry_bytes,
+    parse_registry, sign_registry, verify_registry,
+};
 
 use std::fs::File;
 use std::io::{BufReader, Read, read_to_string};
@@ -42,6 +47,8 @@ pub enum PkgError {
     UnsignedRejected,
     #[error("清单非法: {0}")]
     Manifest(String),
+    #[error("registry 非法: {0}")]
+    Registry(String),
 }
 
 impl From<zip::result::ZipError> for PkgError {
@@ -67,12 +74,15 @@ pub const OFFICIAL_VERIFY_PUBKEYS_HEX: &[&str] =
 fn official_verifying_keys() -> Vec<VerifyingKey> {
     OFFICIAL_VERIFY_PUBKEYS_HEX
         .iter()
-        .filter_map(|hex_str| {
-            let raw = hex::decode(hex_str).ok()?;
-            let bytes: [u8; 32] = raw.try_into().ok()?;
-            VerifyingKey::from_bytes(&bytes).ok()
-        })
+        .filter_map(|hex_str| hex_to_verifying_key(hex_str))
         .collect()
+}
+
+/// hex（32 字节）→ 验签公钥；源 pin key 解析复用，非法返回 None。
+pub fn hex_to_verifying_key(hex_str: &str) -> Option<VerifyingKey> {
+    let raw = hex::decode(hex_str.trim()).ok()?;
+    let bytes: [u8; 32] = raw.try_into().ok()?;
+    VerifyingKey::from_bytes(&bytes).ok()
 }
 
 fn push_framed(out: &mut Vec<u8>, name: &str, data: &[u8]) {

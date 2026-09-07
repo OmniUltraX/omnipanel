@@ -2,6 +2,7 @@ import {
   DASHBOARD_PATH,
   isDashboardPath,
   isPluginsPath,
+  isStudioPath,
   isWorkspacePath,
   moduleKeyFromPath,
   type ModuleKey,
@@ -34,7 +35,12 @@ export function isOverlayModulePath(pathname: string): boolean {
 
 /** 看板 / 工程工作区 — 走轻量 shell 路由 */
 export function isShellRoutePath(pathname: string): boolean {
-  return isDashboardPath(pathname) || isWorkspacePath(pathname) || isPluginsPath(pathname);
+  return (
+    isDashboardPath(pathname) ||
+    isWorkspacePath(pathname) ||
+    isPluginsPath(pathname) ||
+    isStudioPath(pathname)
+  );
 }
 
 /**

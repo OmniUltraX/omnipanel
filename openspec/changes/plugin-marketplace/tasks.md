@@ -1,8 +1,8 @@
 ## 1. 清单与版本地基（后端 crate）
 
-- [ ] 1.1 manifest `dependencies[]` 三端落地：`packages/plugin-sdk/src/index.ts` zod（id 反向域名 + req 合法 + 禁自依赖）+ `crates/omnipanel-plugin/src/manifest.rs` Rust 校验 + `scripts/check-plugin-manifests.mjs` + `validate-plugin.mjs`。验证：非法依赖 CI 失败
-- [ ] 1.2 semver resolver 纯函数：`crates/omnipanel-plugin/src/` 新增 `resolve.rs`（`max_satisfying` / `update_available` / BFS 依赖展平 / 环与冲突报错），`semver` 加直接依赖。验证：`cargo test -p omnipanel-plugin` 新增用例通过
-- [ ] 1.3 registry v2 解析验签：`crates/omnipanel-plugin-pkg/src/registry.rs`（v2 schema + v1 兼容读 + ed25519 验签复用 `verify_with_keys`）。验证：篡改 registry 单测拒绝；v1 单测可读
+- [x] 1.1 manifest `dependencies[]` 三端落地：`packages/plugin-sdk/src/index.ts` zod（id 反向域名 + req 合法 + 禁自依赖）+ `crates/omnipanel-plugin/src/manifest.rs` Rust 校验 + `scripts/check-plugin-manifests.mjs` + `validate-plugin.mjs`。验证：非法依赖 CI 失败
+- [x] 1.2 semver resolver 纯函数：`crates/omnipanel-plugin/src/` 新增 `resolve.rs`（`max_satisfying` / `update_available` / BFS 依赖展平 / 环与冲突报错），`semver` 加直接依赖。验证：`cargo test -p omnipanel-plugin` 新增用例通过
+- [x] 1.3 registry v2 解析验签：`crates/omnipanel-plugin-pkg/src/registry.rs`（v2 schema + v1 兼容读 + ed25519 验签复用 `verify_with_keys`）。验证：篡改 registry 单测拒绝；v1 单测可读
 
 ## 2. 源管理与信任（后端 crate → commands）
 

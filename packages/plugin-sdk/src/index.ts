@@ -48,6 +48,24 @@ export const pluginMethodSchema = z.object({
 
 export type PluginMethod = z.infer<typeof pluginMethodSchema>;
 
+/**
+ * 插件依赖声明：`{ id, versionReq }`。
+ * versionReq 语法（marketplace resolver 与 npm 化简版对齐）：
+ * `^x.y.z`（缺省，不写意义同 `^`）、`>=x.y.z`、`=x.y.z` 精确。
+ */
+export const pluginDependencySchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .refine((id) => id.includes("."), "依赖 id 必须是反向域名（至少含一个 .）"),
+  versionReq: z
+    .string()
+    .min(1)
+    .regex(/^(\^|>=|=)?\d+\.\d+\.\d+$/, "versionReq 非法（仅支持 ^x.y.z / >=x.y.z / =x.y.z）"),
+});
+
+export type PluginDependency = z.infer<typeof pluginDependencySchema>;
+
 export const pluginRuntimeSchema = z.enum(["inproc", "sidecar", "http"]);
 
 export type PluginRuntime = z.infer<typeof pluginRuntimeSchema>;
@@ -346,6 +364,23 @@ export const pluginManifestSchema = z.object({
   kind: pluginKindSchema,
   permissions: z.array(pluginPermissionSchema).default([]),
   methods: z.array(pluginMethodSchema).optional(),
+  /** 依赖的其它插件（marketplace 安装时按拓扑序一次装齐，禁自依赖）。 */
+  dependencies: z
+    .array(pluginDependencySchema)
+    .default([])
+    .superRefine((deps, ctx) => {
+      const seen = new Set<string>();
+      deps.forEach((dep, index) => {
+        if (seen.has(dep.id)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `dependencies 重复声明: ${dep.id}`,
+            path: [index, "id"],
+          });
+        }
+        seen.add(dep.id);
+      });
+    }),
   entry: pluginEntrySchema,
   runtime: pluginRuntimeSchema.optional(),
   /** 所需最低宿主 API 版本；超过宿主当前版本时拒绝装载。 */
@@ -399,6 +434,15 @@ export const pluginManifestSchema = z.object({
       path: ["entry", "driver"],
     });
   }
+  val.dependencies?.forEach((dep, index) => {
+    if (dep.id === val.id) {
+      ctx.addIssue({
+        code: "custom",
+        message: "dependencies 禁止自依赖",
+        path: ["dependencies", index, "id"],
+      });
+    }
+  });
 });
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;

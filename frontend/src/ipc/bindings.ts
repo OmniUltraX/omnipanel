@@ -1062,6 +1062,18 @@ export const commands = {
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
 	/**  预读本地包清单（安装前权限确认用）：只验签 + 解析，不解压不安装。 */
 	pluginPeekManifest: (path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_peek_manifest", { path })),
+	/**  列出 plugins-custom 下的工程（有无 plugin.json 都列）。 */
+	pluginStudioListProjects: () => typedError<StudioProject[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
+	/**  脚手架：node create-plugin.mjs 建新工程，返回刷新后的工程。 */
+	pluginStudioScaffold: (name: string, kind: string) => typedError<StudioProject, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind })),
+	/**  读工程文件（文本，≤512KB）。 */
+	pluginStudioReadFile: (project: string, path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_read_file", { project, path })),
+	/**  写工程文件（文本，≤1MB，自动建父目录）。 */
+	pluginStudioWriteFile: (project: string, path: string, content: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_write_file", { project, path, content })),
+	/**  环境检测：cargo / node / wat2wasm 版本（缺失为 null）。 */
+	pluginStudioEnvCheck: () => typedError<StudioEnv, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_env_check")),
+	/**  跑脚本：validate（node）或 pack（cargo，返回 artifact 路径）。 */
+	pluginStudioRun: (project: string, op: string) => typedError<StudioRunResult, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_run", { project, op })),
 	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。 */
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
 	/**  插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`。 */
@@ -4540,6 +4552,27 @@ export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | 
 
 /**  前端 / IPC 列表项。 */
 export type PluginListItem = PluginListItem_Serialize | PluginListItem_Deserialize;
+
+/* 手补（待 gen:bindings 覆盖）：plugin_studio 命令的 specta 类型。Rust 侧以
+ * #[serde(rename_all = "camelCase")] 序列化，字段名与下面一致。 */
+export type StudioProject = {
+  name: string;
+  files: string[];
+  hasManifest: boolean;
+};
+
+export type StudioRunResult = {
+  success: boolean;
+  output: string;
+  artifactPath?: string | null;
+};
+
+export type StudioEnv = {
+  cargo?: string | null;
+  node?: string | null;
+  wat2wasm?: string | null;
+  repoRoot?: string | null;
+};
 
 /**  前端 / IPC 列表项。 */
 export type PluginListItem_Deserialize = {

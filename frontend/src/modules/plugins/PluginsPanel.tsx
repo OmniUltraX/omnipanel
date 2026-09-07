@@ -5,8 +5,11 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { TextInput } from "../../components/ui/form/TextInput";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { useI18n } from "../../i18n";
+import { STUDIO_PATH } from "../../lib/paths";
 import { useModuleVisibility } from "../../lib/moduleVisibility";
 import {
   DETAIL_HEIGHT_DEFAULT,
@@ -48,6 +51,7 @@ function clampDetailHeight(height: number, host: HTMLElement | null): number {
 
 export function PluginsPanel() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const { active: pluginsRouteActive } = useModuleVisibility();
   const center = usePluginCenter();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -137,6 +141,12 @@ export function PluginsPanel() {
             copyable={false}
           />
         </div>
+        <WorkbenchActionButton
+          title={t("plugins.studio.openHint")}
+          onClick={() => navigate(STUDIO_PATH)}
+        >
+          {t("plugins.studio.open")}
+        </WorkbenchActionButton>
         <div className="plugin-center-kinds" role="tablist" aria-label={t("plugins.center.filter.all")}>
           {KIND_FILTERS.map((kind) => (
             <button

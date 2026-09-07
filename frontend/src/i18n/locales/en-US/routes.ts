@@ -14,6 +14,7 @@ export default {
     files: "File Manager",
     settings: "Settings",
     plugins: "Plugin Center",
+    studio: "Plugin Studio",
     cloud: "Cloud",
     nacos: "Nacos",
     default: "OmniPanel",

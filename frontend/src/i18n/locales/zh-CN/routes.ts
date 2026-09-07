@@ -14,6 +14,7 @@ export default {
     files: "文件管理",
     settings: "设置",
     plugins: "插件中心",
+    studio: "插件工作台",
     cloud: "云",
     nacos: "Nacos",
     default: "OmniPanel",

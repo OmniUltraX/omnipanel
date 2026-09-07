@@ -16,9 +16,11 @@ import {
   MODULE_PATHS,
   MODULE_PREFIX,
   PLUGINS_PATH,
+  STUDIO_PATH,
   WORKSPACE_PATHS,
   isDashboardPath,
   isPluginsPath,
+  isStudioPath,
   isWorkspacePath,
   moduleKeyFromPath,
 } from "../../lib/paths";
@@ -27,7 +29,7 @@ import {
   isOverlayModuleKey,
   isShellRoutePath,
 } from "../../lib/routePanels";
-import { LazyPluginsPanel, LazyUserWorkspace } from "../../routes/lazyModules";
+import { LazyPluginsPanel, LazyStudioPanel, LazyUserWorkspace } from "../../routes/lazyModules";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { prepareModuleLocale } from "../../i18n";
@@ -46,6 +48,7 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
   const pathname = location.pathname;
   const locale = useSettingsStore((s) => s.locale);
   const isPlugins = isPluginsPath(pathname);
+  const isStudio = isStudioPath(pathname);
   const isShellRoute = isShellRoutePath(pathname) && !isDashboardPath(pathname);
 
   useEffect(() => {
@@ -53,6 +56,9 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
     if (key && isOverlayModuleKey(key)) {
       void prepareModuleLocale(locale, key);
     } else if (isPluginsPath(pathname)) {
+      void prepareModuleLocale(locale, "plugins");
+    } else if (isStudioPath(pathname)) {
+      // studio 文案在 plugins 分片（plugins.studio.*）+ routes 分片（routes.studio，后者随 boot 预载）
       void prepareModuleLocale(locale, "plugins");
     } else if (isDashboardPath(pathname)) {
       void prepareModuleLocale(locale, "dashboard");
@@ -120,6 +126,14 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
             element={
               <SuspendedModulePanel active={isPlugins}>
                 <LazyPluginsPanel />
+              </SuspendedModulePanel>
+            }
+          />
+          <Route
+            path={STUDIO_PATH}
+            element={
+              <SuspendedModulePanel active={isStudio}>
+                <LazyStudioPanel />
               </SuspendedModulePanel>
             }
           />
