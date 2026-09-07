@@ -17439,12 +17439,9 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .server-app-market__search {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
+        width: min(240px, 42vw);
         max-width: 320px;
-        flex: 1;
+        flex-shrink: 0;
     }
 
     .server-app-market__installed-filter {
@@ -17467,11 +17464,6 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--text-secondary);
         font-size: 12px;
         line-height: 1.4;
-    }
-
-    .server-app-market__search .input {
-        flex: 1;
-        min-width: 0;
     }
 
     .server-app-card__footer {
@@ -17667,6 +17659,15 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .server-app-card__meta {
+        font-size: 11px;
+        color: var(--meta);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
     }
 
     .server-app-card__status {

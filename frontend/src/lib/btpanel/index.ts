@@ -32,6 +32,7 @@ export {
   type BtAppUiField,
   type BtAppVersion,
   type BtCloudServer,
+  type BtConcifInfo,
   type BtCreateAppParams,
   type BtCreateDockerAppParams,
   type BtDockerApp,
@@ -67,8 +68,13 @@ export {
 } from "./client";
 export {
   BT_SOFT_MYSQL_FALLBACK_INSTALL_ID,
+  BT_SOFT_REDIS_FALLBACK_INSTALL_ID,
+  btSoftDbFallbackInstallId,
   btSoftMysqlInstallId,
+  btSoftRedisInstallId,
   isBtMysqlOrMariadbKey,
+  isBtRedisKey,
+  resolveBtInstalledAppParams,
   resolveBtInstalledMysqlParams,
 } from "./installedMysqlParams";
 export { parseBtJavaProjectLoadInfo, parseJvmRuntimeHints, parseJvmSizeArg } from "./javaLoadInfo";
@@ -92,4 +98,5 @@ export {
   mapBtAppToOnePanel,
   mapBtInstalledAppToOnePanel,
   pickBtAppVersion,
+  pickBtInstalledHostPort,
 } from "./appsMap";

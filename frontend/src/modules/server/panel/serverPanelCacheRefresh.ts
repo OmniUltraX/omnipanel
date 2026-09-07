@@ -1,6 +1,7 @@
 import {
   btDockerAppIconPath,
   isBtPanelAuthFailureMessage,
+  mapBtInstalledAppToOnePanel,
   type BtDockerApp,
   type BtInstalledApp,
   type BtSoftItem,
@@ -55,13 +56,10 @@ export function enrichWebsitesWithGroups(
 }
 
 export function btInstalledToOnePanel(item: BtInstalledApp): OnePanelInstalledApp {
+  const mapped = mapBtInstalledAppToOnePanel(item);
   return {
-    id: Number(item.appid) || 0,
-    name: item.service_name || item.apptitle || item.appname,
-    appKey: item.appname,
-    appName: item.apptitle || item.appname,
-    status: item.status || (item.appstatus === 1 ? "Running" : "Stopped"),
-    version: item.version || (item.m_version && item.s_version ? `${item.m_version}.${item.s_version}` : item.m_version),
+    ...mapped,
+    status: item.status || (item.appstatus === 1 ? "Running" : "Stopped") || mapped.status,
   };
 }
 
@@ -156,6 +154,13 @@ function normalizeThirdPartyAppRow(row: Record<string, unknown>): OnePanelApp {
 }
 
 function normalizeThirdPartyInstalledAppRow(row: Record<string, unknown>): OnePanelInstalledApp {
+  const httpPortRaw = row.httpPort ?? row.port;
+  const httpPort =
+    typeof httpPortRaw === "number"
+      ? httpPortRaw
+      : typeof httpPortRaw === "string"
+        ? Number.parseInt(httpPortRaw, 10)
+        : NaN;
   return {
     id: Number(row.id) || 0,
     name: String(row.name ?? row.appName ?? "—"),
@@ -175,6 +180,7 @@ function normalizeThirdPartyInstalledAppRow(row: Record<string, unknown>): OnePa
     version: row.version != null ? String(row.version) : undefined,
     status: row.status != null ? String(row.status) : undefined,
     message: row.message != null ? String(row.message) : undefined,
+    httpPort: Number.isFinite(httpPort) && httpPort > 0 ? httpPort : undefined,
     icon: typeof row.icon === "string" ? row.icon : undefined,
   };
 }
