@@ -77,14 +77,14 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 
 | Area | Highlights |
 |------|------------|
-| **Plugin platform** | Signed `.omni-plugin` install; Plugin Center (official catalog + third-party DBX); L1 / L2 / L3; Host SDK & docs |
+| **Plugin platform** | Signed `.omni-plugin` install; Plugin Center (official + third-party sources / version install); L1 / L2 / L3; Host SDK & docs |
 | **Cloud vendors** | Capability workbench (account → capability → instance); Aliyun + Tencent Cloud; Aliyun also covers SG / EIP / SLB / RDS / Redis / disk / DNS |
-| **Module plugins** | Nacos workbench: enable to show sidebar; switch namespace on the connection like a cloud region |
+| **Module plugins** | Nacos: namespace switch, service online/offline, resizable split, Ctrl+F config search |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
 | **Presence guard** | Dangerous ops require Windows Hello / Touch ID or short-lived type-issued token; consumed once per action across DB / Docker / cloud / SSH |
 | **Team sync** | Module snapshots use v2 key derivation; folder trees; post-upload peek matches local |
-| **Database** | Remote export SSH pool lag fixed; readiness check before export |
-| **Performance** | No module-window prewarm at startup — lower idle memory |
+| **Panel apps** | BT installed apps show version/port; MySQL / Redis one-click manage params |
+| **Performance** | Keep-alive module switch; stop widget polling when hidden; no module-window prewarm |
 | **Web edition** | Browser UI + public GHCR image; one-click deploy on Render, Zeabur, Railway, and more |
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md).

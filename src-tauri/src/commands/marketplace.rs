@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use specta::Type;
 use tauri::State;
 
-use crate::commands::plugin::{install_plugin_from_path, pkg_err_to_omni};
+use crate::commands::plugin::install_plugin_from_path;
 use crate::state::AppState;
 
 pub(crate) const OFFICIAL_SOURCE_ID: &str = "official";
