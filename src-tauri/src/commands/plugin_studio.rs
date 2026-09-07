@@ -26,6 +26,12 @@ pub struct StudioProject {
     pub name: String,
     pub files: Vec<String>,
     pub has_manifest: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -98,6 +104,8 @@ fn jail_path(project: &str, rel: &str) -> Result<PathBuf, OmniError> {
     Ok(target)
 }
 
+const SKIP_DIR_NAMES: &[&str] = &["node_modules", "target", ".git", "dist", ".idea"];
+
 fn collect_files(dir: &Path, base: &Path, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -107,10 +115,84 @@ fn collect_files(dir: &Path, base: &Path, out: &mut Vec<String>) {
     for entry in names {
         let path = entry.path();
         if path.is_dir() {
+            let skip = entry
+                .file_name()
+                .to_str()
+                .is_some_and(|n| SKIP_DIR_NAMES.iter().any(|s| n.eq_ignore_ascii_case(s)));
+            if skip {
+                continue;
+            }
             collect_files(&path, base, out);
         } else if let Ok(rel) = path.strip_prefix(base) {
             out.push(rel.to_string_lossy().replace('\\', "/"));
         }
+    }
+}
+
+fn json_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn load_studio_project(dir: &Path, name: String) -> StudioProject {
+    let mut files = Vec::new();
+    collect_files(dir, dir, &mut files);
+    files.retain(|rel| {
+        dir.join(rel)
+            .metadata()
+            .map(|m| m.len() <= MAX_READ_BYTES && m.is_file())
+            .unwrap_or(false)
+    });
+    let manifest_path = dir.join("plugin.json");
+    let has_manifest = manifest_path.is_file();
+    let (kind, version, display_name) = std::fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .map(|value| {
+            (
+                json_string_field(&value, "kind"),
+                json_string_field(&value, "version"),
+                json_string_field(&value, "displayName"),
+            )
+        })
+        .unwrap_or((None, None, None));
+    StudioProject {
+        name,
+        files,
+        has_manifest,
+        kind,
+        version,
+        display_name,
+    }
+}
+
+const PLUGIN_KINDS: &[&str] = &[
+    "engine", "panel", "importer", "cloud", "module", "theme", "addon",
+];
+
+/// 把七种身份映射成 create-plugin.mjs 真正能干活的模板（默认给可跑样板，不要空壳）。
+fn resolve_scaffold_template(kind: &str, starter: Option<&str>) -> Result<&'static str, OmniError> {
+    let starter = starter.map(str::trim).filter(|s| !s.is_empty());
+    match (kind, starter) {
+        ("engine", None | Some("sidecar")) => Ok("engine-sidecar"),
+        ("engine", Some("blank")) => Ok("engine"),
+        ("addon", None | Some("js")) => Ok("js-logic"),
+        ("addon", Some("overlay")) => Ok("l3-overlay"),
+        ("addon", Some("wasm")) => Ok("wasm-stub"),
+        ("addon", Some("blank")) => Ok("addon"),
+        ("panel", None | Some("blank")) => Ok("panel"),
+        ("importer", None | Some("blank")) => Ok("importer"),
+        ("cloud", None | Some("blank")) => Ok("cloud"),
+        ("module", None | Some("blank")) => Ok("module"),
+        ("theme", None | Some("blank")) => Ok("theme"),
+        (other, _) if PLUGIN_KINDS.contains(&other) => Err(OmniError::invalid_input(format!(
+            "该类型不支持起步方式 {starter:?}"
+        ))),
+        (other, _) => Err(OmniError::invalid_input(format!("不支持的类型: {other}"))),
     }
 }
 
@@ -140,22 +222,7 @@ pub async fn plugin_studio_list_projects(
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
-        let mut files = Vec::new();
-        collect_files(&entry.path(), &entry.path(), &mut files);
-        // 隐藏超大/二进制文件（>512KB 不进列表，避免误点）
-        files.retain(|rel| {
-            entry
-                .path()
-                .join(rel)
-                .metadata()
-                .map(|m| m.len() <= MAX_READ_BYTES && m.is_file())
-                .unwrap_or(false)
-        });
-        out.push(StudioProject {
-            has_manifest: entry.path().join("plugin.json").is_file(),
-            name,
-            files,
-        });
+        out.push(load_studio_project(&entry.path(), name));
     }
     Ok(out)
 }
@@ -562,29 +629,19 @@ async fn download_rustup_init(client: &reqwest::Client) -> Result<Option<PathBuf
     }
 }
 
-/// 脚手架：`node scripts/create-plugin.mjs <name> <kind>`，返回刷新后的工程。
-/// name 规则与脚本一致（小写字母开头）；kind 仅允许七种 PluginKind。
+/// 脚手架：`node scripts/create-plugin.mjs <name> <template>`。
+/// `kind` 仅七种身份；`starter` 把身份映射成可跑模板（引擎默认 sidecar，附加组件默认 JS 逻辑）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_scaffold(
     _state: State<'_, AppState>,
     name: String,
     kind: String,
+    starter: Option<String>,
 ) -> Result<StudioProject, OmniError> {
-    const KINDS: &[&str] = &[
-        "engine",
-        "panel",
-        "importer",
-        "cloud",
-        "module",
-        "theme",
-        "addon",
-    ];
     let name = name.trim().to_string();
     let kind = kind.trim().to_lowercase();
-    if !KINDS.contains(&kind.as_str()) {
-        return Err(OmniError::invalid_input(format!("不支持的类型: {kind}")));
-    }
+    let template = resolve_scaffold_template(&kind, starter.as_deref())?.to_string();
     if name.is_empty()
         || !name
             .chars()
@@ -608,7 +665,7 @@ pub async fn plugin_studio_scaffold(
             &[
                 "scripts/create-plugin.mjs".to_string(),
                 name_for_task.clone(),
-                kind.clone(),
+                template,
             ],
             &root,
         )
@@ -616,14 +673,32 @@ pub async fn plugin_studio_scaffold(
     .await
     .map_err(|e| OmniError::internal(e.to_string()))??;
     let _ = output;
+    Ok(load_studio_project(&project_dir(&name)?, name))
+}
+
+/// 删除 `plugins-custom/<name>`（仅允许该目录本身，禁锢与读写相同）。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_studio_remove_project(
+    _state: State<'_, AppState>,
+    name: String,
+) -> Result<(), OmniError> {
     let dir = project_dir(&name)?;
-    let mut files = Vec::new();
-    collect_files(&dir, &dir, &mut files);
-    Ok(StudioProject {
-        has_manifest: dir.join("plugin.json").is_file(),
-        name,
-        files,
-    })
+    if !dir.is_dir() {
+        return Err(OmniError::not_found(format!("工程不存在: {name}")));
+    }
+    let parent = projects_dir()?;
+    let canon = dir
+        .canonicalize()
+        .map_err(|e| OmniError::internal(e.to_string()))?;
+    let parent_canon = parent
+        .canonicalize()
+        .map_err(|e| OmniError::internal(e.to_string()))?;
+    if !canon.starts_with(&parent_canon) || canon == parent_canon {
+        return Err(OmniError::invalid_input("路径越界"));
+    }
+    std::fs::remove_dir_all(&canon).map_err(|e| OmniError::internal(e.to_string()))?;
+    Ok(())
 }
 
 /// 跑脚本：`validate`（node validate-plugin.mjs）或 `pack`

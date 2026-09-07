@@ -967,7 +967,8 @@ export const commands = {
 	/**  列出 plugins-custom 下的工程（有�?plugin.json 都列）�?*/
 	pluginStudioListProjects: () => typedError<StudioProject[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
 	/**  脚手架：node create-plugin.mjs 建新工程，返回刷新后的工程�?*/
-	pluginStudioScaffold: (name: string, kind: string) => typedError<StudioProject, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind })),
+	pluginStudioScaffold: (name: string, kind: string, starter: string | null) => typedError<StudioProject, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind, starter })),
+	pluginStudioRemoveProject: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_remove_project", { name })),
 	/**  读工程文件（文本，≤512KB）�?*/
 	pluginStudioReadFile: (project: string, path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_read_file", { project, path })),
 	/**  写工程文件（文本，≤1MB，自动建父目录）�?*/
@@ -4454,6 +4455,9 @@ export type StudioProject = {
   name: string;
   files: string[];
   hasManifest: boolean;
+  kind?: string | null;
+  version?: string | null;
+  displayName?: string | null;
 };
 
 export type StudioRunResult = {

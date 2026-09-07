@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { parsePluginManifest } from "@omnipanel/plugin-sdk";
 import { CodeEditor, codeEditorLanguageFromPath } from "../../components/ui/content";
 import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
@@ -13,7 +13,7 @@ import { unwrapCommand } from "../../ipc/result";
 import { extractFencedBlocks } from "./scaffoldFormat";
 import { StudioSubmitDialog } from "./StudioSubmitDialog";
 
-/** 与 PluginKind 七种身份对齐，不把脚手架内部模板（js-logic 等）暴露给用户。 */
+/** 与 PluginKind 七种身份对齐。 */
 const PLUGIN_KINDS = [
   "engine",
   "panel",
@@ -24,13 +24,9 @@ const PLUGIN_KINDS = [
   "addon",
 ] as const;
 
-const ENV_TOOLS = ["node", "cargo", "wat2wasm"] as const;
-type EnvTool = (typeof ENV_TOOLS)[number];
+const ENV_CORE = ["node", "cargo"] as const;
+type EnvTool = "node" | "cargo" | "wat2wasm";
 
-/**
- * AI 生成骨架的定版模板：约束输出恰好三段围栏代码块，
- * 只用平台真实能力（host.ui.menu/aiComplete 等），不许编造 API。
- */
 const SCAFFOLD_SYSTEM = [
   "你是 OmniPanel 第三方插件脚手架。只输出三段 fenced 代码块，顺序固定：",
   "```plugin.json（合法清单：id 反向域名、kind 七选一、permissions 按需最小、entry.ui=ui/main.js（如需前端逻辑）、overlays 声明 L3 页）",
@@ -43,6 +39,22 @@ function appendLog(setLog: (updater: (prev: string) => string) => void, text: st
   setLog((prev) => (prev ? `${prev}\n${text}` : text));
 }
 
+function defaultStarter(kind: string): string {
+  if (kind === "engine") return "sidecar";
+  if (kind === "addon") return "js";
+  return "blank";
+}
+
+function manifestHint(file: string, content: string): { ok: boolean; text: string } | null {
+  if (file !== "plugin.json") return null;
+  try {
+    parsePluginManifest(JSON.parse(content) as unknown);
+    return { ok: true, text: "" };
+  } catch (err) {
+    return { ok: false, text: String(err) };
+  }
+}
+
 export function StudioPanel() {
   const { t } = useI18n();
   const [projects, setProjects] = useState<StudioProject[]>([]);
@@ -51,12 +63,17 @@ export function StudioPanel() {
   const [content, setContent] = useState<string>("");
   const [savedContent, setSavedContent] = useState<string>("");
   const [log, setLog] = useState<string>("");
+  const [logOpen, setLogOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [running, setRunning] = useState<string>("");
+  const [lastStatus, setLastStatus] = useState<string>("");
   const [env, setEnv] = useState<StudioEnv | null>(null);
   const [newName, setNewName] = useState<string>("");
   const [newKind, setNewKind] = useState<string>("addon");
+  const [newStarter, setNewStarter] = useState<string>("js");
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [aiDesc, setAiDesc] = useState<string>("");
   const [artifact, setArtifact] = useState<string>("");
   const [perms, setPerms] = useState<string[]>([]);
@@ -72,21 +89,62 @@ export function StudioPanel() {
   const [installing, setInstalling] = useState<string>("");
 
   const dirty = content !== savedContent;
+  const current = projects.find((item) => item.name === project);
+  const needsWasm = Boolean(current?.files.some((rel) => rel.endsWith(".wat") || rel.endsWith(".wasm")));
+  const envTools: EnvTool[] = needsWasm ? ["node", "cargo", "wat2wasm"] : [...ENV_CORE];
+  const missingEnv = envTools.filter((tool) => !env?.[tool]);
+  const envBusy = installing !== "" || running.startsWith("env:");
+  const hint = manifestHint(file, content);
+  const busy = running !== "";
+
+  const kindOptions = PLUGIN_KINDS.map((kind) => ({
+    value: kind,
+    label: t(`plugins.studio.kindLabels.${kind}`),
+  }));
+  const starterOptions = useMemo(() => {
+    if (newKind === "engine") {
+      return [
+        { value: "sidecar", label: t("plugins.studio.starters.engineSidecar") },
+        { value: "blank", label: t("plugins.studio.starters.engineBlank") },
+      ];
+    }
+    if (newKind === "addon") {
+      return [
+        { value: "js", label: t("plugins.studio.starters.addonJs") },
+        { value: "overlay", label: t("plugins.studio.starters.addonOverlay") },
+        { value: "wasm", label: t("plugins.studio.starters.addonWasm") },
+        { value: "blank", label: t("plugins.studio.starters.addonBlank") },
+      ];
+    }
+    return [];
+  }, [newKind, t]);
+
+  const confirmLeave = useCallback((): boolean => {
+    if (!dirty) return true;
+    return window.confirm(t("plugins.studio.discardConfirm"));
+  }, [dirty, t]);
 
   const reloadProjects = useCallback(async (select?: string) => {
     try {
       const list = await unwrapCommand(commands.pluginStudioListProjects(), { quiet: true });
       setProjects(list);
-      if (select && list.some((p) => p.name === select)) {
+      if (select && list.some((item) => item.name === select)) {
         setProject(select);
-      } else if (!list.some((p) => p.name === project)) {
+      } else if (select) {
+        setProject("");
+        setFile("");
+        setContent("");
+        setSavedContent("");
+      } else if (project && !list.some((item) => item.name === project)) {
         setProject("");
         setFile("");
         setContent("");
         setSavedContent("");
       }
+      return list;
     } catch (err) {
       appendLog(setLog, String(err));
+      return [];
     }
   }, [project]);
 
@@ -113,7 +171,6 @@ export function StudioPanel() {
     return () => {
       cancelled = true;
     };
-    // 进入工作台只探测一次。t / project 变化会重建 callback，若挂在 effect 上会反复 spawn cargo/node（Windows 弹控制台）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -128,42 +185,10 @@ export function StudioPanel() {
     }
   }, []);
 
-  const installEnv = useCallback(
-    async (tool: EnvTool) => {
-      if (installing || running) return;
-      setInstalling(tool);
-      setRunning(`env:${tool}`);
-      try {
-        const ret = await unwrapCommand(commands.pluginStudioEnvInstall(tool), { quiet: true });
-        appendLog(setLog, ret.output || `${tool}: ${ret.ok ? "ok" : "fail"}`);
-        await reloadEnv();
-        if (ret.ok) {
-          appendLog(
-            setLog,
-            t("plugins.studio.envInstallOk", { tool, version: ret.version ?? t("plugins.studio.envOk") }),
-          );
-        } else {
-          appendLog(setLog, t("plugins.studio.envInstallFail", { tool }));
-        }
-      } catch (err) {
-        appendLog(setLog, String(err));
-      } finally {
-        setInstalling("");
-        setRunning("");
-      }
-    },
-    [installing, running, reloadEnv, t],
-  );
-
-  const installMissing = useCallback(async () => {
-    for (const tool of ENV_TOOLS) {
-      if (env?.[tool]) continue;
-      await installEnv(tool);
-    }
-  }, [env, installEnv]);
-
   const openFile = useCallback(
-    async (projectName: string, rel: string) => {
+    async (projectName: string, rel: string, force = false) => {
+      if (!force && dirty && project === projectName && file && file !== rel && !confirmLeave()) return;
+      if (!force && dirty && project !== projectName && !confirmLeave()) return;
       try {
         const text = await unwrapCommand(commands.pluginStudioReadFile(projectName, rel));
         setProject(projectName);
@@ -174,56 +199,130 @@ export function StudioPanel() {
         appendLog(setLog, String(err));
       }
     },
-    [],
+    [confirmLeave, dirty, file, project],
+  );
+
+  const selectProject = useCallback(
+    async (name: string) => {
+      if (name === project) return;
+      if (dirty && !confirmLeave()) return;
+      setProject(name);
+      setArtifact("");
+      setPerms([]);
+      setLastStatus("");
+      const item = projects.find((entry) => entry.name === name);
+      if (item?.hasManifest) {
+        await openFile(name, "plugin.json", true);
+      } else {
+        setFile("");
+        setContent("");
+        setSavedContent("");
+      }
+    },
+    [confirmLeave, dirty, openFile, project, projects],
   );
 
   const saveFile = useCallback(async () => {
-    if (!project || !file) return;
+    if (!project || !file || running) return;
     try {
       await unwrapCommand(commands.pluginStudioWriteFile(project, file, content));
       setSavedContent(content);
       appendLog(setLog, `${t("plugins.studio.saved")}: ${file}`);
+      if (file === "plugin.json") void reloadProjects(project);
     } catch (err) {
       appendLog(setLog, String(err));
     }
-  }, [project, file, content, t]);
+  }, [content, file, project, reloadProjects, running, t]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveFile();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [saveFile]);
+
+  const installEnv = useCallback(
+    async (tool: EnvTool) => {
+      if (installing || running) return;
+      setInstalling(tool);
+      setRunning(`env:${tool}`);
+      setLogOpen(true);
+      try {
+        const ret = await unwrapCommand(commands.pluginStudioEnvInstall(tool), { quiet: true });
+        appendLog(setLog, ret.output || `${tool}: ${ret.ok ? "ok" : "fail"}`);
+        await reloadEnv();
+        appendLog(
+          setLog,
+          ret.ok
+            ? t("plugins.studio.envInstallOk", { tool, version: ret.version ?? t("plugins.studio.envOk") })
+            : t("plugins.studio.envInstallFail", { tool }),
+        );
+      } catch (err) {
+        appendLog(setLog, String(err));
+      } finally {
+        setInstalling("");
+        setRunning("");
+      }
+    },
+    [installing, reloadEnv, running, t],
+  );
+
+  const installMissing = useCallback(async () => {
+    for (const tool of envTools) {
+      if (env?.[tool]) continue;
+      await installEnv(tool);
+    }
+  }, [env, envTools, installEnv]);
 
   const runOp = useCallback(
     async (op: "validate" | "pack") => {
       if (!project || running) return;
+      if (dirty && file) await saveFile();
       setRunning(op);
       setArtifact("");
       setPerms([]);
+      setLogOpen(true);
       try {
-      const ret = await unwrapCommand(commands.pluginStudioRun(project, op), { quiet: true });
+        const ret = await unwrapCommand(commands.pluginStudioRun(project, op), { quiet: true });
         appendLog(setLog, ret.output);
+        if (ret.success) {
+          setLastStatus(op === "pack" ? t("plugins.studio.packOk") : t("plugins.studio.validateOk"));
+        } else {
+          setLastStatus(op === "pack" ? t("plugins.studio.packFail") : t("plugins.studio.validateFail"));
+        }
         if (ret.success && ret.artifactPath) {
           setArtifact(ret.artifactPath);
-          // 打包成功直接预读权限，进入安装确认
           try {
             const manifestJson = await unwrapCommand(commands.pluginPeekManifest(ret.artifactPath));
-            const manifest = parsePluginManifest(JSON.parse(manifestJson));
+            const manifest = parsePluginManifest(JSON.parse(manifestJson) as unknown);
             setPerms([...manifest.permissions]);
           } catch (err) {
             appendLog(setLog, String(err));
           }
         }
       } catch (err) {
+        setLastStatus(op === "pack" ? t("plugins.studio.packFail") : t("plugins.studio.validateFail"));
         appendLog(setLog, String(err));
       } finally {
         setRunning("");
         void reloadProjects(project);
       }
     },
-    [project, running, reloadProjects],
+    [dirty, file, project, reloadProjects, running, saveFile, t],
   );
 
   const installArtifact = useCallback(async () => {
     if (!artifact || running) return;
     setRunning("install");
+    setLogOpen(true);
     try {
       await unwrapCommand(commands.pluginInstallFromFile(artifact));
-      appendLog(setLog, `${artifact} installed`);
+      appendLog(setLog, t("plugins.studio.installOk"));
+      setLastStatus(t("plugins.studio.installOk"));
       setArtifact("");
       setPerms([]);
     } catch (err) {
@@ -231,31 +330,56 @@ export function StudioPanel() {
     } finally {
       setRunning("");
     }
-  }, [artifact, running]);
+  }, [artifact, running, t]);
 
   const createProject = useCallback(async () => {
     if (!newName.trim() || running) return;
     setRunning("create");
     setCreateError(null);
     try {
-      const created = await unwrapCommand(commands.pluginStudioScaffold(newName.trim(), newKind), {
-        quiet: true,
-      });
-      appendLog(setLog, `created ${created.name} (${created.files.length} files)`);
+      const starter = starterOptions.length > 0 ? newStarter : null;
+      const created = await unwrapCommand(
+        commands.pluginStudioScaffold(newName.trim(), newKind, starter),
+        { quiet: true },
+      );
       setNewName("");
       setNewKind("addon");
+      setNewStarter("js");
       setCreateOpen(false);
       await reloadProjects(created.name);
+      if (created.hasManifest) await openFile(created.name, "plugin.json", true);
     } catch (err) {
       setCreateError(String(err));
     } finally {
       setRunning("");
     }
-  }, [newName, newKind, running, reloadProjects]);
+  }, [newKind, newName, newStarter, openFile, reloadProjects, running, starterOptions.length]);
+
+  const removeProject = useCallback(async () => {
+    if (!project || running) return;
+    setRunning("remove");
+    try {
+      await unwrapCommand(commands.pluginStudioRemoveProject(project), { quiet: true });
+      setRemoveOpen(false);
+      setProject("");
+      setFile("");
+      setContent("");
+      setSavedContent("");
+      setArtifact("");
+      setPerms([]);
+      await reloadProjects();
+    } catch (err) {
+      appendLog(setLog, String(err));
+    } finally {
+      setRunning("");
+    }
+  }, [project, reloadProjects, running]);
 
   const aiScaffold = useCallback(async () => {
     if (!project || !aiDesc.trim() || running) return;
+    if (!window.confirm(t("plugins.studio.aiOverwrite"))) return;
     setRunning("ai");
+    setLogOpen(true);
     try {
       const { requestAiCompletionOnce } = await import("../../lib/ai/requestAiCompletionOnce");
       const ret = await requestAiCompletionOnce({
@@ -276,7 +400,8 @@ export function StudioPanel() {
         await unwrapCommand(commands.pluginStudioWriteFile(project, rel, body));
       }
       appendLog(setLog, t("plugins.studio.aiDone"));
-      await openFile(project, "plugin.json");
+      await reloadProjects(project);
+      await openFile(project, "plugin.json", true);
       await runOp("validate");
     } catch (err) {
       appendLog(setLog, String(err));
@@ -284,7 +409,7 @@ export function StudioPanel() {
       setRunning("");
       setAiDesc("");
     }
-  }, [project, aiDesc, running, openFile, runOp, t]);
+  }, [aiDesc, openFile, project, reloadProjects, runOp, running, t]);
 
   const previewSubmit = useCallback(async () => {
     if (!project || !artifactUrl.trim()) return;
@@ -306,7 +431,7 @@ export function StudioPanel() {
     } finally {
       setSubmitLoading(false);
     }
-  }, [project, artifactUrl, changelog, repo, artifact]);
+  }, [artifact, artifactUrl, changelog, project, repo]);
 
   const saveSubmitToken = useCallback(async () => {
     if (!tokenDraft.trim()) return;
@@ -327,7 +452,7 @@ export function StudioPanel() {
     } catch (err) {
       setSubmitError(String(err));
     }
-  }, [tokenDraft, submitPreview, project, artifactUrl, changelog, repo, artifact]);
+  }, [artifact, artifactUrl, changelog, project, repo, submitPreview, tokenDraft]);
 
   const confirmSubmit = useCallback(async () => {
     if (!project || !artifactUrl.trim()) return;
@@ -351,29 +476,42 @@ export function StudioPanel() {
     } finally {
       setSubmitSending(false);
     }
-  }, [project, artifactUrl, changelog, repo, artifact, t]);
+  }, [artifact, artifactUrl, changelog, project, repo, t]);
 
-  const kindOptions = PLUGIN_KINDS.map((kind) => ({
-    value: kind,
-    label: t(`plugins.studio.kindLabels.${kind}`),
-  }));
-  const missingEnv = ENV_TOOLS.filter((tool) => !env?.[tool]);
-  const envBusy = installing !== "" || running.startsWith("env:");
+  const headerTags = [
+    { text: current?.displayName || project || t("plugins.studio.noProject"), emphasis: true },
+    ...(current?.kind
+      ? [{ text: t(`plugins.studio.kindLabels.${current.kind}`) }]
+      : []),
+    ...(current?.version ? [{ text: current.version }] : []),
+    ...(dirty ? [{ text: t("plugins.studio.unsaved") }] : []),
+    ...(lastStatus ? [{ text: lastStatus }] : []),
+    ...(running ? [{ text: t("plugins.studio.running") }] : []),
+  ];
 
   return (
     <div className="plugin-center plugin-studio">
       <WorkbenchPanelHeader
-        tags={[{ text: project || t("plugins.studio.noProject"), emphasis: true }]}
+        label={t("plugins.studio.open")}
+        tags={headerTags}
         actions={
           <>
-            <WorkbenchActionButton disabled={!project || running !== ""} onClick={() => void runOp("validate")}>
+            <WorkbenchActionButton disabled={!dirty || !file || busy} onClick={() => void saveFile()}>
+              {t("plugins.studio.save")}
+            </WorkbenchActionButton>
+            <WorkbenchActionButton disabled={!project || busy} onClick={() => void runOp("validate")}>
               {t("plugins.studio.validate")}
             </WorkbenchActionButton>
-            <WorkbenchActionButton disabled={!project || running !== ""} onClick={() => void runOp("pack")}>
+            <WorkbenchActionButton disabled={!project || busy} onClick={() => void runOp("pack")}>
               {t("plugins.studio.pack")}
             </WorkbenchActionButton>
+            {artifact ? (
+              <WorkbenchActionButton disabled={busy} onClick={() => void installArtifact()}>
+                {t("plugins.studio.install")}
+              </WorkbenchActionButton>
+            ) : null}
             <WorkbenchActionButton
-              disabled={!project || running !== ""}
+              disabled={!project || busy}
               onClick={() => {
                 setSubmitError(null);
                 setSubmitPreview(null);
@@ -393,7 +531,7 @@ export function StudioPanel() {
               <span className="plugin-studio-count">{projects.length}</span>
               <span className="plugin-studio-env-actions">
                 <WorkbenchActionButton
-                  disabled={running !== ""}
+                  disabled={busy}
                   onClick={() => {
                     setCreateError(null);
                     setCreateOpen(true);
@@ -408,41 +546,47 @@ export function StudioPanel() {
                 <p className="plugin-center-empty">{t("plugins.studio.emptyProjects")}</p>
               ) : (
                 projects.map((item) => (
-                  <div key={item.name}>
-                    <button
-                      type="button"
-                      className={`plugin-center-row${project === item.name ? " is-active" : ""}`}
-                      onClick={() => {
-                        setProject(item.name);
-                        setFile("");
-                        setContent("");
-                        setSavedContent("");
-                      }}
-                    >
-                      <span className="plugin-center-row__name">{item.name}</span>
-                      <span className="plugin-center-row__meta">
-                        {item.files.length} · {item.hasManifest ? "plugin.json" : t("plugins.studio.noFile")}
-                      </span>
-                    </button>
-                    {project === item.name ? (
-                      <div className="plugin-studio-files">
-                        {item.files.map((rel) => (
-                          <button
-                            key={rel}
-                            type="button"
-                            className={`plugin-center-row plugin-studio-file${file === rel ? " is-active" : ""}`}
-                            onClick={() => void openFile(item.name, rel)}
-                          >
-                            <span className="plugin-center-row__name">{rel}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
+                  <button
+                    key={item.name}
+                    type="button"
+                    className={`plugin-center-row${project === item.name ? " is-active" : ""}`}
+                    onClick={() => void selectProject(item.name)}
+                  >
+                    <span className="plugin-center-row__name">{item.displayName || item.name}</span>
+                    <span className="plugin-center-row__meta">
+                      {item.kind ? t(`plugins.studio.kindLabels.${item.kind}`) : item.name}
+                      {item.version ? ` · ${item.version}` : ""}
+                    </span>
+                  </button>
                 ))
               )}
             </div>
           </section>
+          {current ? (
+            <section className="plugin-studio-block plugin-studio-block--files">
+              <div className="plugin-center-col__head">
+                {t("plugins.studio.files")}
+                <span className="plugin-studio-count">{current.files.length}</span>
+                <span className="plugin-studio-env-actions">
+                  <WorkbenchActionButton danger disabled={busy} onClick={() => setRemoveOpen(true)}>
+                    {t("plugins.studio.deleteProject")}
+                  </WorkbenchActionButton>
+                </span>
+              </div>
+              <div className="plugin-center-list plugin-studio-files">
+                {current.files.map((rel) => (
+                  <button
+                    key={rel}
+                    type="button"
+                    className={`plugin-center-row plugin-studio-file${file === rel ? " is-active" : ""}`}
+                    onClick={() => void openFile(current.name, rel)}
+                  >
+                    <span className="plugin-center-row__name">{rel}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
           <section className="plugin-studio-block">
             <div className="plugin-center-col__head">
               {t("plugins.studio.env")}
@@ -457,18 +601,17 @@ export function StudioPanel() {
                 ) : null}
               </span>
             </div>
-            <p className="plugin-studio-env-hint">{t("plugins.studio.envHint")}</p>
             <div className="plugin-studio-env-list">
-              {ENV_TOOLS.map((tool) => {
+              {envTools.map((tool) => {
                 const ver = env?.[tool];
-                const busy = installing === tool;
+                const toolBusy = installing === tool;
                 return (
                   <div key={tool} className="plugin-studio-env-row">
                     <span className="plugin-studio-env-name">{tool}</span>
                     <span className={`plugin-studio-env-ver${ver ? "" : " is-missing"}`}>
-                      {busy ? t("plugins.studio.envInstalling") : ver || t("plugins.studio.envMissing")}
+                      {toolBusy ? t("plugins.studio.envInstalling") : ver || t("plugins.studio.envMissing")}
                     </span>
-                    {ver || busy ? null : (
+                    {ver || toolBusy ? null : (
                       <WorkbenchActionButton disabled={envBusy} onClick={() => void installEnv(tool)}>
                         {t("plugins.studio.envInstall")}
                       </WorkbenchActionButton>
@@ -480,26 +623,35 @@ export function StudioPanel() {
           </section>
         </aside>
         <div className="plugin-studio-main">
-          <div className="plugin-studio-ai">
-            <TextInput
-              value={aiDesc}
-              onChange={setAiDesc}
-              placeholder={t("plugins.studio.aiPlaceholder")}
-              size="sm"
-              clearable
-              copyable={false}
-            />
-            <WorkbenchActionButton
-              disabled={!project || !aiDesc.trim() || running !== ""}
-              onClick={() => void aiScaffold()}
-            >
-              {t("plugins.studio.aiGenerate")}
+          <div className="plugin-studio-filebar">
+            <span className="plugin-studio-filebar__path" title={file || undefined}>
+              {file ? `${project}/${file}` : t("plugins.studio.noFile")}
+            </span>
+            <WorkbenchActionButton disabled={!project || busy} onClick={() => setAiOpen((open) => !open)}>
+              {t("plugins.studio.aiToggle")}
             </WorkbenchActionButton>
-            <WorkbenchActionButton disabled={!dirty || running !== ""} onClick={() => void saveFile()}>
-              {t("plugins.studio.save")}
-              {dirty ? ` (${t("plugins.studio.unsaved")})` : ""}
+            <WorkbenchActionButton onClick={() => setLogOpen((open) => !open)}>
+              {logOpen ? t("plugins.studio.hideLog") : t("plugins.studio.showLog")}
             </WorkbenchActionButton>
           </div>
+          {aiOpen ? (
+            <div className="plugin-studio-ai">
+              <TextInput
+                value={aiDesc}
+                onChange={setAiDesc}
+                placeholder={t("plugins.studio.aiPlaceholder")}
+                size="sm"
+                clearable
+                copyable={false}
+              />
+              <WorkbenchActionButton
+                disabled={!project || !aiDesc.trim() || busy}
+                onClick={() => void aiScaffold()}
+              >
+                {t("plugins.studio.aiGenerate")}
+              </WorkbenchActionButton>
+            </div>
+          ) : null}
           <div className="plugin-studio-editor">
             {file ? (
               <CodeEditor
@@ -516,24 +668,39 @@ export function StudioPanel() {
                   <li>{t("plugins.studio.emptyStep2")}</li>
                   <li>{t("plugins.studio.emptyStep3")}</li>
                 </ol>
+                <WorkbenchActionButton
+                  onClick={() => {
+                    setCreateError(null);
+                    setCreateOpen(true);
+                  }}
+                >
+                  {t("plugins.studio.add")}
+                </WorkbenchActionButton>
               </div>
             )}
           </div>
+          {hint ? (
+            <p className={`plugin-studio-manifest${hint.ok ? " is-ok" : " is-bad"}`}>
+              {hint.ok ? t("plugins.studio.manifestOk") : `${t("plugins.studio.manifestBad")}: ${hint.text}`}
+            </p>
+          ) : null}
           {artifact ? (
             <div className="plugin-studio-artifact">
               <div className="plugin-center-col__head">{t("plugins.studio.permsTitle")}</div>
               <p className="plugin-studio-artifact__perms">
                 {perms.length === 0 ? t("plugins.install.noPermissions") : perms.join(", ")}
               </p>
-              <WorkbenchActionButton disabled={running !== ""} onClick={() => void installArtifact()}>
+              <WorkbenchActionButton disabled={busy} onClick={() => void installArtifact()}>
                 {t("plugins.studio.installConfirm")}
               </WorkbenchActionButton>
             </div>
           ) : null}
-          <div className="plugin-studio-log">
-            <div className="plugin-center-col__head">{t("plugins.studio.log")}</div>
-            <LogViewer text={log} emptyText={t("plugins.studio.log")} />
-          </div>
+          {logOpen ? (
+            <div className="plugin-studio-log">
+              <div className="plugin-center-col__head">{t("plugins.studio.log")}</div>
+              <LogViewer text={log} emptyText={t("plugins.studio.log")} />
+            </div>
+          ) : null}
         </div>
       </div>
       <FormDialog
@@ -547,7 +714,7 @@ export function StudioPanel() {
         status={createError ? { kind: "error", message: createError } : null}
         primaryAction={{
           label: t("plugins.studio.create"),
-          disabled: !newName.trim() || running !== "",
+          disabled: !newName.trim() || busy,
           onClick: () => void createProject(),
         }}
       >
@@ -569,12 +736,40 @@ export function StudioPanel() {
         <FormField label={t("plugins.studio.kind")}>
           <Select
             value={newKind}
-            onChange={setNewKind}
+            onChange={(value) => {
+              setNewKind(value);
+              setNewStarter(defaultStarter(value));
+            }}
             options={kindOptions}
             searchable={false}
             aria-label={t("plugins.studio.kind")}
           />
         </FormField>
+        {starterOptions.length > 0 ? (
+          <FormField label={t("plugins.studio.starter")} hint={t("plugins.studio.starterHint")}>
+            <Select
+              value={newStarter}
+              onChange={setNewStarter}
+              options={starterOptions}
+              searchable={false}
+              aria-label={t("plugins.studio.starter")}
+            />
+          </FormField>
+        ) : null}
+      </FormDialog>
+      <FormDialog
+        open={removeOpen}
+        onClose={() => setRemoveOpen(false)}
+        title={t("plugins.studio.deleteProject")}
+        size="sm"
+        primaryAction={{
+          label: t("plugins.studio.deleteProject"),
+          variant: "danger",
+          disabled: busy,
+          onClick: () => void removeProject(),
+        }}
+      >
+        <p>{t("plugins.studio.deleteConfirm", { name: project })}</p>
       </FormDialog>
       <StudioSubmitDialog
         open={submitOpen}
