@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { commands, type SbaJvmSnapshot } from "../../../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../../../ipc/result";
 import { useI18n } from "../../../../i18n";
+import { useModuleVisibility } from "../../../../lib/moduleVisibility";
 import { useDashboardStore } from "../../useDashboardStore";
 import type { SmallComponentController, SmallComponentRenderProps } from "../types";
 import { formatJvmBytes, formatThreadCount, niceAxisMax } from "./format";
@@ -131,6 +132,7 @@ export function SpringBootAdminView({
   const [samples, setSamples] = useState<SbaSample[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { active } = useModuleVisibility();
 
   useEffect(() => {
     if (!adminUrl || !instanceTargetId) {
@@ -144,6 +146,8 @@ export function SpringBootAdminView({
   }, [adminUrl, instanceTargetId]);
 
   useEffect(() => {
+    // 看板隐藏即停轮询：dashboard 常驻挂载，不门控会永远空转 IPC
+    if (!active) return;
     let cancelled = false;
     let timer: number | undefined;
 
@@ -181,7 +185,7 @@ export function SpringBootAdminView({
       cancelled = true;
       if (timer != null) window.clearInterval(timer);
     };
-  }, [adminUrl, instanceTargetId, monitor?.revision]);
+  }, [active, adminUrl, instanceTargetId, monitor?.revision]);
 
   const threadLive = seriesValues(samples, (s) => s.threadsLive);
   const threadDaemon = seriesValues(samples, (s) => s.threadsDaemon);

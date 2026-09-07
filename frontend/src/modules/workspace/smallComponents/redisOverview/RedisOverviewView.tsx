@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../../../i18n";
+import { useModuleVisibility } from "../../../../lib/moduleVisibility";
 import { formatBytes } from "../../../../stores/sshStatsStore";
 import { useDashboardStore } from "../../useDashboardStore";
 import type { SmallComponentController, SmallComponentRenderProps } from "../types";
@@ -114,8 +115,11 @@ export function RedisOverviewView({
   const [snapshot, setSnapshot] = useState<RedisOverviewSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 看板隐藏即停轮询：dashboard 常驻挂载，不门控会永远空转 IPC
+  const { active } = useModuleVisibility();
 
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     let timer: number | undefined;
 
@@ -173,7 +177,7 @@ export function RedisOverviewView({
       cancelled = true;
       if (timer != null) window.clearInterval(timer);
     };
-  }, [connection, monitor?.revision]);
+  }, [active, connection, monitor?.revision]);
 
   if (!connectionId) {
     return (

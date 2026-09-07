@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
+import { useModuleVisibility } from "../../../../lib/moduleVisibility";
 import type { BtJavaProjectLoadInfo } from "../../../../lib/btpanel";
 import { useConnectionStore } from "../../../../stores/connectionStore";
 import { parsePanelConfig } from "../../../server/panel/serverConnection";
@@ -151,8 +152,11 @@ export function BtJavaWebsiteMonitorView({
   const [loadInfo, setLoadInfo] = useState<BtJavaProjectLoadInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 看板隐藏即停轮询：dashboard 常驻挂载，不门控会永远空转 IPC
+  const { active } = useModuleVisibility();
 
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     let timer: number | undefined;
 
@@ -191,7 +195,7 @@ export function BtJavaWebsiteMonitorView({
       cancelled = true;
       if (timer != null) window.clearInterval(timer);
     };
-  }, [connection, connectionId, isBt, projectName, monitor?.revision]);
+  }, [active, connection, connectionId, isBt, projectName, monitor?.revision]);
 
   if (!connectionId) {
     return (
