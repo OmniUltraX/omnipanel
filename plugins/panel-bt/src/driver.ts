@@ -1,10 +1,8 @@
 import {
-  btSoftMysqlInstallId,
   createBtPanelClient,
   fetchBtMergedWebsiteList,
-  isBtMysqlOrMariadbKey,
   parseBtDiskUsageList,
-  resolveBtInstalledMysqlParams,
+  resolveBtInstalledAppParams,
   type BtAddSiteParams,
 } from "../../../frontend/src/lib/btpanel";
 import {
@@ -139,34 +137,11 @@ export const btPanelDriver: PanelDriver = {
     return apps;
   },
   async listInstalledApps(ctx) {
-    const client = clientOf(ctx);
-    const installed: Record<string, unknown>[] = [];
-    const soft = await client.getSoftList({ p: 1, type: 0, query: "", force: 0, row: 300 });
-    const typeMap = new Map(soft.types.map((t) => [t.id, t.title]));
-    for (const item of soft.items) {
-      const mapped = btSoftItemToMarketApp(item, typeMap);
-      if (!mapped.installed) continue;
-      const installId = isBtMysqlOrMariadbKey(mapped.key)
-        ? btSoftMysqlInstallId(item)
-        : Number(mapped.id) || 0;
-      installed.push({
-        id: installId,
-        name: mapped.name,
-        appKey: mapped.key,
-        appName: mapped.name,
-        version: mapped.versions?.[0],
-        status: "Installed",
-      });
-    }
-    try {
-      const apps = await client.getInstalledApps({ p: 1, row: 500, appType: "all" });
-      for (const item of apps.items) {
-        installed.push(btInstalledToOnePanel(item) as unknown as Record<string, unknown>);
-      }
-    } catch {
-      // 已安装列表失败时保留软件商店已安装项
-    }
-    return installed;
+    // 与宝塔网页 Docker「已安装」一致：只走 get_installed_apps，不混入软件商店 setup 项
+    const apps = await clientOf(ctx).getInstalledApps({ p: 1, row: 500, appType: "all" });
+    return apps.items.map(
+      (item) => btInstalledToOnePanel(item) as unknown as Record<string, unknown>,
+    );
   },
   async getDashboard(ctx) {
     const bt = clientOf(ctx);
@@ -233,7 +208,7 @@ export const btPanelDriver: PanelDriver = {
     return clientOf(ctx).getAppIconDataUrl(key, input.icon);
   },
   async getInstalledAppParams(ctx, input) {
-    return resolveBtInstalledMysqlParams(clientOf(ctx), input.id);
+    return resolveBtInstalledAppParams(clientOf(ctx), input.id);
   },
   async listSiteGroups(ctx) {
     const types = await clientOf(ctx).getSiteTypes();

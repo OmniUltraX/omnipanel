@@ -264,7 +264,7 @@ export interface BtCrontabParams {
   week?: string | number;
 }
 
-/** POST /mod/docker/com/get_installed_apps 查询参数。 */
+/** POST /mod/docker/com/get_installed_apps[/stype] 查询参数。 */
 export interface BtInstalledAppsParams {
   appType?: string;
   p?: number;
@@ -346,7 +346,7 @@ export interface BtCreateAppParams {
   extras?: Record<string, string | number | boolean>;
 }
 
-/** POST /mod/docker/com/get_installed_apps 应用条目。 */
+/** POST /mod/docker/com/get_installed_apps[/stype] 应用条目。 */
 export interface BtInstalledApp {
   id: string;
   appid: number;
@@ -468,6 +468,21 @@ export interface BtSoftListResult {
 export interface BtMySQLInfo {
   datadir?: string;
   port?: string | number;
+}
+
+/** POST /system?action=GetConcifInfo（官方拼写即为 Concif） */
+export interface BtConcifInfo {
+  mysql_root?: string;
+  mysql?: {
+    setup?: boolean;
+    version?: string;
+    status?: boolean;
+  };
+  panel?: {
+    ip?: string;
+    port?: string | number;
+    domain?: string;
+  };
 }
 
 /** POST /database?action=GetCloudServer 单项 */

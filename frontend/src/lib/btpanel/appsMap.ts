@@ -1,6 +1,16 @@
 import type { OnePanelApp, OnePanelInstalledApp } from "../onepanel";
 import { normalizeBtPanelBaseUrl } from "./auth";
+import { parsePortCandidate } from "./installedMysqlParams";
 import type { BtApp, BtAppVersion, BtInstalledApp } from "./types";
+
+/** 从宝塔已安装应用的 port[] 解析宿主机端口（无则 undefined，不填默认值）。 */
+export function pickBtInstalledHostPort(app: Pick<BtInstalledApp, "port">): number | undefined {
+  for (const raw of app.port ?? []) {
+    const n = parsePortCandidate(String(raw));
+    if (n != null) return n;
+  }
+  return undefined;
+}
 
 /** 宝塔 Docker 应用商店静态图标相对路径。 */
 export function btDockerAppIconPath(appname: string): string {
@@ -123,14 +133,16 @@ export function mapBtInstalledAppToOnePanel(app: BtInstalledApp): OnePanelInstal
     String(app.version ?? "").trim() ||
     [app.m_version, app.s_version].filter(Boolean).join(".") ||
     undefined;
+  const httpPort = pickBtInstalledHostPort(app);
   return {
-    id: Number(app.appid) || 0,
+    id: Number(app.id) || Number(app.appid) || 0,
     name: String(app.service_name || appKey).trim(),
     appName: String(app.apptitle || appKey).trim(),
     appKey,
     appType: app.apptype,
     version,
     status: app.status,
+    httpPort,
     icon: resolveBtAppIcon(app.icon, appKey),
     path: app.path,
     container: app.container_id,

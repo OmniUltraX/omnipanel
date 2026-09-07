@@ -4,8 +4,8 @@ import { useI18n } from "../../../../i18n";
 import { Button } from "../../../../components/ui/Button";
 import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
-import { IconRefresh, IconSearch } from "../../../../components/ui/icons/Icons";
-import { isBtPanelAuthFailureMessage } from "../../../../lib/btpanel";
+import { IconRefresh } from "../../../../components/ui/icons/Icons";
+import { isBtPanelAuthFailureMessage, btSoftDbFallbackInstallId } from "../../../../lib/btpanel";
 import { panelHasCapability, isBtPanelService } from "../panelPlugin";
 import {
   getPanelDriver,
@@ -48,6 +48,9 @@ type MarketCard = OnePanelApp & {
   installState: AppInstallDisplayState;
   installId?: number;
   installMessage?: string;
+  /** 已安装实例版本（优先于商店可选版本列表） */
+  installVersion?: string;
+  httpPort?: number;
 };
 
 function formatError(err: unknown): string {
@@ -72,6 +75,15 @@ function pickLatestVersion(versions: string[] | undefined): string | null {
   return versions[0] ?? null;
 }
 
+function formatInstalledMeta(app: MarketCard): string | null {
+  if (app.installState === "available") return null;
+  const bits: string[] = [];
+  const version = (app.installVersion || "").trim();
+  if (version) bits.push(`v${version}`);
+  if (app.httpPort != null && app.httpPort > 0) bits.push(`:${app.httpPort}`);
+  return bits.length > 0 ? bits.join(" · ") : null;
+}
+
 function resolveMarketCard(
   app: OnePanelApp,
   installedApps: OnePanelInstalledApp[],
@@ -79,11 +91,25 @@ function resolveMarketCard(
   const installed = findInstalledAppForMarket(app, installedApps);
   if (installed) {
     const status = readInstalledAppStatus(installed);
+    const installVersion =
+      (installed.version || "").trim() || pickLatestVersion(app.versions) || undefined;
     return {
       ...app,
       installState: resolveAppInstallDisplayState(status),
       installId: installed.id,
       installMessage: installed.message,
+      installVersion,
+      httpPort: installed.httpPort,
+    };
+  }
+  // 软件商店 setup / Docker 商店 installed 标记：无 get_installed_apps 条目时仍显示已装态
+  if (app.installed) {
+    return {
+      ...app,
+      installState: "installed",
+      installVersion: pickLatestVersion(app.versions) || undefined,
+      // 本机软装 MySQL/MariaDB/Redis：一键管理走 fallback installId
+      installId: btSoftDbFallbackInstallId(app.key),
     };
   }
   return { ...app, installState: "available" };
@@ -516,25 +542,18 @@ export function ServerAppsTab({ server }: Props) {
           ) : null}
           <div className="server-app-market__search">
             <TextInput
-              className="input"
               value={search}
               onChange={setSearch}
               placeholder={t("server.appMarket.searchPlaceholder")}
+              size="sm"
+              clearable
+              copyable={false}
+              disabled={busyMeta}
+              aria-label={t("server.appMarket.search")}
               onKeyDown={(event) => {
                 if (event.key === "Enter") handleSearch();
               }}
             />
-            <Button
-              type="button"
-              variant="icon"
-              size="icon-xs"
-              title={t("server.appMarket.search")}
-              aria-label={t("server.appMarket.search")}
-              disabled={busyMeta}
-              onClick={handleSearch}
-            >
-              <IconSearch size={14} />
-            </Button>
           </div>
           <label className="form-check server-app-market__installed-filter">
             <input
@@ -572,9 +591,10 @@ export function ServerAppsTab({ server }: Props) {
                 canOpenInstalledParams &&
                 app.installState === "installed" &&
                 app.installId != null &&
-                // 宝塔目前仅 MySQL/MariaDB 能拉安装参数；其它已装应用不开放参数入口
+                // 宝塔目前仅 MySQL/MariaDB/Redis 能拉安装参数；其它已装应用不开放参数入口
                 (!isBtPanelService(server.serviceType) || isPanelAppManagedByDatabase(app));
               const canManageInDatabase = canOpenParams && isPanelAppManagedByDatabase(app);
+              const installedMeta = formatInstalledMeta(app);
               const openParams = () => {
                 if (app.installId == null) return;
                 setParamsTarget({
@@ -629,6 +649,11 @@ export function ServerAppsTab({ server }: Props) {
                         </div>
                         {app.type ? (
                           <div className="server-app-card__instance">{app.type}</div>
+                        ) : null}
+                        {installedMeta ? (
+                          <div className="server-app-card__meta" title={installedMeta}>
+                            {installedMeta}
+                          </div>
                         ) : null}
                       </div>
                     </div>

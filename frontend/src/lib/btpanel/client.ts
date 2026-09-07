@@ -27,6 +27,7 @@ import {
   type BtDockerApp,
   type BtDockerAppsResult,
   type BtCloudServer,
+  type BtConcifInfo,
   type BtInstalledApp,
   type BtInstalledAppsParams,
   type BtInstalledAppsResult,
@@ -673,18 +674,28 @@ export class BtPanelClient {
     return unwrapAppsPayload(payload);
   }
 
-  /** POST /mod/docker/com/get_installed_apps — Docker 已安装应用列表。 */
+  /** POST /mod/docker/com/get_installed_apps[/stype] — Docker 已安装应用列表。 */
   async getInstalledApps(params: BtInstalledAppsParams = {}): Promise<BtInstalledAppsResult> {
-    const payload = await this.request<unknown>({
-      path: "/mod/docker/com/get_installed_apps",
-      params: {
-        app_type: params.appType ?? "all",
-        p: params.p ?? 1,
-        row: params.row ?? 20,
-        query: params.query ?? "",
-      },
-    });
-    return unwrapAppsPayload(payload) as BtInstalledAppsResult;
+    const body = {
+      app_type: params.appType ?? "all",
+      p: params.p ?? 1,
+      row: params.row ?? 20,
+      query: params.query ?? "",
+    };
+    try {
+      const payload = await this.request<unknown>({
+        path: "/mod/docker/com/get_installed_apps/stype",
+        params: body,
+      });
+      return unwrapAppsPayload(payload) as BtInstalledAppsResult;
+    } catch (error) {
+      if (!(error instanceof BtPanelApiError)) throw error;
+      const payload = await this.request<unknown>({
+        path: "/mod/docker/com/get_installed_apps",
+        params: body,
+      });
+      return unwrapAppsPayload(payload) as BtInstalledAppsResult;
+    }
   }
 
   /** POST /mod/docker/com/create_app — 从应用商店安装 Docker 应用。 */
@@ -843,6 +854,31 @@ export class BtPanelClient {
   }
 
   /**
+   * POST /system?action=GetConcifInfo — 面板环境配置（含 mysql_root 明文密码）。
+   * 官方 action 拼写即为 Concif。
+   */
+  async getConcifInfo(): Promise<BtConcifInfo> {
+    const data = await this.request<BtConcifInfo | Record<string, unknown>>({
+      path: "/system?action=GetConcifInfo",
+    });
+    if (!data || typeof data !== "object") return {};
+    const row = data as Record<string, unknown>;
+    const mysqlRaw = row.mysql;
+    const panelRaw = row.panel;
+    return {
+      mysql_root: typeof row.mysql_root === "string" ? row.mysql_root : undefined,
+      mysql:
+        mysqlRaw && typeof mysqlRaw === "object" && !Array.isArray(mysqlRaw)
+          ? (mysqlRaw as BtConcifInfo["mysql"])
+          : undefined,
+      panel:
+        panelRaw && typeof panelRaw === "object" && !Array.isArray(panelRaw)
+          ? (panelRaw as BtConcifInfo["panel"])
+          : undefined,
+    };
+  }
+
+  /**
    * POST /data?action=getKey — 读取配置表字段（如 mysql_root 明文密码）。
    * @see aaPanel: table=config, key=mysql_root, id=1
    */
@@ -876,8 +912,12 @@ export class BtPanelClient {
     const data = await this.request<unknown>({
       path: "/database?action=GetCloudServer",
     });
-    if (!Array.isArray(data)) return [];
-    return data.filter(
+    const list = Array.isArray(data)
+      ? data
+      : data && typeof data === "object" && Array.isArray((data as { data?: unknown }).data)
+        ? ((data as { data: unknown[] }).data)
+        : [];
+    return list.filter(
       (item): item is BtCloudServer =>
         Boolean(item) && typeof item === "object" && !Array.isArray(item),
     );
@@ -1058,7 +1098,7 @@ function parseTotalFromPage(page: unknown, fallback: number): number {
   return Number.isFinite(total) ? total : fallback;
 }
 
-/** 解析宝塔 Docker 应用列表（get_apps / get_installed_apps 同构：data + page）。 */
+/** 解析宝塔 Docker 应用列表（get_apps / get_installed_apps：data / list / apps）。 */
 function unwrapAppsPayload<T = BtApp | BtInstalledApp>(
   payload: unknown,
 ): { items: T[]; total: number; page?: string } {
@@ -1070,16 +1110,31 @@ function unwrapAppsPayload<T = BtApp | BtInstalledApp>(
   }
 
   const root = payload as Record<string, unknown>;
-  if (Array.isArray(root.data)) {
-    const items = root.data as T[];
-    return {
-      items,
-      total: parseTotalFromPage(root.page, items.length),
-      page: typeof root.page === "string" ? root.page : undefined,
-    };
+  // 部分版本：{ data: { data: [...], page } }
+  const nested =
+    root.data && typeof root.data === "object" && !Array.isArray(root.data)
+      ? (root.data as Record<string, unknown>)
+      : null;
+  const list = Array.isArray(root.data)
+    ? root.data
+    : Array.isArray(nested?.data)
+      ? nested.data
+      : Array.isArray(root.list)
+        ? root.list
+        : Array.isArray(root.apps)
+          ? root.apps
+          : null;
+  if (!list) {
+    return { items: [], total: 0 };
   }
 
-  return { items: [], total: 0 };
+  const items = list as T[];
+  const page = nested?.page ?? root.page;
+  return {
+    items,
+    total: parseTotalFromPage(page, items.length),
+    page: typeof page === "string" ? page : undefined,
+  };
 }
 
 function unwrapSoftList(payload: unknown): BtSoftListResult {
