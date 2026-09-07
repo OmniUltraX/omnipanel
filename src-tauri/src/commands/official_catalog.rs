@@ -25,7 +25,7 @@ const REGISTRY_URL: &str =
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
 const SILENT_REFRESH_COOLDOWN: Duration = Duration::from_secs(15);
 pub const OFFICIAL_CATALOG_UPDATED_EVENT: &str = "plugin://official-catalog-updated";
-const BUNDLED_REGISTRY: &str = include_str!(concat!(
+pub(crate) const BUNDLED_REGISTRY: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../plugins/registry.json"
 ));
@@ -430,9 +430,7 @@ pub async fn plugin_official_install(
         .cloned()
         .ok_or_else(|| OmniError::not_found(format!("官方目录没有该插件: {plugin_id}")))?;
     if entry.distribution != PluginDistribution::Download {
-        return Err(OmniError::invalid_input(format!(
-            "该插件已随客户端安装，无需下载: {plugin_id}"
-        )));
+        return Err(refuse_bundled_download(&plugin_id));
     }
     let artifact = entry.artifact.ok_or_else(|| {
         OmniError::invalid_input(format!("官方目录缺少下载地址: {plugin_id}"))
@@ -488,6 +486,10 @@ async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, 
     Ok(bytes.to_vec())
 }
 
+fn refuse_bundled_download(plugin_id: &str) -> OmniError {
+    OmniError::invalid_input(format!("该插件已随客户端安装，无需下载: {plugin_id}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,5 +525,16 @@ mod tests {
         assert!(warpgate.installed);
         assert_eq!(warpgate.installed_version.as_deref(), Some("0.2.1"));
         assert_eq!(warpgate.distribution, PluginDistribution::Bundled);
+    }
+
+    #[test]
+    fn bundled_official_install_is_rejected() {
+        let err = refuse_bundled_download("omni.addon.everything");
+        assert!(err.message.contains("无需下载"));
+        assert!(err.message.contains("omni.addon.everything"));
+        let seed = seed_registry();
+        assert!(seed.plugins.iter().any(|p| {
+            p.id == "omni.addon.everything" && p.distribution == PluginDistribution::Bundled
+        }));
     }
 }

@@ -23,13 +23,14 @@ import {
   isStudioPath,
   isWorkspacePath,
   moduleKeyFromPath,
+  pluginsStudioHref,
 } from "../../lib/paths";
 import {
   OVERLAY_MODULE_KEYS,
   isOverlayModuleKey,
   isShellRoutePath,
 } from "../../lib/routePanels";
-import { LazyPluginsPanel, LazyStudioPanel, LazyUserWorkspace } from "../../routes/lazyModules";
+import { LazyPluginsPanel, LazyUserWorkspace } from "../../routes/lazyModules";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { prepareModuleLocale } from "../../i18n";
@@ -53,7 +54,6 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
   const pathname = location.pathname;
   const locale = useSettingsStore((s) => s.locale);
   const isPlugins = isPluginsPath(pathname);
-  const isStudio = isStudioPath(pathname);
   const isShellRoute = isShellRoutePath(pathname) && !isDashboardPath(pathname);
 
   useEffect(() => {
@@ -168,11 +168,7 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
           />
           <Route
             path={STUDIO_PATH}
-            element={
-              <SuspendedModulePanel active={isStudio}>
-                <LazyStudioPanel />
-              </SuspendedModulePanel>
-            }
+            element={<Navigate to={pluginsStudioHref()} replace />}
           />
           {OVERLAY_MODULE_KEYS.map((key) => (
             <Route key={key} path={MODULE_PATHS[key]} element={null} />

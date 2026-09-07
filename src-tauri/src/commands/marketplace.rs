@@ -8,15 +8,15 @@ use omnipanel_plugin::{
     DependencyReq, resolve_install, update_available,
 };
 use omnipanel_plugin_pkg::{
-    OFFICIAL_VERIFY_PUBKEYS_HEX, RegistryFile, hex_to_verifying_key, parse_registry,
-    verify_registry,
+    OFFICIAL_VERIFY_PUBKEYS_HEX, PkgError, RegistryFile, hex_to_verifying_key, parse_registry,
+    verify_registry, verify_registry_allow_unsigned,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use specta::Type;
 use tauri::State;
 
-use crate::commands::plugin::{install_plugin_from_path, pkg_err_to_omni};
+use crate::commands::plugin::install_plugin_from_path;
 use crate::state::AppState;
 
 pub(crate) const OFFICIAL_SOURCE_ID: &str = "official";
@@ -237,24 +237,40 @@ async fn fetch_source(
         .map_err(|e| OmniError::connection(format!("read source {} failed: {e}", cfg.id)))?;
     let file =
         parse_registry(&text).map_err(|e| OmniError::invalid_input(format!("parse source: {e}")))?;
+    let tofu = trust_fetched_registry(cfg, &file)?;
+    write_source_cache(plugins_root, &cfg.id, &text);
+    Ok((file, tofu))
+}
 
-    let pin_keys: Vec<ed25519_dalek::VerifyingKey> = if cfg.builtin {
-        official_keys()
-    } else {
-        cfg.pinned
-            .iter()
-            .filter_map(|hex| hex_to_verifying_key(hex))
-            .collect()
-    };
+/// 官方源：无签名目录允许（GitHub `plugins-latest` 尚未签）；有签名则验官方公钥。
+/// 第三方：pin key 必须过签；无 pin 则 TOFU `publisherKey`。
+fn trust_fetched_registry(
+    cfg: &SourceCfg,
+    file: &RegistryFile,
+) -> Result<Option<String>, OmniError> {
+    if cfg.builtin {
+        let keys = official_keys();
+        if !keys.is_empty() {
+            verify_registry_allow_unsigned(file, &keys).map_err(|e| {
+                OmniError::invalid_input(format!("verify source {} failed: {e}", cfg.id))
+            })?;
+        }
+        return Ok(None);
+    }
+    let pin_keys: Vec<ed25519_dalek::VerifyingKey> = cfg
+        .pinned
+        .iter()
+        .filter_map(|hex| hex_to_verifying_key(hex))
+        .collect();
     if !pin_keys.is_empty() {
-        verify_registry(&file, &pin_keys).map_err(|e| {
-            OmniError::invalid_input(format!(
-                "verify source {} failed: {e}; rotation suspected, use confirm flow",
-                cfg.id
-            ))
+        verify_registry(file, &pin_keys).map_err(|e| {
+            let hint = match e {
+                PkgError::BadSignature => "; rotation suspected, use confirm flow",
+                _ => "",
+            };
+            OmniError::invalid_input(format!("verify source {} failed: {e}{hint}", cfg.id))
         })?;
-        write_source_cache(plugins_root, &cfg.id, &text);
-        return Ok((file, None));
+        return Ok(None);
     }
     match file.publisher_key.clone().unwrap_or_default() {
         pubkey if !pubkey.trim().is_empty() => {
@@ -262,16 +278,19 @@ async fn fetch_source(
             let key = hex_to_verifying_key(&pubkey).ok_or_else(|| {
                 OmniError::invalid_input(format!("source publisher key invalid {}", cfg.id))
             })?;
-            verify_registry(&file, &[key])
+            verify_registry(file, &[key])
                 .map_err(|e| OmniError::invalid_input(format!("verify source {} failed: {e}", cfg.id)))?;
-            write_source_cache(plugins_root, &cfg.id, &text);
-            Ok((file, Some(pubkey)))
+            Ok(Some(pubkey))
         }
         _ => Err(OmniError::invalid_input(format!(
             "source {} has no pinned key: provide public key or ensure registry carries publisherKey (TOFU)",
             cfg.id
         ))),
     }
+}
+
+fn bundled_official_registry() -> Option<RegistryFile> {
+    parse_registry(crate::commands::official_catalog::BUNDLED_REGISTRY).ok()
 }
 
 fn write_source_cache(
@@ -440,10 +459,7 @@ async fn install_merged_version(
         .find(|v| &v.version == version)
         .ok_or_else(|| OmniError::not_found(format!("version not in source: {} {version}", plugin.id)))?;
     if entry.url.trim().is_empty() {
-        return Err(OmniError::invalid_input(format!(
-            "version has no downloadable artifact (bundled): {}",
-            plugin.id
-        )));
+        return Err(refuse_bundled_artifact(&plugin.id));
     }
     if entry.min_host_api > HOST_API_VERSION {
         return Err(OmniError::invalid_input(format!(
@@ -513,14 +529,18 @@ async fn merged_view(
         }
     }
     if files.is_empty() {
-        return Err(OmniError::connection(format!(
-            "all sources unavailable{}",
-            if errors.is_empty() {
-                String::new()
-            } else {
-                format!(": {}", errors.join("; "))
-            }
-        )));
+        if let Some(seed) = bundled_official_registry() {
+            files.push((OFFICIAL_SOURCE_ID.to_string(), seed));
+        } else {
+            return Err(OmniError::connection(format!(
+                "all sources unavailable{}",
+                if errors.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", errors.join("; "))
+                }
+            )));
+        }
     }
     Ok((merge_registries(files), errors))
 }
@@ -1006,6 +1026,12 @@ async fn plugin_install_version_inner(
     install_merged_version(state, &plugin, &target).await
 }
 
+fn refuse_bundled_artifact(plugin_id: &str) -> OmniError {
+    OmniError::invalid_input(format!(
+        "version has no downloadable artifact (bundled): {plugin_id}"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1096,5 +1122,68 @@ mod tests {
         assert_eq!(sanitize_cache_id("../../x"), Some("______x".into()));
         assert_eq!(sanitize_cache_id("  "), None);
         assert_eq!(sanitize_cache_id("community-1"), Some("community-1".into()));
+    }
+
+    #[test]
+    fn bundled_version_has_no_download_url() {
+        let err = refuse_bundled_artifact("omni.addon.everything");
+        assert!(err.message.contains("bundled"));
+        assert!(err.message.contains("omni.addon.everything"));
+        let merged = merge_registries(vec![("official".into(), RegistryFile {
+            schema_version: 2,
+            plugins: vec![RegistryPlugin {
+                id: "omni.addon.everything".into(),
+                kind: "addon".into(),
+                name: "Everything".into(),
+                description: String::new(),
+                versions: vec![RegistryVersion {
+                    version: "0.1.0".into(),
+                    changelog: None,
+                    min_host_api: None,
+                    artifact: None,
+                    dependencies: vec![],
+                }],
+            }],
+            signature: None,
+            publisher_key: None,
+        })]);
+        let plugin = &merged["omni.addon.everything"];
+        assert!(plugin.versions.iter().all(|v| v.url.is_empty()));
+    }
+
+    fn sample_cfg(builtin: bool, pinned: Vec<String>) -> SourceCfg {
+        SourceCfg {
+            id: if builtin {
+                "official".into()
+            } else {
+                "community".into()
+            },
+            url: "https://example.com/r.json".into(),
+            enabled: true,
+            pinned,
+            token: None,
+            builtin,
+        }
+    }
+
+    #[test]
+    fn official_unsigned_catalog_is_trusted() {
+        let file = mk_file("official");
+        assert!(trust_fetched_registry(&sample_cfg(true, vec![]), &file).is_ok());
+    }
+
+    #[test]
+    fn third_party_unsigned_with_pin_is_rejected() {
+        let file = mk_file("community");
+        let pin = OFFICIAL_VERIFY_PUBKEYS_HEX[0].to_string();
+        let err = trust_fetched_registry(&sample_cfg(false, vec![pin]), &file).unwrap_err();
+        assert!(err.message.contains("未签名"));
+        assert!(!err.message.contains("rotation"));
+    }
+
+    #[test]
+    fn bundled_seed_parses() {
+        let seed = bundled_official_registry().expect("bundled registry");
+        assert!(!seed.plugins.is_empty());
     }
 }

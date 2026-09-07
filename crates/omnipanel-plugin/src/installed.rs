@@ -23,6 +23,10 @@ pub fn load_installed(plugins_root: &Path) -> Vec<InstalledPlugin> {
         .collect();
     dirs.sort();
     for dir in dirs {
+        let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.starts_with('.') {
+            continue;
+        }
         let manifest_path = dir.join("plugin.json");
         if !manifest_path.is_file() {
             continue;

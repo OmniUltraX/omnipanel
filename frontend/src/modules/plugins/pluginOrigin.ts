@@ -11,15 +11,23 @@ export function originForInstalled(
   item: PluginListItem,
   officialIds: ReadonlySet<string>,
   dbxPluginIds: ReadonlySet<string>,
+  registryThirdPartyIds: ReadonlySet<string> = new Set(),
 ): PluginOrigin {
   if (item.source === "builtin" || officialIds.has(item.id)) return "official";
-  if (dbxPluginIds.has(item.id)) return "thirdParty";
+  if (dbxPluginIds.has(item.id) || registryThirdPartyIds.has(item.id)) return "thirdParty";
   return "local";
 }
 
-/** 当前第三方来源仅 DBX 目录引擎。 */
-export function isDbxOrigin(origin: PluginOrigin): boolean {
-  return origin === "thirdParty";
+export function isDbxCatalog(id: string, dbxPluginIds: ReadonlySet<string>): boolean {
+  return dbxPluginIds.has(id);
+}
+
+/** 仅 DBX 目录引擎；自定义 registry 第三方不算 DBX。 */
+export function isDbxOrigin(
+  origin: PluginOrigin,
+  dbx = false,
+): boolean {
+  return origin === "thirdParty" && dbx;
 }
 
 export function originLabelKey(origin: PluginOrigin): string {
@@ -31,8 +39,9 @@ export function originLabelKey(origin: PluginOrigin): string {
 export function originMetaLabel(
   origin: PluginOrigin,
   t: (key: string, params?: Record<string, string | number>) => string,
+  opts?: { dbx?: boolean },
 ): string {
   const base = t(originLabelKey(origin));
-  if (isDbxOrigin(origin)) return `${base} · ${t("plugins.center.origin.dbx")}`;
+  if (opts?.dbx) return `${base} · ${t("plugins.center.origin.dbx")}`;
   return base;
 }

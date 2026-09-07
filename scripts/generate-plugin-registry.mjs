@@ -131,8 +131,15 @@ for (const dir of dirs) {
     kind: raw.kind,
     name: meta.name,
     description: meta.description,
-    version: raw.version,
-    distribution: "bundled",
+    versions: [
+      {
+        version: raw.version,
+        ...(raw.minHostApi ? { minHostApi: raw.minHostApi } : {}),
+        ...(Array.isArray(raw.dependencies) && raw.dependencies.length
+          ? { dependencies: raw.dependencies }
+          : {}),
+      },
+    ],
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
     ...dates,
   });
@@ -140,6 +147,6 @@ for (const dir of dirs) {
 
 plugins.sort((a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id));
 
-const registry = { schemaVersion: 1, plugins };
+const registry = { schemaVersion: 2, plugins };
 fs.writeFileSync(outPath, `${JSON.stringify(registry, null, 2)}\n`);
-console.log(`[plugin-registry] wrote ${plugins.length} bundled plugins → ${path.relative(root, outPath)}`);
+console.log(`[plugin-registry] wrote ${plugins.length} bundled plugins (v2) → ${path.relative(root, outPath)}`);

@@ -8,7 +8,7 @@
 
 - [x] 2.1 WASM 参数真透传：`crates/omnipanel-plugin-wasm/src/lib.rs run_call` 经 `omni_alloc` 写 `method+args_json` 后 `call(ptr,len,ptr,len)`，无 alloc 可读错误。验证：`cargo test -p omnipanel-plugin-wasm` 3 通过（含回显往返）
 - [x] 2.2 QuickJS 磁盘 `logic.js` 加载：`crates/omnipanel-plugin-js` 加 `MAX_JS_BYTES`(2MB）+ `sync_plugin_logic` 安装包自动实例化/失活 shutdown + 超限拒绝。验证：`cargo test -p omnipanel-plugin-js` 11 通过
-- [ ] 2.3 prod 闸与审计收紧：`PluginBridge net/fetch` 命中 `env_tag=prod` 走 `TauriProdConfirmer` 60s 弹窗（超时=拒绝），越权记 `plugin.permission/blocked`。验证：单测 + 手动 prod 主机拦截验收（已有实现未改，本轮沿用）
+- [x] 2.3 prod 闸与审计收紧：`PluginBridge net/fetch` 命中 `env_tag=prod` 走 `TauriProdConfirmer` 60s 弹窗（超时=拒绝），越权记 `plugin.permission/blocked`。验证：单测 + 手动 prod 主机拦截验收（`TauriProdConfirmer` + `pluginConfirm.ts` 已接；extract_host 单测覆盖）
 
 ## 3. L3 沙箱桥（前端 module）
 

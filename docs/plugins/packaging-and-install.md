@@ -25,7 +25,8 @@ node scripts/validate-plugin.mjs <plugin_dir>
 # dev 签名（内置开发公钥；仅 dev 构建可安装）
 cargo run -p omnipanel-plugin-pkg --bin pack -- <plugin_dir> out.omni-plugin
 
-# 未签名包同样只能装进 dev 构建
+# 产出 registry v2 片段（含 sha256 / size）
+cargo run -p omnipanel-plugin-pkg --bin publish -- <plugin_dir> https://example.com/out.omni-plugin
 ```
 
 > 正式发布 MUST 使用离线保管的发布密钥另行签名，并将公钥加入
@@ -35,9 +36,9 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- <plugin_dir> out.omni-plugin
 
 插件中心 → **安装本地插件** → 选择 `.omni-plugin`：
 
-- 解压到 `app_data/plugins/<plugin_id>/`；
+- 解压到 `app_data/plugins/.staging/<plugin_id>/`，预检通过后与现网目录 swap；旧版进 `.last-good/`，失败回滚；
 - 验签 → 清单校验 → 与内置插件 id 冲突检查 → Registry 重建 → 贡献点生效；
-- 同 id 重复安装即覆盖升级；
+- 同 id 重复安装即原子升级；
 - 启用状态持久化，重启保持。
 
 ## 卸载

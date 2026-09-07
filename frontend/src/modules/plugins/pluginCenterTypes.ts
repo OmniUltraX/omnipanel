@@ -1,4 +1,4 @@
-import type { DbxCatalogDriver, OfficialCatalogPlugin, PluginKind, PluginListItem } from "../../ipc/bindings";
+import type { DbxCatalogDriver, MarketplaceItem, OfficialCatalogPlugin, PluginKind, PluginListItem, ResolvePlan } from "../../ipc/bindings";
 import type { PluginOrigin } from "./pluginOrigin";
 
 export type KindFilter = PluginKind | "all";
@@ -103,6 +103,8 @@ export type MarketItem = {
   downloads: number | null;
   /** 本机成功安装 / 更新次数。 */
   localInstalls: number;
+  changelog: string | null;
+  sourceId: string | null;
 };
 
 function optionalStamp(value: string | null | undefined): string | null {
@@ -138,6 +140,8 @@ export function officialToMarketItem(
     updatedAt: optionalStamp(plugin.updatedAt),
     downloads: plugin.downloads ?? null,
     localInstalls: 0,
+    changelog: null,
+    sourceId: "official",
   };
 }
 
@@ -165,7 +169,39 @@ export function dbxToMarketItem(driver: DbxCatalogDriver, name: string): MarketI
     updatedAt: optionalStamp(driver.updatedAt),
     downloads: driver.downloads ?? null,
     localInstalls: 0,
+    changelog: null,
+    sourceId: "dbx",
   };
+}
+
+export function marketplaceToMarketItem(item: MarketplaceItem, name: string): MarketItem {
+  const official = item.sourceId === "official";
+  return {
+    id: item.id,
+    name,
+    kind: item.kind,
+    version: item.version,
+    origin: official ? "official" : "thirdParty",
+    distribution: item.downloadSize > 0 ? "download" : "bundled",
+    installed: item.installed,
+    installedVersion: item.installedVersion ?? null,
+    size: item.downloadSize,
+    artifactKind: null,
+    dbxKey: null,
+    description: item.description,
+    permissions: item.permissions,
+    needsUpdate: item.updateAvailable,
+    createdAt: null,
+    updatedAt: null,
+    downloads: null,
+    localInstalls: 0,
+    changelog: item.changelog ?? null,
+    sourceId: item.sourceId,
+  };
+}
+
+export function shouldConfirmInstallPlan(plan: ResolvePlan, targetId: string): boolean {
+  return plan.warnings.length > 0 || plan.items.some((step) => step.id !== targetId);
 }
 
 export function withLocalStats(

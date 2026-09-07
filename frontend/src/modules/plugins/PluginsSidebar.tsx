@@ -1,7 +1,7 @@
 import type { PluginListItem } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
 import { pluginDisplayName } from "./pluginDisplayName";
-import { isDbxOrigin, originMetaLabel, type PluginOrigin } from "./pluginOrigin";
+import { isDbxCatalog, originMetaLabel, type PluginOrigin } from "./pluginOrigin";
 import { groupInstalledByKind, type KindFilter } from "./pluginCenterTypes";
 import { PluginGlyph } from "./pluginGlyph";
 
@@ -11,6 +11,7 @@ type Props = {
   selectedId: string | null;
   onSelect: (id: string) => void;
   originOf: (item: PluginListItem) => PluginOrigin;
+  dbxIds: ReadonlySet<string>;
   installing: boolean;
   onInstallFile: () => void;
 };
@@ -21,6 +22,7 @@ export function PluginsSidebar({
   selectedId,
   onSelect,
   originOf,
+  dbxIds,
   installing,
   onInstallFile,
 }: Props) {
@@ -52,8 +54,8 @@ export function PluginsSidebar({
                     key={item.id}
                     item={item}
                     selected={selectedId === item.id}
-                    fromDbx={isDbxOrigin(originOf(item))}
-                    originLabel={originMetaLabel(originOf(item), t)}
+                    fromDbx={isDbxCatalog(item.id, dbxIds)}
+                    originLabel={originMetaLabel(originOf(item), t, { dbx: isDbxCatalog(item.id, dbxIds) })}
                     disabledLabel={t("settings.plugins.disabled")}
                     onSelect={onSelect}
                     tName={pluginDisplayName(item.id, t)}
@@ -66,8 +68,8 @@ export function PluginsSidebar({
                 key={item.id}
                 item={item}
                 selected={selectedId === item.id}
-                fromDbx={isDbxOrigin(originOf(item))}
-                originLabel={originMetaLabel(originOf(item), t)}
+                fromDbx={isDbxCatalog(item.id, dbxIds)}
+                originLabel={originMetaLabel(originOf(item), t, { dbx: isDbxCatalog(item.id, dbxIds) })}
                 disabledLabel={t("settings.plugins.disabled")}
                 onSelect={onSelect}
                 tName={pluginDisplayName(item.id, t)}

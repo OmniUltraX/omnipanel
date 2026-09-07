@@ -11,6 +11,8 @@
 | [sidecar-dbx.md](./sidecar-dbx.md) | Engine sidecar 协议 |
 | [permissions-and-levels.md](./permissions-and-levels.md) | 权限与 L1 / L2 / L3 |
 | [packaging-and-install.md](./packaging-and-install.md) | 打包、签名、安装 |
+| [publishing.md](./publishing.md) | 托管源、publish CLI |
+| [sdk-release.md](./sdk-release.md) | `@omnipanel/plugin-sdk` 发版 |
 | [debugging.md](./debugging.md) | 排错与日志 |
 
 ```bash
