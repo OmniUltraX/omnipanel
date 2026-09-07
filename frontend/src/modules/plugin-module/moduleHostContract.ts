@@ -190,9 +190,42 @@ export function rowItemKey(row: Record<string, unknown>, key: string): string {
 export function formatCell(t: (key: string) => string, key: string, raw: unknown): string {
   if (typeof raw === "boolean") {
     if (key === "healthy") return raw ? t("moduleHost.healthyOk") : t("moduleHost.healthyDown");
+    // enabled / online：实例或服务的在线态
+    if (key === "enabled" || key === "online" || key === "status") {
+      return raw ? t("moduleHost.online") : t("moduleHost.offline");
+    }
     return raw ? t("moduleHost.enable") : t("moduleHost.disable");
   }
+  if (typeof raw === "string") {
+    const token = raw.trim().toLowerCase();
+    if (key === "status" || key === "enabled" || key === "online") {
+      if (!token) return "—";
+      if (token === "online" || token === "up" || token === "true") return t("moduleHost.online");
+      if (token === "offline" || token === "down" || token === "false") return t("moduleHost.offline");
+    }
+  }
   return rowField({ [key]: raw }, key) || "—";
+}
+
+/** 子表行动作：上线仅离线可见，下线仅在线可见。 */
+export function isRowOnline(row: Record<string, unknown>): boolean {
+  if (typeof row.enabled === "boolean") return row.enabled;
+  if (typeof row.online === "boolean") return row.online;
+  const status = String(row.status ?? "").trim().toLowerCase();
+  if (status === "offline" || status === "down" || status === "false") return false;
+  if (status === "online" || status === "up" || status === "true") return true;
+  return true;
+}
+
+export function isChildActionVisible(
+  action: Pick<ModuleActionDecl, "id" | "toggle">,
+  row: Record<string, unknown>,
+): boolean {
+  const id = action.id.trim().toLowerCase();
+  const online = isRowOnline(row);
+  if (id === "online" || id === "goonline") return !online;
+  if (id === "offline" || id === "gooffline") return online;
+  return true;
 }
 
 export function extractItems(payload: unknown): Record<string, unknown>[] {

@@ -13,6 +13,9 @@ import {
   extractMetrics,
   extractTree,
   isProtectedRow,
+  isChildActionVisible,
+  isRowOnline,
+  formatCell,
   mergeTreeChildren,
   rowItemKey,
 } from "./moduleHostContract";
@@ -82,5 +85,28 @@ describe("moduleHostContract", () => {
       [{ id: "k", label: "k", leaf: true, children: [], raw: { id: "k" } }],
     );
     expect(merged[0]?.children).toHaveLength(1);
+  });
+
+  it("格式化在线/离线状态，并按态显隐上线下线", () => {
+    const t = (key: string) =>
+      ({
+        "moduleHost.online": "在线",
+        "moduleHost.offline": "离线",
+        "moduleHost.healthyOk": "健康",
+        "moduleHost.healthyDown": "异常",
+        "moduleHost.enable": "上线",
+        "moduleHost.disable": "下线",
+      })[key] ?? key;
+    expect(formatCell(t, "status", "online")).toBe("在线");
+    expect(formatCell(t, "status", "offline")).toBe("离线");
+    expect(formatCell(t, "enabled", true)).toBe("在线");
+    expect(formatCell(t, "enabled", false)).toBe("离线");
+    expect(formatCell(t, "status", true)).toBe("在线");
+    expect(isRowOnline({ enabled: true })).toBe(true);
+    expect(isRowOnline({ status: "offline" })).toBe(false);
+    expect(isChildActionVisible({ id: "online" }, { enabled: false })).toBe(true);
+    expect(isChildActionVisible({ id: "online" }, { enabled: true })).toBe(false);
+    expect(isChildActionVisible({ id: "offline" }, { enabled: true })).toBe(true);
+    expect(isChildActionVisible({ id: "offline" }, { enabled: false })).toBe(false);
   });
 });

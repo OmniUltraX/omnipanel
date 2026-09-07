@@ -12,19 +12,39 @@
 }
 
 .cloud-resource-list.module-host-split {
-  display: grid;
-  grid-template-columns: minmax(280px, 40%) minmax(0, 1fr);
-  gap: 0;
-}
-
-.cloud-resource-list.module-host-split > * {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
+/* 覆盖 .cloud-resource-list > :last-child { flex: 1 }，避免对话框节点抢走高度 */
 .cloud-resource-list.module-host-split > :last-child {
   flex: unset;
+  min-height: unset;
+}
+
+.cloud-resource-list.module-host-split > .module-host-split__layout,
+.module-host-split__layout {
+  flex: 1;
   min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+
+.module-host-split__pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.module-host-split__pane .module-host-col,
+.module-host-split__pane .module-host-editor {
+  height: 100%;
+}
+
+.module-host-split__pane + .dock-handle + .module-host-split__pane {
   border-left: 1px solid var(--border);
 }
 
@@ -257,6 +277,17 @@
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
+}
+
+/* 覆盖库表操作列 36px 图标宽，给上线/下线等文字按钮留空 */
+.module-host-col .module-host-actions-col,
+.module-host-editor .module-host-actions-col {
+  width: auto !important;
+  min-width: 108px !important;
+  max-width: none !important;
+  text-align: left;
+  padding-inline: 8px !important;
+  white-space: nowrap;
 }
 
 .module-host-field {

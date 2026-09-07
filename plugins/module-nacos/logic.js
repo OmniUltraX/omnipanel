@@ -262,8 +262,9 @@ function deleteNamespace(args) {
 function listConfigs(args) {
   var pageNo = Number(arg(args, "pageNo", 1)) || 1;
   var pageSize = Number(arg(args, "pageSize", 100)) || 100;
-  var dataId = String(arg(args, "dataId", arg(args, "keyword", "")));
-  var group = String(arg(args, "group", ""));
+  // 列表模糊搜索只用 keyword；勿把单条读写的 dataId/group 当成过滤条件（否则发布后刷新会只查当前配置甚至空列表）
+  var dataId = String(arg(args, "keyword", ""));
+  var group = "";
   var path =
     "/v1/cs/configs?search=blur&dataId=" + encode(dataId) +
     "&group=" + encode(group) +
@@ -359,17 +360,76 @@ function rollbackConfig(args) {
 }
 
 function listServices(args) {
-  var path =
-    "/v1/ns/service/list?pageNo=1&pageSize=100&namespaceId=" + encode(tenant(args));
+  var ns = encode(tenant(args));
+  // catalog 可带实例健康数；仅在有数据时采用（避免 count=0 空列表短路）
+  var catalogPaths = [
+    "/v1/ns/catalog/services?pageNo=1&pageSize=200&namespaceId=" + ns,
+    "/v1/ns/catalog/services?hasIpCount=true&withInstances=false&pageNo=1&pageSize=200&namespaceId=" + ns,
+  ];
+  for (var c = 0; c < catalogPaths.length; c++) {
+    try {
+      var catalog = api(args, catalogPaths[c], {});
+      var catalogList = catalog.serviceList || catalog.data || [];
+      if (!Array.isArray(catalogList) || catalogList.length === 0) continue;
+      return {
+        items: catalogList.map(function (row) {
+          var healthy = Number(row.healthyInstanceCount || 0);
+          var ipCount = Number(row.ipCount || 0);
+          // 有实例且存在健康实例 → 在线；有实例但全不健康仍算在线（可发现）；无实例 → 离线
+          var online = ipCount > 0 || healthy > 0;
+          if (row.ipCount == null && row.healthyInstanceCount == null) {
+            online = true;
+          }
+          return {
+            serviceName: row.name || row.serviceName || String(row),
+            groupName: row.groupName || "DEFAULT_GROUP",
+            ipCount: ipCount,
+            healthyInstanceCount: healthy,
+            enabled: online,
+            status: online ? "online" : "offline",
+          };
+        }),
+      };
+    } catch (e) {}
+  }
+
+  var path = "/v1/ns/service/list?pageNo=1&pageSize=200&namespaceId=" + ns;
   var parsed = api(args, path, {});
   var names = parsed.doms || parsed.serviceNames || parsed.serviceList || [];
   if (parsed.services && Array.isArray(parsed.services)) names = parsed.services;
+
   return {
     items: names.map(function (name) {
-      if (typeof name === "string") return { serviceName: name };
-      return { serviceName: name.name || name.serviceName || String(name) };
+      var serviceName =
+        typeof name === "string" ? name : name.name || name.serviceName || String(name);
+      var online = serviceHasOnlineInstance(args, serviceName);
+      return {
+        serviceName: serviceName,
+        enabled: online,
+        status: online ? "online" : "offline",
+      };
     }),
   };
+}
+
+/** 服务是否存在已启用实例（service/list 回退时探测状态） */
+function serviceHasOnlineInstance(args, serviceName) {
+  try {
+    var path =
+      "/v1/ns/instance/list?serviceName=" +
+      encode(serviceName) +
+      "&namespaceId=" +
+      encode(tenant(args));
+    var parsed = api(args, path, {});
+    var hosts = parsed.hosts || parsed.instances || [];
+    if (!hosts.length) return false;
+    for (var i = 0; i < hosts.length; i++) {
+      if (hosts[i].enabled !== false) return true;
+    }
+    return false;
+  } catch (e) {
+    return true;
+  }
 }
 
 function listInstances(args) {
@@ -380,13 +440,16 @@ function listInstances(args) {
   var hosts = parsed.hosts || parsed.instances || [];
   return {
     items: hosts.map(function (row) {
+      var enabled = row.enabled !== false;
       return {
         ip: row.ip,
         port: row.port,
         healthy: row.healthy === true,
         weight: row.weight,
-        enabled: row.enabled !== false,
+        enabled: enabled,
+        status: enabled ? "online" : "offline",
         instanceId: row.instanceId || (row.ip + ":" + row.port),
+        serviceName: arg(args, "serviceName", "") || arg(args, "parentId", ""),
       };
     }),
   };
@@ -407,6 +470,24 @@ function updateInstance(args) {
     body: body,
   });
   return { ok: String(raw).trim() === "ok" || String(raw).indexOf("ok") >= 0 || String(raw).indexOf("true") >= 0 };
+}
+
+/** 实例上线（enabled=true） */
+function onlineInstance(args) {
+  if (!arg(args, "serviceName", "")) {
+    args.serviceName = arg(args, "parentId", "");
+  }
+  args.enabled = true;
+  return updateInstance(args);
+}
+
+/** 实例下线（enabled=false） */
+function offlineInstance(args) {
+  if (!arg(args, "serviceName", "")) {
+    args.serviceName = arg(args, "parentId", "");
+  }
+  args.enabled = false;
+  return updateInstance(args);
 }
 
 function listNodes(args) {
@@ -466,6 +547,8 @@ var HANDLERS = {
   getService: listInstances,
   listInstances: listInstances,
   updateInstance: updateInstance,
+  onlineInstance: onlineInstance,
+  offlineInstance: offlineInstance,
   listNodes: listNodes,
   listItems: listItems,
   probeHealth: probeHealth,
