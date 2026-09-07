@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { Button } from "../../../../components/ui/Button";
 import { useI18n } from "../../../../i18n";
 import { appConfirm } from "../../../../lib/appConfirm";
@@ -9,7 +9,12 @@ import {
   lifecycleStatusLabel,
 } from "../../../docker/dockerContainerLifecycle";
 import { runDockerContainerAction } from "../../../docker/dockerContainerActions";
+import {
+  isDockerSidebarCategoryLoaded,
+  selectDockerSidebarCacheEntry,
+} from "../../../docker/dockerSidebarCache";
 import { RestartIcon } from "../../../docker/icons";
+import { useDockerSidebarCacheStore } from "../../../../stores/dockerSidebarCacheStore";
 import { useDashboardStore, type HomeCustomPanelId } from "../../useDashboardStore";
 import type { SmallComponentRenderProps } from "../types";
 import {
@@ -50,6 +55,24 @@ export function DockerComposeMonitorView({
       : "";
 
   const enabled = Boolean(connectionId && composeProject);
+  const sidebarSelector = useCallback(
+    selectDockerSidebarCacheEntry(connectionId ?? ""),
+    [connectionId],
+  );
+  const sidebarEntry = useDockerSidebarCacheStore(sidebarSelector);
+  const refreshScope = useDockerSidebarCacheStore((s) => s.refreshScope);
+
+  // 自定义面板没有侧栏刷新按钮：容器分类未拉取过时自动补拉（对齐单容器监控）
+  useEffect(() => {
+    if (!connectionId || !composeProject) return;
+    if (isDockerSidebarCategoryLoaded(sidebarEntry, "containers")) return;
+    void refreshScope({
+      kind: "category",
+      connectionId,
+      category: "containers",
+    }).catch(() => {});
+  }, [connectionId, composeProject, refreshScope, sidebarEntry]);
+
   const { items, loading, error, refreshNow } = useComposeProjectContainers(
     connectionId ?? "",
     composeProject,

@@ -464,6 +464,22 @@ export interface BtSoftListResult {
   types: Array<{ id: number; title: string }>;
 }
 
+/** POST /database?action=GetMySQLInfo */
+export interface BtMySQLInfo {
+  datadir?: string;
+  port?: string | number;
+}
+
+/** POST /database?action=GetCloudServer 单项 */
+export interface BtCloudServer {
+  id?: number;
+  db_host?: string;
+  db_port?: number | string;
+  db_user?: string;
+  db_password?: string;
+  ps?: string;
+}
+
 /** POST /mod/docker/com/create_app[/stype] 通用安装参数。 */
 export interface BtCreateDockerAppParams {
   appName: string;

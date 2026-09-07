@@ -3,11 +3,8 @@ import { FormDialog } from "../../../components/ui/form/FormDialog";
 import { CheckIcon, CopyIcon, useCopyFeedback } from "../../../components/ui/form/inputFieldShared";
 import { Button } from "../../../components/ui/primitives/Button";
 import { useI18n } from "../../../i18n";
-import {
-  createOnePanelClient,
-  type OnePanelAppInstalledParams,
-  type OnePanelAppParam,
-} from "../../../lib/onepanel";
+import type { OnePanelAppInstalledParams, OnePanelAppParam } from "../../../lib/onepanel";
+import { getPanelDriver, panelConnectionCtx } from "../../../lib/panelDriverRegistry";
 import { quickInput } from "../../../lib/quickInput";
 import { showToast } from "../../../stores/toastStore";
 import {
@@ -16,7 +13,6 @@ import {
   isPanelAppManagedByDatabase,
 } from "./importPanelAppToDatabase";
 import type { ServerEntry } from "./serverConnection";
-import { isOnePanelService } from "./panelPlugin";
 
 export type AppInstalledParamsDialogProps = {
   open: boolean;
@@ -133,7 +129,14 @@ export function AppInstalledParamsDialog({
   const canManage = isPanelAppManagedByDatabase({ key: appKey, name: appLabel, type: appType });
 
   useEffect(() => {
-    if (!open || installId == null || !isOnePanelService(server.serviceType)) {
+    if (!open || installId == null) {
+      return;
+    }
+    const driver = getPanelDriver(server.serviceType);
+    if (!driver?.getInstalledAppParams) {
+      setConfig(null);
+      setError(t("server.appMarket.unsupported"));
+      setLoading(false);
       return;
     }
     let cancelled = false;
@@ -141,10 +144,10 @@ export function AppInstalledParamsDialog({
     setError(null);
     setConfig(null);
     setImporting(false);
-    void createOnePanelClient(server.address, server.key, server.id)
-      .getInstalledAppParams(installId)
+    void driver
+      .getInstalledAppParams(panelConnectionCtx(server), { id: installId })
       .then((data) => {
-        if (!cancelled) setConfig(data);
+        if (!cancelled) setConfig(data as OnePanelAppInstalledParams);
       })
       .catch((err) => {
         if (!cancelled) setError(formatError(err));
@@ -155,7 +158,7 @@ export function AppInstalledParamsDialog({
     return () => {
       cancelled = true;
     };
-  }, [installId, open, server.address, server.id, server.key, server.serviceType]);
+  }, [installId, open, server, t]);
 
   const metaRows = useMemo(() => {
     if (!config) return [];

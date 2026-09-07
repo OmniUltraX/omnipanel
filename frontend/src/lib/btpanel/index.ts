@@ -31,6 +31,7 @@ export {
   type BtAppsResult,
   type BtAppUiField,
   type BtAppVersion,
+  type BtCloudServer,
   type BtCreateAppParams,
   type BtCreateDockerAppParams,
   type BtDockerApp,
@@ -44,6 +45,7 @@ export {
   type BtJavaProject,
   type BtJavaProjectListParams,
   type BtJavaProjectLoadInfo,
+  type BtMySQLInfo,
   type BtSoftItem,
   type BtSoftListParams,
   type BtSoftListResult,
@@ -63,6 +65,12 @@ export {
   createBtPanelClient,
   type BtPanelClientOptions,
 } from "./client";
+export {
+  BT_SOFT_MYSQL_FALLBACK_INSTALL_ID,
+  btSoftMysqlInstallId,
+  isBtMysqlOrMariadbKey,
+  resolveBtInstalledMysqlParams,
+} from "./installedMysqlParams";
 export { parseBtJavaProjectLoadInfo, parseJvmRuntimeHints, parseJvmSizeArg } from "./javaLoadInfo";
 export {
   parseBtDiskUsage,

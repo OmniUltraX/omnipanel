@@ -30,8 +30,8 @@ import { ConnectionInfoSlot } from "./workbench/ConnectionInfoSlot";
 import { ConnectionResolvedDockPane } from "./workspace/ConnectionResolvedDockPane";
 import { useDbMysqlLogNavStore } from "./stores/dbMysqlLogNavStore";
 import { DbSchemaProvider } from "./schema/DbSchemaContext";
-import { ConnectionDialog } from "./connection/ConnectionDialog";
-import { ConnectionImportPreviewDialog } from "./connection/ConnectionImportPreviewDialog";
+import { DatabaseDialogsHost } from "./workspace/DatabaseDialogsHost";
+import { DatabaseWorkspaceDock } from "./workspace/DatabaseWorkspaceDock";
 import { ContextMenu } from "../../components/ui/ContextMenu";
 import { appConfirm } from "../../lib/appConfirm";
 import { appAlert } from "../../lib/appAlert";
@@ -58,6 +58,10 @@ import { useI18n } from "../../i18n";
 import { showToast } from "../../stores/toastStore";
 import { quickInput } from "../../lib/quickInput";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
+import {
+  getDatabaseSessionService,
+  registerDatabaseTabCloser,
+} from "./databaseSessionService";
 import { isSqlEditorFocused, sqlAtOffset } from "./sqlIntel/sqlStatement";
 import { makeQueryRunId, isQueryCancelledError } from "./sql/queryRun";
 import { resolveSqlPresenceToken } from "./sql/sqlPresence";
@@ -114,11 +118,13 @@ import type { SchemaCacheConnectionEntry, SchemaCacheSnapshot } from "./schema/s
 import { submitSchemaCacheRefresh, probeDbConnectionRuntime, isSchemaCacheEntryOk } from "./schema/schemaCacheBackgroundTasks";
 import { takeBootstrappedDbConnections } from "./schema/initDbSchemaUiStores";
 import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../clientSync";
-import { DB_CONNECTIONS_CHANGED_EVENT } from "../../stores/dbConnectionListStore";
+import {
+  DB_CONNECTIONS_CHANGED_EVENT,
+  useDbConnectionListStore,
+} from "../../stores/dbConnectionListStore";
 import { warmPrioritySchemaConnections } from "./schema/schemaWarmPriority";
 import { useDbConnectionRuntimeStore } from "../../stores/dbConnectionRuntimeStore";
 import { createSchemaCacheRefreshReporter } from "./schema/schemaCacheStatusLog";
-import { CreateDatabaseDialog } from "./workspace/CreateDatabaseDialog";
 import { CsvExportDialog } from "./workspace/CsvExportDialog";
 import {
   probeMysqlDeployment,
@@ -140,8 +146,6 @@ import {
   submitDbMysqlImport,
   type MysqlImportSource,
 } from "./mysqlImport";
-import { MysqlImportDialog } from "./workspace/MysqlImportDialog";
-import { MysqlExportDialog } from "./workspace/MysqlExportDialog";
 import { parseDatabaseNodeId, parseTableNodeId } from "./schema/schemaTreeIds";
 import type { DatabaseSchema } from "./types";
 import {
@@ -223,7 +227,6 @@ import {
   type QueryResult,
   resolveConnIdForWorkspaceTab,
 } from "./workspace/dbWorkspaceState";
-import { DatabaseWorkspaceDock } from "./workspace/DatabaseWorkspaceDock";
 import {
   buildDatabasePanelContentKeysByTab,
   buildSqlTabPanelKeySeed,
@@ -269,7 +272,6 @@ import {
   sanitizeWorkspaceSession,
   tablePreviewStateFromSnapshot,
   type DbClosedPanelEntry,
-  type DbSqlTabStateSnapshot,
 } from "./workspace/dbWorkspaceSession";
 import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockStore";
 import { publishDbWorkspaceMirror } from "../../stores/dbWorkspaceMirrorStore";
@@ -284,6 +286,16 @@ import { dbTabToSnapshot } from "../../lib/workspaceTabActions";
 import { subscribeDockviewTransfer, relayoutDockviewInstances } from "../../lib/dockviewRegistry";
 import { deliverSnapshotToWorkspace } from "../../lib/workspaceSnapshotDelivery";
 import type { DbTabSnapshot } from "../../stores/workspaceTabStore";
+import { useDbWorkspaceDockTabsStore } from "../../stores/dbWorkspaceDockTabsStore";
+import {
+  applyDefaultWorkspaceSession,
+  parseQdrantPointId,
+  readRowKeyValue,
+  restoreSqlTabStateFromSnapshot,
+  tabMatchesConnectionSelection,
+  tabMatchesDatabaseSelection,
+  tabMatchesTableSelection,
+} from "./workspace/dbWorkspaceTabHelpers";
 import { connectionNodeId } from "./schema/schemaTreeExpanded";
 import { loadNavicatImportPreview } from "./navicatImport/loadNavicatNcxFile";
 import type { NavicatImportPreviewItem } from "./navicatImport/types";
@@ -291,82 +303,6 @@ import type { NavicatImportPreviewItem } from "./navicatImport/types";
 type DbModuleTab = "query" | "dataSync" | "schemaSync";
 const DB_MODULE_TABS: DbModuleTab[] = ["query", "dataSync", "schemaSync"];
 const EMPTY_DOCKED_DATABASE_TABS: string[] = [];
-
-function tabMatchesTableSelection(
-  tab: DbWorkspaceTab,
-  connId: string,
-  dbName: string,
-  tableName: string,
-): boolean {
-  return (
-    tab.kind === "table" &&
-    tab.connId === connId &&
-    tab.dbName === dbName &&
-    tab.tableName === tableName
-  );
-}
-
-function tabMatchesDatabaseSelection(
-  tab: DbWorkspaceTab,
-  connId: string,
-  dbName: string,
-  isRedis: boolean,
-): boolean {
-  if (isRedis) {
-    return tab.kind === "redis-query" && tab.connId === connId && tab.dbName === dbName;
-  }
-  return tab.kind === "database" && tab.connId === connId && tab.dbName === dbName;
-}
-
-function tabMatchesConnectionSelection(
-  tab: DbWorkspaceTab,
-  connId: string,
-  _isRedis: boolean,
-): boolean {
-  return tab.kind === "connection" && tab.connId === connId;
-}
-
-function restoreSqlTabStateFromSnapshot(snap: DbSqlTabStateSnapshot): SqlTabState {
-  return {
-    ...createDefaultSqlTabState(snap.database, snap.connId ?? ""),
-    sql: snap.sql,
-    database: snap.database,
-    connId: snap.connId ?? "",
-    cursorOffset: snap.cursorOffset,
-  };
-}
-
-function applyDefaultWorkspaceSession(
-  setWorkspaceTabs: (tabs: DbWorkspaceTab[]) => void,
-  activateTab: (id: string) => void,
-): void {
-  setWorkspaceTabs([]);
-  activateTab("");
-  useDbWorkspaceTabStore.getState().resetTabWorkspace();
-}
-
-
-/** 把行主键拼成的字符串（"col=val&col=val"）解析回单列值，rowKey 中空字符串表示 NULL */
-function readRowKeyValue(rowKey: string, colName: string): string {
-  for (const part of rowKey.split("&")) {
-    const eq = part.indexOf("=");
-    if (eq < 0) continue;
-    if (part.slice(0, eq) === colName) {
-      return part.slice(eq + 1);
-    }
-  }
-  return "";
-}
-
-/** Qdrant point id：数字保持 number，其余按字符串（UUID）。 */
-function parseQdrantPointId(raw: string): string | number | null {
-  if (raw === "") return null;
-  if (/^-?\d+$/.test(raw)) {
-    const n = Number(raw);
-    if (Number.isSafeInteger(n)) return n;
-  }
-  return raw;
-}
 
 export function DatabasePanel() {
   const { t } = useI18n();
@@ -438,19 +374,21 @@ export function DatabasePanel() {
   const openConnectionInfoTabRef = useRef<
     (connId: string, mode?: SchemaDockOpenMode, options?: { expandTree?: boolean }) => void
   >(() => {});
-  const [workspaceTabs, setWorkspaceTabsState] = useState<DbWorkspaceTab[]>([]);
-  const setWorkspaceTabs = useCallback(
-    (update: DbWorkspaceTab[] | ((prev: DbWorkspaceTab[]) => DbWorkspaceTab[])) => {
-      setWorkspaceTabsState((prev) => {
-        const next = typeof update === "function" ? update(prev) : update;
-        workspaceTabsRef.current = next;
-        return next;
-      });
-    },
-    [],
-  );
+  const workspaceTabs = useDbWorkspaceDockTabsStore((s) => s.tabs);
+  const setWorkspaceTabs = useDbWorkspaceDockTabsStore((s) => s.setTabs);
+  const workspaceInitialized = useDbWorkspaceDockTabsStore((s) => s.initialized);
+  const setWorkspaceInitialized = useDbWorkspaceDockTabsStore((s) => s.setInitialized);
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState("");
-  const [workspaceInitialized, setWorkspaceInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!moduleLive || !activeWorkspaceTabId) return;
+    return getDatabaseSessionService().bindView(activeWorkspaceTabId, {
+      push: () => {
+        /* Tab 列表在 dockTabsStore；此处仅绑定 View 生命周期 */
+      },
+    });
+  }, [moduleLive, activeWorkspaceTabId]);
+
   const recentClosedPanels = useDbWorkspaceSessionStore((s) => s.recentClosedPanels);
   const pushRecentClosedPanel = useDbWorkspaceSessionStore((s) => s.pushRecentClosedPanel);
   const removeRecentClosedPanel = useDbWorkspaceSessionStore((s) => s.removeRecentClosedPanel);
@@ -960,6 +898,8 @@ export function DatabasePanel() {
     try {
       const list = await listConnections();
       setConnections(list);
+      // 与自定义面板 / AI @ 菜单共享缓存保持一致（侧栏本地 state 之外）
+      useDbConnectionListStore.getState().hydrate(list);
       setActiveConnId((prev) => {
         const pickEnabled = (items: DbConnectionConfig[]) =>
           items.find((item) => isConnectionEnabled(item));
@@ -1150,7 +1090,11 @@ export function DatabasePanel() {
     const bootstrapWorkspace = () => {
       const session = sanitizeWorkspaceSession(useDbWorkspaceSessionStore.getState().session);
       if (!session) {
-        applyDefaultWorkspaceSession(setWorkspaceTabs, activateWorkspaceTab);
+        applyDefaultWorkspaceSession(
+          setWorkspaceTabs,
+          activateWorkspaceTab,
+          () => useDbWorkspaceTabStore.getState().resetTabWorkspace(),
+        );
         useDbDockLayoutStore.getState().setSavedLayout(null);
         setWorkspaceInitialized(true);
         return;
@@ -6258,6 +6202,11 @@ export function DatabasePanel() {
     [requestTabAction],
   );
 
+  useEffect(() => {
+    registerDatabaseTabCloser(handleCloseDockTab);
+    return () => registerDatabaseTabCloser(null);
+  }, [handleCloseDockTab]);
+
   const sidebarLinkageConnId = useMemo(() => {
     if (activeTableKey) {
       const parsed = parseTableNodeId(activeTableKey);
@@ -6416,71 +6365,39 @@ export function DatabasePanel() {
       </div>
     </ModuleWorkspaceLayout>
     </DbSchemaProvider>
-    <CreateDatabaseDialog
-      open={createDbDialog !== null}
-      connection={
-        createDbDialog
-          ? connections.find((c) => c.id === createDbDialog.connId) ?? null
-          : null
-      }
-      onCancel={() => setCreateDbDialog(null)}
-      onCreated={(_created) => {
-        const connId = createDbDialog?.connId;
-        setCreateDbDialog(null);
-        if (connId) {
-          refreshConnDatabases(connId);
-          setActiveConnId(connId);
-        }
-      }}
-    />
-    <MysqlExportDialog
-      open={exportDialog !== null}
-      sourceConnection={exportDialog?.connection ?? null}
-      sourceDatabase={exportDialog?.databaseName ?? ""}
+    <DatabaseDialogsHost
       connections={connections}
-      submitting={exportSubmitting}
-      onClose={() => {
-        if (!exportSubmitting) {
-          setExportDialog(null);
-        }
+      createDbDialog={createDbDialog}
+      onCloseCreateDb={() => setCreateDbDialog(null)}
+      onCreatedDatabase={(connId) => {
+        refreshConnDatabases(connId);
+        setActiveConnId(connId);
       }}
-      onConfirm={(destination) => {
+      exportDialog={exportDialog}
+      exportSubmitting={exportSubmitting}
+      onCloseExport={() => setExportDialog(null)}
+      onConfirmExport={(destination) => {
         void handleConfirmExportDatabase(destination);
       }}
-    />
-    <MysqlImportDialog
-      open={importDialog !== null}
-      connection={importDialog?.connection ?? null}
-      databaseName={importDialog?.databaseName ?? ""}
-      submitting={importSubmitting}
-      onClose={() => {
-        if (!importSubmitting) {
-          setImportDialog(null);
-        }
-      }}
-      onConfirm={(source) => {
+      importDialog={importDialog}
+      importSubmitting={importSubmitting}
+      onCloseImport={() => setImportDialog(null)}
+      onConfirmImport={(source) => {
         void handleConfirmImportDatabase(source);
       }}
-    />
-    <ConnectionDialog
-      open={dialogOpen}
-      onClose={() => {
+      dialogOpen={dialogOpen}
+      editingConnection={editingConnection}
+      onCloseConnectionDialog={() => {
         setDialogOpen(false);
         setEditingConnection(null);
       }}
-      onSaved={() => {
+      onSavedConnection={() => {
         setSchemaRefreshToken((token) => token + 1);
         setEditingConnection(null);
       }}
-      initialConnection={editingConnection}
-    />
-    <ConnectionImportPreviewDialog
-      open={importPreview !== null}
-      fileName={importPreview?.fileName ?? ""}
-      items={importPreview?.items ?? []}
-      existingConnections={connections}
-      onClose={() => setImportPreview(null)}
-      onImported={() => {
+      importPreview={importPreview}
+      onCloseImportPreview={() => setImportPreview(null)}
+      onImportedConnections={() => {
         setSchemaRefreshToken((token) => token + 1);
         void refreshConnections();
       }}

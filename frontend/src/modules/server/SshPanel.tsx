@@ -33,10 +33,11 @@ import {
   removeTabFromSshLayout,
   useSshDockLayoutStore,
 } from "../../stores/sshDockLayoutStore";
+import { getSshSessionService } from "./ssh/sshSessionService";
 
 export function SshPanel() {
   const { t } = useI18n();
-  const { isActiveRoute } = useModuleRouteActive("ssh");
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("ssh");
   const sshResources = useSshHostResources();
   const { activeHostId, handleSelectHost } = useSshHostWorkspace(sshResources);
   const selectionMode = useSshSelectionStore((s) => s.selectionMode);
@@ -76,6 +77,15 @@ export function SshPanel() {
       setTabCtxMenu(null);
     }
   }, [isActiveRoute]);
+
+  useEffect(() => {
+    if (!moduleLive || !activeTabId) return;
+    return getSshSessionService().bindView(activeTabId, {
+      push: () => {
+        /* P2：状态事件预留 */
+      },
+    });
+  }, [moduleLive, activeTabId]);
 
   useEffect(() => {
     const pruneStaleTabs = () => {
@@ -266,7 +276,7 @@ export function SshPanel() {
           onTabDoubleClick={handleTabDoubleClick}
           enabled={isActiveRoute}
           stickyVisit
-          contentSuspended={!isActiveRoute}
+          contentSuspended={!moduleLive}
           savedLayout={dockTabs.length === 0 ? null : savedLayout}
           onSavedLayoutChange={setSavedLayout}
           renderPanel={renderHostPanel}

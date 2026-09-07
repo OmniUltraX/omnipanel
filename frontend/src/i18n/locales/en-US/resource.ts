@@ -1,0 +1,23 @@
+export default {
+    profile: {
+      title: "Resource Profile",
+      viewProfile: "View Profile",
+      lastObserved: "Last observed",
+      collect: "Collect Snapshot",
+      collecting: "Collecting…",
+      collectedKinds: "Collected",
+      collectErrors: "Collection errors",
+      clearAll: "Clear All",
+      confirmDelete: "Are you sure you want to delete all observations for this resource? This cannot be undone.",
+      noObservations: "No observations yet",
+      collectHint: "Click the \"Collect Snapshot\" button above to pull the latest state from the host/database",
+      observations: "Observations",
+      observer: "Observer",
+      observedAt: "Observed at",
+      selectKind: "Select an observation kind from the left panel",
+      similarResources: "Similar Resources",
+      kindsCount: "Kinds",
+      knowledgeCount: "Linked notes",
+      diffSinceLast: "Changed since last {time}",
+    },
+  } as const;

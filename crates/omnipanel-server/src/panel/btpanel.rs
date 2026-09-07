@@ -159,6 +159,34 @@ fn format_reqwest_error(err: &reqwest::Error) -> String {
     }
 }
 
+fn map_bt_send_error(err: &reqwest::Error) -> OmniError {
+    let detail = format_reqwest_error(err);
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("certificate")
+        || lower.contains("cert")
+        || lower.contains("tls")
+        || lower.contains("ssl")
+        || lower.contains("handshake")
+    {
+        return OmniError::new(
+            ErrorCode::Connection,
+            "宝塔 HTTPS 证书校验失败（面板多为自签证书）",
+        )
+        .with_cause(detail);
+    }
+    if lower.contains("timed out") || lower.contains("timeout") {
+        return OmniError::new(ErrorCode::Timeout, "连接宝塔面板超时").with_cause(detail);
+    }
+    if lower.contains("connect") {
+        return OmniError::new(
+            ErrorCode::Connection,
+            "无法连接宝塔面板（请检查地址与端口、本机到面板的网络，以及系统/环境 HTTP 代理是否拦截了内网地址）",
+        )
+        .with_cause(detail);
+    }
+    OmniError::new(ErrorCode::Connection, "宝塔面板请求失败").with_cause(detail)
+}
+
 fn client_for_host(host: &str) -> Result<Client, OmniError> {
     let base = normalize_base_url(host)?;
     let mut map = CLIENTS
@@ -167,10 +195,12 @@ fn client_for_host(host: &str) -> Result<Client, OmniError> {
     if let Some(client) = map.get(&base) {
         return Ok(client.clone());
     }
+    // 必须 no_proxy：否则会吃系统/环境 HTTP(S)_PROXY，把 10.x 等内网面板拐走导致 Connect 失败（与 1Panel 一致）
     let client = Client::builder()
         .cookie_store(true)
         .timeout(Duration::from_secs(60))
         .danger_accept_invalid_certs(true)
+        .no_proxy()
         .build()
         .map_err(|e| OmniError::internal("创建 HTTP 客户端失败").with_cause(e.to_string()))?;
     map.insert(base, client.clone());
@@ -285,10 +315,7 @@ async fn request_with_method(
             .form(&form),
     };
 
-    let resp = req.send().await.map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "宝塔面板请求失败")
-            .with_cause(format_reqwest_error(&e))
-    })?;
+    let resp = req.send().await.map_err(|e| map_bt_send_error(&e))?;
 
     let status = resp.status();
     let bytes = resp.bytes().await.unwrap_or_default();

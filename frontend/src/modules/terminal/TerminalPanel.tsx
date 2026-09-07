@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useMemo, useState, startTransition, type ComponentProps, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  startTransition,
+  type ComponentProps,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import {
   useTerminalStore,
   type TerminalTab,
   type LocalShellSpec,
   type LocalShellInfo,
 } from "../../stores/terminalStore";
-import {
-  clearPaneBackendPending,
-  disposeSessionBackend,
-} from "../../hooks/useTerminal";
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import {
@@ -27,9 +31,8 @@ import { TerminalTabDockPane } from "./TerminalTabDockPane";
 import { TerminalModuleContextBridge } from "./ai/TerminalModuleContextBridge";
 import { buildTerminalModuleContext } from "./ai/types";
 import { EMPTY_TERMINAL_BLOCKS, useBlocksStore } from "../../stores/blocksStore";
-import { clearTerminalPaneSender } from "./terminalPaneSenders";
-import { cancelAutoReconnectSsh } from "./autoReconnectTerminalSsh";
 import { reconnectTerminalSession } from "./terminalReconnect";
+import { cancelAutoReconnectSsh } from "./autoReconnectTerminalSsh";
 import {
   bootstrapTerminalHistory,
 } from "./terminalHistorySync";
@@ -55,16 +58,12 @@ import {
 import type { ContextMenuItem } from "../../components/ui/menu/ContextMenu";
 import { TerminalSessionsWorkspaceView } from "./TerminalSessionsWorkspaceView";
 import { useTerminalSessionsChrome } from "./TerminalSessionsChromeContext";
-import {
-  clearTerminalBackendSessionTouch,
-  startTerminalBackendLifecycle,
-  touchTerminalBackendSession,
-} from "./terminalBackendLifecycle";
 import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
 import { renameSessionWithAi } from "./sessionAutoName";
 import { formatTerminalTabLabel } from "./terminalSessionDisplay";
 import { followUiIntent } from "../../lib/ai/uiFollow";
 import { TerminalFilePreviewSubWindow } from "./TerminalFilePreviewSubWindow";
+import { getTerminalSessionService } from "./terminalSessionService";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
   return formatTerminalTabLabel(
@@ -120,7 +119,7 @@ function TerminalModuleDock({
 
 export function TerminalPanel() {
   const { t } = useI18n();
-  const { isActiveRoute } = useModuleRouteActive("terminal");
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("terminal");
   const [dockActiveId, setDockActiveId] = useState("");
   const allTabs = useTerminalStore((state) => state.tabs);
   const tabs = useMemo(
@@ -130,8 +129,6 @@ export function TerminalPanel() {
   const sessions = useTerminalStore((state) => state.sessions);
   const activeTabId = useTerminalStore((state) => state.activeTabId);
   const activeSessionId = useTerminalStore((state) => state.activeSessionId);
-  const closeTabOnly = useTerminalStore((state) => state.closeTabOnly);
-  const endSession = useTerminalStore((state) => state.endSession);
   const openSessionTab = useTerminalStore((state) => state.openSessionTab);
   const setActiveTab = useTerminalStore((state) => state.setActiveTab);
   const addLocalTerminalTab = useTerminalStore((state) => state.addLocalTerminalTab);
@@ -191,10 +188,15 @@ export function TerminalPanel() {
     });
   }, [setActiveTab]);
 
+  // SessionService 生命周期在 runtime 启动；此处仅 bind 当前会话（字节流仍走 useTerminal）
   useEffect(() => {
-    const stopLifecycle = startTerminalBackendLifecycle();
-    return stopLifecycle;
-  }, []);
+    if (!moduleLive || !activeSessionId) return;
+    return getTerminalSessionService().bindView(activeSessionId, {
+      push: () => {
+        /* P1：状态事件预留；输出缓冲仍由 useTerminal / 后端 buffer 负责 */
+      },
+    });
+  }, [moduleLive, activeSessionId]);
 
   useEffect(() => {
     const sessionIds = sessions
@@ -281,10 +283,8 @@ export function TerminalPanel() {
     const sessionId = resolveSessionIdFromTabId(tabId);
     if (!sessionId) return;
 
-    clearTerminalPaneSender(sessionId);
-    clearPaneBackendPending(sessionId);
-    touchTerminalBackendSession(sessionId);
-    closeTabOnly(sessionId);
+    // 关 Tab ≠ 杀 Session：SessionService.detachView 保留 PTY
+    getTerminalSessionService().detachView(sessionId);
 
     const nextActive = useTerminalStore.getState().activeTabId;
     if (nextActive) {
@@ -301,26 +301,16 @@ export function TerminalPanel() {
         nextActive ?? undefined,
       ),
     );
-  }, [closeTabOnly, setActiveTab, setDockLayout]);
+  }, [setActiveTab, setDockLayout]);
 
   const handleEndSession = useCallback((sessionId: string) => {
     const store = useTerminalStore.getState();
     const openTab = store.tabs.find((tab) => tab.sessionId === sessionId);
-    const backendSessionId =
-      openTab?.backendSessionId ?? store.detachedRuntime[sessionId]?.backendSessionId ?? null;
-    clearTerminalPaneSender(sessionId);
-    clearPaneBackendPending(sessionId);
-    cancelAutoReconnectSsh(sessionId);
 
     closeDockTabNow({
       removeTabSync: () => {
-        clearTerminalBackendSessionTouch(sessionId);
-        endSession(sessionId);
-        // 结束会话时清掉块历史与 pane 绑定，避免日后 ID/序号回退时「新会话」灌入旧记录
-        void useTerminalHistoryStore.getState().clearSession(sessionId);
-        void import("./tmuxPaneSessionIndex").then(({ useTmuxPaneSessionIndex }) => {
-          useTmuxPaneSessionIndex.getState().removeBySessionId(sessionId);
-        });
+        // 真正结束会话：关连接、清历史（统一走 SessionService）
+        void getTerminalSessionService().dispose(sessionId);
 
         const nextActive = useTerminalStore.getState().activeTabId;
         if (nextActive) {
@@ -340,11 +330,8 @@ export function TerminalPanel() {
           );
         }
       },
-      afterCloseAsync: () => {
-        disposeSessionBackend(sessionId, backendSessionId);
-      },
     });
-  }, [endSession, setActiveTab, setDockLayout]);
+  }, [setActiveTab, setDockLayout]);
 
   const connectionsLoaded = useConnectionStore((s) => s.loaded);
 
@@ -369,8 +356,6 @@ export function TerminalPanel() {
     (ids: string[]) => {
       const uniqueIds = [...new Set(ids.filter(Boolean))];
       for (const id of uniqueIds) {
-        const sessionId = resolveSessionIdFromTabId(id);
-        if (sessionId) cancelAutoReconnectSsh(sessionId);
         detachTabView(id);
       }
     },
@@ -625,7 +610,6 @@ export function TerminalPanel() {
         if (sessionId) sessionIds.add(sessionId);
       }
       for (const sessionId of sessionIds) {
-        cancelAutoReconnectSsh(sessionId);
         handleEndSession(sessionId);
       }
     },
@@ -744,7 +728,6 @@ export function TerminalPanel() {
       if (action === "closeAndEnd") {
         const sessionId = resolveSessionIdFromTabId(ctxMenu.tabId);
         if (sessionId) {
-          cancelAutoReconnectSsh(sessionId);
           handleEndSession(sessionId);
         }
         setCtxMenu(null);
@@ -869,7 +852,7 @@ export function TerminalPanel() {
             activeTabId: effectiveDockActiveId,
             // 懒创建 + 访问后粘住；xterm 仍受 suspended / IntersectionObserver 门闩约束
             stickyVisit: true,
-            contentSuspended: !isActiveRoute,
+            contentSuspended: !moduleLive,
             softRefreshKey: taskbarSubWindowTabId
               ? `taskbar:${taskbarSubWindowTabId}`
               : undefined,

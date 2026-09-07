@@ -5,11 +5,12 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { useI18n } from "../../i18n";
-import { STUDIO_PATH, isPluginsPath } from "../../lib/paths";
+import { STUDIO_PATH } from "../../lib/paths";
+import { useModuleVisibility } from "../../lib/moduleVisibility";
 import {
   DETAIL_HEIGHT_DEFAULT,
   DETAIL_HEIGHT_MIN,
@@ -50,8 +51,8 @@ function clampDetailHeight(height: number, host: HTMLElement | null): number {
 
 export function PluginsPanel() {
   const { t } = useI18n();
-  const location = useLocation();
   const navigate = useNavigate();
+  const { active: pluginsRouteActive } = useModuleVisibility();
   const center = usePluginCenter();
   const hostRef = useRef<HTMLDivElement>(null);
   const [detailHeight, setDetailHeight] = useState(readDetailHeight);
@@ -70,7 +71,7 @@ export function PluginsPanel() {
   }, [setSelectedId]);
 
   useEffect(() => {
-    if (!isPluginsPath(location.pathname)) return;
+    if (!pluginsRouteActive) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (!selectedId) return;
@@ -83,7 +84,7 @@ export function PluginsPanel() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [clearSelection, location.pathname, selectedId]);
+  }, [clearSelection, pluginsRouteActive, selectedId]);
 
   const onResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {

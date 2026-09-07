@@ -704,7 +704,7 @@ function ToolAuditList({ records }: { records: BuiltinToolAuditRecord[] }) {
 
 export function TaskCenterPanel() {
   const { t } = useI18n();
-  const { isActiveRoute } = useModuleRouteActive("tasks");
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("tasks");
   const [tab, setTab] = usePersistedModuleTab(
     "tasks",
     "inbox",
@@ -914,7 +914,7 @@ export function TaskCenterPanel() {
           dockScope="tasks"
           moduleTitle={t("routes.tasks")}
           enabled={isActiveRoute}
-          contentSuspended={!isActiveRoute}
+          contentSuspended={!moduleLive}
           windowControl
           showTabBar={false}
           tabs={[{ id: tab, label: t(`taskCenter.tabs.${tab}`) }]}

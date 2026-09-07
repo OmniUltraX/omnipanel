@@ -1,7 +1,10 @@
 import {
+  btSoftMysqlInstallId,
   createBtPanelClient,
   fetchBtMergedWebsiteList,
+  isBtMysqlOrMariadbKey,
   parseBtDiskUsageList,
+  resolveBtInstalledMysqlParams,
   type BtAddSiteParams,
 } from "../../../frontend/src/lib/btpanel";
 import {
@@ -143,8 +146,11 @@ export const btPanelDriver: PanelDriver = {
     for (const item of soft.items) {
       const mapped = btSoftItemToMarketApp(item, typeMap);
       if (!mapped.installed) continue;
+      const installId = isBtMysqlOrMariadbKey(mapped.key)
+        ? btSoftMysqlInstallId(item)
+        : Number(mapped.id) || 0;
       installed.push({
-        id: mapped.id,
+        id: installId,
         name: mapped.name,
         appKey: mapped.key,
         appName: mapped.name,
@@ -225,6 +231,9 @@ export const btPanelDriver: PanelDriver = {
     const key = input.key.trim();
     if (!key) return null;
     return clientOf(ctx).getAppIconDataUrl(key, input.icon);
+  },
+  async getInstalledAppParams(ctx, input) {
+    return resolveBtInstalledMysqlParams(clientOf(ctx), input.id);
   },
   async listSiteGroups(ctx) {
     const types = await clientOf(ctx).getSiteTypes();

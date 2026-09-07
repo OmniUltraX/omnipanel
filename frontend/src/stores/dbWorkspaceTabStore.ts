@@ -263,6 +263,21 @@ export function useDbTabWorkspaceSlice(tabId: string): DbTabWorkspaceSlice {
   );
 }
 
+/** 仅订某 Tab 的表预览状态 */
+export function useTablePreviewForTab(tabId: string) {
+  return useDbWorkspaceTabStore((s) => s.tablePreviews[tabId]);
+}
+
+/** 仅订某 Tab 的 SQL 编辑器状态 */
+export function useSqlTabStateForTab(tabId: string) {
+  return useDbWorkspaceTabStore((s) => s.sqlTabStates[tabId]);
+}
+
+/** 仅订某 Tab 脏行 */
+export function useTabDirtyRowsForTab(tabId: string) {
+  return useDbWorkspaceTabStore((s) => s.tabDirtyRows[tabId] ?? EMPTY_TAB_DIRTY_ROWS);
+}
+
 export function isTablePreviewTab(tab: DbWorkspaceTab): tab is TablePreviewWorkspaceTab {
   return tab.kind === "table";
 }

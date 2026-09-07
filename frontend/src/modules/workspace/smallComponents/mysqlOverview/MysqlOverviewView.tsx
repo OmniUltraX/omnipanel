@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { formatBytes } from "../../../../stores/sshStatsStore";
-import { useDbConnectionListStore } from "../../../../stores/dbConnectionListStore";
 import { useDashboardStore } from "../../useDashboardStore";
 import type { SmallComponentController, SmallComponentRenderProps } from "../types";
+import { useDbConnectionForWidget } from "../useDbConnectionForWidget";
 import {
   fetchMysqlOverviewSnapshot,
   type MysqlOverviewSnapshot,
@@ -130,9 +130,6 @@ export function MysqlOverviewView({
     (s) =>
       s.customPanels[panelId]?.widgets.find((w) => w.id === instanceId) ?? null,
   );
-  const dbConnections = useDbConnectionListStore((s) => s.connections);
-  const dbLoaded = useDbConnectionListStore((s) => s.loaded);
-  const refreshDbList = useDbConnectionListStore((s) => s.refresh);
   const monitor = asMysqlController(controller);
   const [, setTick] = useState(0);
 
@@ -141,19 +138,8 @@ export function MysqlOverviewView({
     return monitor.subscribe(() => setTick((n) => n + 1));
   }, [monitor]);
 
-  useEffect(() => {
-    if (dbLoaded) return;
-    void refreshDbList();
-  }, [dbLoaded, refreshDbList]);
-
   const connectionId = dataSourceIdProp ?? widget?.dataSourceId ?? null;
-  const connection = useMemo(
-    () =>
-      connectionId
-        ? (dbConnections.find((c) => c.id === connectionId) ?? null)
-        : null,
-    [connectionId, dbConnections],
-  );
+  const { connection } = useDbConnectionForWidget(connectionId);
   const selectedDatabase =
     widget?.target?.kind === "database-schema"
       ? widget.target.database.trim()

@@ -77,7 +77,7 @@ function resolveRemovedEntryId(payload: AiKnowledgeToolPayload): string | null {
 
 export function KnowledgePanel() {
   const { t } = useI18n();
-  const { isActiveRoute } = useModuleRouteActive("knowledge");
+  const { isActiveRoute, moduleLive } = useModuleRouteActive("knowledge");
   const [mode, setMode] = usePersistedModuleTab("knowledge", "library", KNOWLEDGE_TABS, {
     aliases: LEGACY_KNOWLEDGE_TAB_ALIASES,
   });
@@ -357,7 +357,7 @@ export function KnowledgePanel() {
           dockScope="knowledge"
           moduleTitle={t("routes.knowledge")}
           enabled={isActiveRoute}
-          contentSuspended={!isActiveRoute}
+          contentSuspended={!moduleLive}
           stickyVisit
           windowControl
           showTabBar

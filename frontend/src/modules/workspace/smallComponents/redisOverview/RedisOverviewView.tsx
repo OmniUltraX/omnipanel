@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { formatBytes } from "../../../../stores/sshStatsStore";
-import { useDbConnectionListStore } from "../../../../stores/dbConnectionListStore";
 import { useDashboardStore } from "../../useDashboardStore";
 import type { SmallComponentController, SmallComponentRenderProps } from "../types";
+import { useDbConnectionForWidget } from "../useDbConnectionForWidget";
 import {
   fetchRedisOverviewSnapshot,
   REDIS_FRAG_RATIO_BAR_FULL,
@@ -100,9 +100,6 @@ export function RedisOverviewView({
     (s) =>
       s.customPanels[panelId]?.widgets.find((w) => w.id === instanceId) ?? null,
   );
-  const dbConnections = useDbConnectionListStore((s) => s.connections);
-  const dbLoaded = useDbConnectionListStore((s) => s.loaded);
-  const refreshDbList = useDbConnectionListStore((s) => s.refresh);
   const monitor = asRedisController(controller);
   const [, setTick] = useState(0);
 
@@ -111,19 +108,8 @@ export function RedisOverviewView({
     return monitor.subscribe(() => setTick((n) => n + 1));
   }, [monitor]);
 
-  useEffect(() => {
-    if (dbLoaded) return;
-    void refreshDbList();
-  }, [dbLoaded, refreshDbList]);
-
   const connectionId = dataSourceIdProp ?? widget?.dataSourceId ?? null;
-  const connection = useMemo(
-    () =>
-      connectionId
-        ? (dbConnections.find((c) => c.id === connectionId) ?? null)
-        : null,
-    [connectionId, dbConnections],
-  );
+  const { connection } = useDbConnectionForWidget(connectionId);
 
   const [snapshot, setSnapshot] = useState<RedisOverviewSnapshot | null>(null);
   const [loading, setLoading] = useState(false);

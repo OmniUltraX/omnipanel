@@ -19,8 +19,7 @@ import {
   runDiscoveryProbe,
   type DiscoveryCandidates,
 } from "../../lib/discoveryBus";
-import { MODULE_PREFIX } from "../../lib/paths";
-import { useModuleSuspended } from "../../lib/moduleVisibility";
+import { useModuleVisibility } from "../../lib/moduleVisibility";
 import { parseModuleWindowParams } from "../../lib/moduleWindow";
 import { manifestModuleCapabilities } from "../../lib/moduleCapabilities";
 import { getPluginManifest } from "../../lib/pluginManifests";
@@ -51,13 +50,11 @@ import {
   type ModuleSidebarNavTarget,
 } from "./moduleWorkspaceTabs";
 import type { Connection } from "../../ipc/bindings";
-import { useLocation } from "react-router-dom";
 import "./moduleHost.css";
 
 export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
   const { t } = useI18n();
-  const location = useLocation();
-  const moduleSuspended = useModuleSuspended();
+  const { active: moduleActive, suspended: moduleSuspended } = useModuleVisibility();
   usePluginRuntimeStore((s) => s.items);
   const desc = getPluginModule(moduleKey);
   const pluginId = desc?.pluginId ?? "";
@@ -122,11 +119,8 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
   const namespaces = useModuleNamespaces(pluginId, selected);
 
   const standalone = parseModuleWindowParams()?.moduleKey === moduleKey;
-  const modulePath = `${MODULE_PREFIX}/${moduleKey}`;
-  const isActiveRoute =
-    standalone ||
-    location.pathname === modulePath ||
-    location.pathname.startsWith(`${modulePath}/`);
+  // 与内建模块一致：用 Overlay ModuleVisibility 判活，禁止 useLocation 订阅
+  const isActiveRoute = standalone || moduleActive;
   const moduleLive = standalone || (isActiveRoute && !moduleSuspended);
 
   useEffect(() => {

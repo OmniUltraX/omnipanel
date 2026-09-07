@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Select, type SelectOption } from "../../../components/ui/form/Select";
 import { useI18n } from "../../../i18n";
 import type { Connection } from "../../../ipc/bindings";
@@ -131,6 +131,24 @@ export function SmallComponentDataSourceSelect({
 }: Props) {
   const { t } = useI18n();
   const options = useDataSourceOptions(kind, dbTypes, panelServiceTypes);
+  const dbConnections = useDbConnectionListStore((s) => s.connections);
+  const refreshDb = useDbConnectionListStore((s) => s.refresh);
+  const missingRefreshAttempted = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (kind !== "database") return;
+    if (!value) {
+      missingRefreshAttempted.current = null;
+      return;
+    }
+    if (dbConnections.some((c) => c.id === value)) {
+      missingRefreshAttempted.current = null;
+      return;
+    }
+    if (missingRefreshAttempted.current === value) return;
+    missingRefreshAttempted.current = value;
+    void refreshDb();
+  }, [kind, value, dbConnections, refreshDb]);
 
   const placeholderKey =
     kind === "ssh"
