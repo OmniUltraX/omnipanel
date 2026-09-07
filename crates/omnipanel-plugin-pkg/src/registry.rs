@@ -35,6 +35,9 @@ pub struct RegistryVersion {
     pub min_host_api: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<RegistryArtifact>,
+    /// 该版本的 manifest 依赖（发布时从 plugin.json 提取，供 resolver 免下载解决）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<omnipanel_plugin::PluginDependencyDecl>,
 }
 
 /// registry 中某一插件（多版本）。
@@ -62,6 +65,10 @@ pub struct RegistryFile {
     pub plugins: Vec<RegistryPlugin>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+    /// 发布者自声明公钥（hex），**不参与签名**：仅 TOFU 用——源无 pin key
+    /// 时，用它验签通过则自动 pin。轮换必须走确认流，不接受静默替换。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -144,6 +151,7 @@ fn from_v1(v1: RegistryFileV1) -> RegistryFile {
                     // bundled（无 artifact）即无可下载版本：保留空 artifact 占位，
                     // 调用方按 url 是否为空判断可下载性（与 official_catalog 一致）。
                     artifact: p.artifact,
+                    dependencies: vec![],
                 }],
                 id: p.id,
                 kind: p.kind,
@@ -152,13 +160,16 @@ fn from_v1(v1: RegistryFileV1) -> RegistryFile {
             })
             .collect(),
         signature: None,
+        publisher_key: None,
     }
 }
 
-/// 规范字节：剔除 signature 后的确定性 JSON（发布与验签同源）。
+/// 规范字节：剔除 `signature` 与 `publisher_key` 后的确定性 JSON
+///（发布与验签同源；publisher_key 是 TOFU 提示，不进签名体）。
 pub fn canonical_registry_bytes(file: &RegistryFile) -> Result<Vec<u8>, PkgError> {
     let mut unsigned = file.clone();
     unsigned.signature = None;
+    unsigned.publisher_key = None;
     serde_json::to_vec(&unsigned).map_err(|e| PkgError::Registry(format!("序列化失败: {e}")))
 }
 
@@ -215,6 +226,7 @@ mod tests {
                         changelog: None,
                         min_host_api: None,
                         artifact: None,
+                        dependencies: vec![],
                     },
                     RegistryVersion {
                         version: "1.1.0".into(),
@@ -225,10 +237,12 @@ mod tests {
                             sha256: String::new(),
                             size: 10,
                         }),
+                        dependencies: vec![],
                     },
                 ],
             }],
             signature: None,
+            publisher_key: None,
         }
     }
 

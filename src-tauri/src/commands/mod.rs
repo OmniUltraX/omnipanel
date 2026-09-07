@@ -39,6 +39,7 @@ pub mod knowledge_vector;
 pub mod local_file_log;
 pub mod local_runtime;
 pub mod log;
+pub mod marketplace;
 pub mod mcp;
 pub mod mesh;
 pub mod module_window;

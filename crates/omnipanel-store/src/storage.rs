@@ -719,6 +719,21 @@ const MIGRATIONS: &[&str] = &[
     r#"
     UPDATE app_modules SET status = 'open' WHERE sort_order = 80 AND status = 'closed';
     "#,
+    // v38 — 插件 registry 源（官方内置 + 用户自加第三方源）。
+    // pinned_keys: JSON 数组 hex 公钥（TOFU pin）；key_pending: 待确认的新 key（'' 为无）；
+    // auth_ref: keyring credential_ref（bearer token），库内无明文。
+    r#"
+    CREATE TABLE IF NOT EXISTS plugin_registry_sources (
+        id         TEXT PRIMARY KEY,
+        url        TEXT NOT NULL,
+        enabled    INTEGER NOT NULL DEFAULT 1,
+        pinned_keys TEXT NOT NULL DEFAULT '[]',
+        key_pending TEXT NOT NULL DEFAULT '',
+        auth_ref   TEXT NOT NULL DEFAULT '',
+        builtin    INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+    );
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

@@ -5,47 +5,43 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	createTerminal: (cols: number, rows: number, shell: {
-	/**  shell 种类。 */
+	/**  shell 种类�?*/
 	kind: ShellKind,
 	/**
-	 *  可执行文件路径（如 "C:\\Program Files\\PowerShell\\7\\pwsh.exe"）。
-	 *  None 时按 kind 取默认程序名（pwsh / powershell / cmd.exe / wsl.exe）。
-	 */
+	 *  可执行文件路径（�?"C:\\Program Files\\PowerShell\\7\\pwsh.exe"）�?	 *  None 时按 kind 取默认程序名（pwsh / powershell / cmd.exe / wsl.exe）�?	 */
 	path: string | null,
-	/**  WSL 发行版名称（仅 Wsl kind 生效），如 "Ubuntu-22.04"。None 时用默认发行版。 */
+	/**  WSL 发行版名称（�?Wsl kind 生效），�?"Ubuntu-22.04"。None 时用默认发行版�?*/
 	wslDistro: string | null,
 } | null) => typedError<string, string>(__TAURI_INVOKE("create_terminal", { cols, rows, shell })),
 	writeTerminal: (id: string, data: number[]) => typedError<null, string>(__TAURI_INVOKE("write_terminal", { id, data })),
 	resizeTerminal: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_terminal", { id, cols, rows })),
 	closeTerminal: (id: string) => typedError<null, string>(__TAURI_INVOKE("close_terminal", { id })),
 	/**
-	 *  返回会话当前 scrollback 快照（base64）。前端重连/remount 时用于重建屏幕，
-	 *  对本地终端与远程 SSH 会话通用（按 backend session id 索引）。
-	 */
+	 *  返回会话当前 scrollback 快照（base64）。前端重�?remount 时用于重建屏幕，
+	 *  对本地终端与远程 SSH 会话通用（按 backend session id 索引）�?	 */
 	terminalSnapshot: (id: string) => typedError<string, string>(__TAURI_INVOKE("terminal_snapshot", { id })),
 	/**
-	 *  枚举当前系统可用的本地 shell（PowerShell / CMD / WSL 发行版等），
-	 *  供前端「新建本地终端」菜单分类展示。
-	 */
+	 *  枚举当前系统可用的本�?shell（PowerShell / CMD / WSL 发行版等），
+	 *  供前端「新建本地终端」菜单分类展示�?	 */
 	listShells: () => typedError<ShellInfo[], string>(__TAURI_INVOKE("list_shells")),
-	/**  加载指定会话的终端历史块（按 timestamp 升序）。 */
+	/**  加载指定会话的终端历史块（按 timestamp 升序）�?*/
 	terminalHistoryLoadSession: (sessionId: string) => typedError<TerminalHistoryBlockRecord[], OmniError_Serialize>(__TAURI_INVOKE("terminal_history_load_session", { sessionId })),
-	/**  增量 upsert 会话内块，并按保留策略 prune。 */
+	/**  增量 upsert 会话内块，并按保留策�?prune�?*/
 	terminalHistoryUpsertBlocks: (sessionId: string, workspaceId: string | null, blocks: TerminalHistoryBlockRecord[], policy: TerminalHistoryRetainPolicy) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("terminal_history_upsert_blocks", { sessionId, workspaceId, blocks, policy })),
-	/**  删除单个历史块。 */
+	/**  删除单个历史块�?*/
 	terminalHistoryRemoveBlock: (sessionId: string, blockId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("terminal_history_remove_block", { sessionId, blockId })),
-	/**  清除单个会话的历史。 */
+	/**  清除单个会话的历史�?*/
 	terminalHistoryClearSession: (sessionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("terminal_history_clear_session", { sessionId })),
-	/**  清除全部终端历史。 */
+	/**  清除全部终端历史�?*/
 	terminalHistoryClearAll: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("terminal_history_clear_all")),
-	/**  返回 (sessions, blocks) 计数，供设置页展示。 */
+	/**  返回 (sessions, blocks) 计数，供设置页展示�?*/
 	terminalHistoryCounts: () => typedError<[number, number], OmniError_Serialize>(__TAURI_INVOKE("terminal_history_counts")),
 	dbListConnections: () => typedError<DbConnectionConfig[], string>(__TAURI_INVOKE("db_list_connections")),
-	/**  解密 Navicat 导出的连接密码（NCX / 注册表，支持 v11 Blowfish 与 v12 AES）。 */
+	/**  解密 Navicat 导出的连接密码（NCX / 注册表，支持 v11 Blowfish �?v12 AES）�?*/
 	decryptNavicatPassword: (ciphertext: string) => typedError<string, string>(__TAURI_INVOKE("decrypt_navicat_password", { ciphertext })),
-	/**  批量解密 Navicat 密码；失败项返回空字符串。 */
+	/**  批量解密 Navicat 密码；失败项返回空字符串�?*/
 	decryptNavicatPasswords: (ciphertexts: string[]) => __TAURI_INVOKE<string[]>("decrypt_navicat_passwords", { ciphertexts }),
-	/**  编辑连接表单：从 Vault 取回明文密码（列表接口永不返回明文）。 */
+	/**  编辑连接表单：从 Vault 取回明文密码（列表接口永不返回明文）�?*/
 	dbGetConnectionSecret: (id: string) => typedError<string, string>(__TAURI_INVOKE("db_get_connection_secret", { id })),
 	secretsVaultStatus: () => typedError<SecretsVaultStatus, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_status")),
 	secretsVaultUnlock: (deviceCode: string) => typedError<SecretsVaultStatus, OmniError_Serialize>(__TAURI_INVOKE("secrets_vault_unlock", { deviceCode })),
@@ -62,15 +58,15 @@ export const commands = {
 	syncTeamKeyExportFile: (teamId: number, path: string, passphrase: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_export_file", { teamId, path, passphrase })),
 	syncTeamKeyImportFile: (teamId: number, path: string, passphrase: string | null) => typedError<SyncTeamKeyImportResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_import_file", { teamId, path, passphrase })),
 	syncTeamKeyGenerateEphemeralKeypair: () => typedError<SyncTeamKeyEphemeralKeypair, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_generate_ephemeral_keypair")),
-	/**  用本机团队密钥 + 对方临时公钥封装 wrapped key（在线设备中继响应）。 */
+	/**  用本机团队密�?+ 对方临时公钥封装 wrapped key（在线设备中继响应）�?*/
 	syncTeamKeyWrapForRelay: (teamId: number, recipientPubkeyB64: string, requestId: string, requesterDeviceId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_wrap_for_relay", { teamId, recipientPubkeyB64, requestId, requesterDeviceId })),
-	/**  新设备解包中继返回的 wrapped key 并写入本机。 */
+	/**  新设备解包中继返回的 wrapped key 并写入本机�?*/
 	syncTeamKeyUnwrapFromRelay: (teamId: number, wrappedB64: string, ephemeralSecretB64: string, requestId: string, requesterDeviceId: string) => typedError<SyncTeamKeyImportResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_unwrap_from_relay", { teamId, wrappedB64, ephemeralSecretB64, requestId, requesterDeviceId })),
-	/**  新设备：生成临时密钥对并缓存私钥。pairing_id 可先空，redeem 前再调用一次写入 id。 */
+	/**  新设备：生成临时密钥对并缓存私钥。pairing_id 可先空，redeem 前再调用一次写�?id�?*/
 	syncPairingCreateKeypair: (pairingId: string) => typedError<PairingKeypairResult, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_create_keypair", { pairingId })),
-	/**  主设备：用本机 SMK 封装给 requester。 */
+	/**  主设备：用本�?SMK 封装�?requester�?*/
 	syncPairingWrapKey: (request: WrapKeyRequest) => typedError<WrapKeyResult, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_wrap_key", { request })),
-	/**  新设备：解包并写入本机 SMK。 */
+	/**  新设备：解包并写入本�?SMK�?*/
 	syncPairingUnwrapAndStore: (pairingId: string, requesterDeviceId: string, wrappedKey: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_pairing_unwrap_and_store", { pairingId, requesterDeviceId, wrappedKey })),
 	dbSaveConnection: (connection: DbConnectionConfig) => typedError<DbConnectionConfig, string>(__TAURI_INVOKE("db_save_connection", { connection })),
 	dbDeleteConnection: (id: string) => typedError<null, string>(__TAURI_INVOKE("db_delete_connection", { id })),
@@ -80,13 +76,13 @@ export const commands = {
 	dbSaveSchemaTreeExpanded: (snapshot: SchemaTreeExpandedSnapshot) => typedError<null, string>(__TAURI_INVOKE("db_save_schema_tree_expanded", { snapshot })),
 	dbLoadSchemaCache: () => typedError<SchemaCacheSnapshot_Serialize, string>(__TAURI_INVOKE("db_load_schema_cache")),
 	dbSaveSchemaCache: (snapshot: SchemaCacheSnapshot_Deserialize) => typedError<null, string>(__TAURI_INVOKE("db_save_schema_cache", { snapshot })),
-	/**  增量写入单连接 Schema 缓存，避免前端每次传完整快照。 */
+	/**  增量写入单连�?Schema 缓存，避免前端每次传完整快照�?*/
 	dbPatchSchemaCache: (connectionId: string, entry: SchemaCacheConnection_Deserialize) => typedError<SchemaCacheConnection_Serialize, string>(__TAURI_INVOKE("db_patch_schema_cache", { connectionId, entry })),
 	dbTestConnection: (connection: DbConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("db_test_connection", { connection })),
 	dbListDatabases: (connection: DbConnectionConfig) => typedError<string[], string>(__TAURI_INVOKE("db_list_databases", { connection })),
 	/**
-	 *  库列表（含统计信息）：库名 / 字符集 / 排序规则 / 表数 / 大小 / 行数
-	 *  单条 LEFT JOIN 查询，避免 N+1
+	 *  库列表（含统计信息）：库�?/ 字符�?/ 排序规则 / 表数 / 大小 / 行数
+	 *  单条 LEFT JOIN 查询，避�?N+1
 	 */
 	dbListDatabasesWithStats: (connection: DbConnectionConfig) => typedError<DbDatabaseMeta[], string>(__TAURI_INVOKE("db_list_databases_with_stats", { connection })),
 	dbListCharacterSets: (connection: DbConnectionConfig) => typedError<DbCharsetMeta[], string>(__TAURI_INVOKE("db_list_character_sets", { connection })),
@@ -97,24 +93,19 @@ export const commands = {
 	dbListTables: (connection: DbConnectionConfig, schema: string | null) => typedError<string[], string>(__TAURI_INVOKE("db_list_tables", { connection, schema })),
 	dbTableDdl: (connection: DbConnectionConfig, schema: string | null, table: string) => typedError<string, string>(__TAURI_INVOKE("db_table_ddl", { connection, schema, table })),
 	dbGetTableDetails: (connection: DbConnectionConfig, schema: string | null, table: string) => typedError<DbTableDetails_Serialize, string>(__TAURI_INVOKE("db_get_table_details", { connection, schema, table })),
-	/**  一次拉取库内全部表详情（表列表首屏用；避免逐表建连）。 */
+	/**  一次拉取库内全部表详情（表列表首屏用；避免逐表建连）�?*/
 	dbListTableDetails: (connection: DbConnectionConfig, schema: string | null) => typedError<DbNamedTableDetails_Serialize[], string>(__TAURI_INVOKE("db_list_table_details", { connection, schema })),
 	dbPreviewTable: (connection: DbConnectionConfig, table: string, limit: number, offset: number, orderBy: string | null, whereClause: string | null) => typedError<TableInfo, string>(__TAURI_INVOKE("db_preview_table", { connection, table, limit, offset, orderBy, whereClause })),
 	dbCountTable: (connection: DbConnectionConfig, schema: string | null, table: string, whereClause: string | null) => typedError<number | null, string>(__TAURI_INVOKE("db_count_table", { connection, schema, table, whereClause })),
-	/**  在同一连接上顺序统计多表行数，避免前端并发 `db_count_table` 打满连接池。 */
+	/**  在同一连接上顺序统计多表行数，避免前端并发 `db_count_table` 打满连接池�?*/
 	dbCountTables: (connection: DbConnectionConfig, schema: string | null, tables: string[]) => typedError<TableRowCount[], string>(__TAURI_INVOKE("db_count_tables", { connection, schema, tables })),
 	/**
-	 *  执行任意 SQL（SELECT 返回行集，DML 返回影响行数）。高风险写操作由前端经执行引擎确认后调用。
-	 *  `limit` / `offset` 非零时，SELECT/WITH 语句会被包裹为 `SELECT * FROM (...) LIMIT n OFFSET m`，防止超大结果集卡死前端。
-	 *  `run_id` 供前端中断长时间查询（`db_cancel_query`）。
-	 */
+	 *  执行任意 SQL（SELECT 返回行集，DML 返回影响行数）。高风险写操作由前端经执行引擎确认后调用�?	 *  `limit` / `offset` 非零时，SELECT/WITH 语句会被包裹�?`SELECT * FROM (...) LIMIT n OFFSET m`，防止超大结果集卡死前端�?	 *  `run_id` 供前端中断长时间查询（`db_cancel_query`）�?	 */
 	dbExecuteQuery: (connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null, presenceToken: string | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query", { connection, sql, runId, limit, offset, presenceToken })),
-	/**  中断正在执行的 SQL 查询（按 run_id，与 db_execute_query 配对）。 */
+	/**  中断正在执行�?SQL 查询（按 run_id，与 db_execute_query 配对）�?*/
 	dbCancelQuery: (runId: string) => typedError<null, string>(__TAURI_INVOKE("db_cancel_query", { runId })),
 	/**
-	 *  在手动事务会话中执行 SQL（session_id 通常为 SQL Tab id）。
-	 *  首次执行时自动 BEGIN；失败不自动 ROLLBACK。
-	 */
+	 *  在手动事务会话中执行 SQL（session_id 通常�?SQL Tab id）�?	 *  首次执行时自�?BEGIN；失败不自动 ROLLBACK�?	 */
 	dbExecuteQueryInSession: (sessionId: string, connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null, presenceToken: string | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query_in_session", { sessionId, connection, sql, runId, limit, offset, presenceToken })),
 	presenceStatus: () => typedError<PresenceStatus, OmniError_Serialize>(__TAURI_INVOKE("presence_status")),
 	presenceSetOsEnabled: (enabled: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("presence_set_os_enabled", { enabled })),
@@ -123,209 +114,192 @@ export const commands = {
 	dbRestartService: (sshConnectionId: string, service: string, kind: string, location: string, presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_restart_service", { sshConnectionId, service, kind, location, presenceToken })),
 	dbDropTable: (connection: DbConnectionConfig, objects: DbDropObject[], presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_drop_table", { connection, objects, presenceToken })),
 	dbDropDatabase: (connection: DbConnectionConfig, databases: string[], presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_drop_database", { connection, databases, presenceToken })),
-	/**  提交手动事务会话。 */
+	/**  提交手动事务会话�?*/
 	dbQuerySessionCommit: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("db_query_session_commit", { sessionId })),
-	/**  回滚手动事务会话。 */
+	/**  回滚手动事务会话�?*/
 	dbQuerySessionRollback: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("db_query_session_rollback", { sessionId })),
-	/**  关闭手动事务会话（若仍在事务中则先 ROLLBACK）。 */
+	/**  关闭手动事务会话（若仍在事务中则�?ROLLBACK）�?*/
 	dbQuerySessionClose: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("db_query_session_close", { sessionId })),
-	/**  Redis `CONFIG GET *`：返回 parameter / value 两列表格。 */
+	/**  Redis `CONFIG GET *`：返�?parameter / value 两列表格�?*/
 	dbRedisConfigGet: (connection: DbConnectionConfig) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_redis_config_get", { connection })),
-	/**  Redis `CONFIG GET` 单键或多键。 */
+	/**  Redis `CONFIG GET` 单键或多键�?*/
 	dbRedisConfigGetEntries: (connection: DbConnectionConfig, pattern: string) => typedError<([string, string])[], string>(__TAURI_INVOKE("db_redis_config_get_entries", { connection, pattern })),
-	/**  Redis `CLIENT LIST`：返回客户端连接列表。 */
+	/**  Redis `CLIENT LIST`：返回客户端连接列表�?*/
 	dbRedisClientList: (connection: DbConnectionConfig) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_redis_client_list", { connection })),
-	/**  Redis `CLIENT KILL ADDR <ip:port>`：终止指定客户端连接，返回被杀掉的客户端数量。 */
+	/**  Redis `CLIENT KILL ADDR <ip:port>`：终止指定客户端连接，返回被杀掉的客户端数量�?*/
 	dbRedisClientKill: (connection: DbConnectionConfig, addr: string, presenceToken: string | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_client_kill", { connection, addr, presenceToken })),
-	/**  Redis 键搜索：SCAN + 类型过滤 + 值预览。 */
+	/**  Redis 键搜索：SCAN + 类型过滤 + 值预览�?*/
 	dbRedisSearchKeys: (args: RedisSearchKeysArgs) => typedError<RedisSearchKeysResult_Serialize, string>(__TAURI_INVOKE("db_redis_search_keys", { args })),
-	/**  Redis `DBSIZE`：当前逻辑库 key 总数。 */
+	/**  Redis `DBSIZE`：当前逻辑�?key 总数�?*/
 	dbRedisDbsize: (connection: DbConnectionConfig) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_dbsize", { connection })),
-	/**  Redis 单个 key 详情。 */
+	/**  Redis 单个 key 详情�?*/
 	dbRedisKeyDetail: (connection: DbConnectionConfig, key: string) => typedError<RedisKeyDetail_Serialize, string>(__TAURI_INVOKE("db_redis_key_detail", { connection, key })),
-	/**  Redis 新建 string key。 */
+	/**  Redis 新建 string key�?*/
 	dbRedisSetKey: (connection: DbConnectionConfig, key: string, value: string, keyType: string | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_set_key", { connection, key, value, keyType })),
-	/**  Redis 删除 key。 */
+	/**  Redis 删除 key�?*/
 	dbRedisDeleteKey: (connection: DbConnectionConfig, key: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_delete_key", { connection, key })),
-	/**  Redis 慢日志。 */
+	/**  Redis 慢日志�?*/
 	dbRedisSlowlog: (connection: DbConnectionConfig, count: number | null) => typedError<RedisSlowLogEntry_Serialize[], string>(__TAURI_INVOKE("db_redis_slowlog", { connection, count })),
-	/**  Redis `INFO`。 */
+	/**  Redis `INFO`�?*/
 	dbRedisInfo: (connection: DbConnectionConfig, section: string | null) => typedError<RedisInfoResult, string>(__TAURI_INVOKE("db_redis_info", { connection, section })),
-	/**  Redis `MEMORY STATS`。 */
+	/**  Redis `MEMORY STATS`�?*/
 	dbRedisMemoryStats: (connection: DbConnectionConfig) => typedError<RedisMemoryStats, string>(__TAURI_INVOKE("db_redis_memory_stats", { connection })),
-	/**  Redis `MEMORY DOCTOR`。 */
+	/**  Redis `MEMORY DOCTOR`�?*/
 	dbRedisMemoryDoctor: (connection: DbConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("db_redis_memory_doctor", { connection })),
-	/**  Redis `MEMORY PURGE`。 */
+	/**  Redis `MEMORY PURGE`�?*/
 	dbRedisMemoryPurge: (connection: DbConnectionConfig) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_memory_purge", { connection })),
-	/**  Redis `CONFIG SET`。 */
+	/**  Redis `CONFIG SET`�?*/
 	dbRedisConfigSet: (connection: DbConnectionConfig, parameter: string, value: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_config_set", { connection, parameter, value })),
-	/**  Redis `CONFIG REWRITE`。 */
+	/**  Redis `CONFIG REWRITE`�?*/
 	dbRedisConfigRewrite: (connection: DbConnectionConfig) => typedError<null, string>(__TAURI_INVOKE("db_redis_config_rewrite", { connection })),
-	/**  Redis `FLUSHDB`。 */
+	/**  Redis `FLUSHDB`�?*/
 	dbRedisFlushDb: (connection: DbConnectionConfig, async: boolean | null, presenceToken: string | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_db", { connection, async, presenceToken })),
-	/**  Redis `FLUSHALL`。 */
+	/**  Redis `FLUSHALL`�?*/
 	dbRedisFlushAll: (connection: DbConnectionConfig, async: boolean | null, presenceToken: string | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_flush_all", { connection, async, presenceToken })),
-	/**  Redis Stream 范围查询。 */
+	/**  Redis Stream 范围查询�?*/
 	dbRedisStreamRange: (connection: DbConnectionConfig, key: string, start: string | null, end: string | null, count: number | null, reverse: boolean | null) => typedError<RedisStreamRangeResult, string>(__TAURI_INVOKE("db_redis_stream_range", { connection, key, start, end, count, reverse })),
-	/**  Redis `XINFO GROUPS`。 */
+	/**  Redis `XINFO GROUPS`�?*/
 	dbRedisStreamGroups: (connection: DbConnectionConfig, key: string) => typedError<RedisStreamGroup_Serialize[], string>(__TAURI_INVOKE("db_redis_stream_groups", { connection, key })),
-	/**  Redis `XINFO CONSUMERS`。 */
+	/**  Redis `XINFO CONSUMERS`�?*/
 	dbRedisStreamConsumers: (connection: DbConnectionConfig, key: string, group: string) => typedError<RedisStreamConsumer_Serialize[], string>(__TAURI_INVOKE("db_redis_stream_consumers", { connection, key, group })),
-	/**  Redis `XPENDING`。 */
+	/**  Redis `XPENDING`�?*/
 	dbRedisStreamPending: (connection: DbConnectionConfig, key: string, group: string, start: string | null, end: string | null, count: number | null) => typedError<RedisStreamPendingEntry[], string>(__TAURI_INVOKE("db_redis_stream_pending", { connection, key, group, start, end, count })),
-	/**  Redis Stream 监控快照。 */
+	/**  Redis Stream 监控快照�?*/
 	dbRedisStreamMonitor: (connection: DbConnectionConfig, key: string, group: string | null) => typedError<RedisStreamMonitorSnapshot_Serialize, string>(__TAURI_INVOKE("db_redis_stream_monitor", { connection, key, group })),
-	/**  Redis `XACK`。 */
+	/**  Redis `XACK`�?*/
 	dbRedisStreamAck: (connection: DbConnectionConfig, key: string, group: string, ids: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_ack", { connection, key, group, ids })),
-	/**  Redis `XAUTOCLAIM`。 */
+	/**  Redis `XAUTOCLAIM`�?*/
 	dbRedisStreamClaim: (connection: DbConnectionConfig, key: string, group: string, consumer: string, minIdleMs: number | null, startId: string, count: number | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_claim", { connection, key, group, consumer, minIdleMs, startId, count })),
-	/**  Redis `XGROUP CREATE`。 */
+	/**  Redis `XGROUP CREATE`�?*/
 	dbRedisStreamGroupCreate: (connection: DbConnectionConfig, key: string, group: string, id: string, mkstream: boolean | null) => typedError<null, string>(__TAURI_INVOKE("db_redis_stream_group_create", { connection, key, group, id, mkstream })),
-	/**  Redis `XGROUP DESTROY`。 */
+	/**  Redis `XGROUP DESTROY`�?*/
 	dbRedisStreamGroupDestroy: (connection: DbConnectionConfig, key: string, group: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_stream_group_destroy", { connection, key, group })),
-	/**  Redis `XTRIM`。 */
+	/**  Redis `XTRIM`�?*/
 	dbRedisStreamTrim: (connection: DbConnectionConfig, key: string, maxlen: number | null, approximate: boolean | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_stream_trim", { connection, key, maxlen, approximate })),
-	/**  Redis 清理非活跃 Stream 消费者（转移 Pending + DELCONSUMER）。 */
+	/**  Redis 清理非活�?Stream 消费者（转移 Pending + DELCONSUMER）�?*/
 	dbRedisStreamCleanupInactiveConsumers: (connection: DbConnectionConfig, key: string, group: string, idleThresholdMs: number | null, targetConsumer: string | null) => typedError<RedisStreamConsumerCleanupResult, string>(__TAURI_INVOKE("db_redis_stream_cleanup_inactive_consumers", { connection, key, group, idleThresholdMs, targetConsumer })),
-	/**  Redis `ACL LIST`。 */
+	/**  Redis `ACL LIST`�?*/
 	dbRedisAclList: (connection: DbConnectionConfig) => typedError<RedisAclUser[], string>(__TAURI_INVOKE("db_redis_acl_list", { connection })),
-	/**  Redis `ACL GETUSER`。 */
+	/**  Redis `ACL GETUSER`�?*/
 	dbRedisAclGetuser: (connection: DbConnectionConfig, username: string) => typedError<RedisAclUser, string>(__TAURI_INVOKE("db_redis_acl_getuser", { connection, username })),
-	/**  Redis `ACL SETUSER`。 */
+	/**  Redis `ACL SETUSER`�?*/
 	dbRedisAclSetuser: (connection: DbConnectionConfig, username: string, rule: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_acl_setuser", { connection, username, rule })),
-	/**  Redis `ACL DELUSER`。 */
+	/**  Redis `ACL DELUSER`�?*/
 	dbRedisAclDeluser: (connection: DbConnectionConfig, username: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_acl_deluser", { connection, username })),
-	/**  Redis `HSET`。 */
+	/**  Redis `HSET`�?*/
 	dbRedisHashSetField: (connection: DbConnectionConfig, key: string, field: string, value: string) => typedError<null, string>(__TAURI_INVOKE("db_redis_hash_set_field", { connection, key, field, value })),
-	/**  Redis `HDEL`。 */
+	/**  Redis `HDEL`�?*/
 	dbRedisHashDelFields: (connection: DbConnectionConfig, key: string, fields: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_hash_del_fields", { connection, key, fields })),
-	/**  Redis `LPUSH` / `RPUSH`。 */
+	/**  Redis `LPUSH` / `RPUSH`�?*/
 	dbRedisListPush: (connection: DbConnectionConfig, key: string, side: string, values: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_list_push", { connection, key, side, values })),
-	/**  Redis `LREM`。 */
+	/**  Redis `LREM`�?*/
 	dbRedisListRemove: (connection: DbConnectionConfig, key: string, count: number | null, value: string) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_list_remove", { connection, key, count, value })),
-	/**  Redis `SADD`。 */
+	/**  Redis `SADD`�?*/
 	dbRedisSetAdd: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_set_add", { connection, key, members })),
-	/**  Redis `SREM`。 */
+	/**  Redis `SREM`�?*/
 	dbRedisSetRemove: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_set_remove", { connection, key, members })),
-	/**  Redis `ZADD`。 */
+	/**  Redis `ZADD`�?*/
 	dbRedisZsetAdd: (connection: DbConnectionConfig, key: string, member: string, score: number | null) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_zset_add", { connection, key, member, score })),
-	/**  Redis `ZREM`。 */
+	/**  Redis `ZREM`�?*/
 	dbRedisZsetRemove: (connection: DbConnectionConfig, key: string, members: string[]) => typedError<number | null, string>(__TAURI_INVOKE("db_redis_zset_remove", { connection, key, members })),
-	/**  Redis `EXPIRE`。 */
+	/**  Redis `EXPIRE`�?*/
 	dbRedisExpireKey: (connection: DbConnectionConfig, key: string, seconds: number | null) => typedError<boolean, string>(__TAURI_INVOKE("db_redis_expire_key", { connection, key, seconds })),
-	/**  Qdrant 按 point id 批量删除。 */
+	/**  Qdrant �?point id 批量删除�?*/
 	dbQdrantDeletePoints: (args: QdrantDeletePointsArgs) => typedError<number | null, string>(__TAURI_INVOKE("db_qdrant_delete_points", { args })),
-	/**  按 Schema 树节点类型刷新缓存片段（连接 / 库 / 表 / 用户等）。 */
+	/**  �?Schema 树节点类型刷新缓存片段（连接 / �?/ �?/ 用户等）�?*/
 	dbRefreshSchemaNode: (args: SchemaNodeRefreshArgs) => typedError<SchemaNodeRefreshResult_Serialize, string>(__TAURI_INVOKE("db_refresh_schema_node", { args })),
-	/**  列出全部已保存连接。 */
+	/**  列出全部已保存连接�?*/
 	connList: () => typedError<Connection[], OmniError_Serialize>(__TAURI_INVOKE("conn_list")),
-	/**  保存（新建或更新）连接。id 为空时后端生成。 */
+	/**  保存（新建或更新）连接。id 为空时后端生成�?*/
 	connSave: (connection: Connection) => typedError<Connection, OmniError_Serialize>(__TAURI_INVOKE("conn_save", { connection })),
-	/**  删除连接。 */
+	/**  删除连接�?*/
 	connDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("conn_delete", { id })),
 	/**
-	 *  测试连接连通性。当前支持 database（MySQL）；其余类型将在对应里程碑接入。
-	 * 
-	 *  `secret`：可选明文凭据（文件连接对话框「测试连接」用）。为空时回退到
-	 *  `connection.credential_ref` 指向的 Vault；保存前测试必须传入表单中的密钥。
-	 */
+	 *  测试连接连通性。当前支�?database（MySQL）；其余类型将在对应里程碑接入�?	 * 
+	 *  `secret`：可选明文凭据（文件连接对话框「测试连接」用）。为空时回退�?	 *  `connection.credential_ref` 指向�?Vault；保存前测试必须传入表单中的密钥�?	 */
 	connTest: (connection: Connection, secret: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("conn_test", { connection, secret })),
 	/**
-	 *  解析域名为 IP 地址，结果持久化到缓存，避免重复解析。
-	 *  传入已存在的 IP 地址直接返回；域名则先查缓存，未命中再 DNS 解析。
-	 */
+	 *  解析域名�?IP 地址，结果持久化到缓存，避免重复解析�?	 *  传入已存在的 IP 地址直接返回；域名则先查缓存，未命中�?DNS 解析�?	 */
 	resolveHost: (host: string) => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("resolve_host", { host })),
-	/**  汇总各模块在后端持有的会话与可复用连接，供状态栏连接池指示器展示。 */
+	/**  汇总各模块在后端持有的会话与可复用连接，供状态栏连接池指示器展示�?*/
 	poolGetSummary: () => typedError<PoolSummary, OmniError_Serialize>(__TAURI_INVOKE("pool_get_summary")),
-	/**  列出当前正在运行的后台任务。 */
+	/**  列出当前正在运行的后台任务�?*/
 	bgTaskList: () => typedError<BackgroundTaskInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("bg_task_list")),
-	/**  列出被动任务终态历史（SQLite，按结束时间倒序）。 */
+	/**  列出被动任务终态历史（SQLite，按结束时间倒序）�?*/
 	bgTaskHistoryList: (limit: number | null) => typedError<BgTaskHistoryRecord_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("bg_task_history_list", { limit })),
-	/**  按条件列出任务中心事件索引。 */
+	/**  按条件列出任务中心事件索引�?*/
 	taskEventsList: (module: string | null, workspaceId: string | null, resourceId: string | null, source: string | null, limit: number | null) => typedError<TaskEventRecord[], OmniError_Serialize>(__TAURI_INVOKE("task_events_list", { module, workspaceId, resourceId, source, limit })),
-	/**  取消后台任务。 */
+	/**  取消后台任务�?*/
 	bgTaskCancel: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("bg_task_cancel", { id })),
-	/**  提交数据库数据同步对比分析后台任务。 */
+	/**  提交数据库数据同步对比分析后台任务�?*/
 	bgTaskSubmitDbDataSync: (source: DbConnectionConfig, target: DbConnectionConfig, tables: DbSyncTableSpec_Deserialize[], ignoredFields: string[] | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_data_sync", { source, target, tables, ignoredFields })),
-	/**  提交数据库结构同步对比分析后台任务。 */
+	/**  提交数据库结构同步对比分析后台任务�?*/
 	bgTaskSubmitDbSchemaSync: (target: DbConnectionConfig, targetSchema: string, tables: DbSyncTableSpec_Deserialize[]) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_schema_sync", { target, targetSchema, tables })),
-	/**  提交数据库数据同步执行后台任务（目标表不存在时自动建表）。 */
+	/**  提交数据库数据同步执行后台任务（目标表不存在时自动建表）�?*/
 	bgTaskSubmitDbDataSyncExecute: (source: DbConnectionConfig, target: DbConnectionConfig, tables: DbSyncExecTableSpec_Deserialize[]) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_data_sync_execute", { source, target, tables })),
-	/**  生成数据同步可执行 SQL 脚本并写入缓存文件。 */
+	/**  生成数据同步可执�?SQL 脚本并写入缓存文件�?*/
 	dbDataSyncGenerateSql: (source: DbConnectionConfig, target: DbConnectionConfig, tables: DbSyncExecTableSpec_Deserialize[]) => typedError<DbDataSyncSqlGenerateResult, OmniError_Serialize>(__TAURI_INVOKE("db_data_sync_generate_sql", { source, target, tables })),
-	/**  结构同步：一次返回「表 → SQL 预览」（不执行）。 */
+	/**  结构同步：一次返回「表 �?SQL 预览」（不执行）�?*/
 	dbSchemaSyncPreviewSql: (source: DbConnectionConfig, target: DbConnectionConfig, sourceDb: string, targetDb: string, tables: DbSyncTableSpec_Deserialize[], createMissingTables: boolean | null) => typedError<DbSyncSqlPreviewTable[], OmniError_Serialize>(__TAURI_INVOKE("db_schema_sync_preview_sql", { source, target, sourceDb, targetDb, tables, createMissingTables })),
-	/**  批量拉取建表 DDL（数据同步预览等）。 */
+	/**  批量拉取建表 DDL（数据同步预览等）�?*/
 	dbBatchTableDdl: (connection: DbConnectionConfig, schema: string | null, tables: string[]) => typedError<DbSyncSqlPreviewTable[], OmniError_Serialize>(__TAURI_INVOKE("db_batch_table_ddl", { connection, schema, tables })),
-	/**  读取数据同步 SQL 缓存文件（仅限 app_cache/data-sync-sql 目录）。 */
+	/**  读取数据同步 SQL 缓存文件（仅�?app_cache/data-sync-sql 目录）�?*/
 	dbDataSyncReadSqlFile: (filePath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("db_data_sync_read_sql_file", { filePath })),
-	/**  保存（可编辑后的）同步 SQL 到缓存目录，供确认执行使用。 */
+	/**  保存（可编辑后的）同�?SQL 到缓存目录，供确认执行使用�?*/
 	dbDataSyncWriteSqlFile: (sql: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("db_data_sync_write_sql_file", { sql })),
-	/**  提交数据同步 SQL 文件执行后台任务。 */
+	/**  提交数据同步 SQL 文件执行后台任务�?*/
 	bgTaskSubmitDbDataSyncSqlExecute: (target: DbConnectionConfig, sqlFilePath: string, tableNames: string[]) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_data_sync_sql_execute", { target, sqlFilePath, tableNames })),
-	/**  提交数据库结构同步执行后台任务（目标表不存在时自动建表）。 */
+	/**  提交数据库结构同步执行后台任务（目标表不存在时自动建表）�?*/
 	bgTaskSubmitDbSchemaSyncExecute: (source: DbConnectionConfig, target: DbConnectionConfig, tables: DbSyncTableSpec_Deserialize[]) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_schema_sync_execute", { source, target, tables })),
 	/**
-	 *  提交数据库 Schema 缓存刷新后台任务。
-	 *  `connection_ids` 为 `None` 时刷新全部已启用连接；否则仅刷新指定连接。
-	 */
+	 *  提交数据�?Schema 缓存刷新后台任务�?	 *  `connection_ids` �?`None` 时刷新全部已启用连接；否则仅刷新指定连接�?	 */
 	bgTaskSubmitDbSchemaCacheRefresh: (connectionIds: string[] | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_schema_cache_refresh", { connectionIds })),
-	/**  提交知识库文档向量化后台任务。 */
+	/**  提交知识库文档向量化后台任务�?*/
 	bgTaskSubmitKnowledgeVectorize: (args: KnowledgeVectorizeArgs) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_knowledge_vectorize", { args })),
-	/**  提交 Ollama 授权安装后台任务。 */
+	/**  提交 Ollama 授权安装后台任务�?*/
 	bgTaskSubmitOllamaInstall: () => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_ollama_install")),
-	/**  提交 Ollama 模型拉取后台任务。 */
+	/**  提交 Ollama 模型拉取后台任务�?*/
 	bgTaskSubmitOllamaPull: (model: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_ollama_pull", { model })),
-	/**  列出指定 MySQL 连接的数据库导出记录。 */
+	/**  列出指定 MySQL 连接的数据库导出记录�?*/
 	dbMysqlExportList: (connectionId: string) => typedError<MysqlExportRecord_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("db_mysql_export_list", { connectionId })),
-	/**  将导出文件复制到用户指定路径（需已通过 save 对话框授权）。 */
+	/**  将导出文件复制到用户指定路径（需已通过 save 对话框授权）�?*/
 	dbMysqlExportSaveAs: (connectionId: string, exportId: string, destPath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("db_mysql_export_save_as", { connectionId, exportId, destPath })),
-	/**  删除 MySQL 导出记录及对应本地文件。 */
+	/**  删除 MySQL 导出记录及对应本地文件�?*/
 	dbMysqlExportDelete: (connectionId: string, exportId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_mysql_export_delete", { connectionId, exportId })),
-	/**  提交 MySQL 数据库导出后台任务。 */
+	/**  提交 MySQL 数据库导出后台任务�?*/
 	bgTaskSubmitDbMysqlExport: (connection: DbConnectionConfig, databaseName: string, deployment: MysqlExportDeployment_Deserialize) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_mysql_export", { connection, databaseName, deployment })),
-	/**  提交 MySQL SQL 导入后台任务。 */
+	/**  提交 MySQL SQL 导入后台任务�?*/
 	bgTaskSubmitDbMysqlImport: (connection: DbConnectionConfig, databaseName: string, deployment: MysqlExportDeployment_Deserialize, source: MysqlImportSource_Deserialize) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_mysql_import", { connection, databaseName, deployment, source })),
-	/**  从 Vault 解析面板 API 密钥（config.key 落库时会被清空）。 */
+	/**  �?Vault 解析面板 API 密钥（config.key 落库时会被清空）�?*/
 	panelResolveApiKey: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_resolve_api_key", { connectionId })),
 	/**
-	 *  通用 1Panel API 请求（由 Rust 后端发起，避免 WebView CORS）。
-	 *  `body` 为 JSON 字符串；返回 JSON 字符串。
-	 */
+	 *  通用 1Panel API 请求（由 Rust 后端发起，避�?WebView CORS）�?	 *  `body` �?JSON 字符串；返回 JSON 字符串�?	 */
 	panel1panelRequest: (host: string, apiKey: string, method: string, path: string, body: string | null, presenceToken: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request", { host, apiKey, method, path, body, presenceToken })),
-	/**  1Panel 连通性测试。 */
+	/**  1Panel 连通性测试�?*/
 	panel1panelTestConnection: (host: string, apiKey: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_test_connection", { host, apiKey })),
-	/**  获取 1Panel 应用图标（GET /apps/icon/:key），返回 data URL 或绝对 URL。 */
+	/**  获取 1Panel 应用图标（GET /apps/icon/:key），返回 data URL 或绝�?URL�?*/
 	panel1panelAppIcon: (host: string, apiKey: string, appKey: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_app_icon", { host, apiKey, appKey })),
-	/**  1Panel 原始文本请求（用于日志下载等）。 */
+	/**  1Panel 原始文本请求（用于日志下载等）�?*/
 	panel1panelRequestText: (host: string, apiKey: string, method: string, path: string, body: string | null, presenceToken: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request_text", { host, apiKey, method, path, body, presenceToken })),
-	/**  1Panel 二进制请求（证书 zip 等）。返回 Base64，避免 IPC 损坏。 */
+	/**  1Panel 二进制请求（证书 zip 等）。返�?Base64，避�?IPC 损坏�?*/
 	panel1panelRequestBytes: (host: string, apiKey: string, method: string, path: string, body: string | null, presenceToken: string | null) => typedError<OnePanelBinaryPayload, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_request_bytes", { host, apiKey, method, path, body, presenceToken })),
 	/**
-	 *  1Panel 文件上传（multipart：/files/upload 或分块 /files/chunkupload）。
-	 *  `content_base64` 为文件内容 Base64；`path` 为目标目录。
-	 */
+	 *  1Panel 文件上传（multipart�?files/upload 或分�?/files/chunkupload）�?	 *  `content_base64` 为文件内�?Base64；`path` 为目标目录�?	 */
 	panel1panelUploadFile: (host: string, apiKey: string, path: string, filename: string, contentBase64: string, overwrite: boolean | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("panel_1panel_upload_file", { host, apiKey, path, filename, contentBase64, overwrite })),
 	/**
-	 *  通用宝塔面板 API 请求（POST + 表单签名，由 Rust 后端发起并维护 Cookie）。
-	 *  `path` 含 query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串。
-	 */
+	 *  通用宝塔面板 API 请求（POST + 表单签名，由 Rust 后端发起并维�?Cookie）�?	 *  `path` �?query，如 `/system?action=GetSystemTotal`；`body` 为额外字段的 JSON 对象字符串�?	 */
 	panelBtRequest: (host: string, apiSk: string, path: string, body: string | null, presenceToken: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request", { host, apiSk, path, body, presenceToken })),
 	/**
-	 *  通用宝塔面板 GET 请求（query 签名，用于官方标注为 GET 的接口）。
-	 *  `query` 为额外 query 字段的 JSON 对象字符串。
-	 */
+	 *  通用宝塔面板 GET 请求（query 签名，用于官方标注为 GET 的接口）�?	 *  `query` 为额�?query 字段�?JSON 对象字符串�?	 */
 	panelBtRequestGet: (host: string, apiSk: string, path: string, query: string | null, presenceToken: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_request_get", { host, apiSk, path, query, presenceToken })),
 	/**
-	 *  获取宝塔应用商店图标，返回 data URL（经鉴权下载，绕过安全入口）。
-	 *  `icon_file` 可选，软件商店一般为 `ico-xxx.png`；为空时按 app_name 推断 Docker/软件路径。
-	 */
+	 *  获取宝塔应用商店图标，返�?data URL（经鉴权下载，绕过安全入口）�?	 *  `icon_file` 可选，软件商店一般为 `ico-xxx.png`；为空时�?app_name 推断 Docker/软件路径�?	 */
 	panelBtAppIcon: (host: string, apiSk: string, appName: string, iconFile: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_app_icon", { host, apiSk, appName, iconFile })),
-	/**  宝塔面板连通性测试。 */
+	/**  宝塔面板连通性测试�?*/
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
-	/**  测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。 */
+	/**  测试云账户连通性。`secret` 可传表单明文；为空时�?Vault�?*/
 	cloudTest: (connection: Connection, secret: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_test", { connection, secret })),
-	/**  过渡：产品级列表，内部仍走同一客户端。前端主路径请用 `cloud_list_resources`。 */
+	/**  过渡：产品级列表，内部仍走同一客户端。前端主路径请用 `cloud_list_resources`�?*/
 	cloudListOss: (connectionId: string, region: string | null) => typedError<CloudOssBucket[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_oss", { connectionId, region })),
 	cloudListSwas: (connectionId: string, region: string | null) => typedError<CloudSwasInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_swas", { connectionId, region })),
 	cloudListDomains: (connectionId: string) => typedError<CloudDomainItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_domains", { connectionId })),
@@ -342,97 +316,91 @@ export const commands = {
 	cloudInvokeAction: (connectionId: string, action: CloudAction) => typedError<CloudActionResult, OmniError_Serialize>(__TAURI_INVOKE("cloud_invoke_action", { connectionId, action })),
 	cloudGetMetrics: (connectionId: string, capability: string, resourceId: string, regionId: string | null, query: CloudMetricQuery | null) => typedError<CloudMetricSeries[], OmniError_Serialize>(__TAURI_INVOKE("cloud_get_metrics", { connectionId, capability, resourceId, regionId, query })),
 	cloudQueryLogs: (connectionId: string, capability: string, resourceId: string, regionId: string | null, query: CloudLogQuery | null) => typedError<CloudLogPage, OmniError_Serialize>(__TAURI_INVOKE("cloud_query_logs", { connectionId, capability, resourceId, regionId, query })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerListConnections: () => typedError<DockerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_connections")),
-	/**  编辑 Docker 连接表单：从 Vault 取回面板 API Key（列表 / config 永不存明文）。 */
+	/**  编辑 Docker 连接表单：从 Vault 取回面板 API Key（列�?/ config 永不存明文）�?*/
 	dockerGetConnectionSecret: (id: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_get_connection_secret", { id })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerProbeConnection: (connectionId: string) => typedError<DockerProbe, OmniError_Serialize>(__TAURI_INVOKE("docker_probe_connection", { connectionId })),
 	dockerResetSshSession: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_reset_ssh_session", { connectionId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerGetLocalEngineStatus: () => typedError<DockerLocalEngineStatus, OmniError_Serialize>(__TAURI_INVOKE("docker_get_local_engine_status")),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerStartLocalEngine: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_start_local_engine")),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerGetOverview: (connectionId: string) => typedError<DockerOverview, OmniError_Serialize>(__TAURI_INVOKE("docker_get_overview", { connectionId })),
-	/**  读取 Docker daemon.json 配置。 */
+	/**  读取 Docker daemon.json 配置�?*/
 	dockerReadDaemonConfig: (connectionId: string) => typedError<DockerDaemonConfigFile, OmniError_Serialize>(__TAURI_INVOKE("docker_read_daemon_config", { connectionId })),
-	/**  写入 Docker daemon.json 配置。 */
+	/**  写入 Docker daemon.json 配置�?*/
 	dockerWriteDaemonConfig: (connectionId: string, content: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_write_daemon_config", { connectionId, content })),
-	/**  重启 Docker 守护进程 / 服务。 */
+	/**  重启 Docker 守护进程 / 服务�?*/
 	dockerRestartDaemon: (connectionId: string, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_restart_daemon", { connectionId, presenceToken })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerGetSystemDiskUsage: (connectionId: string) => typedError<DockerSystemDiskUsage, OmniError_Serialize>(__TAURI_INVOKE("docker_get_system_disk_usage", { connectionId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerListContainers: (connectionId: string, filter: string | null) => typedError<DockerContainerSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_containers", { connectionId, filter })),
-	/**  批量获取容器 CPU / 内存统计（本地 / SSH / 远程 Engine / 1Panel）。 */
+	/**  批量获取容器 CPU / 内存统计（本�?/ SSH / 远程 Engine / 1Panel）�?*/
 	dockerListContainerStats: (connectionId: string, containerIds: string[] | null) => typedError<DockerContainerStats[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_container_stats", { connectionId, containerIds })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerInspectContainer: (connectionId: string, containerId: string) => typedError<DockerContainerDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_container", { connectionId, containerId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerContainerAction: (connectionId: string, containerId: string, action: string, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_container_action", { connectionId, containerId, action, presenceToken })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerContainerLogs: (connectionId: string, containerId: string, tail: number, since: string | null) => typedError<DockerLogLine[], OmniError_Serialize>(__TAURI_INVOKE("docker_container_logs", { connectionId, containerId, tail, since })),
-	/**  清空容器日志文件。 */
+	/**  清空容器日志文件�?*/
 	dockerClearContainerLogs: (connectionId: string, containerId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_clear_container_logs", { connectionId, containerId })),
-	/**  列出全部容器日志文件路径与大小。 */
+	/**  列出全部容器日志文件路径与大小�?*/
 	dockerListContainerLogInfos: (connectionId: string) => typedError<DockerContainerLogInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_container_log_infos", { connectionId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerStreamContainerLogs: (connectionId: string, containerId: string, tail: number, since: string | null, follow: boolean) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_stream_container_logs", { connectionId, containerId, tail, since, follow })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerStopLogStream: (streamId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_stop_log_stream", { streamId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerListImages: (connectionId: string) => typedError<DockerImageSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_images", { connectionId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerRemoveImage: (connectionId: string, imageId: string, force: boolean, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_image", { connectionId, imageId, force, presenceToken })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerPruneImages: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_images", { connectionId })),
-	/**  搜索镜像仓库（`docker search`）。 */
+	/**  搜索镜像仓库（`docker search`）�?*/
 	dockerSearchImages: (connectionId: string, term: string, limit: number) => typedError<DockerImageSearchPage, OmniError_Serialize>(__TAURI_INVOKE("docker_search_images", { connectionId, term, limit })),
-	/**  清理构建缓存。 */
+	/**  清理构建缓存�?*/
 	dockerPruneBuildCache: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_build_cache", { connectionId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerInspectImage: (connectionId: string, imageId: string) => typedError<DockerImageDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_image", { connectionId, imageId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerImageHistory: (connectionId: string, imageId: string) => typedError<DockerImageHistoryLayer[], OmniError_Serialize>(__TAURI_INVOKE("docker_image_history", { connectionId, imageId })),
 	/**
 	 *  Create container interactive terminal session. Returns sessionId;
 	 *  output is emitted via `terminal-output` events for xterm binding.
 	 */
 	dockerCreateExecSession: (connectionId: string, containerId: string, shell: string | null, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_exec_session", { connectionId, containerId, shell, cols, rows })),
-	/**  在 Docker 连接对应的宿主机上打开交互 shell（SSH / 1Panel；本地 Engine 走本机终端）。 */
+	/**  �?Docker 连接对应的宿主机上打开交互 shell（SSH / 1Panel；本�?Engine 走本机终端）�?*/
 	dockerCreateHostShellSession: (connectionId: string, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_host_shell_session", { connectionId, cols, rows })),
 	/**
-	 *  在容器内非交互式执行命令（一次性 capture stdout/stderr/exit_code）。
-	 * 
-	 *  与 `docker_create_exec_session` 区别：
-	 *  - 后者创建交互式 PTY 会话（适合用户终端 attach）；
-	 *  - 本命令一次性执行并返回结构化结果，适合 AI 工具调用、批处理脚本。
-	 * 
-	 *  实现路径：
-	 *  - Local/Remote Engine：`LocalDockerAdapter::exec_one_shot`（bollard exec API，tty=false）；
-	 *  - SSH：SSH session 上 `docker exec <container> <cmd>` via `exec_capture`；
-	 *  - 1Panel：暂不支持（返回 InvalidInput 错误）。
-	 */
+	 *  在容器内非交互式执行命令（一次�?capture stdout/stderr/exit_code）�?	 * 
+	 *  �?`docker_create_exec_session` 区别�?	 *  - 后者创建交互式 PTY 会话（适合用户终端 attach）；
+	 *  - 本命令一次性执行并返回结构化结果，适合 AI 工具调用、批处理脚本�?	 * 
+	 *  实现路径�?	 *  - Local/Remote Engine：`LocalDockerAdapter::exec_one_shot`（bollard exec API，tty=false）；
+	 *  - SSH：SSH session �?`docker exec <container> <cmd>` via `exec_capture`�?	 *  - 1Panel：暂不支持（返回 InvalidInput 错误）�?	 */
 	dockerExecCommand: (connectionId: string, containerId: string, command: string) => typedError<DockerExecOneShotOutput, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_command", { connectionId, containerId, command })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerExecWrite: (sessionId: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_write", { sessionId, data })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerExecResize: (sessionId: string, cols: number, rows: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_resize", { sessionId, cols, rows })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerExecClose: (sessionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_exec_close", { sessionId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerListComposeProjects: (connectionId: string) => typedError<DockerComposeProject[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_compose_projects", { connectionId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerComposeAction: (connectionId: string, action: DockerComposeAction, request: DockerComposeRequest, presenceToken: string | null) => typedError<DockerComposeResult, OmniError_Serialize>(__TAURI_INVOKE("docker_compose_action", { connectionId, action, request, presenceToken })),
 	dockerReadComposeFiles: (connectionId: string, request: DockerComposeReadFilesRequest) => typedError<DockerComposeProjectFiles, OmniError_Serialize>(__TAURI_INVOKE("docker_read_compose_files", { connectionId, request })),
 	dockerWriteComposeFiles: (connectionId: string, request: DockerComposeWriteFilesRequest) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_write_compose_files", { connectionId, request })),
 	dockerListNetworks: (connectionId: string) => typedError<DockerNetworkSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_networks", { connectionId })),
 	dockerCreateNetwork: (connectionId: string, request: DockerCreateNetworkRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_network", { connectionId, request })),
 	dockerRemoveNetwork: (connectionId: string, name: string, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_network", { connectionId, name, presenceToken })),
-	/**  清理未使用网络。 */
+	/**  清理未使用网络�?*/
 	dockerPruneNetworks: (connectionId: string) => typedError<DockerPruneResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_networks", { connectionId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerInspectNetwork: (connectionId: string, name: string) => typedError<DockerNetworkDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_network", { connectionId, name })),
 	dockerConnectNetwork: (connectionId: string, network: string, containerId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_connect_network", { connectionId, network, containerId })),
 	dockerDisconnectNetwork: (connectionId: string, network: string, containerId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_disconnect_network", { connectionId, network, containerId })),
@@ -443,7 +411,7 @@ export const commands = {
 	dockerListSidebarCachePage: (connectionId: string, category: string, offset: number, limit: number) => typedError<DockerSidebarCachePage_Serialize, OmniError_Serialize>(__TAURI_INVOKE("docker_list_sidebar_cache_page", { connectionId, category, offset, limit })),
 	dockerCreateVolume: (connectionId: string, request: DockerCreateVolumeRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_volume", { connectionId, request })),
 	dockerRemoveVolume: (connectionId: string, name: string, force: boolean, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_remove_volume", { connectionId, name, force, presenceToken })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerInspectVolume: (connectionId: string, name: string) => typedError<DockerVolumeDetail, OmniError_Serialize>(__TAURI_INVOKE("docker_inspect_volume", { connectionId, name })),
 	dockerPruneVolumes: (connectionId: string) => typedError<DockerPruneVolumesResult, OmniError_Serialize>(__TAURI_INVOKE("docker_prune_volumes", { connectionId })),
 	dockerListContainerDir: (connectionId: string, containerId: string, path: string) => typedError<DockerFileEntry[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_container_dir", { connectionId, containerId, path })),
@@ -451,22 +419,20 @@ export const commands = {
 	dockerWriteContainerFile: (connectionId: string, containerId: string, path: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_write_container_file", { connectionId, containerId, path, data })),
 	dockerListVolumeDir: (connectionId: string, volumeName: string, path: string) => typedError<DockerFileEntry[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_volume_dir", { connectionId, volumeName, path })),
 	dockerReadVolumeFile: (connectionId: string, volumeName: string, path: string, maxBytes: number) => typedError<number[], OmniError_Serialize>(__TAURI_INVOKE("docker_read_volume_file", { connectionId, volumeName, path, maxBytes })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerPullImage: (connectionId: string, image: string, progressChannel: string) => typedError<DockerPullResult, OmniError_Serialize>(__TAURI_INVOKE("docker_pull_image", { connectionId, image, progressChannel })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerPushImage: (connectionId: string, image: string, progressChannel: string) => typedError<DockerPullResult, OmniError_Serialize>(__TAURI_INVOKE("docker_push_image", { connectionId, image, progressChannel })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerTagImage: (connectionId: string, source: string, target: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_tag_image", { connectionId, source, target })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerBuildImage: (connectionId: string, context: DockerBuildContext, progressChannel: string) => typedError<DockerBuildResult, OmniError_Serialize>(__TAURI_INVOKE("docker_build_image", { connectionId, context, progressChannel })),
 	/**
-	 *  在连接对应宿主机上执行 `docker …` CLI（搜索页「运行容器」等）。
-	 *  `progress_channel`：按行推送 stdout/stderr，便于前端实时展示。
-	 */
+	 *  在连接对应宿主机上执�?`docker …` CLI（搜索页「运行容器」等）�?	 *  `progress_channel`：按行推�?stdout/stderr，便于前端实时展示�?	 */
 	dockerHostRunCli: (connectionId: string, command: string, progressChannel: string) => typedError<DockerHostCliResult, OmniError_Serialize>(__TAURI_INVOKE("docker_host_run_cli", { connectionId, command, progressChannel })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerStreamStats: (connectionId: string, containerId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_stream_stats", { connectionId, containerId })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerStopStatsStream: (streamId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_stop_stats_stream", { streamId })),
 	/**
 	 *  Probe a remote SSH host for Docker daemon availability.
@@ -478,9 +444,9 @@ export const commands = {
 	 *  Returns connections that are in "connected" state in the SSH pool.
 	 */
 	dockerListSshHosts: () => typedError<SshHostInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_list_ssh_hosts")),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerScanSshDockerHosts: (autoSave: boolean) => typedError<DockerScanResult, OmniError_Serialize>(__TAURI_INVOKE("docker_scan_ssh_docker_hosts", { autoSave })),
-	/**  卷详情（`docker volume inspect`）。 */
+	/**  卷详情（`docker volume inspect`）�?*/
 	dockerCreateContainer: (connectionId: string, request: DockerCreateContainerRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_create_container", { connectionId, request })),
 	dockerSwarmInit: (connectionId: string, listenAddr: string | null, advertiseAddr: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("docker_swarm_init", { connectionId, listenAddr, advertiseAddr })),
 	dockerSwarmJoin: (connectionId: string, remoteAddrs: string[], token: string, listenAddr: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_swarm_join", { connectionId, remoteAddrs, token, listenAddr })),
@@ -500,118 +466,85 @@ export const commands = {
 	dockerStackRemove: (connectionId: string, name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_stack_remove", { connectionId, name })),
 	dockerStackServices: (connectionId: string, name: string) => typedError<DockerServiceSummary[], OmniError_Serialize>(__TAURI_INVOKE("docker_stack_services", { connectionId, name })),
 	/**
-	 *  执行一个动作：按 kind 分发到执行引擎，过程通过 `action-progress` 事件流式回流，
-	 *  完成后写入审计日志，返回退出码（0 成功）。
-	 */
+	 *  执行一个动作：�?kind 分发到执行引擎，过程通过 `action-progress` 事件流式回流�?	 *  完成后写入审计日志，返回退出码�? 成功）�?	 */
 	executeAction: (action: ActionRequest) => typedError<number, OmniError_Serialize>(__TAURI_INVOKE("execute_action", { action })),
 	/**
-	 *  建立 SSH 连接并请求交互式 shell。返回会话 id；
-	 *  shell 输出复用 `terminal-output` 事件，前端 xterm 无需区分本地/远程。
-	 */
+	 *  建立 SSH 连接并请求交互式 shell。返回会�?id�?	 *  shell 输出复用 `terminal-output` 事件，前�?xterm 无需区分本地/远程�?	 */
 	sshConnect: (config: SshConfig_Deserialize, cols: number, rows: number, paneId: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect", { config, cols, rows, paneId })),
-	/**  按已保存的连接 id 建立 SSH 会话（尊重 `auth.type`，密码认证不走私钥）。 */
+	/**  按已保存的连�?id 建立 SSH 会话（尊�?`auth.type`，密码认证不走私钥）�?*/
 	sshConnectConnection: (connectionId: string, cols: number, rows: number, paneId: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_connection", { connectionId, cols, rows, paneId })),
-	/**  写入远端 shell。 */
+	/**  写入远端 shell�?*/
 	sshWrite: (id: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_write", { id, data })),
-	/**  调整远端 PTY 窗口大小。 */
+	/**  调整远端 PTY 窗口大小�?*/
 	sshResize: (id: string, cols: number, rows: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_resize", { id, cols, rows })),
 	/**
-	 *  断开并移除 SSH 会话。
-	 * 
-	 *  tmux 模式下只关闭该 Tab 对应的 window：同主机其他 Tab 与远端 tmux 会话不受影响。
-	 */
+	 *  断开并移�?SSH 会话�?	 * 
+	 *  tmux 模式下只关闭�?Tab 对应�?window：同主机其他 Tab 与远�?tmux 会话不受影响�?	 */
 	sshDisconnect: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_disconnect", { id })),
-	/**  查询远程终端当前的传输模式（tmux / 直连）与相关元信息。 */
+	/**  查询远程终端当前的传输模式（tmux / 直连）与相关元信息�?*/
 	sshTerminalInfo: (id: string) => typedError<SshTerminalInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_terminal_info", { id })),
 	/**
-	 *  逃生阀：把单个 Tab 从 tmux 切换为直连。
-	 * 
-	 *  远端 window 保留（其中的进程继续运行），本地改用独立连接；会话 id 不变，
-	 *  因此前端无需重建 Tab，输出流自动衔接。同主机其余 Tab 仍走 tmux。
-	 */
+	 *  逃生阀：把单个 Tab �?tmux 切换为直连�?	 * 
+	 *  远端 window 保留（其中的进程继续运行），本地改用独立连接；会�?id 不变�?	 *  因此前端无需重建 Tab，输出流自动衔接。同主机其余 Tab 仍走 tmux�?	 */
 	sshTerminalSetDirectMode: (id: string, cols: number, rows: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_terminal_set_direct_mode", { id, cols, rows })),
-	/**  抓取 tmux pane 内容用于重开 Tab 时恢复屏幕（替代直连模式的 scrollback 快照）。 */
+	/**  抓取 tmux pane 内容用于重开 Tab 时恢复屏幕（替代直连模式�?scrollback 快照）�?*/
 	sshTmuxCapturePane: (id: string, historyLines: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_capture_pane", { id, historyLines })),
 	/**
-	 *  列出连接对应主机上的远端 tmux 会话（含非本应用创建的）。
-	 * 
-	 *  走 exec 通道而非 control mode：即便当前没有打开任何终端，也能查看与治理
-	 *  遗留在远端的会话。
-	 */
+	 *  列出连接对应主机上的远端 tmux 会话（含非本应用创建的）�?	 * 
+	 *  �?exec 通道而非 control mode：即便当前没有打开任何终端，也能查看与治理
+	 *  遗留在远端的会话�?	 */
 	sshTmuxListSessions: (connectionId: string) => typedError<TmuxSessionInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_list_sessions", { connectionId })),
 	/**
-	 *  列出指定远端 tmux 会话内的 window（1 window = 1 pane）。
-	 * 
-	 *  走 exec 通道，无需当前已打开终端；用于远端会话治理页展开窗口树。
-	 */
+	 *  列出指定远端 tmux 会话内的 window�? window = 1 pane）�?	 * 
+	 *  �?exec 通道，无需当前已打开终端；用于远端会话治理页展开窗口树�?	 */
 	sshTmuxListWindows: (connectionId: string, sessionName: string) => typedError<TmuxWindowInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_list_windows", { connectionId, sessionName })),
 	/**
-	 *  查询当前 OmniPanel 在该主机上每个 tmux 会话关联的 Tab 数。
-	 * 
-	 *  关联数据来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window 的
-	 *  terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态。
-	 */
+	 *  查询当前 OmniPanel 在该主机上每�?tmux 会话关联�?Tab 数�?	 * 
+	 *  关联数据来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window �?	 *  terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态�?	 */
 	sshTmuxTabStats: (connectionId: string) => typedError<TmuxTabStat[], OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_tab_stats", { connectionId })),
 	/**
-	 *  终止远端 tmux 会话，其中的全部窗口与进程都会被杀掉。
-	 * 
-	 *  该操作不可撤销且会波及其他客户端的会话，因此无论成败都写入审计日志。
-	 */
+	 *  终止远端 tmux 会话，其中的全部窗口与进程都会被杀掉�?	 * 
+	 *  该操作不可撤销且会波及其他客户端的会话，因此无论成败都写入审计日志�?	 */
 	sshTmuxKillSession: (connectionId: string, name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_kill_session", { connectionId, name })),
 	/**
-	 *  Attach 到远端指定名称的 tmux 会话，在终端模块开一个新 Tab。
-	 * 
-	 *  与 `ssh_connect` 的区别：`ssh_connect` 用固定会话名 `omnipanel-<host>`，
-	 *  本命令允许用户从远端会话列表选择任意会话名进入（含非 OmniPanel 创建的）。
-	 *  `pane_id` 不为 None 时尝试 attach 回该 pane 对应的原 window（关 Tab 保留进程后重连），
-	 *  匹配不到则新建 window。返回后端会话 id（`ssh-{n}`），前端据此创建终端 Tab。
-	 */
+	 *  Attach 到远端指定名称的 tmux 会话，在终端模块开一个新 Tab�?	 * 
+	 *  �?`ssh_connect` 的区别：`ssh_connect` 用固定会话名 `omnipanel-<host>`�?	 *  本命令允许用户从远端会话列表选择任意会话名进入（含非 OmniPanel 创建的）�?	 *  `pane_id` 不为 None 时尝�?attach 回该 pane 对应的原 window（关 Tab 保留进程后重连）�?	 *  匹配不到则新�?window。返回后端会�?id（`ssh-{n}`），前端据此创建终端 Tab�?	 */
 	sshTmuxAttachSession: (connectionId: string, sessionName: string, cols: number, rows: number, paneId: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_tmux_attach_session", { connectionId, sessionName, cols, rows, paneId })),
-	/**  列出远端目录。 */
+	/**  列出远端目录�?*/
 	sftpList: (id: string, path: string) => typedError<SftpEntry[], OmniError_Serialize>(__TAURI_INVOKE("sftp_list", { id, path })),
-	/**  下载远端文件内容（字节）。 */
+	/**  下载远端文件内容（字节）�?*/
 	sftpDownload: (id: string, path: string) => typedError<number[], OmniError_Serialize>(__TAURI_INVOKE("sftp_download", { id, path })),
 	/**
-	 *  将远端媒体流式缓存到本地，返回本地绝对路径（供 convertFileSrc 播放）。
-	 *  `size` 参与缓存键：远端同路径文件变大/变小时自动失效。
-	 */
+	 *  将远端媒体流式缓存到本地，返回本地绝对路径（�?convertFileSrc 播放）�?	 *  `size` 参与缓存键：远端同路径文件变�?变小时自动失效�?	 */
 	sftpCacheForPreview: (id: string, path: string, size: number | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("sftp_cache_for_preview", { id, path, size })),
-	/**  探测远端媒体时长/大小/封面：不下载整文件。 */
+	/**  探测远端媒体时长/大小/封面：不下载整文件�?*/
 	sftpProbeMedia: (id: string, path: string) => typedError<SftpMediaProbe, OmniError_Serialize>(__TAURI_INVOKE("sftp_probe_media", { id, path })),
-	/**  注册本地 Range 代理令牌，返回可供 `<video>`/`<audio>` 边下边播的 URL。 */
+	/**  注册本地 Range 代理令牌，返回可�?`<video>`/`<audio>` 边下边播�?URL�?*/
 	sftpOpenMediaStream: (id: string, path: string) => typedError<SftpMediaStream, OmniError_Serialize>(__TAURI_INVOKE("sftp_open_media_stream", { id, path })),
-	/**  关闭边下边播流令牌。 */
+	/**  关闭边下边播流令牌�?*/
 	sftpCloseMediaStream: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_close_media_stream", { token })),
-	/**  上传内容到远端文件（覆盖）。 */
+	/**  上传内容到远端文件（覆盖）�?*/
 	sftpUpload: (id: string, path: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_upload", { id, path, data })),
-	/**  在远程服务器创建目录。 */
+	/**  在远程服务器创建目录�?*/
 	sftpMkdir: (id: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_mkdir", { id, path })),
-	/**  删除远程服务器上的文件。 */
+	/**  删除远程服务器上的文件�?*/
 	sftpRemove: (id: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_remove", { id, path })),
-	/**  重命名远程文件/目录。 */
+	/**  重命名远程文�?目录�?*/
 	sftpRename: (id: string, oldPath: string, newPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_rename", { id, oldPath, newPath })),
-	/**  修改远程文件权限（通过 exec chmod）。 */
+	/**  修改远程文件权限（通过 exec chmod）�?*/
 	sftpChmod: (id: string, path: string, mode: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_chmod", { id, path, mode })),
-	/**  打开日志会话：探测文件大小与总行数。 */
+	/**  打开日志会话：探测文件大小与总行数�?*/
 	sftpLogOpen: (id: string, path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_open", { id, path })),
 	/**
-	 *  按行号范围读取（虚拟滚动按需切片，1-based）。
-	 *  超大文件中部/尾部的 sed 扫描可能很慢，默认 30s 超时。
-	 */
+	 *  按行号范围读取（虚拟滚动按需切片�?-based）�?	 *  超大文件中部/尾部�?sed 扫描可能很慢，默�?30s 超时�?	 */
 	sftpLogReadLines: (id: string, path: string, startLine: number | null, endLine: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_read_lines", { id, path, startLine, endLine })),
 	/**
-	 *  读取文件末尾 N 行（用 tail -n N，O(N) 反向 seek，不扫描整个文件）。
-	 *  用于大日志文件打开时的首屏末尾预览，比 sed -n 'X,Yp' 快 30x。
-	 *  行号推算：如果有 totalLinesHint，从 (hint - N + 1) 开始；否则从 1 开始。
-	 */
+	 *  读取文件末尾 N 行（�?tail -n N，O(N) 反向 seek，不扫描整个文件）�?	 *  用于大日志文件打开时的首屏末尾预览，比 sed -n 'X,Yp' �?30x�?	 *  行号推算：如果有 totalLinesHint，从 (hint - N + 1) 开始；否则�?1 开始�?	 */
 	sftpLogTailInitial: (id: string, path: string, nLines: number, totalLinesHint: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_initial", { id, path, nLines, totalLinesHint })),
 	/**
-	 *  搜索日志（grep -n），返回命中行列表。
-	 *  grep exit 1 = no match（非错误），其他非零 exit 视为错误。
-	 * 
-	 *  大文件持续反搜请用 `skip_matches`（tac | grep -m skip+max），
-	 *  **禁止**对超大 before_line 做 `head -n`（会扫整文件超时）。
-	 */
+	 *  搜索日志（grep -n），返回命中行列表�?	 *  grep exit 1 = no match（非错误），其他非零 exit 视为错误�?	 * 
+	 *  大文件持续反搜请�?`skip_matches`（tac | grep -m skip+max），
+	 *  **禁止**对超�?before_line �?`head -n`（会扫整文件超时）�?	 */
 	sftpLogSearch: (id: string, path: string, pattern: string, options: {
 	isRegex: boolean | null,
 	maxResults: number | null,
@@ -624,13 +557,10 @@ export const commands = {
 	skipMatches: number | null,
 } | null) => typedError<LogSearchHit_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("sftp_log_search", { id, path, pattern, options })),
 	/**
-	 *  开始实时跟踪（tail -F，支持文件轮转）。
-	 *  输出通过 `sftp-log-tail-{token}` Tauri event 推送给前端。
-	 * 
-	 *  `lines_after`：跟踪前先输出末尾 N 行（默认 0，只跟新行）。
-	 */
+	 *  开始实时跟踪（tail -F，支持文件轮转）�?	 *  输出通过 `sftp-log-tail-{token}` Tauri event 推送给前端�?	 * 
+	 *  `lines_after`：跟踪前先输出末�?N 行（默认 0，只跟新行）�?	 */
 	sftpLogTailStart: (id: string, path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_start", { id, path, linesAfter })),
-	/**  停止实时跟踪。 */
+	/**  停止实时跟踪�?*/
 	sftpLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sftp_log_tail_stop", { token })),
 	localLogOpen: (path: string) => typedError<LogSessionInfo, OmniError_Serialize>(__TAURI_INVOKE("local_log_open", { path })),
 	localLogReadLines: (path: string, startLine: number | null, endLine: number | null) => typedError<LogLine[], OmniError_Serialize>(__TAURI_INVOKE("local_log_read_lines", { path, startLine, endLine })),
@@ -648,140 +578,125 @@ export const commands = {
 } | null) => typedError<LogSearchHit_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("local_log_search", { path, pattern, options })),
 	localLogTailStart: (path: string, linesAfter: number | null) => typedError<LogTailHandle, OmniError_Serialize>(__TAURI_INVOKE("local_log_tail_start", { path, linesAfter })),
 	localLogTailStop: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_log_tail_stop", { token })),
-	/**  本机下载官方二进制，经 SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）。 */
+	/**  本机下载官方二进制，�?SSH/SFTP 安装到远端路径（默认用户目录，无需 sudo）�?*/
 	sshPoolDownloadInstallBinary: (resourceId: string, url: string, remotePath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_download_install_binary", { resourceId, url, remotePath })),
-	/**  读取 `~/.ssh/config` 中的 Host 条目（含 Include）。 */
+	/**  读取 `~/.ssh/config` 中的 Host 条目（含 Include）�?*/
 	sshListConfigHosts: () => typedError<SshConfigEntry[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_config_hosts")),
 	/**
-	 *  将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）。
-	 *  `aliases` 非空时仅同步列出的别名；为 `None` 时同步全部。
-	 */
+	 *  �?`~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）�?	 *  `aliases` 非空时仅同步列出的别名；�?`None` 时同步全部�?	 */
 	sshSyncConfigHosts: (aliases: string[] | null) => typedError<SshConfigSyncResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_sync_config_hosts", { aliases })),
-	/**  按 `~/.ssh/config` 中的 Host 别名建立连接（使用 IdentityFile 等配置）。 */
+	/**  �?`~/.ssh/config` 中的 Host 别名建立连接（使�?IdentityFile 等配置）�?*/
 	sshConnectConfigHost: (alias: string, cols: number, rows: number) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("ssh_connect_config_host", { alias, cols, rows })),
-	/**  列出远程进程列表。 */
+	/**  列出远程进程列表�?*/
 	sshProcessList: (id: string) => typedError<SshProcessInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("ssh_process_list", { id })),
-	/**  概览页：连接池建立 SSH 会话并拉取系统指标与进程列表。 */
+	/**  概览页：连接池建�?SSH 会话并拉取系统指标与进程列表�?*/
 	sshPoolLoadOverview: (resourceId: string) => typedError<SshHostOverview_Serialize, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_load_overview", { resourceId })),
-	/**  释放连接池中指定资源的 SSH 会话（离开概览等场景）。 */
+	/**  释放连接池中指定资源�?SSH 会话（离开概览等场景）�?*/
 	sshPoolRelease: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_release", { resourceId })),
-	/**  监控页：复用连接池会话，仅拉取系统指标。 */
+	/**  监控页：复用连接池会话，仅拉取系统指标�?*/
 	sshPoolFetchStats: (resourceId: string) => typedError<HostSystemStats_Serialize, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_fetch_stats", { resourceId })),
-	/**  获取所有 SSH 主机的连接状态快照。 */
+	/**  获取所�?SSH 主机的连接状态快照�?*/
 	sshPoolGetStatuses: () => typedError<PoolStatusEvent[], OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_get_statuses")),
-	/**  获取当前已建立 SSH 会话的主机 ID 列表。 */
+	/**  获取当前已建�?SSH 会话的主�?ID 列表�?*/
 	sshPoolGetActiveSessions: () => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_get_active_sessions")),
-	/**  开启持续监控采集（后端后台轮询并推送 stats）。 */
+	/**  开启持续监控采集（后端后台轮询并推�?stats）�?*/
 	sshPoolSubscribeMonitoring: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_subscribe_monitoring", { resourceId })),
-	/**  关闭持续监控采集。 */
+	/**  关闭持续监控采集�?*/
 	sshPoolUnsubscribeMonitoring: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_unsubscribe_monitoring", { resourceId })),
-	/**  独立刷新进程列表（概览页局部刷新）。 */
+	/**  独立刷新进程列表（概览页局部刷新）�?*/
 	sshPoolLoadProcesses: (resourceId: string) => typedError<SshProcessInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_load_processes", { resourceId })),
-	/**  按 PID 深入查询远程进程详情（启动命令、cwd、exe、root、打开文件）。 */
+	/**  �?PID 深入查询远程进程详情（启动命令、cwd、exe、root、打开文件）�?*/
 	sshPoolProcessDetail: (resourceId: string, pid: number) => typedError<SshProcessDetail_Serialize, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_process_detail", { resourceId, pid })),
-	/**  强制终止远程进程（默认 SIGKILL）。 */
+	/**  强制终止远程进程（默�?SIGKILL）�?*/
 	sshPoolKillProcess: (resourceId: string, pid: number, signal: number | null, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_kill_process", { resourceId, pid, signal, presenceToken })),
 	sshPoolExecCommand: (resourceId: string, command: string, presenceToken: string | null) => typedError<SshExecOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_exec_command", { resourceId, command, presenceToken })),
 	sshPoolCreateRunScript: (resourceId: string, name: string, content: string, args: string[] | null, timeoutSecs: number | null) => typedError<SshCreateRunScriptOutput, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_create_run_script", { resourceId, name, content, args, timeoutSecs })),
-	/**  对所有 SSH 主机重新进行端口可达性探测。 */
+	/**  对所�?SSH 主机重新进行端口可达性探测�?*/
 	sshPoolProbeAll: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_all")),
 	/**
-	 *  列出远端压缩包条目（不在本地下载文件，远端执行 unzip/tar/7z/unrar）。
-	 *  远端工具缺失时返回 `tool_missing`，前端可调 `ssh_pool_install_archive_tool` 一键安装后重试。
-	 */
+	 *  列出远端压缩包条目（不在本地下载文件，远端执�?unzip/tar/7z/unrar）�?	 *  远端工具缺失时返�?`tool_missing`，前端可�?`ssh_pool_install_archive_tool` 一键安装后重试�?	 */
 	sshPoolListArchiveEntries: (resourceId: string, path: string) => typedError<ArchiveListResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_list_archive_entries", { resourceId, path })),
 	/**
-	 *  在远端一键安装压缩包工具（unzip / tar / 7z / unrar / zstd）。
-	 *  自动检测包管理器（apt/dnf/yum/apk/pacman/zypper），优先用 sudo -n 非交互提权，
-	 *  失败回退无 sudo 直接安装（root 用户或免密场景）。
-	 */
+	 *  在远端一键安装压缩包工具（unzip / tar / 7z / unrar / zstd）�?	 *  自动检测包管理器（apt/dnf/yum/apk/pacman/zypper），优先�?sudo -n 非交互提权，
+	 *  失败回退�?sudo 直接安装（root 用户或免密场景）�?	 */
 	sshPoolInstallArchiveTool: (resourceId: string, tool: string) => typedError<ArchiveToolInstallResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_archive_tool", { resourceId, tool })),
-	/**  探测远端主机的能力（批量脚本 + 懒探测标记）。 */
+	/**  探测远端主机的能力（批量脚本 + 懒探测标记）�?*/
 	sshPoolProbeCapabilities: (resourceId: string, force: boolean | null) => typedError<CapabilityProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_capabilities", { resourceId, force })),
-	/**  失效某主机的能力缓存（安装后或手动触发时调用）。 */
+	/**  失效某主机的能力缓存（安装后或手动触发时调用）�?*/
 	sshPoolInvalidateCapabilities: (resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_invalidate_capabilities", { resourceId })),
-	/**  统一安装远端工具。 */
+	/**  统一安装远端工具�?*/
 	sshPoolInstallTool: (resourceId: string, toolId: string) => typedError<InstallToolResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_install_tool", { resourceId, toolId })),
-	/**  探测远端主机上已安装的面板（宝塔 / 1Panel）。 */
+	/**  探测远端主机上已安装的面板（宝塔 / 1Panel）�?*/
 	sshPoolProbePanels: (resourceId: string) => typedError<PanelProbeResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_probe_panels", { resourceId })),
-	/**  通过 SSH 在远端开启宝塔 / 1Panel 的 API 接口。 */
+	/**  通过 SSH 在远端开启宝�?/ 1Panel �?API 接口�?*/
 	sshPoolEnablePanelApi: (resourceId: string, kind: string, allowAll: boolean) => typedError<EnablePanelApiResult, OmniError_Serialize>(__TAURI_INVOKE("ssh_pool_enable_panel_api", { resourceId, kind, allowAll })),
-	/**  同步终端 tmux 模式偏好到后端（auto / always / never）。 */
+	/**  同步终端 tmux 模式偏好到后端（auto / always / never）�?*/
 	setTerminalTmuxMode: (mode: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("set_terminal_tmux_mode", { mode })),
 	/**
-	 *  清除 tmux unsupported 缓存，让下次开终端 Tab 时重新探测远端 tmux。
-	 * 
-	 *  用户在能力治理 Tab 安装/升级 tmux 后，或从「始终直连」切回「自动」时调用。
-	 */
+	 *  清除 tmux unsupported 缓存，让下次开终端 Tab 时重新探测远�?tmux�?	 * 
+	 *  用户在能力治�?Tab 安装/升级 tmux 后，或从「始终直连」切回「自动」时调用�?	 */
 	invalidateTmuxCache: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("invalidate_tmux_cache")),
-	/**  拉取本机 CPU / 内存 / 磁盘指标。 */
+	/**  拉取本机 CPU / 内存 / 磁盘指标�?*/
 	localFetchStats: () => typedError<HostSystemStats_Serialize, OmniError_Serialize>(__TAURI_INVOKE("local_fetch_stats")),
-	/**  列出本机进程。 */
+	/**  列出本机进程�?*/
 	localListProcesses: () => typedError<SshProcessInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("local_list_processes")),
-	/**  查询本机进程详情。 */
+	/**  查询本机进程详情�?*/
 	localProcessDetail: (pid: number) => typedError<SshProcessDetail_Serialize, OmniError_Serialize>(__TAURI_INVOKE("local_process_detail", { pid })),
-	/**  强制终止本机进程。 */
+	/**  强制终止本机进程�?*/
 	localKillProcess: (pid: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_kill_process", { pid })),
-	/**  枚举本机已安装字体族名（可选仅等宽字体）。 */
+	/**  枚举本机已安装字体族名（可选仅等宽字体）�?*/
 	listSystemFonts: (monospaceOnly: boolean | null) => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("list_system_fonts", { monospaceOnly })),
 	/**
-	 *  创建 SSH 隧道（端口转发）。
-	 *  通过 SSH exec 运行 `ssh -L/-R/-D` 命令实现，隧道进程在后台运行。
-	 */
+	 *  创建 SSH 隧道（端口转发）�?	 *  通过 SSH exec 运行 `ssh -L/-R/-D` 命令实现，隧道进程在后台运行�?	 */
 	sshCreateTunnel: (connectionId: string, tunnelType: string, localPort: number, remoteHost: string, remotePort: number) => typedError<SshTunnelInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_create_tunnel", { connectionId, tunnelType, localPort, remoteHost, remotePort })),
-	/**  关闭 SSH 隧道。 */
+	/**  关闭 SSH 隧道�?*/
 	sshCloseTunnel: (tunnelId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_close_tunnel", { tunnelId })),
-	/**  列出活跃隧道。 */
+	/**  列出活跃隧道�?*/
 	sshListTunnels: () => typedError<SshTunnelInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_tunnels")),
-	/**  列出 OmniPanel 密钥库中的 SSH 密钥。 */
+	/**  列出 OmniPanel 密钥库中�?SSH 密钥�?*/
 	sshListKeys: () => typedError<SshKeyInfo[], OmniError_Serialize>(__TAURI_INVOKE("ssh_list_keys")),
-	/**  生成 SSH 密钥对并写入 OmniPanel 密钥库。 */
+	/**  生成 SSH 密钥对并写入 OmniPanel 密钥库�?*/
 	sshGenerateKey: (keyType: string, bits: number | null, comment: string, passphrase: string, name: string | null) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_generate_key", { keyType, bits, comment, passphrase, name })),
-	/**  导入 SSH 私钥到 OmniPanel 密钥库。 */
+	/**  导入 SSH 私钥�?OmniPanel 密钥库�?*/
 	sshImportKey: (name: string, privateKey: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_import_key", { name, privateKey })),
-	/**  删除 OmniPanel 密钥库中的 SSH 密钥。 */
+	/**  删除 OmniPanel 密钥库中�?SSH 密钥�?*/
 	sshDeleteKey: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ssh_delete_key", { name })),
-	/**  重命名 OmniPanel 密钥库中的 SSH 密钥（仅改显示名称，不影响 keyId 与 Vault 引用）。 */
+	/**  重命�?OmniPanel 密钥库中�?SSH 密钥（仅改显示名称，不影�?keyId �?Vault 引用）�?*/
 	sshRenameKey: (name: string, newName: string) => typedError<SshKeyInfo, OmniError_Serialize>(__TAURI_INVOKE("ssh_rename_key", { name, newName })),
-	/**  读取密钥库中公钥内容。 */
+	/**  读取密钥库中公钥内容�?*/
 	sshReadKeyPublic: (name: string) => typedError<string | null, OmniError_Serialize>(__TAURI_INVOKE("ssh_read_key_public", { name })),
-	/**  读取密钥库中私钥内容。 */
+	/**  读取密钥库中私钥内容�?*/
 	sshReadKeyPrivate: (name: string) => typedError<string | null, OmniError_Serialize>(__TAURI_INVOKE("ssh_read_key_private", { name })),
 	/**
-	 *  将文本写入用户通过 `plugin-dialog::save` 选择的任意路径。
-	 * 
-	 *  Tauri 2 的 `plugin-fs` 默认只允许在 capability scope 内的目录写入；本命令直接调用 std::fs
-	 *  绕开范围限制，调用方必须已通过 save dialog 拿到用户明确授权的路径。
-	 */
+	 *  将文本写入用户通过 `plugin-dialog::save` 选择的任意路径�?	 * 
+	 *  Tauri 2 �?`plugin-fs` 默认只允许在 capability scope 内的目录写入；本命令直接调用 std::fs
+	 *  绕开范围限制，调用方必须已通过 save dialog 拿到用户明确授权的路径�?	 */
 	writeTextFile: (path: string, contents: string) => typedError<string, string>(__TAURI_INVOKE("write_text_file", { path, contents })),
-	/**  列出 Spring Boot Admin 中的应用实例。 */
+	/**  列出 Spring Boot Admin 中的应用实例�?*/
 	springBootAdminListInstances: (adminUrl: string) => typedError<SbaInstanceInfo[], OmniError_Serialize>(__TAURI_INVOKE("spring_boot_admin_list_instances", { adminUrl })),
-	/**  拉取实例 JVM 线程 / Heap / Non-heap 当前值（Jolokia MemoryMXBean，失败则回退 Micrometer）。 */
+	/**  拉取实例 JVM 线程 / Heap / Non-heap 当前值（Jolokia MemoryMXBean，失败则回退 Micrometer）�?*/
 	springBootAdminJvmSnapshot: (adminUrl: string, instanceId: string) => typedError<SbaJvmSnapshot, OmniError_Serialize>(__TAURI_INVOKE("spring_boot_admin_jvm_snapshot", { adminUrl, instanceId })),
-	/**  列出文件管理器可用连接（含内置本机）。 */
+	/**  列出文件管理器可用连接（含内置本机）�?*/
 	fileListConnections: () => typedError<FileManagerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("file_list_connections")),
 	/**
-	 *  保存文件连接（凭据写入 Vault）。
-	 * 
-	 *  注意：必须先分配 `connection.id`，再写入 Vault。
-	 *  历史 bug：新建时 id 仍为空就把 Secret 存成 `file-cred-`，导致多条连接共用同一钥匙串条目，后保存的覆盖先保存的。
-	 */
+	 *  保存文件连接（凭据写�?Vault）�?	 * 
+	 *  注意：必须先分配 `connection.id`，再写入 Vault�?	 *  历史 bug：新建时 id 仍为空就�?Secret 存成 `file-cred-`，导致多条连接共用同一钥匙串条目，后保存的覆盖先保存的�?	 */
 	fileSaveConnection: (connection: Connection, secret: string | null) => typedError<Connection, OmniError_Serialize>(__TAURI_INVOKE("file_save_connection", { connection, secret })),
-	/**  测试文件连接。 */
+	/**  测试文件连接�?*/
 	fileTestConnection: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_test_connection", { connectionId })),
-	/**  列出目录内容。 */
+	/**  列出目录内容�?*/
 	fileListDir: (connectionId: string, path: string, search: string | null, continuationToken: string | null) => typedError<FileListDirResult, OmniError_Serialize>(__TAURI_INVOKE("file_list_dir", { connectionId, path, search, continuationToken })),
-	/**  在 S3 连接存储桶内搜索：含 `/` 时按 key 前缀，否则按文件名子串。 */
+	/**  �?S3 连接存储桶内搜索：含 `/` 时按 key 前缀，否则按文件名子串�?*/
 	fileS3Search: (connectionId: string, query: string, continuationToken: string | null) => typedError<FileListDirResult, OmniError_Serialize>(__TAURI_INVOKE("file_s3_search", { connectionId, query, continuationToken })),
-	/**  读取文件内容（字节）。 */
+	/**  读取文件内容（字节）�?*/
 	fileReadFile: (connectionId: string, path: string, maxBytes: number | null) => typedError<number[], OmniError_Serialize>(__TAURI_INVOKE("file_read_file", { connectionId, path, maxBytes })),
-	/**  上传文件（覆盖）。 */
+	/**  上传文件（覆盖）�?*/
 	fileUploadFile: (connectionId: string, path: string, data: number[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_upload_file", { connectionId, path, data })),
-	/**  下载文件到本地路径。 */
+	/**  下载文件到本地路径�?*/
 	fileDownloadFile: (connectionId: string, remotePath: string, localPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_download_file", { connectionId, remotePath, localPath })),
 	fileTransferPlan: (request: FileTransferPlanRequest) => typedError<FileTransferPlanResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_plan", { request })),
 	fileTransferEnqueue: (request: FileTransferEnqueueRequest) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_enqueue", { request })),
-	/**  上传浏览器拖拽/粘贴的本地文件字节到目标连接。 */
+	/**  上传浏览器拖�?粘贴的本地文件字节到目标连接�?*/
 	fileTransferUploadLocalBytes: (fileName: string, data: number[], destConnectionId: string, destDir: string, conflictPolicy: FileTransferConflictPolicy) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_upload_local_bytes", { fileName, data, destConnectionId, destDir, conflictPolicy })),
 	fileTransferList: () => typedError<FileTransferListResult, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_list")),
 	fileTransferCancel: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_cancel", { jobId })),
@@ -790,37 +705,37 @@ export const commands = {
 	fileTransferDismiss: (jobId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_dismiss", { jobId })),
 	fileTransferSetConcurrency: (concurrency: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_set_concurrency", { concurrency })),
 	fileTransferSetRateLimit: (rateLimitBps: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_transfer_set_rate_limit", { rateLimitBps })),
-	/**  创建目录。 */
+	/**  创建目录�?*/
 	fileMkdir: (connectionId: string, path: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_mkdir", { connectionId, path })),
-	/**  重命名文件/目录。 */
+	/**  重命名文�?目录�?*/
 	fileRename: (connectionId: string, oldPath: string, newPath: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_rename", { connectionId, oldPath, newPath })),
-	/**  删除文件/目录。 */
+	/**  删除文件/目录�?*/
 	fileDelete: (connectionId: string, path: string, entryKind: string | null, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_delete", { connectionId, path, entryKind, presenceToken })),
-	/**  本机常用目录快捷路径。 */
+	/**  本机常用目录快捷路径�?*/
 	fileLocalQuickPaths: () => typedError<FileQuickPaths, OmniError_Serialize>(__TAURI_INVOKE("file_local_quick_paths")),
-	/**  本机文件系统平台信息与卷/盘符列表。 */
+	/**  本机文件系统平台信息与卷/盘符列表�?*/
 	fileLocalSystemInfo: () => typedError<FileLocalSystemInfo, OmniError_Serialize>(__TAURI_INVOKE("file_local_system_info")),
-	/**  获取本机临时目录路径。 */
+	/**  获取本机临时目录路径�?*/
 	fileLocalTempDir: () => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("file_local_temp_dir")),
-	/**  启动后台本地文件索引构建。 */
+	/**  启动后台本地文件索引构建�?*/
 	fileIndexBuild: (connectionId: string) => typedError<FileIndexStatus, OmniError_Serialize>(__TAURI_INVOKE("file_index_build", { connectionId })),
-	/**  FTS5 搜索已索引文件。 */
+	/**  FTS5 搜索已索引文件�?*/
 	fileIndexSearch: (connectionId: string, query: string, limit: number | null) => typedError<FileIndexSearchResult[], OmniError_Serialize>(__TAURI_INVOKE("file_index_search", { connectionId, query, limit })),
-	/**  获取连接的文件索引状态。 */
+	/**  获取连接的文件索引状态�?*/
 	fileIndexStatus: (connectionId: string) => typedError<FileIndexStatus, OmniError_Serialize>(__TAURI_INVOKE("file_index_status", { connectionId })),
-	/**  清除连接的文件索引。 */
+	/**  清除连接的文件索引�?*/
 	fileIndexClear: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_index_clear", { connectionId })),
-	/**  取消正在进行的索引构建。 */
+	/**  取消正在进行的索引构建�?*/
 	fileIndexCancel: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("file_index_cancel", { connectionId })),
-	/**  获取当前文件索引存储目录信息。 */
+	/**  获取当前文件索引存储目录信息�?*/
 	fileIndexStorageInfo: () => typedError<FileIndexStorageInfo, OmniError_Serialize>(__TAURI_INVOKE("file_index_storage_info")),
-	/**  设置文件索引存储目录（空字符串表示恢复默认）。切换目录后需重新构建索引。 */
+	/**  设置文件索引存储目录（空字符串表示恢复默认）。切换目录后需重新构建索引�?*/
 	setFileIndexStorageDir: (dir: string) => typedError<FileIndexStorageInfo, OmniError_Serialize>(__TAURI_INVOKE("set_file_index_storage_dir", { dir })),
 	checkUpdate: () => typedError<UpdateInfo, string>(__TAURI_INVOKE("check_update")),
 	installUpdate: () => typedError<null, string>(__TAURI_INVOKE("install_update")),
-	/**  列出知识条目（可选按 kind / tag 过滤）。 */
+	/**  列出知识条目（可选按 kind / tag 过滤）�?*/
 	knowledgeList: (kind: string | null, tag: string | null) => typedError<KnowledgeEntry[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_list", { kind, tag })),
-	/**  按 id 获取单条知识。 */
+	/**  �?id 获取单条知识�?*/
 	knowledgeGet: (id: string) => typedError<{
 	id: string,
 	/**  "snippet" | "case" | "ai" */
@@ -834,36 +749,36 @@ export const commands = {
 	source: string,
 	/**  "dev" | "staging" | "production" */
 	envTag: string,
-	/**  代码语言（snippet 时有意义） */
+	/**  代码语言（snippet 时有意义�?*/
 	language: string,
 	usageCount: number | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
-	/**  父节点 id，空字符串表示根级 */
+	/**  父节�?id，空字符串表示根�?*/
 	parentId?: string,
 	/**  "folder" | "document" */
 	nodeType?: string,
 	sortOrder?: number | null,
-	/**  关联资源类型："" / "ssh" / "database" / "docker" / "files"（v23 引入） */
+	/**  关联资源类型�?" / "ssh" / "database" / "docker" / "files"（v23 引入�?*/
 	resourceType?: string,
-	/**  关联资源 id（与 resource_type 配对使用，空字符串表示不关联） */
+	/**  关联资源 id（与 resource_type 配对使用，空字符串表示不关联�?*/
 	resourceId?: string,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_get", { id })),
-	/**  保存（新建或更新）知识条目。 */
+	/**  保存（新建或更新）知识条目�?*/
 	knowledgeSave: (entry: KnowledgeEntry) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_save", { entry })),
-	/**  删除知识条目。 */
+	/**  删除知识条目�?*/
 	knowledgeDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_delete", { id })),
-	/**  FTS5 全文搜索（可选按 kind 过滤）。 */
+	/**  FTS5 全文搜索（可选按 kind 过滤）�?*/
 	knowledgeSearch: (query: string, kind: string | null) => typedError<KnowledgeSearchResult[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_search", { query, kind })),
-	/**  列出所有不重复的 tag。 */
+	/**  列出所有不重复�?tag�?*/
 	knowledgeTags: () => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_tags")),
-	/**  递增使用次数。 */
+	/**  递增使用次数�?*/
 	knowledgeIncrementUsage: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_increment_usage", { id })),
-	/**  列出全部待办列表。 */
+	/**  列出全部待办列表�?*/
 	knowledgeTodoList: () => typedError<KnowledgeTodoList_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_list")),
-	/**  保存（新建或更新）待办列表。 */
+	/**  保存（新建或更新）待办列表�?*/
 	knowledgeTodoSave: (list: KnowledgeTodoList_Deserialize) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_save", { list })),
-	/**  删除待办列表。 */
+	/**  删除待办列表�?*/
 	knowledgeTodoDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_todo_delete", { id })),
 	todoListList: () => typedError<TodoList[], OmniError_Serialize>(__TAURI_INVOKE("todo_list_list")),
 	todoListSave: (list: TodoList) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_list_save", { list })),
@@ -875,7 +790,7 @@ export const commands = {
 	title: string,
 	note?: string,
 	important?: boolean,
-	/**  加入「我的一天」的日历日（YYYY-MM-DD）；非今日则智能列表不展示。 */
+	/**  加入「我的一天」的日历日（YYYY-MM-DD）；非今日则智能列表不展示�?*/
 	myDayOn?: string | null,
 	dueAt?: number | null,
 	remindAt?: number | null,
@@ -885,7 +800,7 @@ export const commands = {
 	sortOrder?: number | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
-	/**  列表查询时填充；保存时可一并替换。 */
+	/**  列表查询时填充；保存时可一并替换�?*/
 	steps?: TodoStep[],
 	stepsTotal?: number | null,
 	stepsDone?: number | null,
@@ -894,95 +809,87 @@ export const commands = {
 	todoTaskDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_task_delete", { id })),
 	todoStepSave: (step: TodoStep) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_step_save", { step })),
 	todoStepDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("todo_step_delete", { id })),
-	/**  从 PDF 文件导入知识文档（提取文本并保存为 document 条目）。 */
+	/**  �?PDF 文件导入知识文档（提取文本并保存�?document 条目）�?*/
 	knowledgeImportPdf: (path: string, parentId: string | null) => typedError<KnowledgeEntry, OmniError_Serialize>(__TAURI_INVOKE("knowledge_import_pdf", { path, parentId })),
-	/**  列出全局标签树（扁平，含可选计数）。 */
+	/**  列出全局标签树（扁平，含可选计数）�?*/
 	tagListTree: (includeCounts: boolean | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_list_tree", { includeCounts })),
-	/**  仅列出已绑定到指定资源范围的标签（筛选面板用；打标编辑仍走全局）。 */
+	/**  仅列出已绑定到指定资源范围的标签（筛选面板用；打标编辑仍走全局）�?*/
 	tagListUsedBy: (includeCounts: boolean | null, resourceKinds: string[] | null, connectionKinds: string[] | null, extraResourceIds: string[] | null, includeAncestors: boolean | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_list_used_by", { includeCounts, resourceKinds, connectionKinds, extraResourceIds, includeAncestors })),
-	/**  创建标签。 */
+	/**  创建标签�?*/
 	tagCreate: (name: string, parentId: string | null, color: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_create", { name, parentId, color })),
-	/**  重命名标签。 */
+	/**  重命名标签�?*/
 	tagRename: (id: string, name: string) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_rename", { id, name })),
-	/**  移动标签。 */
+	/**  移动标签�?*/
 	tagMove: (id: string, newParentId: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_move", { id, newParentId })),
-	/**  删除标签（可选级联子孙）。 */
+	/**  删除标签（可选级联子孙）�?*/
 	tagDelete: (id: string, cascade: boolean | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("tag_delete", { id, cascade })),
-	/**  设置标签颜色。 */
+	/**  设置标签颜色�?*/
 	tagSetColor: (id: string, color: string | null) => typedError<TagDto, OmniError_Serialize>(__TAURI_INVOKE("tag_set_color", { id, color })),
-	/**  列出资源上的标签。 */
+	/**  列出资源上的标签�?*/
 	resourceListTags: (kind: string, resourceId: string) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_tags", { kind, resourceId })),
-	/**  全量替换资源的用户标签。 */
+	/**  全量替换资源的用户标签�?*/
 	resourceSetTags: (kind: string, resourceId: string, paths: string[]) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_set_tags", { kind, resourceId, paths })),
-	/**  为资源追加标签。 */
+	/**  为资源追加标签�?*/
 	resourceAddTag: (kind: string, resourceId: string, path: string, source: string | null) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_add_tag", { kind, resourceId, path, source })),
-	/**  移除资源上的标签。 */
+	/**  移除资源上的标签�?*/
 	resourceRemoveTag: (kind: string, resourceId: string, tagId: string) => typedError<ResourceTagDto[], OmniError_Serialize>(__TAURI_INVOKE("resource_remove_tag", { kind, resourceId, tagId })),
-	/**  写入系统键标签（如 os）。 */
+	/**  写入系统键标签（�?os）�?*/
 	resourceSetSystemTag: (kind: string, resourceId: string, key: string, value: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("resource_set_system_tag", { kind, resourceId, key, value })),
-	/**  按标签查询资源。 */
+	/**  按标签查询资源�?*/
 	tagQueryResources: (tagIds: string[], mode: string | null, kinds: string[] | null, includeDescendants: boolean | null) => typedError<TaggedResourceSummary[], OmniError_Serialize>(__TAURI_INVOKE("tag_query_resources", { tagIds, mode, kinds, includeDescendants })),
-	/**  标签路径补全。 */
+	/**  标签路径补全�?*/
 	tagSuggest: (query: string, limit: number | null) => typedError<TagDto[], OmniError_Serialize>(__TAURI_INVOKE("tag_suggest", { query, limit })),
-	/**  全局搜索（多源 + 标签过滤）。 */
+	/**  全局搜索（多�?+ 标签过滤）�?*/
 	searchEverywhere: (query: string, tagIds: string[] | null, mode: string | null, limit: number | null) => typedError<SearchEverywhereHit[], OmniError_Serialize>(__TAURI_INVOKE("search_everywhere", { query, tagIds, mode, limit })),
-	/**  列出文档历史版本。 */
+	/**  列出文档历史版本�?*/
 	knowledgeListRevisions: (entryId: string) => typedError<KnowledgeRevision[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_list_revisions", { entryId })),
-	/**  恢复历史版本为当前文档内容。 */
+	/**  恢复历史版本为当前文档内容�?*/
 	knowledgeRestoreRevision: (revisionId: string) => typedError<KnowledgeEntry, OmniError_Serialize>(__TAURI_INVOKE("knowledge_restore_revision", { revisionId })),
-	/**  将二进制写入文档附件目录。 */
+	/**  将二进制写入文档附件目录�?*/
 	knowledgeSaveAsset: (entryId: string, fileName: string, bytes: number[]) => typedError<KnowledgeAssetSaved, OmniError_Serialize>(__TAURI_INVOKE("knowledge_save_asset", { entryId, fileName, bytes })),
-	/**  解析附件绝对路径。 */
+	/**  解析附件绝对路径�?*/
 	knowledgeAssetPath: (entryId: string, fileName: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("knowledge_asset_path", { entryId, fileName })),
-	/**  列出所有有观测记录的资源摘要（可按 resource_type 过滤）。 */
+	/**  列出所有有观测记录的资源摘要（可按 resource_type 过滤）�?*/
 	resourceListProfiles: (resourceType: string | null) => typedError<ResourceProfileSummary[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_profiles", { resourceType })),
-	/**  获取资源最新档案：每类 observation_kind 取最新一条，组装为 JSON 对象。 */
+	/**  获取资源最新档案：每类 observation_kind 取最新一条，组装�?JSON 对象�?*/
 	resourceGetProfile: (resourceType: string, resourceId: string) => typedError<any | null, OmniError_Serialize>(__TAURI_INVOKE("resource_get_profile", { resourceType, resourceId })),
-	/**  查找相似资源（基于指纹匹配，按相似度排序）。 */
+	/**  查找相似资源（基于指纹匹配，按相似度排序）�?*/
 	resourceFindSimilar: (resourceType: string, resourceId: string, limit: number | null) => typedError<ResourceProfileSummary[], OmniError_Serialize>(__TAURI_INVOKE("resource_find_similar", { resourceType, resourceId, limit })),
-	/**  清空资源的全部观测记录（重置档案）。 */
+	/**  清空资源的全部观测记录（重置档案）�?*/
 	resourceDeleteObservations: (resourceType: string, resourceId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("resource_delete_observations", { resourceType, resourceId })),
-	/**  列出资源关联的 knowledge 条目（按更新时间倒序）。 */
+	/**  列出资源关联�?knowledge 条目（按更新时间倒序）�?*/
 	resourceListKnowledge: (resourceType: string, resourceId: string) => typedError<KnowledgeEntry[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_knowledge", { resourceType, resourceId })),
-	/**  手动追加一条资源观测（observer=manual；如 kind=note 用于运维笔记）。 */
+	/**  手动追加一条资源观测（observer=manual；如 kind=note 用于运维笔记）�?*/
 	resourceSaveObservation: (resourceType: string, resourceId: string, observationKind: string, payload: JsonValue, observer: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("resource_save_observation", { resourceType, resourceId, observationKind, payload, observer })),
 	/**
-	 *  采集 SSH 主机快照：hardware + services + topology 三类观测。
-	 * 
-	 *  依赖 SSH 连接池中已建立的会话（前端需先调用 `ssh_connect_connection` 建立会话）。
-	 *  任一子任务失败不影响其他子任务，错误汇总到 `errors` 字段。
-	 */
+	 *  采集 SSH 主机快照：hardware + services + topology 三类观测�?	 * 
+	 *  依赖 SSH 连接池中已建立的会话（前端需先调�?`ssh_connect_connection` 建立会话）�?	 *  任一子任务失败不影响其他子任务，错误汇总到 `errors` 字段�?	 */
 	resourceCollectSshSnapshot: (resourceId: string) => typedError<ResourceSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("resource_collect_ssh_snapshot", { resourceId })),
 	/**
-	 *  采集数据库快照：overview + schema_summary + users 三类观测。
-	 * 
-	 *  直接通过 `omnipanel-db::connect` 建立一次性连接，不依赖 AppState 中的连接池
-	 *  （避免与正在执行的查询争抢资源；采集本身频率极低）。
-	 */
+	 *  采集数据库快照：overview + schema_summary + users 三类观测�?	 * 
+	 *  直接通过 `omnipanel-db::connect` 建立一次性连接，不依�?AppState 中的连接�?	 *  （避免与正在执行的查询争抢资源；采集本身频率极低）�?	 */
 	resourceCollectDatabaseSnapshot: (connectionName: string) => typedError<ResourceSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("resource_collect_database_snapshot", { connectionName })),
 	/**
-	 *  Phase 5 子任务 3：计算某资源某 kind 最近两次观测的 diff。
-	 *  供前端 UI 在快照面板上展示"自上次以来发生了什么变化"。
-	 */
+	 *  Phase 5 子任�?3：计算某资源�?kind 最近两次观测的 diff�?	 *  供前�?UI 在快照面板上展示"自上次以来发生了什么变�?�?	 */
 	resourceComputeObservationDiff: (resourceType: string, resourceId: string, observationKind: string) => typedError<JsonValue, OmniError_Serialize>(__TAURI_INVOKE("resource_compute_observation_diff", { resourceType, resourceId, observationKind })),
-	/**  将知识条目分块并向量化存储（同步命令，供兼容调用）。 */
+	/**  将知识条目分块并向量化存储（同步命令，供兼容调用）�?*/
 	knowledgeVectorize: (args: KnowledgeVectorizeArgs) => typedError<KnowledgeVectorizeResult, OmniError_Serialize>(__TAURI_INVOKE("knowledge_vectorize", { args })),
-	/**  查询条目的向量化状态。 */
+	/**  查询条目的向量化状态�?*/
 	knowledgeVectorStatus: (entryId: string) => typedError<{
 	entryId: string,
 	chunkCount: number | null,
 	embeddedAt: number | null,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("knowledge_vector_status", { entryId })),
-	/**  分页列出条目的向量化文本块（不含 embedding）。 */
+	/**  分页列出条目的向量化文本块（不含 embedding）�?*/
 	knowledgeListChunks: (entryId: string, offset: number | null, limit: number | null) => typedError<KnowledgeChunkListResult, OmniError_Serialize>(__TAURI_INVOKE("knowledge_list_chunks", { entryId, offset, limit })),
-	/**  删除条目的指定文本块。 */
+	/**  删除条目的指定文本块�?*/
 	knowledgeDeleteChunks: (entryId: string, chunkIds: string[]) => typedError<KnowledgeDeleteChunksResult, OmniError_Serialize>(__TAURI_INVOKE("knowledge_delete_chunks", { entryId, chunkIds })),
-	/**  对单篇文档执行向量召回测试，返回匹配文本块及相似度。 */
+	/**  对单篇文档执行向量召回测试，返回匹配文本块及相似度�?*/
 	knowledgeRecallTest: (args: KnowledgeRecallTestArgs) => typedError<KnowledgeRecallHit[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_recall_test", { args })),
 	knowledgeQueryDocument: (args: KnowledgeQueryDocumentArgs) => typedError<KnowledgeQueryHit[], OmniError_Serialize>(__TAURI_INVOKE("knowledge_query_document", { args })),
-	/**  同步前端 embedding 配置到 `~/.omnipd/ai/embedding_provider.json`，供 MCP Skill 向量化读取。 */
+	/**  同步前端 embedding 配置�?`~/.omnipd/ai/embedding_provider.json`，供 MCP Skill 向量化读取�?*/
 	embeddingProviderSync: (provider: EmbeddingProviderConfig) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_sync", { provider })),
-	/**  读取后端已同步的 embedding 配置。 */
+	/**  读取后端已同步的 embedding 配置�?*/
 	embeddingProviderGet: () => typedError<{
 	providerId: string,
 	modelName: string,
@@ -990,31 +897,31 @@ export const commands = {
 	apiKey: string,
 	apiStandard: string,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_get")),
-	/**  探测本机本地运行时（Ollama + LM Studio）与硬件推荐。 */
+	/**  探测本机本地运行时（Ollama + LM Studio）与硬件推荐�?*/
 	localRuntimeProbe: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_probe")),
-	/**  强制刷新 ollama.com/library 缓存并返回最新推荐。 */
+	/**  强制刷新 ollama.com/library 缓存并返回最新推荐�?*/
 	localRuntimeRefreshCatalog: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_refresh_catalog")),
-	/**  尝试启动已安装的 Ollama（`ollama serve` 后台）。 */
+	/**  尝试启动已安装的 Ollama（`ollama serve` 后台）�?*/
 	localRuntimeStartOllama: () => typedError<boolean, string>(__TAURI_INVOKE("local_runtime_start_ollama")),
-	/**  用户确认后安装 Ollama（兼容同步命令；进度走后台任务更佳）。 */
+	/**  用户确认后安�?Ollama（兼容同步命令；进度走后台任务更佳）�?*/
 	localRuntimeInstallOllama: () => typedError<LocalRuntimeInstallResult, string>(__TAURI_INVOKE("local_runtime_install_ollama")),
-	/**  拉取模型（兼容同步命令）。 */
+	/**  拉取模型（兼容同步命令）�?*/
 	localRuntimeOllamaPull: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_pull", { model })),
-	/**  删除本地 Ollama 模型。 */
+	/**  删除本地 Ollama 模型�?*/
 	localRuntimeOllamaDelete: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_delete", { model })),
-	/**  探测任意 OpenAI 兼容本地端点。 */
+	/**  探测任意 OpenAI 兼容本地端点�?*/
 	localRuntimeProbeOpenaiCompat: (baseUrl: string) => typedError<OpenAiCompatProbeResult, string>(__TAURI_INVOKE("local_runtime_probe_openai_compat", { baseUrl })),
-	/**  返回官方下载页 URL（供前端打开）。 */
+	/**  返回官方下载�?URL（供前端打开）�?*/
 	localRuntimeOllamaDownloadUrl: () => typedError<string, string>(__TAURI_INVOKE("local_runtime_ollama_download_url")),
-	/**  列出所有工作流。 */
+	/**  列出所有工作流�?*/
 	workflowList: () => typedError<Workflow[], OmniError_Serialize>(__TAURI_INVOKE("workflow_list")),
-	/**  按 id 获取工作流详情（含步骤）。 */
+	/**  �?id 获取工作流详情（含步骤）�?*/
 	workflowGet: (id: string) => typedError<WorkflowDetail, OmniError_Serialize>(__TAURI_INVOKE("workflow_get", { id })),
-	/**  创建或更新工作流。 */
+	/**  创建或更新工作流�?*/
 	workflowSave: (req: SaveWorkflowRequest) => typedError<WorkflowDetail, OmniError_Serialize>(__TAURI_INVOKE("workflow_save", { req })),
-	/**  删除工作流（级联删除步骤和执行记录）。 */
+	/**  删除工作流（级联删除步骤和执行记录）�?*/
 	workflowDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("workflow_delete", { id })),
-	/**  获取工作流执行历史。 */
+	/**  获取工作流执行历史�?*/
 	workflowExecutions: (workflowId: string, limit: number) => typedError<WorkflowExecution[], OmniError_Serialize>(__TAURI_INVOKE("workflow_executions", { workflowId, limit })),
 	/**
 	 *  Start executing a workflow. Returns the execution ID immediately.
@@ -1025,99 +932,111 @@ export const commands = {
 	workflowStop: (executionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("workflow_stop", { executionId })),
 	/**  Get execution detail with step results. */
 	workflowGetExecution: (executionId: string) => typedError<WorkflowExecutionDetail, OmniError_Serialize>(__TAURI_INVOKE("workflow_get_execution", { executionId })),
-	/**  列出全部应用模块及其状态。 */
+	/**  列出全部应用模块及其状态�?*/
 	appModuleList: () => typedError<AppModule[], OmniError_Serialize>(__TAURI_INVOKE("app_module_list")),
-	/**  设置单个模块状态（open / closed；disabled 模块不可修改）。 */
+	/**  设置单个模块状态（open / closed；disabled 模块不可修改）�?*/
 	appModuleSetStatus: (moduleKey: string, status: AppModuleStatus) => typedError<AppModule, OmniError_Serialize>(__TAURI_INVOKE("app_module_set_status", { moduleKey, status })),
-	/**  列出已编译的第一方插件（含未激活的平台不匹配项）。 */
+	/**  列出已编译的第一方插件（含未激活的平台不匹配项）�?*/
 	pluginList: () => typedError<PluginListItem_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_list")),
-	/**  全量清单（内置 + 已安装）：前端 PluginCatalog 单源合并用。 */
+	/**  全量清单（内�?+ 已安装）：前�?PluginCatalog 单源合并用�?*/
 	pluginManifests: () => typedError<PluginManifestDto[], OmniError_Serialize>(__TAURI_INVOKE("plugin_manifests")),
-	/**  启用或禁用插件。禁用后卸除贡献点（含 AI 工具），连接数据保留。 */
+	/**  启用或禁用插件。禁用后卸除贡献点（�?AI 工具），连接数据保留�?*/
 	pluginSetEnabled: (pluginId: string, enabled: boolean) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_set_enabled", { pluginId, enabled })),
-	/**  第一方/第三方统一命令网关：清单 `methods[]` 白名单 + 权限注解强制 + 审计。 */
+	/**  第一�?第三方统一命令网关：清�?`methods[]` 白名�?+ 权限注解强制 + 审计�?*/
 	pluginInvoke: (pluginId: string, method: string, args: "Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: JsonValue[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: JsonValue } }) & { Array?: never; Bool?: never; Number?: never; String?: never }) => typedError<"Null" | ({ Bool: boolean }) & { Array?: never; Number?: never; Object?: never; String?: never } | ({ Number: ({ f64: number | null }) & { i64?: never; u64?: never } | ({ i64: number }) & { f64?: never; u64?: never } | ({ u64: number }) & { f64?: never; i64?: never } }) & { Array?: never; Bool?: never; Object?: never; String?: never } | ({ String: string }) & { Array?: never; Bool?: never; Number?: never; Object?: never } | ({ Array: JsonValue[] }) & { Bool?: never; Number?: never; Object?: never; String?: never } | ({ Object: { [key in string]: JsonValue } }) & { Array?: never; Bool?: never; Number?: never; String?: never }, OmniError_Serialize>(__TAURI_INVOKE("plugin_invoke", { pluginId, method, args })),
 	/**
-	 *  缺权即失败。前端 Host API 在 upsert / 选区 / SSH 探测前必须先过此闸；
-	 *  拒绝写入审计（action=plugin.permission，status=blocked）。
-	 */
+	 *  缺权即失败。前�?Host API �?upsert / 选区 / SSH 探测前必须先过此闸；
+	 *  拒绝写入审计（action=plugin.permission，status=blocked）�?	 */
 	pluginRequirePermission: (pluginId: string, permission: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_require_permission", { pluginId, permission })),
 	/**
-	 *  发现总线：任务中心登记、进度与取消令牌。真实 probe 在前端执行。
-	 * 
-	 *  内核 probe：`ssh-docker`（SSH 扫 Docker）、`ssh-panel`（SSH 扫面板）。
-	 *  prod 主机过滤在前端 `sshDiscoveryScope`；本命令不因 `env_tag` 走占位分支。
-	 */
+	 *  发现总线：任务中心登记、进度与取消令牌。真�?probe 在前端执行�?	 * 
+	 *  内核 probe：`ssh-docker`（SSH �?Docker）、`ssh-panel`（SSH 扫面板）�?	 *  prod 主机过滤在前�?`sshDiscoveryScope`；本命令不因 `env_tag` 走占位分支�?	 */
 	discoveryRun: (probeId: string, scope: DiscoveryScope) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("discovery_run", { probeId, scope })),
-	/**  prod 确认回传：前端弹窗结果 → 唤醒等待中的桥调用。 */
+	/**  prod 确认回传：前端弹窗结�?�?唤醒等待中的桥调用�?*/
 	pluginConfirmResolve: (requestId: string, allow: boolean, presenceToken: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_confirm_resolve", { requestId, allow, presenceToken })),
-	/**  读取插件包内资产（L3 沙箱 UI / 首页图标）。仅限包目录或第一方嵌入、允许扩展、≤512KB。 */
+	/**  读取插件包内资产（L3 沙箱 UI / 首页图标）。仅限包目录或第一方嵌入、允许扩展、≤512KB�?*/
 	pluginReadAsset: (pluginId: string, relPath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_read_asset", { pluginId, relPath })),
-	/**  沙箱 UI 专用的受限网络访问：与 L2 桥同源权限闸 + prod 确认。 */
+	/**  沙箱 UI 专用的受限网络访问：�?L2 桥同源权限闸 + prod 确认�?*/
 	pluginSandboxNetFetch: (pluginId: string, specJson: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_sandbox_net_fetch", { pluginId, specJson })),
 	/**
-	 *  从本地 `.omni-plugin` 文件安装（覆盖升级同 id）。release 构建仅接受官方签名；
-	 *  dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`。
-	 */
+	 *  从本�?`.omni-plugin` 文件安装（覆盖升级同 id）。release 构建仅接受官方签名；
+	 *  dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`�?	 */
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
-	/**  预读本地包清单（安装前权限确认用）：只验签 + 解析，不解压不安装。 */
+	/**  预读本地包清单（安装前权限确认用）：只验�?+ 解析，不解压不安装�?*/
 	pluginPeekManifest: (path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_peek_manifest", { path })),
-	/**  列出 plugins-custom 下的工程（有无 plugin.json 都列）。 */
+	/**  列出 plugins-custom 下的工程（有�?plugin.json 都列）�?*/
 	pluginStudioListProjects: () => typedError<StudioProject[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
-	/**  脚手架：node create-plugin.mjs 建新工程，返回刷新后的工程。 */
+	/**  脚手架：node create-plugin.mjs 建新工程，返回刷新后的工程�?*/
 	pluginStudioScaffold: (name: string, kind: string) => typedError<StudioProject, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind })),
-	/**  读工程文件（文本，≤512KB）。 */
+	/**  读工程文件（文本，≤512KB）�?*/
 	pluginStudioReadFile: (project: string, path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_read_file", { project, path })),
-	/**  写工程文件（文本，≤1MB，自动建父目录）。 */
+	/**  写工程文件（文本，≤1MB，自动建父目录）�?*/
 	pluginStudioWriteFile: (project: string, path: string, content: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_write_file", { project, path, content })),
-	/**  环境检测：cargo / node / wat2wasm 版本（缺失为 null）。 */
+	/**  环境检测：cargo / node / wat2wasm 版本（缺失为 null）�?*/
 	pluginStudioEnvCheck: () => typedError<StudioEnv, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_env_check")),
-	/**  跑脚本：validate（node）或 pack（cargo，返回 artifact 路径）。 */
+	/**  跑脚本：validate（node）或 pack（cargo，返�?artifact 路径）�?*/
 	pluginStudioRun: (project: string, op: string) => typedError<StudioRunResult, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_run", { project, op })),
-	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载。 */
+	/**  源列表（�?token 有无，不含明文）�?*/
+	pluginRegistrySourcesList: () => typedError<RegistrySourceDto[], OmniError_Serialize>(__TAURI_INVOKE("plugin_registry_sources_list")),
+	/**  新增第三方源（token 可选；公钥可选，无则首次拉取 TOFU）�?*/
+	pluginRegistrySourceAdd: (id: string, url: string, publicKeys: string[], token: string | null) => typedError<RegistrySourceDto, OmniError_Serialize>(__TAURI_INVOKE("plugin_registry_source_add", { id, url, publicKeys, token })),
+	/**  删除第三方源（内置拒绝；token 一并清 keyring）�?*/
+	pluginRegistrySourceRemove: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_registry_source_remove", { id })),
+	pluginRegistrySourceSetEnabled: (id: string, enabled: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_registry_source_set_enabled", { id, enabled })),
+	/**  设置/清空�?token（空即清除）�?*/
+	pluginRegistrySourceSetToken: (id: string, token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_registry_source_set_token", { id, token })),
+	/**  连通�?+ 解析 + 验签测试（写缓存）�?*/
+	pluginRegistrySourceTest: (id: string) => typedError<SourceTestResult, OmniError_Serialize>(__TAURI_INVOKE("plugin_registry_source_test", { id })),
+	/**  确认�?key：用�?key 验缓存原文，通过则合并入 pinned�?*/
+	pluginRegistryConfirmKey: (id: string, newKeyHex: string) => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("plugin_registry_confirm_key", { id, newKeyHex })),
+	/**  市场目录（合并多源；installed/updateAvailable 实时计算）�?*/
+	pluginMarketCatalog: (force: boolean) => typedError<MarketplaceItem[], OmniError_Serialize>(__TAURI_INVOKE("plugin_market_catalog", { force })),
+	/**  依赖解决计划（只计算不安装，�?UI 确认）�?*/
+	pluginResolvePlan: (id: string, versionReq: string | null) => typedError<ResolvePlan, OmniError_Serialize>(__TAURI_INVOKE("plugin_resolve_plan", { id, versionReq })),
+	/**  安装指定版本（version 缺省最�?compatible；approveDeps �?UI 确认后置 true）�?*/
+	pluginInstallVersion: (id: string, version: string | null, approveDeps: boolean) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_version", { id, version, approveDeps })),
+	/**  可更新列表�?*/
+	pluginCheckUpdates: () => typedError<PluginUpdateInfo[], OmniError_Serialize>(__TAURI_INVOKE("plugin_check_updates")),
+	/**  一键全更（ids 缺省全部可更新；单包失败记错继续）�?*/
+	pluginUpdateAll: (ids: string[] | null) => typedError<UpdateResultItem[], OmniError_Serialize>(__TAURI_INVOKE("plugin_update_all", { ids })),
+	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载�?*/
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
-	/**  插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`。 */
+	/**  插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`�?*/
 	pluginStateGet: (pluginId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_state_get", { pluginId })),
 	pluginStateSet: (pluginId: string, payload: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_state_set", { pluginId, payload })),
-	/**  插件私密凭据：系统钥匙串（或降级文件），命名空间 `plugin:{id}:{key}`。 */
+	/**  插件私密凭据：系统钥匙串（或降级文件），命名空间 `plugin:{id}:{key}`�?*/
 	pluginSecretPut: (pluginId: string, key: string, secret: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_put", { pluginId, key, secret })),
 	pluginSecretHas: (pluginId: string, key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_has", { pluginId, key })),
 	pluginSecretGet: (pluginId: string, key: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_get", { pluginId, key })),
 	pluginSecretDelete: (pluginId: string, key: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_delete", { pluginId, key })),
-	/**  列出当前平台可安装的 DBX SQL / CQL / Cypher agent（不含第一方引擎 / DuckDB worker / 队列）。 */
+	/**  列出当前平台可安装的 DBX SQL / CQL / Cypher agent（不含第一方引�?/ DuckDB worker / 队列）�?*/
 	pluginDbxCatalog: () => typedError<DbxCatalogDriver[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_catalog")),
-	/**  从 DBX 官方目录下载 native 或 JDBC agent，写入 `app_data/plugins/omni.engine.<key>/`。 */
+	/**  �?DBX 官方目录下载 native �?JDBC agent，写�?`app_data/plugins/omni.engine.<key>/`�?*/
 	pluginDbxInstall: (key: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install", { key })),
-	/**  安装金仓 / Vastbase / UXDB / OceanBase 等；目录无包则记原因，不阻断其余项。 */
+	/**  安装金仓 / Vastbase / UXDB / OceanBase 等；目录无包则记原因，不阻断其余项�?*/
 	pluginDbxInstallCatalogEngines: () => typedError<DbxInstallAttempt[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_install_catalog_engines")),
 	/**
-	 *  列出官方插件（内置 bundled + 可下载包）。远程失败回退仓库种子。
-	 *  `force` 为 true 时等网络（市场「刷新」）；否则先返回缓存，后台静默拉新。
-	 */
+	 *  列出官方插件（内�?bundled + 可下载包）。远程失败回退仓库种子�?	 *  `force` �?true 时等网络（市场「刷新」）；否则先返回缓存，后台静默拉新�?	 */
 	pluginOfficialCatalog: (force: boolean) => typedError<OfficialCatalogPlugin[], OmniError_Serialize>(__TAURI_INVOKE("plugin_official_catalog", { force })),
-	/**  从官方目录下载 `.omni-plugin` 并安装。bundled 条目拒绝下载。 */
+	/**  从官方目录下�?`.omni-plugin` 并安装。bundled 条目拒绝下载�?*/
 	pluginOfficialInstall: (pluginId: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_official_install", { pluginId })),
-	/**  列出任务，可选按状态过滤。 */
+	/**  列出任务，可选按状态过滤�?*/
 	taskList: (statusFilter: string | null, limit: number) => typedError<Task[], OmniError_Serialize>(__TAURI_INVOKE("task_list", { statusFilter, limit })),
-	/**  获取单个任务。 */
+	/**  获取单个任务�?*/
 	taskGet: (id: string) => typedError<Task, OmniError_Serialize>(__TAURI_INVOKE("task_get", { id })),
-	/**  创建或更新任务。 */
+	/**  创建或更新任务�?*/
 	taskSave: (req: SaveTaskRequest) => typedError<Task, OmniError_Serialize>(__TAURI_INVOKE("task_save", { req })),
-	/**  更新任务状态。 */
+	/**  更新任务状态�?*/
 	taskUpdateStatus: (id: string, status: TaskStatus) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("task_update_status", { id, status })),
-	/**  删除任务。 */
+	/**  删除任务�?*/
 	taskDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("task_delete", { id })),
 	/**
-	 *  执行一个任务：从存储加载 → 分发到执行引擎 → 流式回流输出 → 更新状态。
-	 * 
-	 *  任务在后台异步执行，函数立即返回。执行过程中通过以下事件通知前端：
-	 *  - `task-output`   — 流式 stdout/stderr 输出（payload: `{ taskId, stream, chunk }`）
-	 *  - `task-status`   — 状态变更（payload: `{ taskId, status }`）
-	 */
+	 *  执行一个任务：从存储加�?�?分发到执行引�?�?流式回流输出 �?更新状态�?	 * 
+	 *  任务在后台异步执行，函数立即返回。执行过程中通过以下事件通知前端�?	 *  - `task-output`   �?流式 stdout/stderr 输出（payload: `{ taskId, stream, chunk }`�?	 *  - `task-status`   �?状态变更（payload: `{ taskId, status }`�?	 */
 	taskRun: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("task_run", { id })),
-	/**  停止一个正在运行的任务。异步任务将被中止，任务状态标记为 cancelled。 */
+	/**  停止一个正在运行的任务。异步任务将被中止，任务状态标记为 cancelled�?*/
 	taskStop: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("task_stop", { id })),
-	/**  获取任务执行输出。 */
+	/**  获取任务执行输出�?*/
 	taskGetOutput: (id: string) => typedError<Task, OmniError_Serialize>(__TAURI_INVOKE("task_get_output", { id })),
 	grpcConnect: (config: GrpcConnectionConfig) => typedError<string, string>(__TAURI_INVOKE("grpc_connect", { config })),
 	grpcCall: (connectionId: string, request: GrpcCallRequest) => typedError<GrpcCallResponse, string>(__TAURI_INVOKE("grpc_call", { connectionId, request })),
@@ -1157,33 +1076,33 @@ export const commands = {
 	setProxyConfig: (config: ProxyConfig) => typedError<null, string>(__TAURI_INVOKE("set_proxy_config", { config })),
 	/**  Get the current proxy configuration (for backend use). */
 	getProxyConfig: () => typedError<ProxyConfig, string>(__TAURI_INVOKE("get_proxy_config")),
-	/**  读取 AI 模型配置 JSON 文件。文件不存在时返回默认空配置。 */
+	/**  读取 AI 模型配置 JSON 文件。文件不存在时返回默认空配置�?*/
 	aiModelsLoad: () => typedError<AiModelsFile_Serialize, string>(__TAURI_INVOKE("ai_models_load")),
-	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件再 rename,防止崩溃时半写。 */
+	/**  原子写入 AI 模型配置 JSON 文件:先写临时文件�?rename,防止崩溃时半写�?*/
 	aiModelsSave: (file: AiModelsFile_Deserialize) => typedError<null, string>(__TAURI_INVOKE("ai_models_save", { file })),
-	/**  前端在 ACP 同步等场景按需取回 Vault 中的 API Key。 */
+	/**  前端�?ACP 同步等场景按需取回 Vault 中的 API Key�?*/
 	aiModelsResolveApiKey: (providerId: string) => typedError<string, string>(__TAURI_INVOKE("ai_models_resolve_api_key", { providerId })),
-	/**  经 Rust HTTP 客户端拉取 `{baseUrl}/models`，避开 WebView CORS。 */
+	/**  �?Rust HTTP 客户端拉�?`{baseUrl}/models`，避开 WebView CORS�?*/
 	aiModelsFetchList: (baseUrl: string, apiKey: string, apiStandard: string | null) => typedError<FetchedProviderModel_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("ai_models_fetch_list", { baseUrl, apiKey, apiStandard })),
-	/**  检测本机是否已安装 OpenCode CLI。 */
+	/**  检测本机是否已安装 OpenCode CLI�?*/
 	detectOpencodeInstall: () => typedError<OpenCodeInstallStatus, OmniError_Serialize>(__TAURI_INVOKE("detect_opencode_install")),
-	/**  检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。 */
+	/**  检�?OmniAgent / Cursor / OpenCode / Qwen 的安装情况�?*/
 	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
 	dbSqlFilesSave: (file: DbSqlFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_sql_files_save", { file })),
 	dbTreeChartFilesLoad: () => typedError<DbTreeChartFilesFile, string>(__TAURI_INVOKE("db_tree_chart_files_load")),
 	dbTreeChartFilesSave: (file: DbTreeChartFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_tree_chart_files_save", { file })),
-	/**  分页读取行级差异缓存（`AppHandle` 参数保留 IPC 签名兼容，逻辑在共享 crate）。 */
+	/**  分页读取行级差异缓存（`AppHandle` 参数保留 IPC 签名兼容，逻辑在共�?crate）�?*/
 	dbSyncRowDiffPage: (cacheId: string, offset: number, limit: number, kinds: string[] | null) => typedError<RowDiffPageResult_Serialize, string>(__TAURI_INVOKE("db_sync_row_diff_page", { cacheId, offset, limit, kinds })),
-	/**  列出全部内置工具配置。 */
+	/**  列出全部内置工具配置�?*/
 	builtinToolList: () => typedError<BuiltinToolRecord[], OmniError_Serialize>(__TAURI_INVOKE("builtin_tool_list")),
-	/**  设置内置工具启用状态（兼容旧 API，等同 internal_enabled）。 */
+	/**  设置内置工具启用状态（兼容�?API，等�?internal_enabled）�?*/
 	builtinToolSetEnabled: (toolName: string, enabled: boolean) => typedError<BuiltinToolRecord, OmniError_Serialize>(__TAURI_INVOKE("builtin_tool_set_enabled", { toolName, enabled })),
-	/**  设置内置工具「内部可用」。 */
+	/**  设置内置工具「内部可用」�?*/
 	builtinToolSetInternalEnabled: (toolName: string, enabled: boolean) => typedError<BuiltinToolRecord, OmniError_Serialize>(__TAURI_INVOKE("builtin_tool_set_internal_enabled", { toolName, enabled })),
-	/**  设置内置工具「对外暴露」。 */
+	/**  设置内置工具「对外暴露」�?*/
 	builtinToolSetExternalExposed: (toolName: string, exposed: boolean) => typedError<BuiltinToolRecord, OmniError_Serialize>(__TAURI_INVOKE("builtin_tool_set_external_exposed", { toolName, exposed })),
-	/**  从前端目录同步内置工具元数据（不覆盖开关）。 */
+	/**  从前端目录同步内置工具元数据（不覆盖开关）�?*/
 	builtinToolSyncCatalog: (entries: BuiltinToolCatalogEntry[]) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("builtin_tool_sync_catalog", { entries })),
 	webSearchGetConfig: () => typedError<WebSearchConfigDto, OmniError_Serialize>(__TAURI_INVOKE("web_search_get_config")),
 	webSearchSetConfig: (config: WebSearchConfigDto) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("web_search_set_config", { config })),
@@ -1195,149 +1114,145 @@ export const commands = {
 	webSearchJinaKeyConfigured: () => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("web_search_jina_key_configured")),
 	webSearchTestBackend: (backend: string) => typedError<WebSearchTestResultDto, OmniError_Serialize>(__TAURI_INVOKE("web_search_test_backend", { backend })),
 	webSearchTestFetch: (url: string) => typedError<WebFetchTestResultDto, OmniError_Serialize>(__TAURI_INVOKE("web_search_test_fetch", { url })),
-	/**  读取本机设备身份（用于列表「本机」标记）。 */
+	/**  读取本机设备身份（用于列表「本机」标记）�?*/
 	authDeviceIdentity: () => typedError<AuthDeviceIdentity, OmniError_Serialize>(__TAURI_INVOKE("auth_device_identity")),
-	/**  获取当前用户设备列表。 */
+	/**  获取当前用户设备列表�?*/
 	authListDevices: (token: string) => typedError<AuthDevice[], OmniError_Serialize>(__TAURI_INVOKE("auth_list_devices", { token })),
-	/**  删除已授权设备（DELETE /api/devices/{device_id}?app_id=）。 */
+	/**  删除已授权设备（DELETE /api/devices/{device_id}?app_id=）�?*/
 	authDeleteDevice: (token: string, deviceId: string, appId: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_delete_device", { token, deviceId, appId })),
-	/**  获取当前用户信息（GET /api/me）。 */
+	/**  获取当前用户信息（GET /api/me）�?*/
 	authGetMe: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_get_me", { token })),
-	/**  更新当前用户信息（PATCH /api/me）。`nickname` / `avatar_url` 至少传一个；空字符串表示清空。 */
+	/**  更新当前用户信息（PATCH /api/me）。`nickname` / `avatar_url` 至少传一个；空字符串表示清空�?*/
 	authUpdateProfile: (token: string, nickname: string | null, avatarUrl: string | null) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_update_profile", { token, nickname, avatarUrl })),
-	/**  获取微信扫码登录二维码。 */
+	/**  获取微信扫码登录二维码�?*/
 	authLoginQrcode: () => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_login_qrcode")),
-	/**  获取侧栏小程序 / H5 公开二维码图片地址。 */
+	/**  获取侧栏小程�?/ H5 公开二维码图片地址�?*/
 	authPublicQrcodes: () => typedError<AuthPublicQrcodes, OmniError_Serialize>(__TAURI_INVOKE("auth_public_qrcodes")),
-	/**  刷新设备在线 presence（POST /api/presence）。 */
+	/**  刷新设备在线 presence（POST /api/presence）�?*/
 	authPresence: (token: string) => typedError<AuthPresenceResult, OmniError_Serialize>(__TAURI_INVOKE("auth_presence", { token })),
-	/**  登出当前会话（POST /api/logout），服务端会立刻清除 presence。 */
+	/**  登出当前会话（POST /api/logout），服务端会立刻清除 presence�?*/
 	authLogout: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_logout", { token })),
-	/**  通过后端代理 SSE，等待扫码登录成功。 */
+	/**  通过后端代理 SSE，等待扫码登录成功�?*/
 	authLoginWait: (loginId: string, expireInSec: number | null) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_wait", { loginId, expireInSec })),
-	/**  取消进行中的登录等待（刷新二维码 / 关闭面板时调用）。 */
+	/**  取消进行中的登录等待（刷新二维码 / 关闭面板时调用）�?*/
 	authLoginCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_cancel_wait", { loginId })),
-	/**  发送邮箱登录验证码（POST /api/login/email/send）。 */
+	/**  发送邮箱登录验证码（POST /api/login/email/send）�?*/
 	authLoginEmailSend: (email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email_send", { email })),
-	/**  邮箱验证码登录（POST /api/login/email）。 */
+	/**  邮箱验证码登录（POST /api/login/email）�?*/
 	authLoginEmail: (email: string, code: string) => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_email", { email, code })),
-	/**  GitHub OAuth 登录：系统浏览器授权，本机回环接收 `?token=`。 */
+	/**  GitHub OAuth 登录：系统浏览器授权，本机回环接�?`?token=`�?*/
 	authLoginGithub: () => typedError<AuthLoginSuccess, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github")),
-	/**  取消进行中的 GitHub 登录等待。 */
+	/**  取消进行中的 GitHub 登录等待�?*/
 	authLoginGithubCancel: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_login_github_cancel")),
-	/**  查询账号绑定状态（GET /api/account/links）。 */
+	/**  查询账号绑定状态（GET /api/account/links）�?*/
 	authAccountLinks: (token: string) => typedError<AuthAccountLinks, OmniError_Serialize>(__TAURI_INVOKE("auth_account_links", { token })),
-	/**  创建微信绑定二维码（POST /api/account/links/wechat/qrcode）。 */
+	/**  创建微信绑定二维码（POST /api/account/links/wechat/qrcode）�?*/
 	authLinkWechatQrcode: (token: string) => typedError<AuthLoginQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_qrcode", { token })),
-	/**  SSE 等待微信绑定成功（GET /api/account/links/wechat/wait）。 */
+	/**  SSE 等待微信绑定成功（GET /api/account/links/wechat/wait）�?*/
 	authLinkWechatWait: (token: string, loginId: string, expireInSec: number | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_wait", { token, loginId, expireInSec })),
-	/**  取消微信绑定等待。 */
+	/**  取消微信绑定等待�?*/
 	authLinkWechatCancelWait: (loginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_wechat_cancel_wait", { loginId })),
-	/**  发送邮箱绑定验证码。 */
+	/**  发送邮箱绑定验证码�?*/
 	authLinkEmailSend: (token: string, email: string) => typedError<AuthEmailCodeSent, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email_send", { token, email })),
-	/**  邮箱验证码绑定。 */
+	/**  邮箱验证码绑定�?*/
 	authLinkEmail: (token: string, email: string, code: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_link_email", { token, email, code })),
-	/**  GitHub OAuth 绑定：系统浏览器授权，轮询 `/api/account/links` 直到绑定成功。 */
+	/**  GitHub OAuth 绑定：系统浏览器授权，轮�?`/api/account/links` 直到绑定成功�?*/
 	authLinkGithub: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github", { token })),
-	/**  取消进行中的 GitHub 绑定等待。 */
+	/**  取消进行中的 GitHub 绑定等待�?*/
 	authLinkGithubCancel: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_link_github_cancel")),
-	/**  解绑微信（DELETE /api/account/links/wechat）。 */
+	/**  解绑微信（DELETE /api/account/links/wechat）�?*/
 	authUnlinkWechat: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_wechat", { token })),
-	/**  解绑 GitHub（DELETE /api/account/links/github）。 */
+	/**  解绑 GitHub（DELETE /api/account/links/github）�?*/
 	authUnlinkGithub: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_github", { token })),
-	/**  解绑邮箱（DELETE /api/account/links/email）。 */
+	/**  解绑邮箱（DELETE /api/account/links/email）�?*/
 	authUnlinkEmail: (token: string) => typedError<AuthUserProfile, OmniError_Serialize>(__TAURI_INVOKE("auth_unlink_email", { token })),
-	/**  申请绑定助手端二维码 payload（客户端本地画码，非微信小程序码）。 */
+	/**  申请绑定助手端二维码 payload（客户端本地画码，非微信小程序码）�?*/
 	authBindingsQrcode: (token: string) => typedError<AuthBindingsQrcode, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_qrcode", { token })),
-	/**  通过后端代理 SSE，等待小程序扫码确认绑定（事件 `bound`）。 */
+	/**  通过后端代理 SSE，等待小程序扫码确认绑定（事�?`bound`）�?*/
 	authBindingsWait: (token: string, bindId: string, expireInSec: number | null) => typedError<AuthBindingsBound, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_wait", { token, bindId, expireInSec })),
-	/**  取消进行中的绑定等待（刷新二维码 / 关闭弹窗时调用）。 */
+	/**  取消进行中的绑定等待（刷新二维码 / 关闭弹窗时调用）�?*/
 	authBindingsCancelWait: (bindId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_bindings_cancel_wait", { bindId })),
-	/**  当前用户加入的团队列表（GET /api/teams）。 */
+	/**  当前用户加入的团队列表（GET /api/teams）�?*/
 	teamList: (token: string) => typedError<TeamSummary[], OmniError_Serialize>(__TAURI_INVOKE("team_list", { token })),
-	/**  创建团队（POST /api/teams）。 */
+	/**  创建团队（POST /api/teams）�?*/
 	teamCreate: (token: string, name: string) => typedError<TeamCreated, OmniError_Serialize>(__TAURI_INVOKE("team_create", { token, name })),
-	/**  解散团队（DELETE /api/teams/{team_id}，仅 creator）。 */
+	/**  解散团队（DELETE /api/teams/{team_id}，仅 creator）�?*/
 	teamDissolve: (token: string, teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_dissolve", { token, teamId })),
-	/**  团队成员列表（GET /api/teams/{team_id}/members）。 */
+	/**  团队成员列表（GET /api/teams/{team_id}/members）�?*/
 	teamListMembers: (token: string, teamId: number) => typedError<TeamMember[], OmniError_Serialize>(__TAURI_INVOKE("team_list_members", { token, teamId })),
-	/**  添加团队成员（POST /api/teams/{team_id}/members，按邮箱匹配已注册用户）。 */
+	/**  添加团队成员（POST /api/teams/{team_id}/members，按邮箱匹配已注册用户）�?*/
 	teamAddMember: (token: string, teamId: number, email: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_add_member", { token, teamId, email, roleCode, userTeamName })),
-	/**  更新团队成员（PATCH /api/teams/{team_id}/members/{email}）。 */
+	/**  更新团队成员（PATCH /api/teams/{team_id}/members/{email}）�?*/
 	teamUpdateMember: (token: string, teamId: number, email: string, roleCode: string | null, userTeamName: string | null) => typedError<TeamMember, OmniError_Serialize>(__TAURI_INVOKE("team_update_member", { token, teamId, email, roleCode, userTeamName })),
-	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{email}）。 */
+	/**  移除团队成员（DELETE /api/teams/{team_id}/members/{email}）�?*/
 	teamRemoveMember: (token: string, teamId: number, email: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_remove_member", { token, teamId, email })),
 	/**
-	 *  生成一次性 6 位数字邀请码（POST /api/teams/{team_id}/invites，仅 creator/manager）。
-	 *  同一团队再次生成会使尚未使用的旧码失效；兑换成功后立即作废。
-	 */
+	 *  生成一次�?6 位数字邀请码（POST /api/teams/{team_id}/invites，仅 creator/manager）�?	 *  同一团队再次生成会使尚未使用的旧码失效；兑换成功后立即作废�?	 */
 	teamCreateInvite: (token: string, teamId: number) => typedError<TeamInvite, OmniError_Serialize>(__TAURI_INVOKE("team_create_invite", { token, teamId })),
-	/**  凭邀请码加入团队（POST /api/teams/join）。码被使用后立即失效。 */
+	/**  凭邀请码加入团队（POST /api/teams/join）。码被使用后立即失效�?*/
 	teamJoinByInvite: (token: string, code: string) => typedError<TeamSummary, OmniError_Serialize>(__TAURI_INVOKE("team_join_by_invite", { token, code })),
-	/**  向 omniserver 申请当前团队的 Headscale preauth key。 */
+	/**  �?omniserver 申请当前团队�?Headscale preauth key�?*/
 	teamMeshAuthKey: (token: string, teamId: number) => typedError<TeamMeshAuth, OmniError_Serialize>(__TAURI_INVOKE("team_mesh_auth_key", { token, teamId })),
 	meshStart: (teamId: number, authKey: string, controlServerUrl: string, hostname: string) => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_start", { teamId, authKey, controlServerUrl, hostname })),
 	meshStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("mesh_stop")),
 	meshStatus: () => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_status")),
-	/**  查询一批设备的 Tailscale 内网 IP（同团队 mesh；本机取 self_node，对端按 hostname 查）。 */
+	/**  查询一批设备的 Tailscale 内网 IP（同团队 mesh；本机取 self_node，对端按 hostname 查）�?*/
 	meshPeerIps: (teamId: number, deviceIds: string[]) => typedError<MeshPeerIp[], OmniError_Serialize>(__TAURI_INVOKE("mesh_peer_ips", { teamId, deviceIds })),
-	/**  向对端 hostname 请求封装后的团队同步密钥。 */
+	/**  向对�?hostname 请求封装后的团队同步密钥�?*/
 	meshRequestSyncKey: (teamId: number, peerHostname: string, ephemeralPubkey: string, requestId: string, requesterDeviceId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("mesh_request_sync_key", { teamId, peerHostname, ephemeralPubkey, requestId, requesterDeviceId })),
-	/**  将自定义面板分享给团队成员（写入团队 OSS + 更新索引 + 通知）。 */
+	/**  将自定义面板分享给团队成员（写入团队 OSS + 更新索引 + 通知）�?*/
 	teamSharePush: (request: TeamSharePushRequest) => typedError<TeamSharePushResult, OmniError_Serialize>(__TAURI_INVOKE("team_share_push", { request })),
-	/**  列出团队 OSS 中的自定义面板分享索引。 */
+	/**  列出团队 OSS 中的自定义面板分享索引�?*/
 	teamSyncListShares: (token: string, teamId: number) => typedError<TeamShareSummary[], OmniError_Serialize>(__TAURI_INVOKE("team_sync_list_shares", { token, teamId })),
-	/**  拉取团队 OSS 中指定分享的完整 JSON。 */
+	/**  拉取团队 OSS 中指定分享的完整 JSON�?*/
 	teamSyncFetchShare: (token: string, teamId: number, shareId: string) => typedError<TeamSyncFetchShareResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_fetch_share", { token, teamId, shareId })),
-	/**  推送本机模块快照到团队 OSS（`modules/latest.json`）。 */
+	/**  推送本机模块快照到团队 OSS（`modules/latest.json`）�?*/
 	teamSyncPushModules: (request: TeamSyncPushModulesRequest) => typedError<TeamSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_push_modules", { request })),
-	/**  从团队 OSS 拉取模块快照（`modules/latest.json`）。 */
+	/**  从团�?OSS 拉取模块快照（`modules/latest.json`）�?*/
 	teamSyncPullModules: (token: string, teamId: number) => typedError<TeamSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_pull_modules", { token, teamId })),
-	/**  预览本机模块数据与团队 OSS 快照的对比（树形结构 + 已同步标记）。 */
+	/**  预览本机模块数据与团�?OSS 快照的对比（树形结构 + 已同步标记）�?*/
 	teamSyncPeekModules: (request: TeamSyncPeekModulesRequest) => typedError<TeamSyncPeekResult_Serialize, OmniError_Serialize>(__TAURI_INVOKE("team_sync_peek_modules", { request })),
-	/**  从团队云端快照删除指定资源（仅改云端；本机与成员设备在下次同步拉取时移除对应数据）。 */
+	/**  从团队云端快照删除指定资源（仅改云端；本机与成员设备在下次同步拉取时移除对应数据）�?*/
 	teamSyncDeleteResources: (request: TeamSyncDeleteResourcesRequest) => typedError<TeamSyncDeleteResourcesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_delete_resources", { request })),
-	/**  启动团队分享收件箱：SSE 等待 `team.share.created`，新分享经 App Event 推送前端。 */
+	/**  启动团队分享收件箱：SSE 等待 `team.share.created`，新分享�?App Event 推送前端�?*/
 	teamShareInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_share_inbox_start", { token })),
-	/**  停止团队分享收件箱 SSE 循环。 */
+	/**  停止团队分享收件�?SSE 循环�?*/
 	teamShareInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_share_inbox_stop")),
-	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
+	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）�?*/
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
-	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */
+	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）�?*/
 	assistantUploadOssText: (request: AssistantUploadTextRequest) => typedError<AssistantUploadTextResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_upload_oss_text", { request })),
-	/**  读取最近一条聊天索引（无则 `null`）。 */
+	/**  读取最近一条聊天索引（无则 `null`）�?*/
 	assistantChatLatest: (token: string) => typedError<{
 	userId: string,
 	objectKey: string,
 	ossPath: string,
 	messageId: string,
-	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）。 */
+	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）�?*/
 	sessionId: string,
 	createdAt: string,
 	publishedAt: string,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_latest", { token })),
-	/**  按 object key 拉取 OSS 正文并解析为可展示文本。 */
+	/**  �?object key 拉取 OSS 正文并解析为可展示文本�?*/
 	assistantChatFetchObject: (token: string, objectKey: string) => typedError<AssistantChatInboundEvent_Serialize, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_fetch_object", { token, objectKey })),
-	/**  启动收件箱：先拉 latest，再挂 SSE `/api/assistant/chat/wait`；新消息经 App Event 推送。 */
+	/**  启动收件箱：先拉 latest，再�?SSE `/api/assistant/chat/wait`；新消息�?App Event 推送�?*/
 	assistantChatInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_start", { token })),
-	/**  停止收件箱 SSE 循环。 */
+	/**  停止收件�?SSE 循环�?*/
 	assistantChatInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_chat_inbox_stop")),
 	assistantTerminalCmdReply: (req: AssistantTerminalCmdReplyRequest) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("assistant_terminal_cmd_reply", { req })),
-	/**  推送本机 AI 会话快照到选定团队 OSS（`ai-conversations/latest.json`）。 */
+	/**  推送本�?AI 会话快照到选定团队 OSS（`ai-conversations/latest.json`）�?*/
 	clientSyncPushConversations: (request: ClientSyncPushConversationsRequest) => typedError<ClientSyncPushConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_conversations", { request })),
-	/**  从选定团队 OSS 拉取 AI 会话快照。 */
+	/**  从选定团队 OSS 拉取 AI 会话快照�?*/
 	clientSyncPullConversations: (request: ClientSyncPullConversationsRequest) => typedError<ClientSyncPullConversationsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_conversations", { request })),
-	/**  推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）。 */
+	/**  推送本机模块快照到默认个人团队 OSS（`modules/latest.json`）�?*/
 	clientSyncPushModules: (request: ClientSyncPushModulesRequest) => typedError<ClientSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_push_modules", { request })),
-	/**  从默认个人团队 OSS 拉取模块快照并应用到本机。 */
+	/**  从默认个人团�?OSS 拉取模块快照并应用到本机�?*/
 	clientSyncPullModules: (request: ClientSyncPullModulesRequest) => typedError<ClientSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_pull_modules", { request })),
 	/**
-	 *  将本机资源上的旧设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。
-	 * 
-	 *  工作区标签存于前端 localStorage，由前端迁移编排器一并处理。
-	 */
+	 *  将本机资源上的旧设备名标签迁移为 `creator:` 标签（幂等，可重复执行）�?	 * 
+	 *  工作区标签存于前�?localStorage，由前端迁移编排器一并处理�?	 */
 	clientSyncMigrateDeviceTags: (request: ClientSyncMigrateDeviceTagsRequest) => typedError<ClientSyncMigrateDeviceTagsResult, OmniError_Serialize>(__TAURI_INVOKE("client_sync_migrate_device_tags", { request })),
-	/**  切换本机业务数据目录到指定团队（`local` 或数字 id）。 */
+	/**  切换本机业务数据目录到指定团队（`local` 或数�?id）�?*/
 	storageSwitchTeam: (teamScope: string) => typedError<StorageSwitchTeamResult, OmniError_Serialize>(__TAURI_INVOKE("storage_switch_team", { teamScope })),
 	mcpListServices: () => typedError<McpServiceView[], string>(__TAURI_INVOKE("mcp_list_services")),
 	mcpUpsertService: (input: UpsertMcpServiceInput) => typedError<McpServiceView, string>(__TAURI_INVOKE("mcp_upsert_service", { input })),
@@ -1354,9 +1269,7 @@ export const commands = {
 	skillSetEnabled: (id: string, enabled: boolean) => typedError<SkillRecord, string>(__TAURI_INVOKE("skill_set_enabled", { id, enabled })),
 	skillImport: (sourcePath: string) => typedError<SkillRecord, string>(__TAURI_INVOKE("skill_import", { sourcePath })),
 	/**
-	 *  获取 skill 的 DB 元数据（版本、统计、parent_version_id 等）。
-	 *  如果文件层 skill 存在但 DB 记录缺失，会先懒同步创建 v1 记录。
-	 */
+	 *  获取 skill �?DB 元数据（版本、统计、parent_version_id 等）�?	 *  如果文件�?skill 存在�?DB 记录缺失，会先懒同步创建 v1 记录�?	 */
 	skillGetDb: (id: string) => typedError<{
 	id: string,
 	name: string,
@@ -1375,34 +1288,30 @@ export const commands = {
 	updatedAt: number | null,
 } | null, string>(__TAURI_INVOKE("skill_get_db", { id })),
 	/**
-	 *  列出所有 skill 的 DB 元数据（含统计）。
-	 *  如果文件层 skill 存在但 DB 记录缺失，会先懒同步创建 v1 记录。
-	 */
+	 *  列出所�?skill �?DB 元数据（含统计）�?	 *  如果文件�?skill 存在�?DB 记录缺失，会先懒同步创建 v1 记录�?	 */
 	skillListDb: () => typedError<SkillDbRecord[], string>(__TAURI_INVOKE("skill_list_db")),
-	/**  获取 skill 的版本链（从当前 id 向前追溯 parent_version_id，最多 50 层）。 */
+	/**  获取 skill 的版本链（从当前 id 向前追溯 parent_version_id，最�?50 层）�?*/
 	skillGetVersionChain: (id: string) => typedError<SkillVersionChainEntry[], string>(__TAURI_INVOKE("skill_get_version_chain", { id })),
-	/**  列出 skill 的应用历史（按时间倒序，可限制条数，默认 20）。 */
+	/**  列出 skill 的应用历史（按时间倒序，可限制条数，默�?20）�?*/
 	skillListApplications: (id: string, limit: number | null) => typedError<SkillApplication[], string>(__TAURI_INVOKE("skill_list_applications", { id, limit })),
 	/**
-	 *  更新 skill 应用记录的 outcome（success/failure/partial）+ feedback。
-	 *  供 UI 在用户标记应用结果后调用；调用后会自动重算对应 skill 的统计字段。
-	 */
+	 *  更新 skill 应用记录�?outcome（success/failure/partial�? feedback�?	 *  �?UI 在用户标记应用结果后调用；调用后会自动重算对�?skill 的统计字段�?	 */
 	skillUpdateApplicationOutcome: (applicationId: string, outcome: string, feedback: string | null) => typedError<null, string>(__TAURI_INVOKE("skill_update_application_outcome", { applicationId, outcome, feedback })),
-	/**  将单个 skill 分块向量化写入 skill_chunks。 */
+	/**  将单�?skill 分块向量化写�?skill_chunks�?*/
 	skillVectorize: (args: SkillVectorizeArgs) => typedError<SkillVectorizeResult, string>(__TAURI_INVOKE("skill_vectorize", { args })),
-	/**  查询 skill 向量化状态。 */
+	/**  查询 skill 向量化状态�?*/
 	skillVectorStatus: (skillId: string) => typedError<{
 	skillId: string,
 	chunkCount: number | null,
 	embeddedAt: number | null,
 } | null, string>(__TAURI_INVOKE("skill_vector_status", { skillId })),
-	/**  对全部已启用 skill 批量向量化（设置页「重建索引」）。 */
+	/**  对全部已启用 skill 批量向量化（设置页「重建索引」）�?*/
 	skillVectorizeAll: (provider: EmbeddingProviderConfig) => typedError<SkillVectorizeResult[], string>(__TAURI_INVOKE("skill_vectorize_all", { provider })),
-	/**  列出全部可配置提示词。 */
+	/**  列出全部可配置提示词�?*/
 	agentPromptList: () => typedError<AgentPromptEntry[], string>(__TAURI_INVOKE("agent_prompt_list")),
-	/**  保存提示词正文。 */
+	/**  保存提示词正文�?*/
 	agentPromptSave: (id: string, content: string) => typedError<AgentPromptEntry, string>(__TAURI_INVOKE("agent_prompt_save", { id, content })),
-	/**  恢复内置默认提示词。 */
+	/**  恢复内置默认提示词�?*/
 	agentPromptReset: (id: string) => typedError<AgentPromptEntry, string>(__TAURI_INVOKE("agent_prompt_reset", { id })),
 	providerRegistryLoad: () => typedError<ProvidersFile, string>(__TAURI_INVOKE("provider_registry_load")),
 	providerRegistrySave: (file: ProvidersFile) => typedError<null, string>(__TAURI_INVOKE("provider_registry_save", { file })),
@@ -1425,18 +1334,16 @@ export const commands = {
 	aiListBackends: () => typedError<BackendInfo[], string>(__TAURI_INVOKE("ai_list_backends")),
 	aiListSessions: (source: string | null) => typedError<AiSessionRecord[], string>(__TAURI_INVOKE("ai_list_sessions", { source })),
 	aiListSessionTraces: (sessionId: string) => typedError<AiTraceRecord[], string>(__TAURI_INVOKE("ai_list_session_traces", { sessionId })),
-	/**  读取最近的内置工具审计记录（任务中心 History tab 使用）。 */
+	/**  读取最近的内置工具审计记录（任务中�?History tab 使用）�?*/
 	builtinToolAuditList: (limit: number | null) => typedError<BuiltinToolAuditRecord[], string>(__TAURI_INVOKE("builtin_tool_audit_list", { limit })),
-	/**  读取最近的全局审计日志（任务中心 History tab 使用）。 */
+	/**  读取最近的全局审计日志（任务中�?History tab 使用）�?*/
 	auditLogRecent: (limit: number | null) => typedError<AuditEntry[], string>(__TAURI_INVOKE("audit_log_recent", { limit })),
-	/**  追加一条全局审计日志（AI 工具审批通过后写入）。 */
+	/**  追加一条全局审计日志（AI 工具审批通过后写入）�?*/
 	auditLogAppend: (entry: AuditEntry) => typedError<null, string>(__TAURI_INVOKE("audit_log_append", { entry })),
 	/**
-	 *  应用前端 Agent Router（Gateway）配置：停旧实例并按开关/端口/Key/LAN 重启。
-	 *  前端在启动时与设置变更时调用；开发构建会将正式版默认端口错开到 :8766。
-	 */
+	 *  应用前端 Agent Router（Gateway）配置：停旧实例并按开�?端口/Key/LAN 重启�?	 *  前端在启动时与设置变更时调用；开发构建会将正式版默认端口错开�?:8766�?	 */
 	aiGatewayConfigure: (enabled: boolean, port: number, apiKey: string | null, bindLan: boolean, mcpExternalRequireApproval: boolean) => typedError<null, string>(__TAURI_INVOKE("ai_gateway_configure", { enabled, port, apiKey, bindLan, mcpExternalRequireApproval })),
-	/**  由 Rust 后端探测 Agent Router / OmniMCP 是否可达，避免 WebView 直连 localhost 触发 CORS。 */
+	/**  �?Rust 后端探测 Agent Router / OmniMCP 是否可达，避�?WebView 直连 localhost 触发 CORS�?*/
 	aiServicesProbe: (enabled: boolean, port: number) => typedError<AiServicesHealth, string>(__TAURI_INVOKE("ai_services_probe", { enabled, port })),
 	thirdPartyAccountList: () => typedError<ThirdPartyAccount[], string>(__TAURI_INVOKE("third_party_account_list")),
 	thirdPartyAccountUpsert: (input: UpsertThirdPartyAccountInput) => typedError<ThirdPartyAccount, string>(__TAURI_INVOKE("third_party_account_upsert", { input })),
@@ -1444,7 +1351,7 @@ export const commands = {
 };
 
 /* Types */
-/**  Agent 启动时读取的 LLM 配置（由 OmniPanel 写入 app_data_dir/acp-agent-config.json）。 */
+/**  Agent 启动时读取的 LLM 配置（由 OmniPanel 写入 app_data_dir/acp-agent-config.json）�?*/
 export type AcpAgentConfigInput = {
 	model: string,
 	apiKey: string,
@@ -1465,15 +1372,15 @@ export type AcpStatus = {
 
 export type AcpStreamEvent = { type: "content_delta"; text: string } | { type: "reasoning_delta"; text: string } | { type: "tool_call"; id: string; name: string; arguments: string } | { type: "tool_call_update"; id: string; status: string; result: string | null } | { type: "permission_request"; requestId: number | null; tool_call_id: string; title: string; raw_input: string; options: AcpPermissionOption[] } | { type: "done"; stop_reason: string } | { type: "error"; message: string };
 
-/**  前端发起的动作请求。 */
+/**  前端发起的动作请求�?*/
 export type ActionRequest = {
 	id: string,
-	/**  动作类型（terminal/docker/server/ssh/sql 等），决定分发到哪个 executor。 */
+	/**  动作类型（terminal/docker/server/ssh/sql 等），决定分发到哪个 executor�?*/
 	kind: string,
 	command?: string | null,
 	resourceId?: string | null,
 	envTag?: string | null,
-	/**  工作目录（本地 shell 类执行可用）。 */
+	/**  工作目录（本�?shell 类执行可用）�?*/
 	cwd?: string | null,
 };
 
@@ -1487,9 +1394,9 @@ export type AgentInstallStatus = {
 
 export type AgentKind = "omniagent" | "cursor" | "opencode" | "qwen";
 
-/**  提示词条目（设置页编辑）。 */
+/**  提示词条目（设置页编辑）�?*/
 export type AgentPromptEntry = {
-	/**  Agent id，如 `plan` / `terminal`；协议层为 `system-prompt.md` */
+	/**  Agent id，如 `plan` / `terminal`；协议层�?`system-prompt.md` */
 	id: string,
 	content: string,
 	/**  用户目录绝对路径 */
@@ -1497,21 +1404,19 @@ export type AgentPromptEntry = {
 };
 
 /**
- *  AI 提供商配置。前端 camelCase 字段名（providerName / baseUrl / ...），
- *  通过 `#[serde(rename_all = "camelCase")]` 与之对齐。
- */
+ *  AI 提供商配置。前�?camelCase 字段名（providerName / baseUrl / ...），
+ *  通过 `#[serde(rename_all = "camelCase")]` 与之对齐�? */
 export type AiModelProvider = AiModelProvider_Serialize | AiModelProvider_Deserialize;
 
 /**
- *  AI 提供商配置。前端 camelCase 字段名（providerName / baseUrl / ...），
- *  通过 `#[serde(rename_all = "camelCase")]` 与之对齐。
- */
+ *  AI 提供商配置。前�?camelCase 字段名（providerName / baseUrl / ...），
+ *  通过 `#[serde(rename_all = "camelCase")]` 与之对齐�? */
 export type AiModelProvider_Deserialize = {
 	id: string,
 	providerName: string,
 	apiStandard: string,
 	baseUrl: string,
-	/**  明文仅提交时存在；load 返回空，用 `has_api_key` 表示钥匙串是否有密钥。 */
+	/**  明文仅提交时存在；load 返回空，�?`has_api_key` 表示钥匙串是否有密钥�?*/
 	apiKey?: string,
 	hasApiKey?: boolean,
 	modelNames: string[],
@@ -1519,21 +1424,20 @@ export type AiModelProvider_Deserialize = {
 	excludedModelNames?: string[],
 	disabledModelNames?: string[],
 	apiModelMeta?: { [key in string]: ApiModelMeta_Deserialize },
-	/**  请求时是否自动补 `/v1`（已以 /v1 结尾则不会重复）。缺省 true 以兼容旧配置。 */
+	/**  请求时是否自动补 `/v1`（已�?/v1 结尾则不会重复）。缺�?true 以兼容旧配置�?*/
 	appendV1?: boolean,
 	createdAt: number | null,
 };
 
 /**
- *  AI 提供商配置。前端 camelCase 字段名（providerName / baseUrl / ...），
- *  通过 `#[serde(rename_all = "camelCase")]` 与之对齐。
- */
+ *  AI 提供商配置。前�?camelCase 字段名（providerName / baseUrl / ...），
+ *  通过 `#[serde(rename_all = "camelCase")]` 与之对齐�? */
 export type AiModelProvider_Serialize = {
 	id: string,
 	providerName: string,
 	apiStandard: string,
 	baseUrl: string,
-	/**  明文仅提交时存在；load 返回空，用 `has_api_key` 表示钥匙串是否有密钥。 */
+	/**  明文仅提交时存在；load 返回空，�?`has_api_key` 表示钥匙串是否有密钥�?*/
 	apiKey: string,
 	hasApiKey: boolean,
 	modelNames: string[],
@@ -1541,21 +1445,21 @@ export type AiModelProvider_Serialize = {
 	excludedModelNames: string[],
 	disabledModelNames: string[],
 	apiModelMeta: { [key in string]: ApiModelMeta_Serialize },
-	/**  请求时是否自动补 `/v1`（已以 /v1 结尾则不会重复）。缺省 true 以兼容旧配置。 */
+	/**  请求时是否自动补 `/v1`（已�?/v1 结尾则不会重复）。缺�?true 以兼容旧配置�?*/
 	appendV1: boolean,
 	createdAt: number | null,
 };
 
-/**  持久化文件结构。版本号用于前端迁移。 */
+/**  持久化文件结构。版本号用于前端迁移�?*/
 export type AiModelsFile = AiModelsFile_Serialize | AiModelsFile_Deserialize;
 
-/**  持久化文件结构。版本号用于前端迁移。 */
+/**  持久化文件结构。版本号用于前端迁移�?*/
 export type AiModelsFile_Deserialize = {
 	version?: number,
 	providers?: AiModelProvider_Deserialize[],
 };
 
-/**  持久化文件结构。版本号用于前端迁移。 */
+/**  持久化文件结构。版本号用于前端迁移�?*/
 export type AiModelsFile_Serialize = {
 	version: number,
 	providers: AiModelProvider_Serialize[],
@@ -1587,42 +1491,42 @@ export type AiTraceRecord = {
 	ts: number | null,
 };
 
-/**  接口 /models 返回的单条模型元数据。 */
+/**  接口 /models 返回的单条模型元数据�?*/
 export type ApiModelMeta = ApiModelMeta_Serialize | ApiModelMeta_Deserialize;
 
-/**  接口 /models 返回的单条模型元数据。 */
+/**  接口 /models 返回的单条模型元数据�?*/
 export type ApiModelMeta_Deserialize = {
-	/**  Unix 秒级时间戳；Specta 导出为 number。 */
+	/**  Unix 秒级时间戳；Specta 导出�?number�?*/
 	created?: number | null,
 	ownedBy?: string | null,
 };
 
-/**  接口 /models 返回的单条模型元数据。 */
+/**  接口 /models 返回的单条模型元数据�?*/
 export type ApiModelMeta_Serialize = {
-	/**  Unix 秒级时间戳；Specta 导出为 number。 */
+	/**  Unix 秒级时间戳；Specta 导出�?number�?*/
 	created?: number | null,
 	ownedBy?: string | null,
 };
 
-/**  持久化的模块配置条目。 */
+/**  持久化的模块配置条目�?*/
 export type AppModule = {
 	module_key: string,
 	status: AppModuleStatus,
 	sort_order: number,
 };
 
-/**  模块运行状态。 */
+/**  模块运行状态�?*/
 export type AppModuleStatus = "open" | "closed" | "disabled";
 
-/**  单个压缩包条目 */
+/**  单个压缩包条�?*/
 export type ArchiveEntry = {
-	/**  条目相对路径（含目录层级） */
+	/**  条目相对路径（含目录层级�?*/
 	name: string,
-	/**  解压后字节数（无法解析时为 0） */
+	/**  解压后字节数（无法解析时�?0�?*/
 	size: number | null,
-	/**  修改时间 Unix 秒（无法解析时为 null） */
+	/**  修改时间 Unix 秒（无法解析时为 null�?*/
 	modified: number | null,
-	/**  是否为目录 */
+	/**  是否为目�?*/
 	isDir: boolean,
 };
 
@@ -1633,7 +1537,7 @@ export type ArchiveListResult = {
 	format: string,
 	/**  解压后总字节数 */
 	totalUncompressed: number | null,
-	/**  远端工具缺失时返回提示（如 "unzip"），前端可调 ssh_pool_install_archive_tool */
+	/**  远端工具缺失时返回提示（�?"unzip"），前端可调 ssh_pool_install_archive_tool */
 	toolMissing: string | null,
 };
 
@@ -1642,7 +1546,7 @@ export type ArchiveToolInstallResult = {
 	/**  工具二进制名：unzip / 7z / unrar / zstd / tar */
 	tool: string,
 	installed: boolean,
-	/**  安装输出（成功或失败原因） */
+	/**  安装输出（成功或失败原因�?*/
 	message: string,
 };
 
@@ -1656,51 +1560,51 @@ export type AssistantAiModelSnapshotItem = {
 	enabled: boolean,
 };
 
-/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` �?payload�?*/
 export type AssistantChatAskUserAnswer = {
 	formId: string,
 	toolCallId: string,
 	/**  `answered` | `skipped` */
 	status: string,
-	/**  answers 对象的 JSON 字符串 */
+	/**  answers 对象�?JSON 字符�?*/
 	answersJson: string,
 };
 
-/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` �?payload�?*/
 export type AssistantChatContextItem = {
 	kind: string,
 	id: string,
 	label: string,
 };
 
-/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` �?payload�?*/
 export type AssistantChatInboundEvent = AssistantChatInboundEvent_Serialize | AssistantChatInboundEvent_Deserialize;
 
-/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` �?payload�?*/
 export type AssistantChatInboundEvent_Deserialize = {
 	messageId: string,
 	objectKey: string,
 	createdAt: string,
 	text: string,
-	/**  助手端当前选中的会话 id；空则回退客户端当前 Dock 会话。 */
+	/**  助手端当前选中的会�?id；空则回退客户端当�?Dock 会话�?*/
 	sessionId?: string,
-	/**  助手端选中的询问对象（注入 Composer 上下文）。 */
+	/**  助手端选中的询问对象（注入 Composer 上下文）�?*/
 	contexts?: AssistantChatContextItem[],
-	/**  澄清表单答案（快通道）；有值时即使 text 为空也推送。 */
+	/**  澄清表单答案（快通道）；有值时即使 text 为空也推送�?*/
 	askUser?: AssistantChatAskUserAnswer | null,
 };
 
-/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` 的 payload。 */
+/**  前端 `listen(ASSISTANT_CHAT_INBOUND)` �?payload�?*/
 export type AssistantChatInboundEvent_Serialize = {
 	messageId: string,
 	objectKey: string,
 	createdAt: string,
 	text: string,
-	/**  助手端当前选中的会话 id；空则回退客户端当前 Dock 会话。 */
+	/**  助手端当前选中的会�?id；空则回退客户端当�?Dock 会话�?*/
 	sessionId: string,
-	/**  助手端选中的询问对象（注入 Composer 上下文）。 */
+	/**  助手端选中的询问对象（注入 Composer 上下文）�?*/
 	contexts: AssistantChatContextItem[],
-	/**  澄清表单答案（快通道）；有值时即使 text 为空也推送。 */
+	/**  澄清表单答案（快通道）；有值时即使 text 为空也推送�?*/
 	askUser?: AssistantChatAskUserAnswer | null,
 };
 
@@ -1725,19 +1629,19 @@ export type AssistantPushRequest = {
 	dryRun?: boolean,
 	bindId?: string | null,
 	teamId?: number | null,
-	/**  前端注入的 AI 会话列表元数据（不含消息正文）。 */
+	/**  前端注入�?AI 会话列表元数据（不含消息正文）�?*/
 	conversations?: AssistantConversationSnapshotItem[],
-	/**  前端注入的终端会话列表（与 AI 会话分离）。 */
+	/**  前端注入的终端会话列表（�?AI 会话分离）�?*/
 	terminalSessions?: AssistantTerminalSessionSnapshotItem[],
-	/**  前端注入的 AI 模型目录（不含 API Key）。 */
+	/**  前端注入�?AI 模型目录（不�?API Key）�?*/
 	aiModels?: AssistantAiModelSnapshotItem[],
 };
 
-/**  前端打开终端后回传同步结果。 */
+/**  前端打开终端后回传同步结果�?*/
 export type AssistantTerminalCmdReplyRequest = {
 	requestId: string,
 	ok: boolean,
-	/**  任意 JSON 结果；以字符串传输规避 specta 对 JsonValue 的递归内联展开。 */
+	/**  任意 JSON 结果；以字符串传输规�?specta �?JsonValue 的递归内联展开�?*/
 	resultJson?: string | null,
 	error?: string | null,
 };
@@ -1752,7 +1656,7 @@ export type AssistantTerminalSessionSnapshotItem = {
 	cwd?: string,
 	/**  active | suspended | ended */
 	lifecycle?: string,
-	/**  connected | connecting | disconnected | error 等 */
+	/**  connected | connecting | disconnected | error �?*/
 	status?: string,
 	createdAt: number | null,
 	updatedAt: number | null,
@@ -1760,7 +1664,7 @@ export type AssistantTerminalSessionSnapshotItem = {
 
 export type AssistantUploadTextRequest = {
 	token: string,
-	/**  OSS object key，如 `omniminiapp/agent_chat_message/.../0.txt`（会去掉桶名前缀）。 */
+	/**  OSS object key，如 `omniminiapp/agent_chat_message/.../0.txt`（会去掉桶名前缀）�?*/
 	objectKey: string,
 	contents: string,
 };
@@ -1771,25 +1675,25 @@ export type AssistantUploadTextResult = {
 	bytes: number | null,
 };
 
-/**  审计日志条目。所有高风险操作经执行引擎写入此表。 */
+/**  审计日志条目。所有高风险操作经执行引擎写入此表�?*/
 export type AuditEntry = {
-	/**  Unix 毫秒时间戳 */
+	/**  Unix 毫秒时间�?*/
 	ts: number | null,
-	/**  动作类型（如 terminal.exec / ssh.connect / db.query） */
+	/**  动作类型（如 terminal.exec / ssh.connect / db.query�?*/
 	action: string,
-	/**  操作目标（连接 id、命令摘要等） */
+	/**  操作目标（连�?id、命令摘要等�?*/
 	target: string,
 	/**  环境标签 dev/test/staging/prod */
 	env_tag: string,
 	/**  风险等级 low/medium/high/critical */
 	risk: string,
-	/**  结果状态 success/failed/blocked 等 */
+	/**  结果状�?success/failed/blocked �?*/
 	status: string,
 	/**  附加明细 */
 	detail: string,
 };
 
-/**  单项账号绑定状态。 */
+/**  单项账号绑定状态�?*/
 export type AuthAccountLinkStatus = {
 	bound: boolean,
 	openid?: string,
@@ -1797,7 +1701,7 @@ export type AuthAccountLinkStatus = {
 	email?: string,
 };
 
-/**  账号绑定状态汇总（GET /api/account/links）。 */
+/**  账号绑定状态汇总（GET /api/account/links）�?*/
 export type AuthAccountLinks = {
 	wechat: AuthAccountLinkStatus,
 	github: AuthAccountLinkStatus,
@@ -1808,7 +1712,7 @@ export type AuthBindingsBound = {
 	bindId: string,
 };
 
-/**  绑定助手端：本地画码用的 payload（非微信小程序码）。 */
+/**  绑定助手端：本地画码用的 payload（非微信小程序码）�?*/
 export type AuthBindingsQrcode = {
 	bindId: string,
 	qrPayload: string,
@@ -1822,7 +1726,7 @@ export type AuthDevice = {
 	osType: string,
 	ip: string,
 	lastLoginAt: string,
-	/**  最近登出时间（未登出可为空）。 */
+	/**  最近登出时间（未登出可为空）�?*/
 	lastLogoutAt: string,
 	userAgent: string,
 	createdAt: string,
@@ -1830,24 +1734,24 @@ export type AuthDevice = {
 	/**  `client` | `assistant` */
 	role: string,
 	appId: string,
-	/**  平台标识（服务端 `platform`）。 */
+	/**  平台标识（服务端 `platform`）�?*/
 	platform: string,
-	/**  会话落库状态：`logged_in` | `logged_out`。 */
+	/**  会话落库状态：`logged_in` | `logged_out`�?*/
 	loginStatus: string,
-	/**  Redis presence TTL 判定的实时在线状态。 */
+	/**  Redis presence TTL 判定的实时在线状态�?*/
 	online: boolean,
-	/**  是否已完成同步密钥认证（服务端 `sync_trusted`）。 */
+	/**  是否已完成同步密钥认证（服务�?`sync_trusted`）�?*/
 	syncTrusted?: boolean,
 };
 
-/**  本机设备身份（登录上报与「本机」标记共用）。 */
+/**  本机设备身份（登录上报与「本机」标记共用）�?*/
 export type AuthDeviceIdentity = {
 	deviceId: string,
 	deviceName: string,
 	osType: string,
 };
 
-/**  邮箱验证码发送结果（开发模式可能直接返回 `code`）。 */
+/**  邮箱验证码发送结果（开发模式可能直接返�?`code`）�?*/
 export type AuthEmailCodeSent = {
 	email: string,
 	code: string,
@@ -1868,25 +1772,25 @@ export type AuthLoginSuccess = {
 	openid: string,
 };
 
-/**  设备在线心跳结果（POST /api/presence）。 */
+/**  设备在线心跳结果（POST /api/presence）�?*/
 export type AuthPresenceResult = {
 	ok: boolean,
 	ttlSec: number | null,
 };
 
-/**  侧栏公开二维码地址（GET /api/public/qrcodes）。 */
+/**  侧栏公开二维码地址（GET /api/public/qrcodes）�?*/
 export type AuthPublicQrcodes = {
 	miniappUrl: string,
 	h5Url: string,
 	feedbackGroupUrl: string,
 };
 
-/**  `/api/me` 返回的团队成员身份（含默认个人团队 `kind=personal`）。 */
+/**  `/api/me` 返回的团队成员身份（含默认个人团�?`kind=personal`）�?*/
 export type AuthTeamMembership = {
 	id: number | null,
 	name: string,
 	creator: string,
-	/**  `personal`：登录后默认个人团队；`custom`：用户创建的协作团队。 */
+	/**  `personal`：登录后默认个人团队；`custom`：用户创建的协作团队�?*/
 	kind: string,
 	teamOssKey: string,
 	createdAt: string,
@@ -1895,19 +1799,19 @@ export type AuthTeamMembership = {
 	userTeamName: string,
 };
 
-/**  当前用户资料（GET/PATCH /api/me）。 */
+/**  当前用户资料（GET/PATCH /api/me）�?*/
 export type AuthUserProfile = {
 	id: number | null,
 	openid: string,
 	nickname: string,
-	/**  对应接口字段 `avatar_url`。 */
+	/**  对应接口字段 `avatar_url`�?*/
 	avatarUrl: string,
 	email: string,
-	/**  对应接口字段 `github_id`。 */
+	/**  对应接口字段 `github_id`�?*/
 	githubId: string,
-	/**  对应接口字段 `oss_path`；非空时 AI 流式回复经 STS 上传到该 OSS 前缀。 */
+	/**  对应接口字段 `oss_path`；非空时 AI 流式回复�?STS 上传到该 OSS 前缀�?*/
 	ossPath?: string,
-	/**  当前用户所属团队；快照同步写入 `kind=personal` 的默认团队。 */
+	/**  当前用户所属团队；快照同步写入 `kind=personal` 的默认团队�?*/
 	teams?: AuthTeamMembership[],
 };
 
@@ -1929,9 +1833,9 @@ export type BackgroundTaskInfo_Deserialize = {
 	status: BackgroundTaskStatus,
 	index: number,
 	total: number,
-	/**  当前阶段已完成行数（数据对比时更新）。 */
+	/**  当前阶段已完成行数（数据对比时更新）�?*/
 	rowCompleted?: number | null,
-	/**  当前阶段总行数（数据对比时更新）。 */
+	/**  当前阶段总行数（数据对比时更新）�?*/
 	rowTotal?: number | null,
 	startedAt: number | null,
 	finishedAt: number | null,
@@ -1947,9 +1851,9 @@ export type BackgroundTaskInfo_Serialize = {
 	status: BackgroundTaskStatus,
 	index: number,
 	total: number,
-	/**  当前阶段已完成行数（数据对比时更新）。 */
+	/**  当前阶段已完成行数（数据对比时更新）�?*/
 	rowCompleted?: number | null,
-	/**  当前阶段总行数（数据对比时更新）。 */
+	/**  当前阶段总行数（数据对比时更新）�?*/
 	rowTotal?: number | null,
 	startedAt: number | null,
 	finishedAt?: number | null,
@@ -1958,10 +1862,10 @@ export type BackgroundTaskInfo_Serialize = {
 
 export type BackgroundTaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
-/**  被动后台任务终态历史（与 WorkerPool `BackgroundTaskInfo` 字段对齐）。 */
+/**  被动后台任务终态历史（�?WorkerPool `BackgroundTaskInfo` 字段对齐）�?*/
 export type BgTaskHistoryRecord = BgTaskHistoryRecord_Serialize | BgTaskHistoryRecord_Deserialize;
 
-/**  被动后台任务终态历史（与 WorkerPool `BackgroundTaskInfo` 字段对齐）。 */
+/**  被动后台任务终态历史（�?WorkerPool `BackgroundTaskInfo` 字段对齐）�?*/
 export type BgTaskHistoryRecord_Deserialize = {
 	id: string,
 	module: string,
@@ -1979,7 +1883,7 @@ export type BgTaskHistoryRecord_Deserialize = {
 	error: string | null,
 };
 
-/**  被动后台任务终态历史（与 WorkerPool `BackgroundTaskInfo` 字段对齐）。 */
+/**  被动后台任务终态历史（�?WorkerPool `BackgroundTaskInfo` 字段对齐）�?*/
 export type BgTaskHistoryRecord_Serialize = {
 	id: string,
 	module: string,
@@ -1997,7 +1901,7 @@ export type BgTaskHistoryRecord_Serialize = {
 	error?: string | null,
 };
 
-/**  内置工具审计记录（对应 builtin_tool_audit 表） */
+/**  内置工具审计记录（对�?builtin_tool_audit 表） */
 export type BuiltinToolAuditRecord = {
 	id: number | null,
 	source: string,
@@ -2008,39 +1912,39 @@ export type BuiltinToolAuditRecord = {
 	ts: number | null,
 };
 
-/**  从前端目录同步时的输入（不覆盖用户已设置的 enabled）。 */
+/**  从前端目录同步时的输入（不覆盖用户已设置�?enabled）�?*/
 export type BuiltinToolCatalogEntry = {
 	tool_name: string,
 	module_key: string,
 	description: string,
 };
 
-/**  持久化的内置工具条目。 */
+/**  持久化的内置工具条目�?*/
 export type BuiltinToolRecord = {
 	tool_name: string,
 	module_key: string,
 	description: string,
 	/**  内部编排 ToolRegistry 是否加载 */
 	internal_enabled: boolean,
-	/**  是否经 OmniMCP 对外暴露 */
+	/**  是否�?OmniMCP 对外暴露 */
 	external_exposed: boolean,
-	/**  工具参数 JSON Schema（后端 spec 为准，供前端渲染/校验与模型注入） */
+	/**  工具参数 JSON Schema（后�?spec 为准，供前端渲染/校验与模型注入） */
 	input_schema: string,
 };
 
-/**  一次探测的完整结果。 */
+/**  一次探测的完整结果�?*/
 export type CapabilityProbeResult = {
 	resourceId: string,
 	tools: RemoteToolCapability[],
-	/**  探测耗时（毫秒）。 */
+	/**  探测耗时（毫秒）�?*/
 	elapsedMs: number,
-	/**  探测时间戳（Unix 毫秒）。 */
+	/**  探测时间戳（Unix 毫秒）�?*/
 	probedAt: number,
-	/**  批量脚本未覆盖、需单独探测的工具 id（前端可懒查）。 */
+	/**  批量脚本未覆盖、需单独探测的工�?id（前端可懒查）�?*/
 	lazyProbeIds: string[],
 };
 
-/**  抓包统计信息。 */
+/**  抓包统计信息�?*/
 export type CaptureStats = {
 	captureId: string,
 	iface: string,
@@ -2051,17 +1955,13 @@ export type CaptureStats = {
 };
 
 /**
- *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
- * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
- */
+ *  `GET /api/assistant/chat/latest` 返回的索引（�?SSE `message` �?data）�? * 
+ *  服务�?`userId` �?int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）�? */
 export type ChatLatestIndex = ChatLatestIndex_Serialize | ChatLatestIndex_Deserialize;
 
 /**
- *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
- * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
- */
+ *  `GET /api/assistant/chat/latest` 返回的索引（�?SSE `message` �?data）�? * 
+ *  服务�?`userId` �?int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）�? */
 export type ChatLatestIndex_Deserialize = {
 	userId?: string,
 } | {
@@ -2079,10 +1979,10 @@ export type ChatLatestIndex_Deserialize = {
 } | {
 	message_id?: string,
 } & {
-	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）。 */
+	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）�?*/
 	sessionId?: string,
 } | {
-	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）。 */
+	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）�?*/
 	session_id?: string,
 } & {
 	createdAt?: string,
@@ -2095,16 +1995,14 @@ export type ChatLatestIndex_Deserialize = {
 };
 
 /**
- *  `GET /api/assistant/chat/latest` 返回的索引（及 SSE `message` 的 data）。
- * 
- *  服务端 `userId` 为 int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）。
- */
+ *  `GET /api/assistant/chat/latest` 返回的索引（�?SSE `message` �?data）�? * 
+ *  服务�?`userId` �?int64，需兼容数字与字符串（见 `ChatLatestIndexRaw`）�? */
 export type ChatLatestIndex_Serialize = {
 	userId: string,
 	objectKey: string,
 	ossPath: string,
 	messageId: string,
-	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）。 */
+	/**  目标 AI 会话 id（助手端当前选中；客户端按此投递）�?*/
 	sessionId: string,
 	createdAt: string,
 	publishedAt: string,
@@ -2154,12 +2052,12 @@ export type CliProviderUpsertInput = {
 };
 
 export type ClientSyncMigrateDeviceTagsRequest = {
-	/**  账号设备名列表（前端 authListDevices 获取），用于识别资源上的旧设备名标签。 */
+	/**  账号设备名列表（前端 authListDevices 获取），用于识别资源上的旧设备名标签�?*/
 	deviceNames?: string[],
 };
 
 export type ClientSyncMigrateDeviceTagsResult = {
-	/**  是否有任何资源标签被改写（供前端决定是否回推云端快照）。 */
+	/**  是否有任何资源标签被改写（供前端决定是否回推云端快照）�?*/
 	changed: boolean,
 	connections: number | null,
 	databases: number | null,
@@ -2171,7 +2069,7 @@ export type ClientSyncMigrateDeviceTagsResult = {
 
 export type ClientSyncPullConversationsRequest = {
 	token: string,
-	/**  可选团队 ID；缺省回退到默认个人团队。 */
+	/**  可选团�?ID；缺省回退到默认个人团队�?*/
 	teamId?: number | null,
 };
 
@@ -2184,7 +2082,7 @@ export type ClientSyncPullConversationsResult = {
 
 export type ClientSyncPullModulesRequest = {
 	token: string,
-	/**  可选团队 ID；缺省回退到默认个人团队。 */
+	/**  可选团�?ID；缺省回退到默认个人团队�?*/
 	teamId?: number | null,
 };
 
@@ -2197,21 +2095,21 @@ export type ClientSyncPullModulesResult = {
 	appliedKnowledge: number | null,
 	appliedHttpRequests: number | null,
 	appliedWorkspaces: number | null,
-	/**  工作区 JSON，由前端写入 workspaceStore。 */
+	/**  工作�?JSON，由前端写入 workspaceStore�?*/
 	workspacesJson: string | null,
-	/**  SSH 侧栏文件夹布局 JSON，由前端写入 sshSidebarTreeStore。 */
+	/**  SSH 侧栏文件夹布局 JSON，由前端写入 sshSidebarTreeStore�?*/
 	sshSidebarTreeJson: string | null,
-	/**  其他模块侧栏文件夹布局 JSON，由前端写入 Docker/数据库/协议 store。 */
+	/**  其他模块侧栏文件夹布局 JSON，由前端写入 Docker/数据�?协议 store�?*/
 	folderTreesJson: string | null,
-	/**  首页自定义面板 JSON，由前端写入 dashboardStore。 */
+	/**  首页自定义面�?JSON，由前端写入 dashboardStore�?*/
 	customPanelsJson: string | null,
 };
 
 export type ClientSyncPushConversationsRequest = {
 	token: string,
-	/**  前端组装的 bundle JSON（含 schemaVersion / conversations / deleted）。 */
+	/**  前端组装�?bundle JSON（含 schemaVersion / conversations / deleted）�?*/
 	bodyJson: string,
-	/**  可选团队 ID；缺省回退到默认个人团队。 */
+	/**  可选团�?ID；缺省回退到默认个人团队�?*/
 	teamId?: number | null,
 };
 
@@ -2224,11 +2122,11 @@ export type ClientSyncPushConversationsResult = {
 export type ClientSyncPushModulesRequest = {
 	token: string,
 	workspacesJson?: string | null,
-	/**  SSH 侧栏文件夹布局 JSON；由前端从 sshSidebarTreeStore 序列化。 */
+	/**  SSH 侧栏文件夹布局 JSON；由前端�?sshSidebarTreeStore 序列化�?*/
 	sshSidebarTreeJson?: string | null,
-	/**  其他模块侧栏文件夹布局 JSON；由前端从 Docker/数据库/协议 store 序列化。 */
+	/**  其他模块侧栏文件夹布局 JSON；由前端�?Docker/数据�?协议 store 序列化�?*/
 	folderTreesJson?: string | null,
-	/**  首页自定义面板 JSON；由前端从 dashboardStore 序列化。 */
+	/**  首页自定义面�?JSON；由前端�?dashboardStore 序列化�?*/
 	customPanelsJson?: string | null,
 	deletedConnections?: ClientSyncTombstone[],
 	deletedDatabases?: ClientSyncTombstone[],
@@ -2238,7 +2136,7 @@ export type ClientSyncPushModulesRequest = {
 	deletedHttpEnvironments?: ClientSyncTombstone[],
 	deletedWorkspaces?: ClientSyncTombstone[],
 	deletedCustomPanels?: ClientSyncTombstone[],
-	/**  可选团队 ID；缺省回退到默认个人团队。 */
+	/**  可选团�?ID；缺省回退到默认个人团队�?*/
 	teamId?: number | null,
 };
 
@@ -2253,7 +2151,7 @@ export type ClientSyncTombstone = {
 	deletedAt: number | null,
 };
 
-/**  账户身份与余额（余额接口无权限时仍返回身份，`balanceError` 说明原因）。 */
+/**  账户身份与余额（余额接口无权限时仍返回身份，`balanceError` 说明原因）�?*/
 export type CloudAccountSnapshot = {
 	callerId?: string,
 	arn?: string,
@@ -2269,9 +2167,9 @@ export type CloudAction = {
 	resourceId?: string,
 	capability?: string,
 	regionId?: string,
-	/**  已废弃：写操作改走 `presence_token`，前端不得再靠此字段放行。 */
+	/**  已废弃：写操作改�?`presence_token`，前端不得再靠此字段放行�?*/
 	confirmed?: boolean,
-	/**  写操作短命在场 token（一次性消费）。 */
+	/**  写操作短命在�?token（一次性消费）�?*/
 	presenceToken?: string | null,
 	params?: { [key in string]: string },
 };
@@ -2411,7 +2309,7 @@ export type CloudOssBucket = {
 export type CloudRegion = {
 	regionId: string,
 	localName: string,
-	/**  该地域已探测到的能力 id（如 `compute` / `compute.lite`）。 */
+	/**  该地域已探测到的能力 id（如 `compute` / `compute.lite`）�?*/
 	capabilities?: string[],
 };
 
@@ -2462,9 +2360,7 @@ export type CloudSwasInstance = {
 };
 
 /**
- *  统一连接模型。敏感凭据不在此，仅以 `credential_ref` 关联 [`crate::Vault`]。
- *  `config` 为 JSON 文本（不同 kind 字段不同，由前端按类型解析）。
- */
+ *  统一连接模型。敏感凭据不在此，仅�?`credential_ref` 关联 [`crate::Vault`]�? *  `config` �?JSON 文本（不�?kind 字段不同，由前端按类型解析）�? */
 export type Connection = {
 	id: string,
 	kind: ConnectionKind,
@@ -2473,24 +2369,24 @@ export type Connection = {
 	envTag?: string,
 	/**  全局资源标签，如 `os:Ubuntu 24.04.2 LTS`（key:value 字符串列表） */
 	tags?: string[],
-	/**  连接配置 JSON 文本（host/port/user/database 等，因 kind 而异） */
+	/**  连接配置 JSON 文本（host/port/user/database 等，�?kind 而异�?*/
 	config?: string,
 	credentialRef?: string | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
 };
 
-/**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
+/**  连接类型。统一覆盖工作站内所有可持久化的连接资源�?*/
 export type ConnectionKind = "ssh" | "database" | "docker" | "panel" | 
-/**  云厂商账户（阿里云等），与面板并列挂在第三方服务模块。 */
+/**  云厂商账户（阿里云等），与面板并列挂在第三方服务模块�?*/
 "cloud" | "protocol" | "file" | 
-/**  插件 `kind=module` 的服务实例（Nacos 等）。 */
+/**  插件 `kind=module` 的服务实例（Nacos 等）�?*/
 "service";
 
-/**  CPU 指标：总使用率、核心数、每核使用率、负载。 */
+/**  CPU 指标：总使用率、核心数、每核使用率、负载�?*/
 export type CpuStats = CpuStats_Serialize | CpuStats_Deserialize;
 
-/**  CPU 指标：总使用率、核心数、每核使用率、负载。 */
+/**  CPU 指标：总使用率、核心数、每核使用率、负载�?*/
 export type CpuStats_Deserialize = {
 	usage: number | null,
 	cores: number,
@@ -2502,7 +2398,7 @@ export type CpuStats_Deserialize = {
 	temperature?: number | null,
 };
 
-/**  CPU 指标：总使用率、核心数、每核使用率、负载。 */
+/**  CPU 指标：总使用率、核心数、每核使用率、负载�?*/
 export type CpuStats_Serialize = {
 	usage: number | null,
 	cores: number,
@@ -2514,7 +2410,7 @@ export type CpuStats_Serialize = {
 	temperature?: number | null,
 };
 
-/**  创建数据库参数。name 必填；charset 可选，留空时使用服务器默认。 */
+/**  创建数据库参数。name 必填；charset 可选，留空时使用服务器默认�?*/
 export type CreateDatabaseArgs = {
 	connection: DbConnectionConfig,
 	name: string,
@@ -2546,7 +2442,7 @@ export type DbColumnMeta_Deserialize = {
 	comment?: string | null,
 	/**  列长度（来自 information_schema）：MySQL CHARACTER_MAXIMUM_LENGTH / NUMERIC_PRECISION；PG character_maximum_length / numeric_precision */
 	length?: number | null,
-	/**  列默认值表达式（原始字符串，如 "'0'" / "nextval(...)" / "CURRENT_TIMESTAMP"） */
+	/**  列默认值表达式（原始字符串，如 "'0'" / "nextval(...)" / "CURRENT_TIMESTAMP"�?*/
 	defaultValue?: string | null,
 };
 
@@ -2560,11 +2456,11 @@ export type DbColumnMeta_Serialize = {
 	comment?: string | null,
 	/**  列长度（来自 information_schema）：MySQL CHARACTER_MAXIMUM_LENGTH / NUMERIC_PRECISION；PG character_maximum_length / numeric_precision */
 	length?: number | null,
-	/**  列默认值表达式（原始字符串，如 "'0'" / "nextval(...)" / "CURRENT_TIMESTAMP"） */
+	/**  列默认值表达式（原始字符串，如 "'0'" / "nextval(...)" / "CURRENT_TIMESTAMP"�?*/
 	defaultValue?: string | null,
 };
 
-/**  数据库连接配置（与前端 `DbConnectionConfig` / Tauri IPC 一致）。 */
+/**  数据库连接配置（与前�?`DbConnectionConfig` / Tauri IPC 一致）�?*/
 export type DbConnectionConfig = {
 	id: string,
 	name: string,
@@ -2572,23 +2468,23 @@ export type DbConnectionConfig = {
 	host: string,
 	port: number,
 	user: string,
-	/**  明文仅提交时存在；持久化与列表返回为空，用 `has_password` 表示钥匙串是否有密码。 */
+	/**  明文仅提交时存在；持久化与列表返回为空，�?`has_password` 表示钥匙串是否有密码�?*/
 	password?: string,
 	database: string,
-	/**  是否启用 SSL（MySQL 等）。SQL Server 表示加密传输。 */
+	/**  是否启用 SSL（MySQL 等）。SQL Server 表示加密传输�?*/
 	ssl?: boolean,
-	/**  Oracle SID；空则使用 `database` 作为服务名。 */
+	/**  Oracle SID；空则使�?`database` 作为服务名�?*/
 	sid?: string,
-	/**  Oracle 以 SYSDBA 登录。 */
+	/**  Oracle �?SYSDBA 登录�?*/
 	sysdba?: boolean,
 	status?: string,
-	/**  是否启用；`false` 表示连接已关闭（禁用），不参与查询与库表加载。 */
+	/**  是否启用；`false` 表示连接已关闭（禁用），不参与查询与库表加载�?*/
 	enabled?: boolean,
-	/**  钥匙串中是否已保存密码。 */
+	/**  钥匙串中是否已保存密码�?*/
 	has_password?: boolean,
-	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
+	/**  资源标签列表；新建时自动�?`creator: <设备�?` 标记创建设备�?*/
 	tags?: string[],
-	/**  侧栏分组名；空 / `default` 视为「默认」。 */
+	/**  侧栏分组名；�?/ `default` 视为「默认」�?*/
 	group?: string,
 };
 
@@ -2601,15 +2497,15 @@ export type DbDataSyncSqlGenerateResult = {
 export type DbDatabaseMeta = {
 	/**  库名 */
 	name: string,
-	/**  默认字符集 */
+	/**  默认字符�?*/
 	charset: string | null,
 	/**  默认排序规则 */
 	collation: string | null,
 	/**  表数量（含视图） */
 	tableCount: number | null,
-	/**  数据 + 索引总大小（字节）；f64 避免 u64 被 Specta 禁止导出 */
+	/**  数据 + 索引总大小（字节）；f64 避免 u64 �?Specta 禁止导出 */
 	sizeBytes: number | null,
-	/**  估算总行数 */
+	/**  估算总行�?*/
 	rowsEstimate: number | null,
 };
 
@@ -2641,22 +2537,22 @@ export type DbIntrospectResult_Serialize = {
 	routines: DbRoutineMeta[],
 };
 
-/**  库内多表详情（一次查询回填表列表，避免 N 次建连）。 */
+/**  库内多表详情（一次查询回填表列表，避�?N 次建连）�?*/
 export type DbNamedTableDetails = DbNamedTableDetails_Serialize | DbNamedTableDetails_Deserialize;
 
-/**  库内多表详情（一次查询回填表列表，避免 N 次建连）。 */
+/**  库内多表详情（一次查询回填表列表，避�?N 次建连）�?*/
 export type DbNamedTableDetails_Deserialize = {
 	name: string,
 	details: DbTableDetails_Deserialize,
 };
 
-/**  库内多表详情（一次查询回填表列表，避免 N 次建连）。 */
+/**  库内多表详情（一次查询回填表列表，避�?N 次建连）�?*/
 export type DbNamedTableDetails_Serialize = {
 	name: string,
 	details: DbTableDetails_Serialize,
 };
 
-/**  IPC 用查询结果（与领域 `QueryResult` 同形；rows 导出为 Any 避免 BigInt 禁令）。 */
+/**  IPC 用查询结果（与领�?`QueryResult` 同形；rows 导出�?Any 避免 BigInt 禁令）�?*/
 export type DbQueryResult = {
 	columns: string[],
 	rows: any[][],
@@ -2704,7 +2600,7 @@ export type DbSyncExecTableSpec_Serialize = {
 	diffCacheId?: string | null,
 };
 
-/**  单表结构同步 SQL 预览（不落库）。 */
+/**  单表结构同步 SQL 预览（不落库）�?*/
 export type DbSyncSqlPreviewTable = {
 	table: string,
 	sql: string,
@@ -2784,7 +2680,7 @@ export type DbUserMeta = DbUserMeta_Serialize | DbUserMeta_Deserialize;
 export type DbUserMeta_Deserialize = {
 	name: string,
 	host?: string | null,
-	/**  是否可登录（MySQL 默认 true；PG 对应 rolcanlogin） */
+	/**  是否可登录（MySQL 默认 true；PG 对应 rolcanlogin�?*/
 	canLogin?: boolean,
 	/**  是否超级用户 / SUPER 权限 */
 	isSuperuser?: boolean,
@@ -2799,7 +2695,7 @@ export type DbUserMeta_Deserialize = {
 export type DbUserMeta_Serialize = {
 	name: string,
 	host?: string | null,
-	/**  是否可登录（MySQL 默认 true；PG 对应 rolcanlogin） */
+	/**  是否可登录（MySQL 默认 true；PG 对应 rolcanlogin�?*/
 	canLogin: boolean,
 	/**  是否超级用户 / SUPER 权限 */
 	isSuperuser: boolean,
@@ -2837,7 +2733,7 @@ export type DiscoveryScope = {
 	envTag?: string | null,
 };
 
-/**  单个磁盘 / 挂载点。 */
+/**  单个磁盘 / 挂载点�?*/
 export type DiskDeviceStats = {
 	name: string,
 	mountPoint: string,
@@ -2847,10 +2743,10 @@ export type DiskDeviceStats = {
 	available: number | null,
 };
 
-/**  磁盘汇总与明细列表。 */
+/**  磁盘汇总与明细列表�?*/
 export type DiskStats = DiskStats_Serialize | DiskStats_Deserialize;
 
-/**  磁盘汇总与明细列表。 */
+/**  磁盘汇总与明细列表�?*/
 export type DiskStats_Deserialize = {
 	total: number | null,
 	used: number | null,
@@ -2860,7 +2756,7 @@ export type DiskStats_Deserialize = {
 	writeBytes?: number | null,
 };
 
-/**  磁盘汇总与明细列表。 */
+/**  磁盘汇总与明细列表�?*/
 export type DiskStats_Serialize = {
 	total: number | null,
 	used: number | null,
@@ -2880,7 +2776,7 @@ export type DockerAutoDetectResult = {
 	error: string | null,
 };
 
-/**  镜像构建的输入上下文。 */
+/**  镜像构建的输入上下文�?*/
 export type DockerBuildContext = {
 	contextDir: string,
 	tag: string,
@@ -2889,13 +2785,13 @@ export type DockerBuildContext = {
 	useBuildKit: boolean,
 };
 
-/**  镜像构建结果。 */
+/**  镜像构建结果�?*/
 export type DockerBuildResult = {
 	tag: string,
 	imageId: string | null,
 };
 
-/**  连接级能力探测结果。前端据此决定页签/按钮显隐与降级。 */
+/**  连接级能力探测结果。前端据此决定页�?按钮显隐与降级�?*/
 export type DockerCapabilities = {
 	canOverview: boolean,
 	canStreamLogs: boolean,
@@ -2909,14 +2805,14 @@ export type DockerCapabilities = {
 	source: DockerConnectionSource,
 };
 
-/**  Compose 生命周期动作。 */
+/**  Compose 生命周期动作�?*/
 export type DockerComposeAction = "up" | 
-/**  停止服务容器（`compose stop`），不删除容器与网络。 */
+/**  停止服务容器（`compose stop`），不删除容器与网络�?*/
 "stop" | "down" | "restart" | 
-/**  重新构建镜像并拉起服务（`compose up -d --build --force-recreate`）。 */
+/**  重新构建镜像并拉起服务（`compose up -d --build --force-recreate`）�?*/
 "rebuild" | "pull" | "logs";
 
-/**  Compose 项目（按 `com.docker.compose.project` 标签聚合容器得到）。 */
+/**  Compose 项目（按 `com.docker.compose.project` 标签聚合容器得到）�?*/
 export type DockerComposeProject = {
 	name: string,
 	workingDir: string | null,
@@ -2927,7 +2823,7 @@ export type DockerComposeProject = {
 	services: DockerComposeService[],
 };
 
-/**  Compose 项目配置文件内容。 */
+/**  Compose 项目配置文件内容�?*/
 export type DockerComposeProjectFiles = {
 	project: string,
 	workingDir: string | null,
@@ -2937,14 +2833,14 @@ export type DockerComposeProjectFiles = {
 	envContent: string,
 };
 
-/**  读取 Compose 项目配置文件入参。 */
+/**  读取 Compose 项目配置文件入参�?*/
 export type DockerComposeReadFilesRequest = {
 	project: string,
 	workingDir: string | null,
 	configFile: string | null,
 };
 
-/**  单条 Compose 命令的入参。 */
+/**  单条 Compose 命令的入参�?*/
 export type DockerComposeRequest = {
 	project: string,
 	workingDir: string | null,
@@ -2953,7 +2849,7 @@ export type DockerComposeRequest = {
 	detached: boolean,
 };
 
-/**  单条 Compose 命令的结果。 */
+/**  单条 Compose 命令的结果�?*/
 export type DockerComposeResult = {
 	action: DockerComposeAction,
 	project: string,
@@ -2962,7 +2858,7 @@ export type DockerComposeResult = {
 	exitCode: number,
 };
 
-/**  Compose 服务（按 `com.docker.compose.service` 标签聚合）。 */
+/**  Compose 服务（按 `com.docker.compose.service` 标签聚合）�?*/
 export type DockerComposeService = {
 	name: string,
 	image: string,
@@ -2970,7 +2866,7 @@ export type DockerComposeService = {
 	runningContainerCount: number,
 };
 
-/**  写入 Compose 项目配置文件入参（字段可选，仅写入提供的部分）。 */
+/**  写入 Compose 项目配置文件入参（字段可选，仅写入提供的部分）�?*/
 export type DockerComposeWriteFilesRequest = {
 	project: string,
 	workingDir: string | null,
@@ -2981,7 +2877,7 @@ export type DockerComposeWriteFilesRequest = {
 	envContent: string | null,
 };
 
-/**  连接信息（列表与工作区头部展示）。 */
+/**  连接信息（列表与工作区头部展示）�?*/
 export type DockerConnectionInfo = {
 	connectionId: string,
 	name: string,
@@ -2994,27 +2890,27 @@ export type DockerConnectionInfo = {
 	containersRunning: number,
 	containersTotal: number,
 	warningMessage: string | null,
-	/**  与 SSH / Server 模块贯通上下文用：绑定的 SSH 连接 id。 */
+	/**  �?SSH / Server 模块贯通上下文用：绑定�?SSH 连接 id�?*/
 	boundSshConnectionId: string | null,
 };
 
-/**  Docker 连接来源。前端只消费统一资源模型，来源差异由后端 adapter 屏蔽。 */
+/**  Docker 连接来源。前端只消费统一资源模型，来源差异由后端 adapter 屏蔽�?*/
 export type DockerConnectionSource = 
-/**  本地 Docker Engine / Docker Desktop。 */
+/**  本地 Docker Engine / Docker Desktop�?*/
 "local-engine" | 
-/**  远程 Docker Engine API（TCP/TLS）。 */
+/**  远程 Docker Engine API（TCP/TLS）�?*/
 "remote-engine" | 
-/**  通过 SSH 宿主机调用远程 `docker` CLI。 */
+/**  通过 SSH 宿主机调用远�?`docker` CLI�?*/
 "ssh-engine" | 
-/**  通过 1Panel 面板 API 适配。 */
+/**  通过 1Panel 面板 API 适配�?*/
 "one-panel" | 
-/**  宝塔（BT Panel）面板 API 适配。 */
+/**  宝塔（BT Panel）面�?API 适配�?*/
 "panel-adapter";
 
-/**  连接状态。 */
+/**  连接状态�?*/
 export type DockerConnectionStatus = "online" | "degraded" | "offline";
 
-/**  容器详情。 */
+/**  容器详情�?*/
 export type DockerContainerDetail = {
 	summary: DockerContainerSummary,
 	command: string | null,
@@ -3025,7 +2921,7 @@ export type DockerContainerDetail = {
 	networks: DockerNetworkAttachment[],
 };
 
-/**  容器日志文件信息（日志路径 + 可选文件大小）。 */
+/**  容器日志文件信息（日志路�?+ 可选文件大小）�?*/
 export type DockerContainerLogInfo = {
 	containerId: string,
 	name: string,
@@ -3033,7 +2929,7 @@ export type DockerContainerLogInfo = {
 	sizeBytes: number | null,
 };
 
-/**  容器统计快照。 */
+/**  容器统计快照�?*/
 export type DockerContainerStats = {
 	containerId: string,
 	name: string,
@@ -3048,60 +2944,58 @@ export type DockerContainerStats = {
 	timestampMs: number | null,
 };
 
-/**  容器列表项。 */
+/**  容器列表项�?*/
 export type DockerContainerSummary = {
 	id: string,
 	shortId: string,
 	name: string,
 	image: string,
-	/**  归一化生命周期：running / exited / paused / restarting / created / dead / unknown。 */
+	/**  归一化生命周期：running / exited / paused / restarting / created / dead / unknown�?*/
 	state: string,
-	/**  Docker 原始状态文本，例如 "Up 2 hours"。 */
+	/**  Docker 原始状态文本，例如 "Up 2 hours"�?*/
 	statusText: string,
 	running: boolean,
 	ports: DockerPort[],
 	networks: string[],
-	/**  主 IP（列表接口能提供的首选地址，通常为默认网络 IPv4）。 */
+	/**  �?IP（列表接口能提供的首选地址，通常为默认网�?IPv4）�?*/
 	ipAddress: string | null,
-	/**  各网络下的 IP（1Panel / inspect 等来源可填充）。 */
+	/**  各网络下�?IP�?Panel / inspect 等来源可填充）�?*/
 	networkAttachments?: DockerNetworkAttachment[],
 	createdAt: number | null,
-	/**  Compose 项目名（`com.docker.compose.project`）；非 Compose 容器为 `None`。 */
+	/**  Compose 项目名（`com.docker.compose.project`）；�?Compose 容器�?`None`�?*/
 	composeProject?: string | null,
-	/**  Compose 服务名（`com.docker.compose.service`）。 */
+	/**  Compose 服务名（`com.docker.compose.service`）�?*/
 	composeService?: string | null,
 	/**
-	 *  Compose 工作目录（`com.docker.compose.project.working_dir`）。
-	 *  侧栏已拉过容器列表时可直接打开配置，避免再跑一次全量 `list_compose_projects`。
-	 */
+	 *  Compose 工作目录（`com.docker.compose.project.working_dir`）�?	 *  侧栏已拉过容器列表时可直接打开配置，避免再跑一次全�?`list_compose_projects`�?	 */
 	composeWorkingDir?: string | null,
-	/**  Compose 配置文件路径（`com.docker.compose.project.config_files`）。 */
+	/**  Compose 配置文件路径（`com.docker.compose.project.config_files`）�?*/
 	composeConfigFiles?: string | null,
 };
 
-/**  创建容器请求。 */
+/**  创建容器请求�?*/
 export type DockerCreateContainerRequest = {
-	/**  镜像名称（含 tag）。 */
+	/**  镜像名称（含 tag）�?*/
 	image: string,
-	/**  容器名称，留空则 Docker 自动生成。 */
+	/**  容器名称，留空则 Docker 自动生成�?*/
 	name: string | null,
-	/**  端口映射：host_port:container_port/tcp|udp。 */
+	/**  端口映射：host_port:container_port/tcp|udp�?*/
 	ports: string[],
-	/**  卷挂载：host_path:container_path[:ro]。 */
+	/**  卷挂载：host_path:container_path[:ro]�?*/
 	volumes: string[],
-	/**  环境变量：KEY=VALUE。 */
+	/**  环境变量：KEY=VALUE�?*/
 	env: string[],
-	/**  连接的网络名。 */
+	/**  连接的网络名�?*/
 	network: string | null,
-	/**  启动命令覆盖。 */
+	/**  启动命令覆盖�?*/
 	cmd: string[] | null,
-	/**  重启策略：no|always|on-failure|unless-stopped。 */
+	/**  重启策略：no|always|on-failure|unless-stopped�?*/
 	restartPolicy: string | null,
-	/**  自动删除容器（退出后自动 rm）。 */
+	/**  自动删除容器（退出后自动 rm）�?*/
 	autoRemove: boolean,
 };
 
-/**  创建网络请求。 */
+/**  创建网络请求�?*/
 export type DockerCreateNetworkRequest = {
 	name: string,
 	driver: string | null,
@@ -3109,7 +3003,7 @@ export type DockerCreateNetworkRequest = {
 	subnet: string | null,
 };
 
-/**  创建服务请求。 */
+/**  创建服务请求�?*/
 export type DockerCreateServiceRequest = {
 	name: string,
 	image: string,
@@ -3121,21 +3015,21 @@ export type DockerCreateServiceRequest = {
 	constraints: string[],
 };
 
-/**  创建卷请求。 */
+/**  创建卷请求�?*/
 export type DockerCreateVolumeRequest = {
 	name: string,
 	driver: string | null,
 	labels: ([string, string])[],
 };
 
-/**  Docker daemon.json 配置文件。 */
+/**  Docker daemon.json 配置文件�?*/
 export type DockerDaemonConfigFile = {
 	content: string,
 	path: string,
 	editable: boolean,
 };
 
-/**  `docker system df` 单项磁盘占用。 */
+/**  `docker system df` 单项磁盘占用�?*/
 export type DockerDiskUsageItem = {
 	sizeBytes: number | null,
 	reclaimableBytes: number | null,
@@ -3143,14 +3037,14 @@ export type DockerDiskUsageItem = {
 	activeCount: number | null,
 };
 
-/**  一次性 exec 的结构化输出（与 `omnipanel_docker::DockerOneShotExecOutput` 对齐）。 */
+/**  一次�?exec 的结构化输出（与 `omnipanel_docker::DockerOneShotExecOutput` 对齐）�?*/
 export type DockerExecOneShotOutput = {
 	stdout: string,
 	stderr: string,
 	exitCode: number | null,
 };
 
-/**  容器内文件条目。 */
+/**  容器内文件条目�?*/
 export type DockerFileEntry = {
 	name: string,
 	path: string,
@@ -3161,14 +3055,14 @@ export type DockerFileEntry = {
 	isSymlink: boolean,
 };
 
-/**  宿主机一次性执行 `docker …` CLI 的结果（用于搜索页「运行容器」等）。 */
+/**  宿主机一次性执�?`docker …` CLI 的结果（用于搜索页「运行容器」等）�?*/
 export type DockerHostCliResult = {
 	stdout: string,
 	stderr: string,
 	exitCode: number,
 };
 
-/**  `docker inspect .Config` 关键字段。 */
+/**  `docker inspect .Config` 关键字段�?*/
 export type DockerImageConfig = {
 	env: string[],
 	cmd: string | null,
@@ -3180,11 +3074,11 @@ export type DockerImageConfig = {
 	volumes: string[],
 };
 
-/**  镜像详情。 */
+/**  镜像详情�?*/
 export type DockerImageDetail = {
-	/**  与 `DockerImageSummary.id` 相同。 */
+	/**  �?`DockerImageSummary.id` 相同�?*/
 	id: string,
-	/**  所有 repo:tag 引用。 */
+	/**  所�?repo:tag 引用�?*/
 	repoTags: string[],
 	architecture: string | null,
 	os: string | null,
@@ -3194,11 +3088,11 @@ export type DockerImageDetail = {
 	author: string | null,
 	comment: string | null,
 	config: DockerImageConfig,
-	/**  历史层（`docker history` 精简版）。 */
+	/**  历史层（`docker history` 精简版）�?*/
 	history: DockerImageHistoryLayer[],
 };
 
-/**  `docker history` 单层。 */
+/**  `docker history` 单层�?*/
 export type DockerImageHistoryLayer = {
 	id: string,
 	createdAt: number | null,
@@ -3208,25 +3102,25 @@ export type DockerImageHistoryLayer = {
 	tags: string[],
 };
 
-/**  镜像搜索整页结果：条目列表 + 本次实际命中的 registry-mirrors base。 */
+/**  镜像搜索整页结果：条目列�?+ 本次实际命中�?registry-mirrors base�?*/
 export type DockerImageSearchPage = {
 	results: DockerImageSearchResult[],
-	/**  本次搜索实际命中的 mirror（如 `https://docker.1ms.run`）；Hub/CLI 回退时为 null。 */
+	/**  本次搜索实际命中�?mirror（如 `https://docker.1ms.run`）；Hub/CLI 回退时为 null�?*/
 	sourceMirror: string | null,
 };
 
-/**  `docker search` 单条结果。 */
+/**  `docker search` 单条结果�?*/
 export type DockerImageSearchResult = {
 	name: string,
 	description: string,
 	starCount: number | null,
-	/**  拉取次数（Hub v2 / 部分镜像站才有；未知为 0）。 */
+	/**  拉取次数（Hub v2 / 部分镜像站才有；未知�?0）�?*/
 	pullCount?: number | null,
 	isOfficial: boolean,
 	isAutomated: boolean,
 };
 
-/**  镜像列表项。 */
+/**  镜像列表项�?*/
 export type DockerImageSummary = {
 	id: string,
 	shortId: string,
@@ -3238,32 +3132,32 @@ export type DockerImageSummary = {
 	dangling: boolean,
 };
 
-/**  键值对（环境变量、标签）。 */
+/**  键值对（环境变量、标签）�?*/
 export type DockerKeyValue = {
 	key: string,
 	value: string,
 };
 
-/**  本地 Docker Engine / Desktop 安装与运行状态。 */
+/**  本地 Docker Engine / Desktop 安装与运行状态�?*/
 export type DockerLocalEngineStatus = {
-	/**  是否检测到 Docker Desktop / Engine 已安装。 */
+	/**  是否检测到 Docker Desktop / Engine 已安装�?*/
 	installed: boolean,
-	/**  是否已通过 socket/pipe 连通。 */
+	/**  是否已通过 socket/pipe 连通�?*/
 	running: boolean,
-	/**  是否支持应用内一键启动（通常为 Docker Desktop）。 */
+	/**  是否支持应用内一键启动（通常�?Docker Desktop）�?*/
 	canStart: boolean,
-	/**  安装类型：`docker-desktop` / `docker-engine` / `none`。 */
+	/**  安装类型：`docker-desktop` / `docker-engine` / `none`�?*/
 	installKind: string,
 };
 
-/**  日志行。 */
+/**  日志行�?*/
 export type DockerLogLine = {
-	/**  stdout / stderr。 */
+	/**  stdout / stderr�?*/
 	stream: string,
 	message: string,
 };
 
-/**  挂载信息。 */
+/**  挂载信息�?*/
 export type DockerMount = {
 	kind: string,
 	source: string,
@@ -3271,13 +3165,13 @@ export type DockerMount = {
 	readOnly: boolean,
 };
 
-/**  网络挂载。 */
+/**  网络挂载�?*/
 export type DockerNetworkAttachment = {
 	name: string,
 	ipAddress: string | null,
 };
 
-/**  已挂接网络容器摘要。 */
+/**  已挂接网络容器摘要�?*/
 export type DockerNetworkContainer = {
 	containerId: string,
 	name: string,
@@ -3287,9 +3181,9 @@ export type DockerNetworkContainer = {
 	ipv6Address: string | null,
 };
 
-/**  网络详情。 */
+/**  网络详情�?*/
 export type DockerNetworkDetail = {
-	/**  与 `DockerNetworkSummary.id` 相同。 */
+	/**  �?`DockerNetworkSummary.id` 相同�?*/
 	id: string,
 	name: string,
 	driver: string,
@@ -3297,23 +3191,23 @@ export type DockerNetworkDetail = {
 	internal: boolean,
 	enableIpv6: boolean,
 	createdAt: number | null,
-	/**  子网 + 网关 列表（来自 IPAM）。 */
+	/**  子网 + 网关 列表（来�?IPAM）�?*/
 	subnets: DockerNetworkSubnet[],
-	/**  当前已连接容器。 */
+	/**  当前已连接容器�?*/
 	containers: DockerNetworkContainer[],
 	labels: DockerKeyValue[],
-	/**  网络选项（如 `com.docker.network.bridge.name=br0`）。 */
+	/**  网络选项（如 `com.docker.network.bridge.name=br0`）�?*/
 	options: DockerKeyValue[],
 };
 
-/**  IPAM 子网条目。 */
+/**  IPAM 子网条目�?*/
 export type DockerNetworkSubnet = {
 	subnet: string | null,
 	gateway: string | null,
 	ipRange: string | null,
 };
 
-/**  网络摘要。 */
+/**  网络摘要�?*/
 export type DockerNetworkSummary = {
 	id: string,
 	name: string,
@@ -3321,13 +3215,13 @@ export type DockerNetworkSummary = {
 	scope: string,
 	internal: boolean,
 	createdAt: number | null,
-	/**  首个 IPv4 IPAM 子网（list 时尽力填充；无则前端降级）。 */
+	/**  首个 IPv4 IPAM 子网（list 时尽力填充；无则前端降级）�?*/
 	ipv4Subnet: string | null,
-	/**  首个 IPv4 IPAM 网关。 */
+	/**  首个 IPv4 IPAM 网关�?*/
 	ipv4Gateway: string | null,
 };
 
-/**  Docker 节点信息。 */
+/**  Docker 节点信息�?*/
 export type DockerNodeSummary = {
 	id: string,
 	hostname: string,
@@ -3339,7 +3233,7 @@ export type DockerNodeSummary = {
 	labels: DockerKeyValue[],
 };
 
-/**  总览页数据。 */
+/**  总览页数据�?*/
 export type DockerOverview = {
 	capabilities: DockerCapabilities,
 	summary: DockerResourceSummary,
@@ -3347,7 +3241,7 @@ export type DockerOverview = {
 	warningMessage: string | null,
 };
 
-/**  端口映射。 */
+/**  端口映射�?*/
 export type DockerPort = {
 	privatePort: number,
 	publicPort: number | null,
@@ -3355,7 +3249,7 @@ export type DockerPort = {
 	ip: string | null,
 };
 
-/**  探测结果。 */
+/**  探测结果�?*/
 export type DockerProbe = {
 	status: DockerConnectionStatus,
 	engineVersion: string | null,
@@ -3364,26 +3258,26 @@ export type DockerProbe = {
 	warningMessage: string | null,
 };
 
-/**  镜像清理结果。 */
+/**  镜像清理结果�?*/
 export type DockerPruneResult = {
 	deleted: string[],
 	freedSpaceBytes: number | null,
 };
 
-/**  卷清理结果。 */
+/**  卷清理结果�?*/
 export type DockerPruneVolumesResult = {
 	deleted: string[],
 	freedSpaceBytes: number | null,
 };
 
-/**  镜像拉取结果。 */
+/**  镜像拉取结果�?*/
 export type DockerPullResult = {
 	image: string,
 	tag: string,
 	digest: string | null,
 };
 
-/**  资源统计（总览页）。 */
+/**  资源统计（总览页）�?*/
 export type DockerResourceSummary = {
 	containersTotal: number,
 	containersRunning: number,
@@ -3403,7 +3297,7 @@ export type DockerScanItemResult = {
 	error: string | null,
 };
 
-/**  自动探测并绑定 SSH 上的 Docker 引擎 */
+/**  自动探测并绑�?SSH 上的 Docker 引擎 */
 export type DockerScanResult = {
 	scanned: number,
 	created: number,
@@ -3414,7 +3308,7 @@ export type DockerScanResult = {
 	items: DockerScanItemResult[],
 };
 
-/**  Docker 服务摘要。 */
+/**  Docker 服务摘要�?*/
 export type DockerServiceSummary = {
 	id: string,
 	name: string,
@@ -3451,10 +3345,10 @@ export type DockerSidebarCacheEntry_Serialize = {
 	error?: string | null,
 };
 
-/**  分页列表结果（按分类只填对应字段）。 */
+/**  分页列表结果（按分类只填对应字段）�?*/
 export type DockerSidebarCachePage = DockerSidebarCachePage_Serialize | DockerSidebarCachePage_Deserialize;
 
-/**  分页列表结果（按分类只填对应字段）。 */
+/**  分页列表结果（按分类只填对应字段）�?*/
 export type DockerSidebarCachePage_Deserialize = {
 	category: string,
 	total: number,
@@ -3468,7 +3362,7 @@ export type DockerSidebarCachePage_Deserialize = {
 	error?: string | null,
 };
 
-/**  分页列表结果（按分类只填对应字段）。 */
+/**  分页列表结果（按分类只填对应字段）�?*/
 export type DockerSidebarCachePage_Serialize = {
 	category: string,
 	total: number,
@@ -3492,7 +3386,7 @@ export type DockerSidebarCacheSnapshot_Serialize = {
 	connections: { [key in string]: DockerSidebarCacheEntry_Serialize },
 };
 
-/**  Docker Stack 信息。 */
+/**  Docker Stack 信息�?*/
 export type DockerStackSummary = {
 	name: string,
 	services: number,
@@ -3500,7 +3394,7 @@ export type DockerStackSummary = {
 	namespace: string,
 };
 
-/**  `docker system df` 汇总。 */
+/**  `docker system df` 汇总�?*/
 export type DockerSystemDiskUsage = {
 	images: DockerDiskUsageItem,
 	containers: DockerDiskUsageItem,
@@ -3508,9 +3402,9 @@ export type DockerSystemDiskUsage = {
 	buildCache: DockerDiskUsageItem,
 };
 
-/**  卷详情。 */
+/**  卷详情�?*/
 export type DockerVolumeDetail = {
-	/**  与 `DockerVolumeSummary.name` 相同。 */
+	/**  �?`DockerVolumeSummary.name` 相同�?*/
 	name: string,
 	driver: string,
 	mountpoint: string,
@@ -3518,13 +3412,13 @@ export type DockerVolumeDetail = {
 	createdAt: number | null,
 	sizeBytes: number | null,
 	labels: DockerKeyValue[],
-	/**  驱动选项。 */
+	/**  驱动选项�?*/
 	options: DockerKeyValue[],
-	/**  引用计数字段（来自 `Volume.UsageData.RefCount`）。 */
+	/**  引用计数字段（来�?`Volume.UsageData.RefCount`）�?*/
 	referenceCount: number | null,
 };
 
-/**  卷摘要。 */
+/**  卷摘要�?*/
 export type DockerVolumeSummary = {
 	name: string,
 	driver: string,
@@ -3534,7 +3428,7 @@ export type DockerVolumeSummary = {
 	inUse: boolean,
 };
 
-/**  Embedding 提供商配置（与前端 / Tauri `EmbeddingProviderConfig` 字段对齐）。 */
+/**  Embedding 提供商配置（与前�?/ Tauri `EmbeddingProviderConfig` 字段对齐）�?*/
 export type EmbeddingProviderConfig = {
 	providerId: string,
 	modelName: string,
@@ -3543,20 +3437,20 @@ export type EmbeddingProviderConfig = {
 	apiStandard: string,
 };
 
-/**  开启面板 API 的结果。 */
+/**  开启面�?API 的结果�?*/
 export type EnablePanelApiResult = {
 	kind: string,
 	/**  是否已成功开启（或原本已开启） */
 	enabled: boolean,
-	/**  当前 API Key（敏感；前端写入 Vault，勿日志/勿传 AI） */
+	/**  当前 API Key（敏感；前端写入 Vault，勿日志/勿传 AI�?*/
 	apiKey: string,
 	/**  人类可读说明（含白名单策略提示） */
 	message: string,
-	/**  是否执行了服务重启（1Panel 为刷缓存常需重启 core） */
+	/**  是否执行了服务重启（1Panel 为刷缓存常需重启 core�?*/
 	restarted: boolean,
 };
 
-/**  错误分类码。前端按 `code` 决定提示文案与重试策略。 */
+/**  错误分类码。前端按 `code` 决定提示文案与重试策略�?*/
 export type ErrorCode = 
 /**  未归类的内部错误 */
 "internal" | 
@@ -3564,21 +3458,21 @@ export type ErrorCode =
 "notFound" | 
 /**  入参非法 */
 "invalidInput" | 
-/**  连接失败（网络、拒绝、不可达） */
+/**  连接失败（网络、拒绝、不可达�?*/
 "connection" | 
-/**  认证失败（密码/密钥/Token 错误） */
+/**  认证失败（密�?密钥/Token 错误�?*/
 "auth" | 
 /**  权限不足 */
 "permission" | 
 /**  操作超时 */
 "timeout" | 
-/**  数据库错误 */
+/**  数据库错�?*/
 "database" | 
 /**  SSH 相关错误 */
 "ssh" | 
 /**  终端/PTY 错误 */
 "terminal" | 
-/**  本地存储 / 凭据库错误 */
+/**  本地存储 / 凭据库错�?*/
 "storage" | 
 /**  IO 错误 */
 "io";
@@ -3590,24 +3484,24 @@ export type FetchConfigDto = {
 	jina: JinaOptsDto,
 };
 
-/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）。 */
+/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）�?*/
 export type FetchedProviderModel = FetchedProviderModel_Serialize | FetchedProviderModel_Deserialize;
 
-/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）。 */
+/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）�?*/
 export type FetchedProviderModel_Deserialize = {
 	id: string,
 	created?: number | null,
 	ownedBy?: string | null,
 };
 
-/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）。 */
+/**  接口 `/models` 拉取到的单条模型（与前端 `ApiModelInfo` 对齐）�?*/
 export type FetchedProviderModel_Serialize = {
 	id: string,
 	created?: number | null,
 	ownedBy?: string | null,
 };
 
-/**  文件条目（统一模型）。 */
+/**  文件条目（统一模型）�?*/
 export type FileEntry = {
 	name: string,
 	path: string,
@@ -3618,7 +3512,7 @@ export type FileEntry = {
 	permissions: string | null,
 };
 
-/**  单条索引记录（不含正文）。 */
+/**  单条索引记录（不含正文）�?*/
 export type FileIndexEntry = {
 	connectionId: string,
 	path: string,
@@ -3629,14 +3523,14 @@ export type FileIndexEntry = {
 	modified: number | null,
 };
 
-/**  FTS5 搜索结果。 */
+/**  FTS5 搜索结果�?*/
 export type FileIndexSearchResult = {
 	entry: FileIndexEntry,
 	snippet: string,
 	score: number | null,
 };
 
-/**  文件索引元信息（按连接维度）。 */
+/**  文件索引元信息（按连接维度）�?*/
 export type FileIndexStatus = {
 	connectionId: string,
 	/**  idle | building | ready | failed */
@@ -3648,22 +3542,22 @@ export type FileIndexStatus = {
 	finishedAt: number | null,
 };
 
-/**  文件索引存储目录信息。 */
+/**  文件索引存储目录信息�?*/
 export type FileIndexStorageInfo = {
-	/**  当前生效的索引目录（数据库文件所在目录）。 */
+	/**  当前生效的索引目录（数据库文件所在目录）�?*/
 	storageDir: string,
-	/**  索引 SQLite 文件完整路径。 */
+	/**  索引 SQLite 文件完整路径�?*/
 	databasePath: string,
-	/**  默认索引目录。 */
+	/**  默认索引目录�?*/
 	defaultDir: string,
-	/**  是否为用户自定义目录。 */
+	/**  是否为用户自定义目录�?*/
 	isCustom: boolean,
 };
 
-/**  目录列表结果。 */
+/**  目录列表结果�?*/
 export type FileListDirResult = {
 	entries: FileEntry[],
-	/**  是否还有下一页（S3 分页）。 */
+	/**  是否还有下一页（S3 分页）�?*/
 	truncated: boolean,
 	nextContinuationToken: string | null,
 };
@@ -3679,7 +3573,7 @@ export type FileLocalVolume = {
 	path: string,
 };
 
-/**  文件管理器连接摘要。 */
+/**  文件管理器连接摘要�?*/
 export type FileManagerConnectionInfo = {
 	id: string,
 	name: string,
@@ -3689,7 +3583,7 @@ export type FileManagerConnectionInfo = {
 	group: string,
 };
 
-/**  本机常用目录快捷路径。 */
+/**  本机常用目录快捷路径�?*/
 export type FileQuickPaths = {
 	home: string,
 	desktop: string,
@@ -3765,10 +3659,10 @@ export type FileTransferRoute = "fastpath" | "remoteDirect" | "relay";
 
 export type FileTransferState = "queued" | "probing" | "running" | "done" | "error" | "cancelled";
 
-/**  单块 GPU 设备。 */
+/**  单块 GPU 设备�?*/
 export type GpuDeviceStats = GpuDeviceStats_Serialize | GpuDeviceStats_Deserialize;
 
-/**  单块 GPU 设备。 */
+/**  单块 GPU 设备�?*/
 export type GpuDeviceStats_Deserialize = {
 	vendor: string,
 	name: string,
@@ -3782,7 +3676,7 @@ export type GpuDeviceStats_Deserialize = {
 	fanSpeed?: number | null,
 };
 
-/**  单块 GPU 设备。 */
+/**  单块 GPU 设备�?*/
 export type GpuDeviceStats_Serialize = {
 	vendor: string,
 	name: string,
@@ -3796,36 +3690,36 @@ export type GpuDeviceStats_Serialize = {
 	fanSpeed?: number | null,
 };
 
-/**  GPU 总览（多卡列表，空列表表示未检测到）。 */
+/**  GPU 总览（多卡列表，空列表表示未检测到）�?*/
 export type GpuStats = GpuStats_Serialize | GpuStats_Deserialize;
 
-/**  GPU 总览（多卡列表，空列表表示未检测到）。 */
+/**  GPU 总览（多卡列表，空列表表示未检测到）�?*/
 export type GpuStats_Deserialize = {
 	devices: GpuDeviceStats_Deserialize[],
 };
 
-/**  GPU 总览（多卡列表，空列表表示未检测到）。 */
+/**  GPU 总览（多卡列表，空列表表示未检测到）�?*/
 export type GpuStats_Serialize = {
 	devices: GpuDeviceStats_Serialize[],
 };
 
-/**  gRPC 调用请求。 */
+/**  gRPC 调用请求�?*/
 export type GrpcCallRequest = {
-	/**  完整方法名，如 `mypackage.MyService/MyMethod` */
+	/**  完整方法名，�?`mypackage.MyService/MyMethod` */
 	method: string,
-	/**  请求 JSON（将序列化为 protobuf） */
+	/**  请求 JSON（将序列化为 protobuf�?*/
 	requestJson: string,
-	/**  自定义 metadata */
+	/**  自定�?metadata */
 	metadata?: ([string, string])[],
 };
 
-/**  gRPC 调用响应。 */
+/**  gRPC 调用响应�?*/
 export type GrpcCallResponse = {
 	/**  响应 JSON */
 	responseJson: string,
 	/**  HTTP 状态码 */
 	statusCode: number,
-	/**  gRPC 状态 */
+	/**  gRPC 状�?*/
 	grpcStatus: number,
 	/**  响应 metadata */
 	headers: ([string, string])[],
@@ -3833,24 +3727,24 @@ export type GrpcCallResponse = {
 	durationMs: number | null,
 };
 
-/**  gRPC 连接配置。 */
+/**  gRPC 连接配置�?*/
 export type GrpcConnectionConfig = {
 	/**  服务器地址，如 `http://localhost:50051` */
 	endpoint: string,
-	/**  自定义 metadata（header） */
+	/**  自定�?metadata（header�?*/
 	metadata?: ([string, string])[],
 	/**  是否使用 TLS */
 	useTls?: boolean,
 };
 
-/**  主机系统监控快照（本机与远程 SSH 共用）。 */
+/**  主机系统监控快照（本机与远程 SSH 共用）�?*/
 export type HostSystemStats = HostSystemStats_Serialize | HostSystemStats_Deserialize;
 
-/**  主机系统监控快照（本机与远程 SSH 共用）。 */
+/**  主机系统监控快照（本机与远程 SSH 共用）�?*/
 export type HostSystemStats_Deserialize = {
 	hostId: string,
 	hostName: string,
-	/**  格式化的负载字符串，如 `0.52 0.48 0.45`。 */
+	/**  格式化的负载字符串，�?`0.52 0.48 0.45`�?*/
 	load: string,
 	cpu: CpuStats_Deserialize,
 	cpuCores: number,
@@ -3864,11 +3758,11 @@ export type HostSystemStats_Deserialize = {
 	timestamp: number | null,
 };
 
-/**  主机系统监控快照（本机与远程 SSH 共用）。 */
+/**  主机系统监控快照（本机与远程 SSH 共用）�?*/
 export type HostSystemStats_Serialize = {
 	hostId: string,
 	hostName: string,
-	/**  格式化的负载字符串，如 `0.52 0.48 0.45`。 */
+	/**  格式化的负载字符串，�?`0.52 0.48 0.45`�?*/
 	load: string,
 	cpu: CpuStats_Serialize,
 	cpuCores: number,
@@ -3882,35 +3776,35 @@ export type HostSystemStats_Serialize = {
 	timestamp: number | null,
 };
 
-/**  HTTP 集合。 */
+/**  HTTP 集合�?*/
 export type HttpCollection = {
 	id: string,
 	name: string,
 	description: string,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
+	/**  资源标签列表；新建时自动�?`creator: <设备�?` 标记创建设备�?*/
 	tags?: string[],
 };
 
-/**  HTTP 调试环境（基地址 + 可选默认认证）。 */
+/**  HTTP 调试环境（基地址 + 可选默认认证）�?*/
 export type HttpEnvironment = {
 	id: string,
 	name: string,
 	baseUrl: string,
-	/**  与请求面板一致：Bearer Token / Basic Auth / API Key / OAuth 2.0 / Authorization；空表示无认证。 */
+	/**  与请求面板一致：Bearer Token / Basic Auth / API Key / OAuth 2.0 / Authorization；空表示无认证�?*/
 	authType: string | null,
 	authValue: string | null,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
+	/**  资源标签列表；新建时自动�?`creator: <设备�?` 标记创建设备�?*/
 	tags?: string[],
 };
 
-/**  HTTP 请求历史记录。 */
+/**  HTTP 请求历史记录�?*/
 export type HttpHistoryEntry = {
 	id: string,
-	/**  用户自定义显示名称；为空时在 UI 中回退为不含基地址的请求路径。 */
+	/**  用户自定义显示名称；为空时在 UI 中回退为不含基地址的请求路径�?*/
 	label: string,
 	method: string,
 	url: string,
@@ -3925,7 +3819,7 @@ export type HttpHistoryEntry = {
 	responseContentType: string,
 	responseHeaders: string,
 	responseBody: string,
-	/**  发送时生成的 curl 命令，便于历史回放。 */
+	/**  发送时生成�?curl 命令，便于历史回放�?*/
 	requestCurl: string,
 };
 
@@ -3942,28 +3836,28 @@ export type HttpProviderRecord = {
 	createdAt: number | null,
 };
 
-/**  安装方式声明。 */
+/**  安装方式声明�?*/
 export type InstallMethod = 
-/**  无需安装或不可安装。 */
+/**  无需安装或不可安装�?*/
 { kind: "none" } | 
-/**  系统包管理器安装（apt/dnf/yum/apk/pacman/zypper）。 */
+/**  系统包管理器安装（apt/dnf/yum/apk/pacman/zypper）�?*/
 { kind: "packageManager"; 
-/**  按包管理器映射包名，未列出的包管理器无法安装。 */
+/**  按包管理器映射包名，未列出的包管理器无法安装�?*/
 packages: { [key in string]: string } } | 
-/**  本机下载二进制 + SFTP 上传。 */
+/**  本机下载二进�?+ SFTP 上传�?*/
 { kind: "downloadBinary"; url: string; remote_path: string } | 
-/**  在远端执行 shell 脚本安装（如从源码编译，绕过老系统仓库版本过低）。 */
+/**  在远端执�?shell 脚本安装（如从源码编译，绕过老系统仓库版本过低）�?*/
 { kind: "shellScript"; script: string } | 
-/**  仅展示手动安装指引（无法自动安装）。 */
+/**  仅展示手动安装指引（无法自动安装）�?*/
 { kind: "manual"; instructions: string };
 
-/**  安装结果。 */
+/**  安装结果�?*/
 export type InstallToolResult = {
 	toolId: string,
 	installed: boolean,
-	/**  安装输出或失败原因。 */
+	/**  安装输出或失败原因�?*/
 	message: string,
-	/**  安装后重新探测的状态（成功时为 Ready）。 */
+	/**  安装后重新探测的状态（成功时为 Ready）�?*/
 	state: ToolState | null,
 };
 
@@ -3973,19 +3867,17 @@ export type JinaOptsDto = {
 };
 
 /**
- *  IPC 用 JSON 任意值：裸 `serde_json::JsonValue` 会被 specta 展开成递归枚举，
- *  再经 PhasesFormat 分裂后会在 `gen:bindings` 时把堆内存撑爆。
- */
+ *  IPC �?JSON 任意值：�?`serde_json::JsonValue` 会被 specta 展开成递归枚举�? *  再经 PhasesFormat 分裂后会�?`gen:bindings` 时把堆内存撑爆�? */
 export type JsonValue = any;
 
-/**  保存知识库附件，返回可用于 Markdown 的相对资源描述。 */
+/**  保存知识库附件，返回可用�?Markdown 的相对资源描述�?*/
 export type KnowledgeAssetSaved = {
 	entryId: string,
 	fileName: string,
 	absolutePath: string,
 };
 
-/**  分页查询文本块结果。 */
+/**  分页查询文本块结果�?*/
 export type KnowledgeChunkListResult = {
 	chunks: KnowledgeChunkPreview[],
 	total: number | null,
@@ -3993,7 +3885,7 @@ export type KnowledgeChunkListResult = {
 	limit: number | null,
 };
 
-/**  文本块预览（不含 embedding，供 UI 展示）。 */
+/**  文本块预览（不含 embedding，供 UI 展示）�?*/
 export type KnowledgeChunkPreview = {
 	id: string,
 	entryId: string,
@@ -4008,7 +3900,7 @@ export type KnowledgeDeleteChunksResult = {
 	remaining: number | null,
 };
 
-/**  知识条目模型。 */
+/**  知识条目模型�?*/
 export type KnowledgeEntry = {
 	id: string,
 	/**  "snippet" | "case" | "ai" */
@@ -4022,19 +3914,19 @@ export type KnowledgeEntry = {
 	source: string,
 	/**  "dev" | "staging" | "production" */
 	envTag: string,
-	/**  代码语言（snippet 时有意义） */
+	/**  代码语言（snippet 时有意义�?*/
 	language: string,
 	usageCount: number | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
-	/**  父节点 id，空字符串表示根级 */
+	/**  父节�?id，空字符串表示根�?*/
 	parentId?: string,
 	/**  "folder" | "document" */
 	nodeType?: string,
 	sortOrder?: number | null,
-	/**  关联资源类型："" / "ssh" / "database" / "docker" / "files"（v23 引入） */
+	/**  关联资源类型�?" / "ssh" / "database" / "docker" / "files"（v23 引入�?*/
 	resourceType?: string,
-	/**  关联资源 id（与 resource_type 配对使用，空字符串表示不关联） */
+	/**  关联资源 id（与 resource_type 配对使用，空字符串表示不关联�?*/
 	resourceId?: string,
 };
 
@@ -4052,7 +3944,7 @@ export type KnowledgeQueryHit = {
 	score: number | null,
 };
 
-/**  单文档召回测试结果（含文本块 ID 与匹配度）。 */
+/**  单文档召回测试结果（含文本块 ID 与匹配度）�?*/
 export type KnowledgeRecallHit = {
 	id: string,
 	entryId: string,
@@ -4065,13 +3957,13 @@ export type KnowledgeRecallTestArgs = {
 	entryId: string,
 	query: string,
 	provider: EmbeddingProviderConfig,
-	/**  返回的最大文本块数；缺省为 5。 */
+	/**  返回的最大文本块数；缺省�?5�?*/
 	topK: number | null,
-	/**  余弦相似度下限（0–1）；缺省为 0.5。 */
+	/**  余弦相似度下限（0�?）；缺省�?0.5�?*/
 	minScore: number | null,
 };
 
-/**  知识文档历史版本快照。 */
+/**  知识文档历史版本快照�?*/
 export type KnowledgeRevision = {
 	id: string,
 	entryId: string,
@@ -4080,53 +3972,53 @@ export type KnowledgeRevision = {
 	createdAt: number | null,
 };
 
-/**  FTS5 搜索结果：原文 + snippet 摘要。 */
+/**  FTS5 搜索结果：原�?+ snippet 摘要�?*/
 export type KnowledgeSearchResult = {
 	entry: KnowledgeEntry,
 	snippet: string,
-	/**  关键词相关性评分（0-100），分数越高越相关。 */
+	/**  关键词相关性评分（0-100），分数越高越相关�?*/
 	score: number | null,
 };
 
-/**  待办列表中的单项。 */
+/**  待办列表中的单项�?*/
 export type KnowledgeTodoItem = KnowledgeTodoItem_Serialize | KnowledgeTodoItem_Deserialize;
 
-/**  待办列表中的单项。 */
+/**  待办列表中的单项�?*/
 export type KnowledgeTodoItem_Deserialize = {
 	id: string,
-	/**  执行者。 */
+	/**  执行者�?*/
 	executor?: string,
-	/**  任务描述与细节。 */
+	/**  任务描述与细节�?*/
 	description?: string,
 	done: boolean,
 } & {
-	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	/**  待办项名称；反序列化兼容旧字�?`text`�?*/
 	name?: string,
 } | {
-	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	/**  待办项名称；反序列化兼容旧字�?`text`�?*/
 	text?: string,
 };
 
-/**  待办列表中的单项。 */
+/**  待办列表中的单项�?*/
 export type KnowledgeTodoItem_Serialize = {
 	id: string,
-	/**  待办项名称；反序列化兼容旧字段 `text`。 */
+	/**  待办项名称；反序列化兼容旧字�?`text`�?*/
 	name: string,
-	/**  执行者。 */
+	/**  执行者�?*/
 	executor: string,
-	/**  任务描述与细节。 */
+	/**  任务描述与细节�?*/
 	description: string,
 	done: boolean,
 };
 
-/**  知识库待办列表。 */
+/**  知识库待办列表�?*/
 export type KnowledgeTodoList = KnowledgeTodoList_Serialize | KnowledgeTodoList_Deserialize;
 
-/**  知识库待办列表。 */
+/**  知识库待办列表�?*/
 export type KnowledgeTodoList_Deserialize = {
 	id: string,
 	title: string,
-	/**  列表级任务描述（卡片摘要展示）。 */
+	/**  列表级任务描述（卡片摘要展示）�?*/
 	description?: string,
 	items: KnowledgeTodoItem_Deserialize[],
 	sortOrder?: number | null,
@@ -4134,11 +4026,11 @@ export type KnowledgeTodoList_Deserialize = {
 	updatedAt?: number | null,
 };
 
-/**  知识库待办列表。 */
+/**  知识库待办列表�?*/
 export type KnowledgeTodoList_Serialize = {
 	id: string,
 	title: string,
-	/**  列表级任务描述（卡片摘要展示）。 */
+	/**  列表级任务描述（卡片摘要展示）�?*/
 	description: string,
 	items: KnowledgeTodoItem_Serialize[],
 	sortOrder: number | null,
@@ -4146,7 +4038,7 @@ export type KnowledgeTodoList_Serialize = {
 	updatedAt: number | null,
 };
 
-/**  条目向量化状态摘要。 */
+/**  条目向量化状态摘要�?*/
 export type KnowledgeVectorStatus = {
 	entryId: string,
 	chunkCount: number | null,
@@ -4172,13 +4064,13 @@ export type LocalHardwareInfo = {
 	hasDiscreteGpu: boolean,
 	gpuName: string | null,
 	hardwareTier: string,
-	/**  推荐量化档，如 Q4_K_M */
+	/**  推荐量化档，�?Q4_K_M */
 	quantPref: string,
-	/**  估测可跑参数量（B） */
+	/**  估测可跑参数量（B�?*/
 	maxParamB: number | null,
 };
 
-/**  已安装模型摘要。 */
+/**  已安装模型摘要�?*/
 export type LocalModelInfo = {
 	name: string,
 	sizeBytes: number | null,
@@ -4193,12 +4085,12 @@ export type LocalRuntimeInstallResult = {
 	manualUrl: string,
 };
 
-/**  聚合探测。 */
+/**  聚合探测�?*/
 export type LocalRuntimeProbeResult = {
 	ollama: OllamaProbeResult,
 	lmStudio: OpenAiCompatProbeResult,
 	hardware: LocalHardwareInfo,
-	/**  系统内存 MB（兼容旧字段） */
+	/**  系统内存 MB（兼容旧字段�?*/
 	totalMemoryMb: number | null,
 	hardwareTier: string,
 	recommendedModels: RecommendedModel[],
@@ -4206,7 +4098,7 @@ export type LocalRuntimeProbeResult = {
 	catalogSource: string,
 };
 
-/**  运行时状态。 */
+/**  运行时状态�?*/
 export type LocalRuntimeStatus = "not_installed" | "installed_not_running" | "running";
 
 export type LogLine = {
@@ -4286,10 +4178,10 @@ export type McpTransport = { kind: "stdio"; config: McpStdioTransport } | { kind
 
 export type McpTransportKind = "stdio" | "sse";
 
-/**  物理内存与 swap / 虚拟内存。 */
+/**  物理内存�?swap / 虚拟内存�?*/
 export type MemoryStats = MemoryStats_Serialize | MemoryStats_Deserialize;
 
-/**  物理内存与 swap / 虚拟内存。 */
+/**  物理内存�?swap / 虚拟内存�?*/
 export type MemoryStats_Deserialize = {
 	total: number | null,
 	used: number | null,
@@ -4301,7 +4193,7 @@ export type MemoryStats_Deserialize = {
 	buffers?: number | null,
 };
 
-/**  物理内存与 swap / 虚拟内存。 */
+/**  物理内存�?swap / 虚拟内存�?*/
 export type MemoryStats_Serialize = {
 	total: number | null,
 	used: number | null,
@@ -4326,7 +4218,7 @@ export type MeshStatus = {
 	listenPort: number,
 };
 
-/**  Modbus 连接配置。 */
+/**  Modbus 连接配置�?*/
 export type ModbusConfig = {
 	host: string,
 	port: number,
@@ -4340,12 +4232,10 @@ export type MysqlExportDeployment_Deserialize = {
 	kind: string,
 	sshConnectionId?: string | null,
 	containerId?: string | null,
-	/**  Docker 容器内 MySQL 监听端口（勿填宿主机 publish 端口）。缺省 3306。 */
+	/**  Docker 容器�?MySQL 监听端口（勿填宿主机 publish 端口）。缺�?3306�?*/
 	mysqlPort?: number | null,
 	/**
-	 *  为 true 时使用 `--databases`（SQL 含 CREATE DATABASE / USE）。
-	 *  导出到其它库时应为 false，以便导入到用户指定的目标库名。
-	 */
+	 *  �?true 时使�?`--databases`（SQL �?CREATE DATABASE / USE）�?	 *  导出到其它库时应�?false，以便导入到用户指定的目标库名�?	 */
 	includeCreateDatabase?: boolean,
 };
 
@@ -4353,12 +4243,10 @@ export type MysqlExportDeployment_Serialize = {
 	kind: string,
 	sshConnectionId?: string | null,
 	containerId?: string | null,
-	/**  Docker 容器内 MySQL 监听端口（勿填宿主机 publish 端口）。缺省 3306。 */
+	/**  Docker 容器�?MySQL 监听端口（勿填宿主机 publish 端口）。缺�?3306�?*/
 	mysqlPort?: number | null,
 	/**
-	 *  为 true 时使用 `--databases`（SQL 含 CREATE DATABASE / USE）。
-	 *  导出到其它库时应为 false，以便导入到用户指定的目标库名。
-	 */
+	 *  �?true 时使�?`--databases`（SQL �?CREATE DATABASE / USE）�?	 *  导出到其它库时应�?false，以便导入到用户指定的目标库名�?	 */
 	includeCreateDatabase: boolean,
 };
 
@@ -4390,10 +4278,10 @@ export type MysqlExportRecord_Serialize = {
 	taskId?: string | null,
 };
 
-/**  导入 SQL 来源：本地文件或本连接已完成的导出记录。 */
+/**  导入 SQL 来源：本地文件或本连接已完成的导出记录�?*/
 export type MysqlImportSource = MysqlImportSource_Serialize | MysqlImportSource_Deserialize;
 
-/**  导入 SQL 来源：本地文件或本连接已完成的导出记录。 */
+/**  导入 SQL 来源：本地文件或本连接已完成的导出记录�?*/
 export type MysqlImportSource_Deserialize = {
 	/**  `file` | `export` */
 	kind: string,
@@ -4401,7 +4289,7 @@ export type MysqlImportSource_Deserialize = {
 	exportId?: string | null,
 };
 
-/**  导入 SQL 来源：本地文件或本连接已完成的导出记录。 */
+/**  导入 SQL 来源：本地文件或本连接已完成的导出记录�?*/
 export type MysqlImportSource_Serialize = {
 	/**  `file` | `export` */
 	kind: string,
@@ -4409,7 +4297,7 @@ export type MysqlImportSource_Serialize = {
 	exportId?: string | null,
 };
 
-/**  网络接口信息。 */
+/**  网络接口信息�?*/
 export type NetworkInterface = {
 	name: string,
 	description: string,
@@ -4448,7 +4336,7 @@ export type OfficialCatalogPlugin = {
 	downloads?: number | null,
 };
 
-/**  Ollama 探测结果。 */
+/**  Ollama 探测结果�?*/
 export type OllamaProbeResult = {
 	status: LocalRuntimeStatus,
 	endpoint: string,
@@ -4459,37 +4347,37 @@ export type OllamaProbeResult = {
 	error: string | null,
 };
 
-/**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`。 */
+/**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`�?*/
 export type OmniError = OmniError_Serialize | OmniError_Deserialize;
 
-/**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`。 */
+/**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`�?*/
 export type OmniError_Deserialize = {
-	/**  错误分类码 */
+	/**  错误分类�?*/
 	code: ErrorCode,
-	/**  面向用户的可读信息 */
+	/**  面向用户的可读信�?*/
 	message: string,
 	/**  可选的底层原因（调试用，可能含技术细节） */
 	cause: string | null,
 };
 
-/**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`。 */
+/**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`�?*/
 export type OmniError_Serialize = {
-	/**  错误分类码 */
+	/**  错误分类�?*/
 	code: ErrorCode,
-	/**  面向用户的可读信息 */
+	/**  面向用户的可读信�?*/
 	message: string,
 	/**  可选的底层原因（调试用，可能含技术细节） */
 	cause?: string | null,
 };
 
-/**  二进制响应（证书 zip 下载等）。 */
+/**  二进制响应（证书 zip 下载等）�?*/
 export type OnePanelBinaryPayload = {
 	contentBase64: string,
 	contentType: string,
 	filename: string | null,
 };
 
-/**  LM Studio / 自定义端点探测。 */
+/**  LM Studio / 自定义端点探测�?*/
 export type OpenAiCompatProbeResult = {
 	reachable: boolean,
 	endpoint: string,
@@ -4498,11 +4386,11 @@ export type OpenAiCompatProbeResult = {
 };
 
 export type OpenCodeInstallStatus = {
-	/**  是否检测到 OpenCode CLI。 */
+	/**  是否检测到 OpenCode CLI�?*/
 	installed: boolean,
-	/**  解析到的可执行文件路径。 */
+	/**  解析到的可执行文件路径�?*/
 	executablePath: string | null,
-	/**  `opencode --version` 输出（若可用）。 */
+	/**  `opencode --version` 输出（若可用）�?*/
 	version: string | null,
 };
 
@@ -4511,50 +4399,47 @@ export type PairingKeypairResult = {
 };
 
 /**
- *  单个面板的探测结果。
- * 
- *  探测安装状态、访问地址、安全入口；`api_key` 仅供「一键管理」表单预填，卡片不展示。
- *  开启 API 仍走独立命令 `ssh_pool_enable_panel_api`（例如从 SSH 导入 Docker 时）。
- */
+ *  单个面板的探测结果�? * 
+ *  探测安装状态、访问地址、安全入口；`api_key` 仅供「一键管理」表单预填，卡片不展示�? *  开�?API 仍走独立命令 `ssh_pool_enable_panel_api`（例如从 SSH 导入 Docker 时）�? */
 export type PanelProbeItem = {
 	/**  面板类型：bt（宝塔） / 1panel */
 	kind: string,
-	/**  是否已安装 */
+	/**  是否已安�?*/
 	installed: boolean,
-	/**  面板 API origin（含协议和端口，如 http://192.168.1.10:8888，不含安全入口）；未安装时为空 */
+	/**  面板 API origin（含协议和端口，�?http://192.168.1.10:8888，不含安全入口）；未安装时为�?*/
 	address: string,
 	/**  面板端口；未安装时为 0 */
 	port: number,
-	/**  安全入口路径（宝塔 admin_path / 1Panel SecurityEntrance），如 /baota */
+	/**  安全入口路径（宝�?admin_path / 1Panel SecurityEntrance），�?/baota */
 	entrance: string,
 	/**  API 是否已开启（探测自配置文件；卡片不展示） */
 	apiEnabled: boolean,
-	/**  从面板配置读到的 API Key（表单预填用）；卡片不展示。敏感字段，前端不得传给 AI 或日志输出。 */
+	/**  从面板配置读到的 API Key（表单预填用）；卡片不展示。敏感字段，前端不得传给 AI 或日志输出�?*/
 	apiKey: string,
-	/**  额外提示信息（如版本号、读取失败原因等） */
+	/**  额外提示信息（如版本号、读取失败原因等�?*/
 	note: string,
 };
 
-/**  面板探测完整结果。 */
+/**  面板探测完整结果�?*/
 export type PanelProbeResult = {
 	resourceId: string,
 	panels: PanelProbeItem[],
 	/**  探测耗时（毫秒） */
 	elapsedMs: number,
-	/**  探测时间戳（Unix 毫秒） */
+	/**  探测时间戳（Unix 毫秒�?*/
 	probedAt: number,
 };
 
 export type PluginDistribution = "bundled" | "download";
 
-/**  插件身份。七种锁死，不为单一产品新增第八种。 */
+/**  插件身份。七种锁死，不为单一产品新增第八种�?*/
 export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon";
 
-/**  前端 / IPC 列表项。 */
+/**  前端 / IPC 列表项�?*/
 export type PluginListItem = PluginListItem_Serialize | PluginListItem_Deserialize;
 
-/* 手补（待 gen:bindings 覆盖）：plugin_studio 命令的 specta 类型。Rust 侧以
- * #[serde(rename_all = "camelCase")] 序列化，字段名与下面一致。 */
+/* 手补（待 gen:bindings 覆盖）：plugin_studio 命令�?specta 类型。Rust 侧以
+ * #[serde(rename_all = "camelCase")] 序列化，字段名与下面一致�?*/
 export type StudioProject = {
   name: string;
   files: string[];
@@ -4574,7 +4459,67 @@ export type StudioEnv = {
   repoRoot?: string | null;
 };
 
-/**  前端 / IPC 列表项。 */
+/* 手补（待 gen:bindings 覆盖）：marketplace 命令�?specta 类型。Rust 侧以
+ * #[serde(rename_all = "camelCase")] 序列化，字段名与下面一致�?*/
+export type RegistrySourceDto = {
+  id: string;
+  url: string;
+  enabled: boolean;
+  pinnedKeys: string[];
+  keyPending?: string | null;
+  hasToken: boolean;
+  builtin: boolean;
+};
+
+export type MarketplaceItem = {
+  id: string;
+  kind: PluginKind;
+  name: string;
+  description: string;
+  version: string;
+  changelog?: string | null;
+  minHostApi?: number | null;
+  installed: boolean;
+  installedVersion?: string | null;
+  updateAvailable: boolean;
+  sourceId: string;
+  downloadSize: number;
+  permissions: string[];
+};
+
+export type ResolvePlanItem = {
+  id: string;
+  version: string;
+  action: string;
+  sourceId: string;
+};
+
+export type ResolvePlan = {
+  items: ResolvePlanItem[];
+  warnings: string[];
+};
+
+export type PluginUpdateInfo = {
+  id: string;
+  installedVersion: string;
+  latestVersion: string;
+  changelog?: string | null;
+  sourceId: string;
+};
+
+export type UpdateResultItem = {
+  id: string;
+  ok: boolean;
+  error?: string | null;
+};
+
+export type SourceTestResult = {
+  ok: boolean;
+  pluginCount: number;
+  error?: string | null;
+};
+
+/**  前端 / IPC 列表项�?*/
 export type PluginListItem_Deserialize = {
 	id: string,
 	version: string,
@@ -4585,7 +4530,7 @@ export type PluginListItem_Deserialize = {
 	unsupportedReason: string | null,
 };
 
-/**  前端 / IPC 列表项。 */
+/**  前端 / IPC 列表项�?*/
 export type PluginListItem_Serialize = {
 	id: string,
 	version: string,
@@ -4604,30 +4549,28 @@ export type PluginManifestDto = {
 	activated: boolean,
 	source: PluginSource,
 	/**
-	 *  清单原文（JSON 字符串）：规避 specta 对内嵌 JsonValue 的递归内联展开；
-	 *  前端以 plugin-sdk Zod schema 解析，保持清单合同单源。
-	 */
+	 *  清单原文（JSON 字符串）：规�?specta 对内�?JsonValue 的递归内联展开�?	 *  前端�?plugin-sdk Zod schema 解析，保持清单合同单源�?	 */
 	manifestJson: string,
 };
 
-/**  插件来源：编译期内置（不可卸载）vs 磁盘安装（可卸载/升级）。 */
+/**  插件来源：编译期内置（不可卸载）vs 磁盘安装（可卸载/升级）�?*/
 export type PluginSource = "builtin" | "installed";
 
-/**  单类连接的活跃 / 空闲统计。 */
+/**  单类连接的活�?/ 空闲统计�?*/
 export type PoolCategorySummary = {
 	kind: string,
 	active: number,
 	idle: number,
 };
 
-/**  发射到前端的单个主机连接状态 */
+/**  发射到前端的单个主机连接状�?*/
 export type PoolStatusEvent = {
 	resourceId: string,
 	status: string,
 	error: string | null,
 };
 
-/**  全局连接池汇总。 */
+/**  全局连接池汇总�?*/
 export type PoolSummary = {
 	active: number,
 	idle: number,
@@ -4655,7 +4598,7 @@ export type ProvidersFile = {
 	cliProviders?: CliProviderRecord[],
 };
 
-/**  Proxy 配置，从前端设置同步到后端。 */
+/**  Proxy 配置，从前端设置同步到后端�?*/
 export type ProxyConfig = {
 	enabled: boolean,
 	protocol: string,
@@ -4666,18 +4609,18 @@ export type ProxyConfig = {
 };
 
 export type PushSnapshotResult = {
-	/**  概览文件 object key（对外主入口） */
+	/**  概览文件 object key（对外主入口�?*/
 	objectKey: string,
 	etag: string | null,
-	/**  全部文件字节数合计；用 f64 以兼容 specta/TS（禁止导出 u64） */
+	/**  全部文件字节数合计；�?f64 以兼�?specta/TS（禁止导�?u64�?*/
 	bytes: number | null,
-	/**  上传/组装的文件数（1 overview + N modules） */
+	/**  上传/组装的文件数�? overview + N modules�?*/
 	fileCount: number | null,
 	generatedAt: string,
 	dryRun: boolean,
 };
 
-/**  Qdrant 按 point id 批量删除参数。 */
+/**  Qdrant �?point id 批量删除参数�?*/
 export type QdrantDeletePointsArgs = {
 	connection: DbConnectionConfig,
 	collection: string,
@@ -4697,7 +4640,7 @@ export type RecommendedModel = {
 	fromLibrary: boolean,
 };
 
-/**  ACL 用户行。 */
+/**  ACL 用户行�?*/
 export type RedisAclUser = {
 	username: string,
 	flags: string,
@@ -4707,48 +4650,48 @@ export type RedisAclUser = {
 	raw: string,
 };
 
-/**  `INFO` 解析结果：section -> key -> value（均为字符串）。 */
+/**  `INFO` 解析结果：section -> key -> value（均为字符串）�?*/
 export type RedisInfoResult = {
 	sections: { [key in string]: { [key in string]: string } },
 };
 
-/**  单个 key 的详情（类型 / TTL / 大小 / 值预览）。 */
+/**  单个 key 的详情（类型 / TTL / 大小 / 值预览）�?*/
 export type RedisKeyDetail = RedisKeyDetail_Serialize | RedisKeyDetail_Deserialize;
 
-/**  单个 key 的详情（类型 / TTL / 大小 / 值预览）。 */
+/**  单个 key 的详情（类型 / TTL / 大小 / 值预览）�?*/
 export type RedisKeyDetail_Deserialize = {
 	key: string,
 	keyType: string,
-	/**  TTL 秒；-1 永不过期；-2 key 不存在。 */
+	/**  TTL 秒；-1 永不过期�?2 key 不存在�?*/
 	ttl: number | null,
-	/**  字节大小（MEMORY USAGE）；不可用时为 None。 */
+	/**  字节大小（MEMORY USAGE）；不可用时�?None�?*/
 	sizeBytes?: number | null,
-	/**  JSON 字符串：string 为引号字符串；hash/list/set/zset 为对象数组。 */
+	/**  JSON 字符串：string 为引号字符串；hash/list/set/zset 为对象数组�?*/
 	valueJson: string,
 	valueTruncated: boolean,
 };
 
-/**  单个 key 的详情（类型 / TTL / 大小 / 值预览）。 */
+/**  单个 key 的详情（类型 / TTL / 大小 / 值预览）�?*/
 export type RedisKeyDetail_Serialize = {
 	key: string,
 	keyType: string,
-	/**  TTL 秒；-1 永不过期；-2 key 不存在。 */
+	/**  TTL 秒；-1 永不过期�?2 key 不存在�?*/
 	ttl: number | null,
-	/**  字节大小（MEMORY USAGE）；不可用时为 None。 */
+	/**  字节大小（MEMORY USAGE）；不可用时�?None�?*/
 	sizeBytes?: number | null,
-	/**  JSON 字符串：string 为引号字符串；hash/list/set/zset 为对象数组。 */
+	/**  JSON 字符串：string 为引号字符串；hash/list/set/zset 为对象数组�?*/
 	valueJson: string,
 	valueTruncated: boolean,
 };
 
-/**  Redis 键搜索结果（供查询面板展示）。 */
+/**  Redis 键搜索结果（供查询面板展示）�?*/
 export type RedisKeyEntry = {
 	key: string,
 	keyType: string,
 	value: string,
 };
 
-/**  `MEMORY STATS` 键值对。 */
+/**  `MEMORY STATS` 键值对�?*/
 export type RedisMemoryStats = {
 	entries: { [key in string]: string },
 };
@@ -4762,33 +4705,33 @@ export type RedisSearchKeysArgs = {
 	includeValuePreview?: boolean,
 };
 
-/**  分页 SCAN 搜索结果。 */
+/**  分页 SCAN 搜索结果�?*/
 export type RedisSearchKeysResult = RedisSearchKeysResult_Serialize | RedisSearchKeysResult_Deserialize;
 
-/**  分页 SCAN 搜索结果。 */
+/**  分页 SCAN 搜索结果�?*/
 export type RedisSearchKeysResult_Deserialize = {
 	entries: RedisKeyEntry[],
-	/**  下次请求传入的 SCAN 游标；0 表示当前模式已扫完。 */
+	/**  下次请求传入�?SCAN 游标�? 表示当前模式已扫完�?*/
 	nextCursor: number | null,
 	hasMore: boolean,
-	/**  单次请求扫描的 key 数量达到上限，需缩小模式或继续加载。 */
+	/**  单次请求扫描�?key 数量达到上限，需缩小模式或继续加载�?*/
 	scanLimitHit?: boolean,
 };
 
-/**  分页 SCAN 搜索结果。 */
+/**  分页 SCAN 搜索结果�?*/
 export type RedisSearchKeysResult_Serialize = {
 	entries: RedisKeyEntry[],
-	/**  下次请求传入的 SCAN 游标；0 表示当前模式已扫完。 */
+	/**  下次请求传入�?SCAN 游标�? 表示当前模式已扫完�?*/
 	nextCursor: number | null,
 	hasMore: boolean,
-	/**  单次请求扫描的 key 数量达到上限，需缩小模式或继续加载。 */
+	/**  单次请求扫描�?key 数量达到上限，需缩小模式或继续加载�?*/
 	scanLimitHit?: boolean,
 };
 
-/**  慢日志条目。 */
+/**  慢日志条目�?*/
 export type RedisSlowLogEntry = RedisSlowLogEntry_Serialize | RedisSlowLogEntry_Deserialize;
 
-/**  慢日志条目。 */
+/**  慢日志条目�?*/
 export type RedisSlowLogEntry_Deserialize = {
 	id: number | null,
 	timestamp: number | null,
@@ -4798,7 +4741,7 @@ export type RedisSlowLogEntry_Deserialize = {
 	clientName?: string | null,
 };
 
-/**  慢日志条目。 */
+/**  慢日志条目�?*/
 export type RedisSlowLogEntry_Serialize = {
 	id: number | null,
 	timestamp: number | null,
@@ -4808,17 +4751,17 @@ export type RedisSlowLogEntry_Serialize = {
 	clientName?: string | null,
 };
 
-/**  Stream 消费者。 */
+/**  Stream 消费者�?*/
 export type RedisStreamConsumer = RedisStreamConsumer_Serialize | RedisStreamConsumer_Deserialize;
 
-/**  清理非活跃消费者结果。 */
+/**  清理非活跃消费者结果�?*/
 export type RedisStreamConsumerCleanupResult = {
 	removedConsumers: string[],
 	claimedPending: number | null,
 	failed: string[],
 };
 
-/**  Stream 消费者。 */
+/**  Stream 消费者�?*/
 export type RedisStreamConsumer_Deserialize = {
 	name: string,
 	pending?: number | null,
@@ -4826,7 +4769,7 @@ export type RedisStreamConsumer_Deserialize = {
 	active: boolean,
 };
 
-/**  Stream 消费者。 */
+/**  Stream 消费者�?*/
 export type RedisStreamConsumer_Serialize = {
 	name: string,
 	pending?: number | null,
@@ -4834,16 +4777,16 @@ export type RedisStreamConsumer_Serialize = {
 	active: boolean,
 };
 
-/**  Stream 条目。 */
+/**  Stream 条目�?*/
 export type RedisStreamEntry = {
 	id: string,
 	fields: { [key in string]: string },
 };
 
-/**  Stream 消费组摘要。 */
+/**  Stream 消费组摘要�?*/
 export type RedisStreamGroup = RedisStreamGroup_Serialize | RedisStreamGroup_Deserialize;
 
-/**  Stream 消费组摘要。 */
+/**  Stream 消费组摘要�?*/
 export type RedisStreamGroup_Deserialize = {
 	name: string,
 	consumers?: number | null,
@@ -4854,7 +4797,7 @@ export type RedisStreamGroup_Deserialize = {
 	behindSeconds?: number | null,
 };
 
-/**  Stream 消费组摘要。 */
+/**  Stream 消费组摘要�?*/
 export type RedisStreamGroup_Serialize = {
 	name: string,
 	consumers?: number | null,
@@ -4865,10 +4808,10 @@ export type RedisStreamGroup_Serialize = {
 	behindSeconds?: number | null,
 };
 
-/**  Stream 监控快照（对齐运维脚本指标）。 */
+/**  Stream 监控快照（对齐运维脚本指标）�?*/
 export type RedisStreamMonitorSnapshot = RedisStreamMonitorSnapshot_Serialize | RedisStreamMonitorSnapshot_Deserialize;
 
-/**  Stream 监控快照（对齐运维脚本指标）。 */
+/**  Stream 监控快照（对齐运维脚本指标）�?*/
 export type RedisStreamMonitorSnapshot_Deserialize = {
 	key: string,
 	newestId: string | null,
@@ -4878,7 +4821,7 @@ export type RedisStreamMonitorSnapshot_Deserialize = {
 	sampledAt: number | null,
 };
 
-/**  Stream 监控快照（对齐运维脚本指标）。 */
+/**  Stream 监控快照（对齐运维脚本指标）�?*/
 export type RedisStreamMonitorSnapshot_Serialize = {
 	key: string,
 	newestId: string | null,
@@ -4888,7 +4831,7 @@ export type RedisStreamMonitorSnapshot_Serialize = {
 	sampledAt: number | null,
 };
 
-/**  XPENDING 明细行。 */
+/**  XPENDING 明细行�?*/
 export type RedisStreamPendingEntry = {
 	id: string,
 	consumer: string,
@@ -4896,46 +4839,46 @@ export type RedisStreamPendingEntry = {
 	deliveryCount: number | null,
 };
 
-/**  Stream 范围查询结果。 */
+/**  Stream 范围查询结果�?*/
 export type RedisStreamRangeResult = {
 	entries: RedisStreamEntry[],
 	reverse: boolean,
 };
 
-/**  批量探测后单个工具的结果。 */
+/**  批量探测后单个工具的结果�?*/
 export type RemoteToolCapability = {
 	id: string,
 	labelKey: string,
 	category: ToolCategory,
 	state: ToolState,
-	/**  安装方式（前端展示"一键安装"按钮用）。 */
+	/**  安装方式（前端展�?一键安�?按钮用）�?*/
 	installMethod: InstallMethod,
 	relatedModules: string[],
 };
 
-/**  资源档案摘要：用于 `list_resources_with_profiles` 列表展示与 `find_similar`。 */
+/**  资源档案摘要：用�?`list_resources_with_profiles` 列表展示�?`find_similar`�?*/
 export type ResourceProfileSummary = {
 	resourceType: string,
 	resourceId: string,
-	/**  每类观测的最新时间戳（Unix 毫秒） */
+	/**  每类观测的最新时间戳（Unix 毫秒�?*/
 	latestObservedAt: number | null,
-	/**  观测种类数 */
+	/**  观测种类�?*/
 	observationKinds: number | null,
-	/**  该资源关联的 knowledge 条目数 */
+	/**  该资源关联的 knowledge 条目�?*/
 	knowledgeCount: number | null,
-	/**  资源指纹：用于相似度匹配的关键属性摘要（JSON） */
+	/**  资源指纹：用于相似度匹配的关键属性摘要（JSON�?*/
 	fingerprint: any,
 };
 
-/**  采集结果：成功保存的观测种类列表 + 失败子任务的错误信息。 */
+/**  采集结果：成功保存的观测种类列表 + 失败子任务的错误信息�?*/
 export type ResourceSnapshotResult = {
-	/**  本次成功保存的 observation_kind 列表（如 ["hardware", "services", "topology"]）。 */
+	/**  本次成功保存�?observation_kind 列表（如 ["hardware", "services", "topology"]）�?*/
 	savedKinds: string[],
-	/**  失败的子任务错误描述（采集过程中某项失败不影响其他项）。 */
+	/**  失败的子任务错误描述（采集过程中某项失败不影响其他项）�?*/
 	errors: string[],
 };
 
-/**  资源上的标签（含 source）。 */
+/**  资源上的标签（含 source）�?*/
 export type ResourceTagDto = {
 	tag: TagDto,
 	source: string,
@@ -4997,7 +4940,7 @@ export type SaveWorkflowRequest = {
 	steps: SaveStepRequest[],
 };
 
-/**  保存的 HTTP 请求。 */
+/**  保存�?HTTP 请求�?*/
 export type SavedHttpRequest = {
 	id: string,
 	name: string,
@@ -5014,7 +4957,7 @@ export type SavedHttpRequest = {
 	queryParams?: string,
 	createdAt: number | null,
 	updatedAt: number | null,
-	/**  资源标签列表；新建时自动打 `creator: <设备名>` 标记创建设备。 */
+	/**  资源标签列表；新建时自动�?`creator: <设备�?` 标记创建设备�?*/
 	tags?: string[],
 };
 
@@ -5070,9 +5013,9 @@ export type SchemaCacheDatabasePayload_Deserialize = {
 	views?: DbTableSchema_Deserialize[],
 	routines?: DbRoutineMeta[],
 	loadError?: string | null,
-	/**  连接浅刷新为 false；库对象名列表已拉取为 true（列/索引仍可按表懒加载）。 */
+	/**  连接浅刷新为 false；库对象名列表已拉取�?true（列/索引仍可按表懒加载）�?*/
 	objectsLoaded?: boolean,
-	/**  Redis：`INFO keyspace` 的 keys 数；其它引擎忽略。 */
+	/**  Redis：`INFO keyspace` �?keys 数；其它引擎忽略�?*/
 	keyCount?: number | null,
 };
 
@@ -5082,9 +5025,9 @@ export type SchemaCacheDatabasePayload_Serialize = {
 	views: DbTableSchema_Serialize[],
 	routines: DbRoutineMeta[],
 	loadError?: string | null,
-	/**  连接浅刷新为 false；库对象名列表已拉取为 true（列/索引仍可按表懒加载）。 */
+	/**  连接浅刷新为 false；库对象名列表已拉取�?true（列/索引仍可按表懒加载）�?*/
 	objectsLoaded: boolean,
-	/**  Redis：`INFO keyspace` 的 keys 数；其它引擎忽略。 */
+	/**  Redis：`INFO keyspace` �?keys 数；其它引擎忽略�?*/
 	keyCount?: number | null,
 };
 
@@ -5094,9 +5037,9 @@ export type SchemaCacheDatabase_Deserialize = {
 	views?: SchemaCacheTable_Deserialize[],
 	routines?: SchemaCacheRoutine[],
 	loadError?: string | null,
-	/**  是否已拉取该库下的表/视图/例程（连接级浅刷新为 false，展开库后再 true）。 */
+	/**  是否已拉取该库下的表/视图/例程（连接级浅刷新为 false，展开库后�?true）�?*/
 	objectsLoaded?: boolean,
-	/**  Redis：key 条数；其它引擎忽略。 */
+	/**  Redis：key 条数；其它引擎忽略�?*/
 	keyCount?: number | null,
 };
 
@@ -5106,9 +5049,9 @@ export type SchemaCacheDatabase_Serialize = {
 	views: SchemaCacheTable_Serialize[],
 	routines: SchemaCacheRoutine[],
 	loadError?: string | null,
-	/**  是否已拉取该库下的表/视图/例程（连接级浅刷新为 false，展开库后再 true）。 */
+	/**  是否已拉取该库下的表/视图/例程（连接级浅刷新为 false，展开库后�?true）�?*/
 	objectsLoaded: boolean,
-	/**  Redis：key 条数；其它引擎忽略。 */
+	/**  Redis：key 条数；其它引擎忽略�?*/
 	keyCount?: number | null,
 };
 
@@ -5123,15 +5066,15 @@ export type SchemaCacheRoutine = {
 	routineType: string,
 };
 
-/**  全部连接的 Schema 缓存快照。 */
+/**  全部连接�?Schema 缓存快照�?*/
 export type SchemaCacheSnapshot = SchemaCacheSnapshot_Serialize | SchemaCacheSnapshot_Deserialize;
 
-/**  全部连接的 Schema 缓存快照。 */
+/**  全部连接�?Schema 缓存快照�?*/
 export type SchemaCacheSnapshot_Deserialize = {
 	connections?: { [key in string]: SchemaCacheConnection_Deserialize },
 };
 
-/**  全部连接的 Schema 缓存快照。 */
+/**  全部连接�?Schema 缓存快照�?*/
 export type SchemaCacheSnapshot_Serialize = {
 	connections: { [key in string]: SchemaCacheConnection_Serialize },
 };
@@ -5176,14 +5119,14 @@ export type SchemaConnectionRefreshPayload_Serialize = {
 	users: DbUserMeta_Serialize[],
 };
 
-/**  单个连接或库下的过滤项（与前端 `SchemaFilterState` 对应，可见项为列表）。 */
+/**  单个连接或库下的过滤项（与前�?`SchemaFilterState` 对应，可见项为列表）�?*/
 export type SchemaFilterRecord = {
 	orderedNames: string[],
 	visibleNames: string[],
 	pinnedNames?: string[],
 };
 
-/**  全部连接的 Schema 过滤快照。 */
+/**  全部连接�?Schema 过滤快照�?*/
 export type SchemaFiltersSnapshot = {
 	databaseFilters?: { [key in string]: SchemaFilterRecord },
 	tableFilters?: { [key in string]: SchemaFilterRecord },
@@ -5233,7 +5176,7 @@ export type SchemaTableRefreshPayload_Serialize = {
 	table: DbTableSchema_Serialize,
 };
 
-/**  Schema 树已展开节点 id 快照（与前端 `expanded` Set 的 key 一致）。 */
+/**  Schema 树已展开节点 id 快照（与前端 `expanded` Set �?key 一致）�?*/
 export type SchemaTreeExpandedSnapshot = {
 	expandedNodeIds?: string[],
 };
@@ -5243,7 +5186,7 @@ export type SearchConfigDto = {
 	autoOrder: string[],
 };
 
-/**  全局搜索命中。 */
+/**  全局搜索命中�?*/
 export type SearchEverywhereHit = {
 	kind: string,
 	id: string,
@@ -5254,7 +5197,7 @@ export type SearchEverywhereHit = {
 
 export type SecretsVaultPullRequest = {
 	token: string,
-	/**  SyncMasterKey（主密码）：用于 Argon2id 解密密文库。 */
+	/**  SyncMasterKey（主密码）：用于 Argon2id 解密密文库�?*/
 	deviceCode: string,
 	ossPath: string,
 };
@@ -5283,7 +5226,7 @@ export type SecretsVaultStatus = {
 	secretCount: number,
 };
 
-/**  SFTP 目录项。 */
+/**  SFTP 目录项�?*/
 export type SftpEntry = {
 	name: string,
 	isDir: boolean,
@@ -5292,15 +5235,15 @@ export type SftpEntry = {
 	size: number | null,
 };
 
-/**  远端媒体探测结果（不下载整文件）。 */
+/**  远端媒体探测结果（不下载整文件）�?*/
 export type SftpMediaProbe = {
 	durationSecs: number | null,
 	size: number | null,
-	/**  JPEG 封面的 data URL（无封面时为 null） */
+	/**  JPEG 封面�?data URL（无封面时为 null�?*/
 	posterDataUrl: string | null,
 };
 
-/**  打开边下边播流后的句柄元数据。 */
+/**  打开边下边播流后的句柄元数据�?*/
 export type SftpMediaStream = {
 	url: string,
 	token: string,
@@ -5308,36 +5251,34 @@ export type SftpMediaStream = {
 	mime: string,
 };
 
-/**  可在 UI 中供用户选择的 shell 描述。 */
+/**  可在 UI 中供用户选择�?shell 描述�?*/
 export type ShellInfo = {
 	kind: ShellKind,
-	/**  展示名，如 "PowerShell 7" / "CMD" / "Ubuntu-22.04 (WSL)"。 */
+	/**  展示名，�?"PowerShell 7" / "CMD" / "Ubuntu-22.04 (WSL)"�?*/
 	label: string,
-	/**  可执行文件路径（WSL 为 wsl.exe）。 */
+	/**  可执行文件路径（WSL �?wsl.exe）�?*/
 	path: string,
-	/**  WSL 发行版名称（仅 Wsl kind）。 */
+	/**  WSL 发行版名称（�?Wsl kind）�?*/
 	wslDistro: string | null,
 };
 
 /**  Shell type detected on the current platform. */
 export type ShellKind = "bash" | "zsh" | "powershell" | "powershell5" | "fish" | "cmd" | 
-/**  Windows Subsystem for Linux（通过 wsl.exe 启动）。 */
+/**  Windows Subsystem for Linux（通过 wsl.exe 启动）�?*/
 "wsl";
 
-/**  调用方显式指定的 shell 规格。 */
+/**  调用方显式指定的 shell 规格�?*/
 export type ShellSpec = {
-	/**  shell 种类。 */
+	/**  shell 种类�?*/
 	kind: ShellKind,
 	/**
-	 *  可执行文件路径（如 "C:\\Program Files\\PowerShell\\7\\pwsh.exe"）。
-	 *  None 时按 kind 取默认程序名（pwsh / powershell / cmd.exe / wsl.exe）。
-	 */
+	 *  可执行文件路径（�?"C:\\Program Files\\PowerShell\\7\\pwsh.exe"）�?	 *  None 时按 kind 取默认程序名（pwsh / powershell / cmd.exe / wsl.exe）�?	 */
 	path: string | null,
-	/**  WSL 发行版名称（仅 Wsl kind 生效），如 "Ubuntu-22.04"。None 时用默认发行版。 */
+	/**  WSL 发行版名称（�?Wsl kind 生效），�?"Ubuntu-22.04"。None 时用默认发行版�?*/
 	wslDistro: string | null,
 };
 
-/**  Skill 应用记录（每次 AI 调用 skill 时追加一条）。 */
+/**  Skill 应用记录（每�?AI 调用 skill 时追加一条）�?*/
 export type SkillApplication = {
 	id: string,
 	skillId: string,
@@ -5352,14 +5293,14 @@ export type SkillApplication = {
 
 export type SkillCreateInput = {
 	id: string,
-	/**  可省略：若 body 含 frontmatter，以 frontmatter 为准 */
+	/**  可省略：�?body �?frontmatter，以 frontmatter 为准 */
 	name?: string,
 	description?: string,
 	body?: string,
 	enabled?: boolean,
 };
 
-/**  Skill DB 记录（与文件层 SkillRecord 互补，增加版本链和应用统计）。 */
+/**  Skill DB 记录（与文件�?SkillRecord 互补，增加版本链和应用统计）�?*/
 export type SkillDbRecord = {
 	id: string,
 	name: string,
@@ -5386,7 +5327,7 @@ export type SkillDetail = {
 	body: string,
 };
 
-/**  Skill 记录（列表/CRUD 用，含文件元信息）。 */
+/**  Skill 记录（列�?CRUD 用，含文件元信息）�?*/
 export type SkillRecord = {
 	id: string,
 	name: string,
@@ -5405,14 +5346,14 @@ export type SkillUpdateInput = {
 	enabled?: boolean | null,
 };
 
-/**  Skill 向量化状态。 */
+/**  Skill 向量化状态�?*/
 export type SkillVectorStatus = {
 	skillId: string,
 	chunkCount: number | null,
 	embeddedAt: number | null,
 };
 
-/**  Skill 向量化参数。 */
+/**  Skill 向量化参数�?*/
 export type SkillVectorizeArgs = {
 	skillId: string,
 	provider: EmbeddingProviderConfig,
@@ -5425,14 +5366,14 @@ export type SkillVectorizeResult = {
 	chunkCount: number | null,
 };
 
-/**  版本链条目：id + 版本号 + 创建时间。 */
+/**  版本链条目：id + 版本�?+ 创建时间�?*/
 export type SkillVersionChainEntry = {
 	id: string,
 	version: number | null,
 	createdAt: number | null,
 };
 
-/**  捕获的数据包。 */
+/**  捕获的数据包�?*/
 export type SnifferPacket = {
 	id: number | null,
 	timestamp: string,
@@ -5445,10 +5386,10 @@ export type SnifferPacket = {
 	payloadHex: string,
 };
 
-/**  SSH 认证方式。 */
+/**  SSH 认证方式�?*/
 export type SshAuth = SshAuth_Serialize | SshAuth_Deserialize;
 
-/**  SSH 认证方式。 */
+/**  SSH 认证方式�?*/
 export type SshAuth_Deserialize = ({ password: {
 	type: "password",
 	password: string,
@@ -5463,13 +5404,13 @@ export type SshAuth_Deserialize = ({ password: {
 	keyId?: string | null,
 } }) & { password?: never };
 
-/**  SSH 认证方式。 */
+/**  SSH 认证方式�?*/
 export type SshAuth_Serialize = ({ type: "password"; password: string }) & { keyId?: never; keyPath?: never; passphrase?: never; pem?: never } | ({ type: "privateKey"; pem: string | null; keyPath: string | null; keyId: string | null; passphrase: string | null }) & { password?: never };
 
-/**  SSH 连接配置。 */
+/**  SSH 连接配置�?*/
 export type SshConfig = SshConfig_Serialize | SshConfig_Deserialize;
 
-/**  `~/.ssh/config` 中的一个 Host 条目（已展开 HostName）。 */
+/**  `~/.ssh/config` 中的一�?Host 条目（已展开 HostName）�?*/
 export type SshConfigEntry = {
 	alias: string,
 	hostName: string,
@@ -5490,7 +5431,7 @@ export type SshConfigSyncResult = {
 	failures: SshConfigSyncFailure[],
 };
 
-/**  SSH 连接配置。 */
+/**  SSH 连接配置�?*/
 export type SshConfig_Deserialize = {
 	host: string,
 	port: number,
@@ -5499,7 +5440,7 @@ export type SshConfig_Deserialize = {
 	publicIp?: string | null,
 };
 
-/**  SSH 连接配置。 */
+/**  SSH 连接配置�?*/
 export type SshConfig_Serialize = {
 	host: string,
 	port: number,
@@ -5508,7 +5449,7 @@ export type SshConfig_Serialize = {
 	publicIp: string | null,
 };
 
-/**  在远端 `~/.omnipanel/scripts/<name>` 创建脚本并执行。 */
+/**  在远�?`~/.omnipanel/scripts/<name>` 创建脚本并执行�?*/
 export type SshCreateRunScriptOutput = {
 	remotePath: string,
 	stdout: string,
@@ -5516,7 +5457,7 @@ export type SshCreateRunScriptOutput = {
 	exitCode: number,
 };
 
-/**  非交互执行远程命令（连接池 exec channel）。 */
+/**  非交互执行远程命令（连接�?exec channel）�?*/
 export type SshExecOutput = {
 	stdout: string,
 	stderr: string,
@@ -5532,22 +5473,22 @@ export type SshHostInfo = {
 	user: string,
 };
 
-/**  概览页一次加载的完整数据（系统指标 + 进程列表）。 */
+/**  概览页一次加载的完整数据（系统指�?+ 进程列表）�?*/
 export type SshHostOverview = SshHostOverview_Serialize | SshHostOverview_Deserialize;
 
-/**  概览页一次加载的完整数据（系统指标 + 进程列表）。 */
+/**  概览页一次加载的完整数据（系统指�?+ 进程列表）�?*/
 export type SshHostOverview_Deserialize = {
 	stats: HostSystemStats_Deserialize,
 	processes: SshProcessInfo_Deserialize[],
 };
 
-/**  概览页一次加载的完整数据（系统指标 + 进程列表）。 */
+/**  概览页一次加载的完整数据（系统指�?+ 进程列表）�?*/
 export type SshHostOverview_Serialize = {
 	stats: HostSystemStats_Serialize,
 	processes: SshProcessInfo_Serialize[],
 };
 
-/**  SSH 密钥信息。 */
+/**  SSH 密钥信息�?*/
 export type SshKeyInfo = {
 	id: string,
 	name: string,
@@ -5557,10 +5498,10 @@ export type SshKeyInfo = {
 	comment: string,
 };
 
-/**  通过 `/proc/<pid>` 深入采集的进程详情。 */
+/**  通过 `/proc/<pid>` 深入采集的进程详情�?*/
 export type SshProcessDetail = SshProcessDetail_Serialize | SshProcessDetail_Deserialize;
 
-/**  通过 `/proc/<pid>` 深入采集的进程详情。 */
+/**  通过 `/proc/<pid>` 深入采集的进程详情�?*/
 export type SshProcessDetail_Deserialize = {
 	pid: number,
 	commandLine?: string | null,
@@ -5571,7 +5512,7 @@ export type SshProcessDetail_Deserialize = {
 	openFiles?: string[],
 };
 
-/**  通过 `/proc/<pid>` 深入采集的进程详情。 */
+/**  通过 `/proc/<pid>` 深入采集的进程详情�?*/
 export type SshProcessDetail_Serialize = {
 	pid: number,
 	commandLine?: string | null,
@@ -5582,10 +5523,10 @@ export type SshProcessDetail_Serialize = {
 	openFiles: string[],
 };
 
-/**  远程进程信息。 */
+/**  远程进程信息�?*/
 export type SshProcessInfo = SshProcessInfo_Serialize | SshProcessInfo_Deserialize;
 
-/**  远程进程信息。 */
+/**  远程进程信息�?*/
 export type SshProcessInfo_Deserialize = {
 	user: string,
 	pid: number,
@@ -5598,11 +5539,11 @@ export type SshProcessInfo_Deserialize = {
 	time: string,
 	command: string,
 	ports?: SshProcessPort_Deserialize[],
-	/**  进程 GPU 使用率（%），采集不到时为 None。 */
+	/**  进程 GPU 使用率（%），采集不到时为 None�?*/
 	gpuUsage?: number | null,
 };
 
-/**  远程进程信息。 */
+/**  远程进程信息�?*/
 export type SshProcessInfo_Serialize = {
 	user: string,
 	pid: number,
@@ -5615,14 +5556,14 @@ export type SshProcessInfo_Serialize = {
 	time: string,
 	command: string,
 	ports: SshProcessPort_Serialize[],
-	/**  进程 GPU 使用率（%），采集不到时为 None。 */
+	/**  进程 GPU 使用率（%），采集不到时为 None�?*/
 	gpuUsage?: number | null,
 };
 
-/**  进程关联的监听端口。 */
+/**  进程关联的监听端口�?*/
 export type SshProcessPort = SshProcessPort_Serialize | SshProcessPort_Deserialize;
 
-/**  进程关联的监听端口。 */
+/**  进程关联的监听端口�?*/
 export type SshProcessPort_Deserialize = {
 	protocol: string,
 	localAddress: string,
@@ -5632,7 +5573,7 @@ export type SshProcessPort_Deserialize = {
 	remotePort?: number | null,
 };
 
-/**  进程关联的监听端口。 */
+/**  进程关联的监听端口�?*/
 export type SshProcessPort_Serialize = {
 	protocol: string,
 	localAddress: string,
@@ -5642,19 +5583,19 @@ export type SshProcessPort_Serialize = {
 	remotePort?: number | null,
 };
 
-/**  单个远程终端的传输信息，供前端展示模式标识。 */
+/**  单个远程终端的传输信息，供前端展示模式标识�?*/
 export type SshTerminalInfo = {
 	mode: TerminalMode,
 	host: string,
 	tmuxVersion: string | null,
 	tmuxSession: string | null,
-	/**  tmux pane id（如 `%5`），用于关 Tab 后重连恢复原 window。 */
+	/**  tmux pane id（如 `%5`），用于�?Tab 后重连恢复原 window�?*/
 	tmuxPaneId: number | null,
-	/**  降级到直连的原因，`tmux` 模式下为 `None`。 */
+	/**  降级到直连的原因，`tmux` 模式下为 `None`�?*/
 	fallbackReason: string | null,
 };
 
-/**  隧道信息。 */
+/**  隧道信息�?*/
 export type SshTunnelInfo = {
 	id: string,
 	connectionId: string,
@@ -5672,13 +5613,13 @@ export type StepType = "shell" | "sql" | "docker" | "workflow";
 
 export type StorageSwitchTeamResult = {
 	teamScope: string,
-	/**  目标团队本机目录在打开前没有主库，可安全拉取云端快照。 */
+	/**  目标团队本机目录在打开前没有主库，可安全拉取云端快照�?*/
 	empty: boolean,
 };
 
 export type SyncMasterKeyGetOrCreateResult = {
 	key: string,
-	/**  true = 本次新生成，应弹出备份引导 */
+	/**  true = 本次新生成，应弹出备份引�?*/
 	created: boolean,
 };
 
@@ -5689,7 +5630,7 @@ export type SyncMasterKeyStatus = {
 	key: string | null,
 };
 
-/**  中继传钥：生成临时密钥对（供后续 omniserver `/api/sync/key/*` 使用）。 */
+/**  中继传钥：生成临时密钥对（供后续 omniserver `/api/sync/key/*` 使用）�?*/
 export type SyncTeamKeyEphemeralKeypair = {
 	secretKeyB64: string,
 	publicKeyB64: string,
@@ -5698,7 +5639,7 @@ export type SyncTeamKeyEphemeralKeypair = {
 
 export type SyncTeamKeyGetOrCreateResult = {
 	fingerprint: string,
-	/**  true = 本次新生成，应提示备份 */
+	/**  true = 本次新生成，应提示备�?*/
 	created: boolean,
 };
 
@@ -5713,14 +5654,14 @@ export type SyncTeamKeyStatus = {
 
 export type TableInfo = {
 	name: string,
-	/**  `serde_json::JsonValue` 含 i64 Number，specta 需标成 Any 才能导出。 */
+	/**  `serde_json::JsonValue` �?i64 Number，specta 需标成 Any 才能导出�?*/
 	rows: { [key in string]: any }[],
 	columns: string[],
 };
 
 export type TableRowCount = {
 	name: string,
-	/**  统计成功时为行数；单表失败时为 `null`（如视图、权限不足）。 */
+	/**  统计成功时为行数；单表失败时�?`null`（如视图、权限不足）�?*/
 	count: number | null,
 };
 
@@ -5740,7 +5681,7 @@ export type TableRowDiffPayload_Serialize = {
 	changedFields?: string[] | null,
 };
 
-/**  标签节点（扁平，前端组树）。 */
+/**  标签节点（扁平，前端组树）�?*/
 export type TagDto = {
 	id: string,
 	name: string,
@@ -5754,7 +5695,7 @@ export type TagDto = {
 	resourceCount: number | null,
 };
 
-/**  按标签查询到的资源摘要。 */
+/**  按标签查询到的资源摘要�?*/
 export type TaggedResourceSummary = {
 	resourceKind: string,
 	resourceId: string,
@@ -5782,7 +5723,7 @@ export type Task = {
 	finished_at: number | null,
 };
 
-/**  任务中心统一事件索引（历史时间轴筛选用）。 */
+/**  任务中心统一事件索引（历史时间轴筛选用）�?*/
 export type TaskEventRecord = {
 	id: string,
 	/**  bg_task | workflow | loop | approval | other */
@@ -5816,10 +5757,10 @@ export type TeamCreated = {
 	updatedAt: string,
 };
 
-/**  管理员生成的一次性 6 位数字邀请码。 */
+/**  管理员生成的一次�?6 位数字邀请码�?*/
 export type TeamInvite = {
 	code: string,
-	/**  ISO-8601 过期时间；空表示服务端未返回（仍一次性失效）。 */
+	/**  ISO-8601 过期时间；空表示服务端未返回（仍一次性失效）�?*/
 	expiresAt?: string,
 };
 
@@ -5860,7 +5801,7 @@ export type TeamShareSummary = {
 	panelLabel: string,
 	createdAt: string,
 	recipientUnionIds: string[],
-	/**  快照内资源类型；旧分享缺省为 custom-panel。 */
+	/**  快照内资源类型；旧分享缺省为 custom-panel�?*/
 	resourceKind: string,
 };
 
@@ -5874,7 +5815,7 @@ export type TeamSummary = {
 	id: number | null,
 	name: string,
 	creator: string,
-	/**  `personal` 默认个人团队；`custom` 协作团队。缺省为空以兼容旧接口。 */
+	/**  `personal` 默认个人团队；`custom` 协作团队。缺省为空以兼容旧接口�?*/
 	kind?: string,
 	roleCode: string,
 	userTeamName: string,
@@ -5883,7 +5824,7 @@ export type TeamSummary = {
 	updatedAt: string,
 };
 
-/**  从团队云端快照删除资源：按类别传 id 列表（http 集合/知识文件夹会级联删除后代）。 */
+/**  从团队云端快照删除资源：按类别传 id 列表（http 集合/知识文件夹会级联删除后代）�?*/
 export type TeamSyncDeleteResourcesRequest = {
 	token: string,
 	teamId: number | null,
@@ -5924,7 +5865,7 @@ export type TeamSyncPeekItem_Deserialize = {
 	kind?: string,
 	syncStatus?: TeamSyncPeekSyncStatus | null,
 	excluded: boolean,
-	/**  资源标签列表（来自对应资源的 tags 字段）。 */
+	/**  资源标签列表（来自对应资源的 tags 字段）�?*/
 	tags?: string[],
 };
 
@@ -5937,7 +5878,7 @@ export type TeamSyncPeekItem_Serialize = {
 	kind: string,
 	syncStatus?: TeamSyncPeekSyncStatus | null,
 	excluded: boolean,
-	/**  资源标签列表（来自对应资源的 tags 字段）。 */
+	/**  资源标签列表（来自对应资源的 tags 字段）�?*/
 	tags: string[],
 };
 
@@ -5967,7 +5908,7 @@ export type TeamSyncPeekModulesRequest = {
 	excludedHttpCollections?: string[],
 	excludedWorkspaces?: string[],
 	excludedCustomPanels?: string[],
-	/**  上传刚成功后为 true：用本机已写入快照作为远端，避免立刻 GET 到旧的 latest.json。 */
+	/**  上传刚成功后�?true：用本机已写入快照作为远端，避免立刻 GET 到旧�?latest.json�?*/
 	afterUpload?: boolean,
 };
 
@@ -6025,7 +5966,7 @@ export type TeamSyncPushModulesResult = {
 	bytes: number | null,
 };
 
-/**  持久化块记录（payload 为 JSON：output / reasoning / aiThread 等）。 */
+/**  持久化块记录（payload �?JSON：output / reasoning / aiThread 等）�?*/
 export type TerminalHistoryBlockRecord = {
 	id: string,
 	sessionId: string,
@@ -6042,20 +5983,20 @@ export type TerminalHistoryBlockRecord = {
 	updatedAt: number | null,
 };
 
-/**  保留策略（由前端设置传入；非法值在此钳制）。 */
+/**  保留策略（由前端设置传入；非法值在此钳制）�?*/
 export type TerminalHistoryRetainPolicy = {
 	maxSessions: number,
 	maxBlocksPerSession: number,
 };
 
-/**  终端传输模式。 */
+/**  终端传输模式�?*/
 export type TerminalMode = 
-/**  经 tmux control mode，连接复用且会话可持久。 */
+/**  �?tmux control mode，连接复用且会话可持久�?*/
 "tmux" | 
-/**  一 Tab 一条 SSH 连接的直连 shell。 */
+/**  一 Tab 一�?SSH 连接的直�?shell�?*/
 "direct";
 
-/**  第三方账户（列表展示，不含敏感凭据）。 */
+/**  第三方账户（列表展示，不含敏感凭据）�?*/
 export type ThirdPartyAccount = {
 	id: string,
 	name: string,
@@ -6063,51 +6004,48 @@ export type ThirdPartyAccount = {
 	authMethod: ThirdPartyAuthMethod,
 	username?: string,
 	notes?: string,
-	/**  是否已在钥匙串中保存密钥/密码。 */
+	/**  是否已在钥匙串中保存密钥/密码�?*/
 	hasSecret: boolean,
 	createdAt: number | null,
 	updatedAt: number | null,
 };
 
-/**  验证方式：API 密钥或用户名密码。 */
+/**  验证方式：API 密钥或用户名密码�?*/
 export type ThirdPartyAuthMethod = "api_key" | "password";
 
-/**  第三方平台。 */
+/**  第三方平台�?*/
 export type ThirdPartyPlatform = "github" | "gitlab" | "gitee" | "docker_hub" | "aws" | "aliyun" | "tencent" | "custom";
 
-/**  远端 tmux 会话概要，用于 `/server` 的会话治理视图。 */
+/**  远端 tmux 会话概要，用�?`/server` 的会话治理视图�?*/
 export type TmuxSessionInfo = {
 	name: string,
 	windows: number,
-	/**  创建时间（Unix 秒）。 */
+	/**  创建时间（Unix 秒）�?*/
 	created: number | null,
 	attached: boolean,
-	/**  是否由 OmniPanel 创建（按会话名前缀判定）。 */
+	/**  是否�?OmniPanel 创建（按会话名前缀判定）�?*/
 	managed: boolean,
 };
 
 /**
- *  单个 tmux 会话当前被 OmniPanel 的多少个 Tab 关联。
- * 
- *  关联计数来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window 的
- *  terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态。
- */
+ *  单个 tmux 会话当前�?OmniPanel 的多少个 Tab 关联�? * 
+ *  关联计数来自后端 `sessions` 表（跨所有窗口共享），不依赖前端 per-window �? *  terminalStore——远端会话治理视图所在窗口未必持有开 Tab 的窗口的 store 状态�? */
 export type TmuxTabStat = {
 	sessionName: string,
 	tabCount: number,
 };
 
-/**  会话内单个 window（OmniPanel 约定 1 window = 1 pane）。 */
+/**  会话内单�?window（OmniPanel 约定 1 window = 1 pane）�?*/
 export type TmuxWindowInfo = {
-	/**  tmux window id，如 `@3`。 */
+	/**  tmux window id，如 `@3`�?*/
 	windowId: string,
-	/**  pane 数字 id（来自 `%3` → `3`），用于 attach 重连。 */
+	/**  pane 数字 id（来�?`%3` �?`3`），用于 attach 重连�?*/
 	paneId: number,
-	/**  window 名称。 */
+	/**  window 名称�?*/
 	name: string,
 };
 
-/**  自定义待办列表。 */
+/**  自定义待办列表�?*/
 export type TodoList = {
 	id: string,
 	title: string,
@@ -6117,14 +6055,14 @@ export type TodoList = {
 	updatedAt?: number | null,
 };
 
-/**  重复规则（JSON 存库）。 */
+/**  重复规则（JSON 存库）�?*/
 export type TodoRecurrence = {
 	/**  daily | weekdays | weekly | monthly | yearly | custom */
 	freq: string,
 	interval?: number,
 };
 
-/**  任务步骤。 */
+/**  任务步骤�?*/
 export type TodoStep = {
 	id: string,
 	taskId: string,
@@ -6133,14 +6071,14 @@ export type TodoStep = {
 	sortOrder?: number | null,
 };
 
-/**  个人待办任务。 */
+/**  个人待办任务�?*/
 export type TodoTask = {
 	id: string,
 	listId: string,
 	title: string,
 	note?: string,
 	important?: boolean,
-	/**  加入「我的一天」的日历日（YYYY-MM-DD）；非今日则智能列表不展示。 */
+	/**  加入「我的一天」的日历日（YYYY-MM-DD）；非今日则智能列表不展示�?*/
 	myDayOn?: string | null,
 	dueAt?: number | null,
 	remindAt?: number | null,
@@ -6150,19 +6088,19 @@ export type TodoTask = {
 	sortOrder?: number | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
-	/**  列表查询时填充；保存时可一并替换。 */
+	/**  列表查询时填充；保存时可一并替换�?*/
 	steps?: TodoStep[],
 	stepsTotal?: number | null,
 	stepsDone?: number | null,
 };
 
-/**  任务查询：智能视图或自定义列表。 */
+/**  任务查询：智能视图或自定义列表�?*/
 export type TodoTaskQuery = {
 	/**  myDay | important | planned | tasks | list */
 	view: string,
 	listId?: string | null,
 	includeCompleted?: boolean,
-	/**  本地日历日 YYYY-MM-DD（我的一天过滤用）；缺省则用服务端 UTC 日。 */
+	/**  本地日历�?YYYY-MM-DD（我的一天过滤用）；缺省则用服务�?UTC 日�?*/
 	today?: string | null,
 };
 
@@ -6171,19 +6109,19 @@ export type ToolCallResult = {
 	isError: boolean,
 };
 
-/**  工具分类，前端按分类分组展示。 */
+/**  工具分类，前端按分类分组展示�?*/
 export type ToolCategory = 
-/**  终端复用与持久会话。 */
+/**  终端复用与持久会话�?*/
 "terminal" | 
-/**  数据库客户端与工具。 */
+/**  数据库客户端与工具�?*/
 "database" | 
-/**  压缩与归档。 */
+/**  压缩与归档�?*/
 "archive" | 
-/**  文件传输。 */
+/**  文件传输�?*/
 "transfer" | 
-/**  系统监控与进程。 */
+/**  系统监控与进程�?*/
 "monitoring" | 
-/**  系统基础命令。 */
+/**  系统基础命令�?*/
 "system";
 
 export type ToolInfo = ToolInfo_Serialize | ToolInfo_Deserialize;
@@ -6198,18 +6136,18 @@ export type ToolInfo_Serialize = {
 	description: string | null,
 };
 
-/**  工具状态。 */
+/**  工具状态�?*/
 export type ToolState = 
-/**  已就绪：二进制存在且（如有版本要求）版本达标。 */
+/**  已就绪：二进制存在且（如有版本要求）版本达标�?*/
 { kind: "ready"; version: string | null; path: string | null } | 
-/**  待安装：二进制缺失，但 manifest 声明了可自动安装的方式。 */
+/**  待安装：二进制缺失，�?manifest 声明了可自动安装的方式�?*/
 { kind: "needInstall" } | 
-/**  版本过低：已安装但低于最低要求。 */
+/**  版本过低：已安装但低于最低要求�?*/
 { kind: "tooOld"; version: string; required: string } | 
-/**  不支持：缺失且无法自动安装（仅展示手动指引）。 */
+/**  不支持：缺失且无法自动安装（仅展示手动指引）�?*/
 { kind: "unsupported"; reason: string };
 
-/**  隧道类型。 */
+/**  隧道类型�?*/
 export type TunnelType = "local" | "remote" | "dynamic";
 
 export type UpdateInfo = {
@@ -6238,7 +6176,7 @@ export type UpsertThirdPartyAccountInput = {
 	authMethod: ThirdPartyAuthMethod,
 	username?: string,
 	notes?: string,
-	/**  新建必填；编辑时留空表示保留原凭据。 */
+	/**  新建必填；编辑时留空表示保留原凭据�?*/
 	secret: string | null,
 };
 

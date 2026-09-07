@@ -25,6 +25,7 @@ mod knowledge_vector;
 mod paths;
 mod team_layout;
 mod plugin_settings;
+mod plugin_sources;
 mod resource_profile;
 mod schema_cache;
 mod schema_filters;
