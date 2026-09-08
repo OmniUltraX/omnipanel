@@ -488,7 +488,8 @@ const EMPTY_PROTOCOL_HTTP_LAYOUT: ProtocolHttpLayoutSnapshot = {
 
 /**
  * 云端拉取后写入本机。
- * merge：旧快照无此字段时保留本机；replace：切换团队时缺字段则清空，避免串数据。
+ * merge：旧快照无此字段时保留本机；远端 folders 为空而本机仍有文件夹时也保留（防空快照误覆盖）。
+ * replace：切换团队时缺字段则清空，避免串数据。
  */
 export function applyProtocolHttpLayout(
   data: unknown | null | undefined,
@@ -500,6 +501,10 @@ export function applyProtocolHttpLayout(
       useProtocolHttpLayoutStore.setState(EMPTY_PROTOCOL_HTTP_LAYOUT);
     }
     return;
+  }
+  if (mode === "merge" && parsed.folders.length === 0) {
+    const localFolders = useProtocolHttpLayoutStore.getState().folders;
+    if (localFolders.length > 0) return;
   }
   useProtocolHttpLayoutStore.setState({
     folders: parsed.folders,

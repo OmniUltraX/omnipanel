@@ -45,11 +45,12 @@ export async function pushTeamModules(
   token: string,
   teamId: number,
 ): Promise<TeamSyncPushModulesResult> {
+  const payload = await collectModulesSyncPayload();
   return unwrapCommand(
     commands.teamSyncPushModules({
       token,
       teamId,
-      ...collectModulesSyncPayload(),
+      ...payload,
     }),
   );
 }
@@ -70,11 +71,12 @@ export async function peekTeamModules(
   teamId: number,
   options?: { afterUpload?: boolean },
 ): Promise<TeamSyncPeekResult> {
+  const payload = await collectModulesSyncPayload();
   return unwrapCommand(
     commands.teamSyncPeekModules({
       token,
       teamId,
-      ...collectModulesSyncPayload(),
+      ...payload,
       ...teamSyncExclusionsForIpc(teamId),
       afterUpload: options?.afterUpload ?? false,
     }),

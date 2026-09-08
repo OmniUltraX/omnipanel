@@ -6,6 +6,7 @@ import {
   useSshSidebarTreeStore,
 } from "../../stores/sshSidebarTreeStore";
 import { collectFolderTreesJson } from "./folderTrees";
+import { waitLayoutStoresHydrated } from "./layoutStoresHydration";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
 import { serializeCustomPanelsJson } from "../workspace/useDashboardStore";
 import { uniqueTags } from "../../lib/resourceTags";
@@ -13,6 +14,10 @@ import { uniqueTags } from "../../lib/resourceTags";
 /** 上传前对齐各模块侧栏布局与本机连接列表，避免快照与 UI 不一致。 */
 export function prepareLayoutStoresForModuleSync(): void {
   const connections = useConnectionStore.getState().connections;
+  // 连接尚未从后端 refresh 时勿 prune：空列表会清掉 connectionFolderId，上传后文件夹变空壳。
+  if (!useConnectionStore.getState().loaded) {
+    return;
+  }
   const sshIds = connections.filter((c) => c.kind === "ssh").map((c) => c.id);
   const dockerIds = connections.filter((c) => c.kind === "docker").map((c) => c.id);
 
@@ -55,9 +60,10 @@ function deletedPayload() {
 
 /**
  * 组装模块快照上传请求体（团队手动上传与自动推送共用）。
- * 会先修剪侧栏布局，再序列化，保证 OSS 快照与本机 UI 一致。
+ * 会先等待侧栏 persist 水合、再修剪布局并序列化，避免把空 folders 推上云端。
  */
-export function collectModulesSyncPayload() {
+export async function collectModulesSyncPayload() {
+  await waitLayoutStoresHydrated();
   prepareLayoutStoresForModuleSync();
   return {
     workspacesJson: collectWorkspacesJson(),

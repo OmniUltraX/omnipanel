@@ -24,7 +24,68 @@ import {
   setSecretsVaultSyncSuppressed,
 } from "./secretsVaultSync";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
+import { waitLayoutStoresHydrated } from "./layoutStoresHydration";
 import { useClientSyncTombstoneStore } from "./tombstones";
+
+function sidebarFoldersEmpty(raw: string | null | undefined): boolean {
+  if (!raw?.trim()) return true;
+  try {
+    const parsed = JSON.parse(raw) as { folders?: unknown };
+    return !Array.isArray(parsed.folders) || parsed.folders.length === 0;
+  } catch {
+    return true;
+  }
+}
+
+function folderTreesAllEmpty(raw: string | null | undefined): boolean {
+  if (!raw?.trim()) return true;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, { folders?: unknown } | undefined>;
+    if (!parsed || typeof parsed !== "object") return true;
+    for (const key of ["docker", "database", "protocol"] as const) {
+      const node = parsed[key];
+      if (node && Array.isArray(node.folders) && node.folders.length > 0) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/** 本机侧栏仍有文件夹，但云端快照布局为空 → 需要回写修复。 */
+async function shouldHealEmptyCloudLayouts(
+  sshSidebarTreeJson: string | null | undefined,
+  folderTreesJson: string | null | undefined,
+): Promise<boolean> {
+  const [
+    { useSshSidebarTreeStore },
+    { useDockerSidebarTreeStore },
+    { useDbSchemaConnectionLayoutStore },
+    { useProtocolHttpLayoutStore },
+  ] = await Promise.all([
+    import("../../stores/sshSidebarTreeStore"),
+    import("../../stores/dockerSidebarTreeStore"),
+    import("../../stores/dbSchemaConnectionLayoutStore"),
+    import("../../stores/protocolHttpLayoutStore"),
+  ]);
+  if (
+    sidebarFoldersEmpty(sshSidebarTreeJson) &&
+    useSshSidebarTreeStore.getState().folders.length > 0
+  ) {
+    return true;
+  }
+  if (
+    folderTreesAllEmpty(folderTreesJson) &&
+    (useDockerSidebarTreeStore.getState().folders.length > 0 ||
+      useDbSchemaConnectionLayoutStore.getState().folders.length > 0 ||
+      useProtocolHttpLayoutStore.getState().folders.length > 0)
+  ) {
+    return true;
+  }
+  return false;
+}
 
 function mergeWorkspacesJson(raw: string | null | undefined): void {
   if (!raw?.trim()) return;
@@ -166,6 +227,14 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
   const token = useAuthStore.getState().token;
   if (!token?.trim()) return empty;
 
+  // 先等侧栏 persist 水合，再拉云端：否则 apply 后会被迟到的 IndexedDB rehydrate 盖成空 folders，
+  // 随后 deviceTagMigration / 自动推送还会把空布局写回 OSS。
+  try {
+    await waitLayoutStoresHydrated();
+  } catch (err) {
+    console.warn("[client-sync] waitLayoutStoresHydrated failed:", err);
+  }
+
   try {
     await ensureAuthProfileForPull();
   } catch (err) {
@@ -180,6 +249,7 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
   let conversationsFound = false;
   let appliedConnections = 0;
   let appliedDatabases = 0;
+  let healEmptyLayouts = false;
   let result: PullCloudSnapshotResult = empty;
   try {
     const modulesResult = await unwrapCommand(
@@ -195,6 +265,11 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
       applyFolderTreesJson(modulesResult.folderTreesJson, "merge");
       applyCustomPanelsJson(modulesResult.customPanelsJson, "merge");
       await refreshLocalModuleUi();
+      // merge 可能保留本机文件夹；云端布局为空时回写修复历史空快照
+      healEmptyLayouts = await shouldHealEmptyCloudLayouts(
+        modulesResult.sshSidebarTreeJson,
+        modulesResult.folderTreesJson,
+      );
     }
 
     const convResult = await unwrapCommand(
@@ -235,6 +310,14 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
   await runDeviceTagMigration();
   // suppress 解除后再考虑回写，否则 schedule 会被吞掉
   await republishLocalModulesIfCloudEmpty(result);
+  if (result.ok && healEmptyLayouts) {
+    try {
+      const { scheduleClientModuleSync } = await import("./moduleSync");
+      scheduleClientModuleSync();
+    } catch {
+      // ignore
+    }
+  }
   return result;
 }
 

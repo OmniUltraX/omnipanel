@@ -23,11 +23,12 @@ export function cancelClientModuleSync(): void {
 async function pushModulesOnce(teamId: number | null): Promise<void> {
   const token = useAuthStore.getState().token;
   if (!token?.trim()) return;
+  const payload = await collectModulesSyncPayload();
   await unwrapCommand(
     commands.clientSyncPushModules({
       token,
       teamId,
-      ...collectModulesSyncPayload(),
+      ...payload,
     }),
     { quiet: true },
   );

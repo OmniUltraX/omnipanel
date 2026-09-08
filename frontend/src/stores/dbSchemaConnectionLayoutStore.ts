@@ -235,7 +235,8 @@ const EMPTY_DATABASE_SIDEBAR_TREE: DatabaseSidebarTreeSnapshot = {
 
 /**
  * 云端拉取后写入本机。
- * merge：旧快照无此字段时保留本机；replace：切换团队时缺字段则清空，避免串数据。
+ * merge：旧快照无此字段时保留本机；远端 folders 为空而本机仍有文件夹时也保留（防空快照误覆盖）。
+ * replace：切换团队时缺字段则清空，避免串数据。
  */
 export function applyDatabaseSidebarTree(
   data: unknown | null | undefined,
@@ -247,6 +248,10 @@ export function applyDatabaseSidebarTree(
       useDbSchemaConnectionLayoutStore.setState(EMPTY_DATABASE_SIDEBAR_TREE);
     }
     return;
+  }
+  if (mode === "merge" && parsed.folders.length === 0) {
+    const localFolders = useDbSchemaConnectionLayoutStore.getState().folders;
+    if (localFolders.length > 0) return;
   }
   useDbSchemaConnectionLayoutStore.setState({
     folders: parsed.folders,

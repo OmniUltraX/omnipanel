@@ -536,7 +536,8 @@ const EMPTY_SSH_SIDEBAR_TREE: SshSidebarTreeSnapshot = {
 
 /**
  * 云端拉取后写入本机。
- * merge：旧快照无此字段时保留本机；replace：切换团队时缺字段则清空，避免串数据。
+ * merge：旧快照无此字段时保留本机；远端 folders 为空而本机仍有文件夹时也保留（防空快照误覆盖）。
+ * replace：切换团队时缺字段则清空，避免串数据。
  */
 export function applySshSidebarTreeJson(
   raw: string | null | undefined,
@@ -550,6 +551,9 @@ export function applySshSidebarTreeJson(
     return;
   }
   const current = useSshSidebarTreeStore.getState();
+  if (mode === "merge" && parsed.folders.length === 0 && current.folders.length > 0) {
+    return;
+  }
   useSshSidebarTreeStore.setState({
     folders: parsed.folders,
     connectionFolderId: parsed.connectionFolderId,

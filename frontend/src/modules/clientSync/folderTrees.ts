@@ -28,7 +28,8 @@ export function collectFolderTreesJson(): string {
 
 /**
  * 云端拉取后写入 Docker / 数据库 / 协议侧栏文件夹。
- * merge：旧快照无对应模块时保留本机；replace：切换团队时缺字段则清空。
+ * merge：旧快照无对应模块时保留本机；远端某模块 folders 为空而本机仍有时也保留。
+ * replace：切换团队时缺字段则清空。
  */
 export function applyFolderTreesJson(
   raw: string | null | undefined,
