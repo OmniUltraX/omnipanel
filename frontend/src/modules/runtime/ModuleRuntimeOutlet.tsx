@@ -73,6 +73,12 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
   const [keepAlive, setKeepAlive] = useState<OverlayKeepAliveState>(() =>
     createInitialKeepAliveState(pathname),
   );
+  // 路由已变时同步推进保活（勿等 useEffect）：否则首帧 overlayMounted[current]=false，
+  // ModuleHost 直接 return null，表现为「点了模块却切不过去 / 空白一帧卡死」。
+  const routeKeepAliveId = keepAliveIdFromPath(pathname);
+  if (keepAlive.current !== routeKeepAliveId) {
+    setKeepAlive((prev) => touchOverlayKeepAlive(prev, routeKeepAliveId));
+  }
   const tabsByWorkspace = useWorkspaceBottomDockStore((s) => s.tabsByWorkspace);
   const pinnedKeepAlive = useMemo(
     () => collectPinnedKeepAliveIds(tabsByWorkspace),
@@ -90,8 +96,10 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
     void warmTick;
     const merged = new Set(keepAliveMounted);
     for (const key of listShellWarmRequested()) merged.add(key);
+    // 双保险：pathname 对应模块同帧必挂（含 keepAlive 尚未提交的那一帧）
+    if (routeKeepAliveId) merged.add(routeKeepAliveId);
     return merged;
-  }, [keepAliveMounted, warmTick]);
+  }, [keepAliveMounted, warmTick, routeKeepAliveId]);
   const overlayMounted = useMemo(
     () => overlayMountedRecordFromKeepAlive(mountedWithWarm),
     [mountedWithWarm],
@@ -100,12 +108,6 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
     () => pluginKeysFromKeepAlive(mountedWithWarm),
     [mountedWithWarm],
   );
-
-  useEffect(() => {
-    const nextId = keepAliveIdFromPath(pathname);
-    setKeepAlive((prev) => touchOverlayKeepAlive(prev, nextId));
-  }, [pathname]);
-
   // 秒切回 P0 探针：记录每次路由切换的提交+首帧耗时与堆内存
   const prevPathRef = useRef(pathname);
   // layout 打点：DOM 落子时刻（区分 JS 提交 vs 布局绘制），必须同步调用
