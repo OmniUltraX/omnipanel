@@ -6,13 +6,13 @@
 
 ## 2. 一键投稿 P2
 
-- [ ] 2.1 投稿命令：`plugin_submit_issue`（读工程组装固定模板 → GitHub API 建 issue + `plugin-submission` 标签；token 经 `plugin_secret_*` 通道 `studio:github-token`；24h 限 3 次/工程；audit）。验证：token 不落盘单测；超限单测
-- [ ] 2.2 投稿确认框：目标仓库/正文预览/防灌水说明，`WorkbenchPanelHeader/WorkbenchActionButton`，i18n。验证：vitest；手动投稿到测试仓库
+- [x] 2.1 投稿命令：`plugin_submit_issue`（读工程组装固定模板 → GitHub API 建 issue + `plugin-submission` 标签；token 经 `plugin_secret_*` 通道 `studio:github-token`；24h 限 3 次/工程；audit）。验证：token 不落盘单测；超限单测
+- [x] 2.2 投稿确认框：目标仓库/正文预览/防灌水说明，`WorkbenchPanelHeader/WorkbenchActionButton`，i18n。验证：vitest；手动投稿到测试仓库
 
 ## 3. 归档 Action P3
 
-- [ ] 3.1 `.github/workflows/plugin-submissions.yml`（cron+手动：扫标签 issue → 校验片段 → 合 registry v2 → secrets 签名 → 提 PR）+ `docs/plugins/publishing.md` 投稿章节。验证：dry-run 或测试仓库真实跑通一次
+- [x] 3.1 `.github/workflows/plugin-submissions.yml`（cron+手动：扫标签 issue → 校验片段 → 合 registry v2 → secrets 签名 → 提 PR）+ `docs/plugins/publishing.md` 投稿章节。验证：dry-run 或测试仓库真实跑通一次
 
 ## 4. 回归
 
-- [ ] 4.1 全量门禁：`tsc -b` 零 error；相关 cargo/vitest 通过；`check-plugin-manifests` 全绿；插件中心现有流程不回退
+- [x] 4.1 全量门禁：`tsc -b` 零 error；相关 cargo/vitest 通过；`check-plugin-manifests` 全绿；插件中心现有流程不回退

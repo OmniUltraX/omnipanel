@@ -179,6 +179,14 @@ pub fn sign_registry(file: &RegistryFile, key: &SigningKey) -> Signature {
     key.sign(&bytes)
 }
 
+/// 目录是否带 Ed25519 签名（空 / 空白视为未签名）。
+pub fn registry_is_signed(file: &RegistryFile) -> bool {
+    file.signature
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+}
+
 /// 验签 registry（任一 key 通过即放行；无 signature 视为未签名）。
 pub fn verify_registry(
     file: &RegistryFile,
@@ -200,6 +208,19 @@ pub fn verify_registry(
         }
     }
     Err(PkgError::BadSignature)
+}
+
+/// 官方 HTTPS 目录：无签名放行（当前 `plugins-latest` 尚未签）；
+/// 有签名则必须通过。第三方源请继续用 [`verify_registry`]。
+/// 插件包 (`.omni-plugin`) 的 release 验签不受此项影响。
+pub fn verify_registry_allow_unsigned(
+    file: &RegistryFile,
+    keys: &[VerifyingKey],
+) -> Result<(), PkgError> {
+    if !registry_is_signed(file) {
+        return Ok(());
+    }
+    verify_registry(file, keys)
 }
 
 /// hex 公钥 → VerifyingKey（源 pin key 解析复用）。
@@ -291,6 +312,20 @@ mod tests {
         assert!(matches!(
             verify_registry(&file, &[]),
             Err(PkgError::UnsignedRejected)
+        ));
+    }
+
+    #[test]
+    fn official_catalog_allows_unsigned_but_rejects_bad_sig() {
+        let file = sample_v2();
+        verify_registry_allow_unsigned(&file, &[]).unwrap();
+
+        let key = dev_signing_key();
+        let mut signed = sample_v2();
+        signed.signature = Some("00".repeat(64));
+        assert!(matches!(
+            verify_registry_allow_unsigned(&signed, &[key.verifying_key()]),
+            Err(PkgError::BadSignature)
         ));
     }
 }

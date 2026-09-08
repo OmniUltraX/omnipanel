@@ -5,7 +5,7 @@ import { parsePluginHomeContribution } from "../../lib/pluginHomeContribution";
 import { openImporter } from "../importer/ImporterWizardDialog";
 import { importerEntries, listActiveImporters, resolveImporterText } from "../../lib/importerCatalog";
 import { pluginDisplayName } from "./pluginDisplayName";
-import { isDbxOrigin, originLabelKey, type PluginOrigin } from "./pluginOrigin";
+import { originLabelKey, type PluginOrigin } from "./pluginOrigin";
 import { formatPluginDate, formatPluginSize, type MarketItem } from "./pluginCenterTypes";
 import { PluginGlyph } from "./pluginGlyph";
 
@@ -70,7 +70,7 @@ export function PluginDetailPane({
     : [];
   const canUninstall = installed?.source === "installed";
   const bundled = market?.distribution === "bundled" || installed?.source === "builtin";
-  const fromDbx = isDbxOrigin(resolvedOrigin);
+  const fromDbx = Boolean(market?.dbxKey);
   const canDownload =
     Boolean(market) &&
     !bundled &&

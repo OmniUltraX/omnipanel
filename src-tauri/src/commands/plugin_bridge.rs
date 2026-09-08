@@ -617,3 +617,18 @@ fn save_candidate(
     };
     store.save_connection(&conn)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_host, normalize_bare};
+
+    #[test]
+    fn extract_host_from_url() {
+        assert_eq!(
+            extract_host("https://prod.example.com:443/api"),
+            Some("prod.example.com".into())
+        );
+        assert_eq!(extract_host("10.0.0.8:3306"), Some("10.0.0.8".into()));
+        assert_eq!(normalize_bare("DB.internal"), Some("db.internal".into()));
+    }
+}

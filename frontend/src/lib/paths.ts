@@ -2,8 +2,19 @@ export const MODULE_PREFIX = "/module";
 export const WORKSPACE_PREFIX = "/workspace";
 export const DASHBOARD_PATH = "/dashboard";
 export const PLUGINS_PATH = "/plugins";
-/** 插件工程面板（IDE P1）：独立路由，不占模块键（不碰侧栏模块体系）。 */
+/** 历史书签 / 旧入口：重定向到插件中心工作台 tab。 */
 export const STUDIO_PATH = "/studio";
+/** 插件中心内「工作台」视图（`/plugins?view=studio`）。 */
+export const PLUGINS_STUDIO_VIEW = "studio";
+
+export function pluginsStudioHref(): string {
+  return `${PLUGINS_PATH}?view=${PLUGINS_STUDIO_VIEW}`;
+}
+
+export function isPluginsStudioSearch(search: string): boolean {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  return new URLSearchParams(raw).get("view") === PLUGINS_STUDIO_VIEW;
+}
 
 export const MODULE_PATHS = {
   terminal: `${MODULE_PREFIX}/terminal`,

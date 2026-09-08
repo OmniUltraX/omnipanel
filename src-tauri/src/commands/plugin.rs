@@ -448,7 +448,7 @@ pub(crate) async fn install_plugin_from_path(
 
     {
         let registry = state.plugin_registry.lock().await;
-        if !registry.is_installed(&plugin_id) && registry.get(&plugin_id).is_some() {
+        if first_party_id_conflict(registry.is_installed(&plugin_id), registry.get(&plugin_id).is_some()) {
             return Err(OmniError::invalid_input(format!(
                 "插件 id 与内置插件冲突: {plugin_id}"
             )));
@@ -459,13 +459,48 @@ pub(crate) async fn install_plugin_from_path(
         .plugin_packages_dir
         .clone()
         .ok_or_else(|| OmniError::internal("无法定位插件安装目录"))?;
-    let target = dest_root.join(&plugin_id);
     let extract_path = pkg_path;
-    tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::extract_to(&extract_path, &target))
+    let dest_for_swap = dest_root.clone();
+    let id_for_swap = plugin_id.clone();
+    let swap_result = tokio::task::spawn_blocking(move || {
+        omnipanel_plugin_pkg::extract_and_swap(&extract_path, &dest_for_swap, &id_for_swap)
+    })
+    .await
+    .map_err(|e| OmniError::internal(e.to_string()))?;
+    if let Err(err) = swap_result {
+        audit_plugin_action(
+            state,
+            "plugin.rollback",
+            &plugin_id,
+            "blocked",
+            format!("staging 预检或 swap 失败: {err}"),
+        );
+        return Err(pkg_err_to_omni(err));
+    }
+
+    if let Err(err) = rebuild_and_sync(state).await {
+        let dest_for_restore = dest_root.clone();
+        let id_for_restore = plugin_id.clone();
+        let restored = tokio::task::spawn_blocking(move || {
+            omnipanel_plugin_pkg::restore_last_good(&dest_for_restore, &id_for_restore)
+        })
         .await
         .map_err(|e| OmniError::internal(e.to_string()))?
         .map_err(pkg_err_to_omni)?;
-    rebuild_and_sync(state).await?;
+        audit_plugin_action(
+            state,
+            "plugin.rollback",
+            &plugin_id,
+            "restored",
+            format!(
+                "rebuild failed after v{}; last-good {}",
+                manifest.version,
+                if restored { "restored" } else { "purged" }
+            ),
+        );
+        let _ = rebuild_and_sync(state).await;
+        return Err(err);
+    }
     audit_plugin_action(
         state,
         "plugin.install",
@@ -530,17 +565,11 @@ pub async fn plugin_uninstall(
         }
     }
     if let Some(dest_root) = state.plugin_packages_dir.clone() {
-        let target = dest_root.join(&plugin_id);
-        tokio::task::spawn_blocking(move || {
-            if target.exists() {
-                std::fs::remove_dir_all(&target)
-            } else {
-                Ok(())
-            }
-        })
-        .await
-        .map_err(|e| OmniError::internal(e.to_string()))?
-        .map_err(|e| OmniError::internal(e.to_string()))?;
+        let id = plugin_id.clone();
+        tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::purge_plugin_dirs(&dest_root, &id))
+            .await
+            .map_err(|e| OmniError::internal(e.to_string()))?
+            .map_err(pkg_err_to_omni)?;
     }
     {
         let store = state.storage.lock().await;
@@ -1237,4 +1266,20 @@ pub async fn plugin_secret_delete(
         format!("delete {key}"),
     );
     Ok(())
+}
+
+fn first_party_id_conflict(disk_installed: bool, in_registry: bool) -> bool {
+    !disk_installed && in_registry
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_party_conflict_blocks_uninstalled_builtin_id() {
+        assert!(first_party_id_conflict(false, true));
+        assert!(!first_party_id_conflict(true, true));
+        assert!(!first_party_id_conflict(false, false));
+    }
 }

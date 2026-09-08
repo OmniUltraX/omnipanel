@@ -626,7 +626,9 @@ mod tests {
         storage.save_knowledge(&sample_entry("kx")).unwrap();
         let got = storage.get_knowledge("kx").unwrap().unwrap();
         assert_eq!(got.title, "Test snippet");
-        assert_eq!(got.tags, vec!["javascript", "example"]);
+        let mut tags = got.tags;
+        tags.sort();
+        assert_eq!(tags, vec!["example", "javascript"]);
     }
 
     #[test]

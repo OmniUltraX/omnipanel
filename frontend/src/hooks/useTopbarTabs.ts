@@ -35,6 +35,11 @@ export function useTopbarTabs(
       },
       { mode, showAddTab, addTabTitle }
     );
-    return () => clearTabs();
   }, [tabs, addMenuItems, mode, showAddTab, addTabTitle, enabled, setTabs, clearTabs]);
+
+  useEffect(() => {
+    return () => {
+      clearTabs();
+    };
+  }, [clearTabs]);
 }

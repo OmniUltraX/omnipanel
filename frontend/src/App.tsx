@@ -70,7 +70,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useAppUpdateStore } from "./stores/appUpdateStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
-import { DASHBOARD_PATH, MODULE_PATHS, isWorkspacePath, modulePathForType, navModuleKeyFromPath } from "./lib/paths";
+import { DASHBOARD_PATH, MODULE_PATHS, PLUGINS_PATH, isWorkspacePath, modulePathForType, navModuleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { usePluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { startAutoNameSubscription } from "./modules/terminal/sessionAutoName";
@@ -170,6 +170,7 @@ const TOPBAR_TAB_ROUTES: string[] = [
   MODULE_PATHS.ssh,
   MODULE_PATHS.server,
   MODULE_PATHS.protocol,
+  PLUGINS_PATH,
 ];
 
 function AppShell() {

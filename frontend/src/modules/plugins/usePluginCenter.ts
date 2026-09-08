@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { parsePluginManifest, type PluginManifest } from "@omnipanel/plugin-sdk";
-import { commands, type OfficialCatalogPlugin, type PluginListItem } from "../../ipc/bindings";
+import { commands, type MarketplaceItem, type PluginListItem, type PluginUpdateInfo, type RegistrySourceDto, type ResolvePlan, type SourceTestResult } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { PLUGIN_OFFICIAL_CATALOG_UPDATED } from "../../ipc/events";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
@@ -15,8 +15,9 @@ import { firstPartyIdSet, originForInstalled, type PluginOrigin } from "./plugin
 import { openPluginOverlay } from "../../lib/pluginHomeLaunch";
 import {
   dbxToMarketItem,
-  officialToMarketItem,
+  marketplaceToMarketItem,
   pluginMatchesQuery,
+  shouldConfirmInstallPlan,
   withLocalStats,
   type KindFilter,
   type MarketFilter,
@@ -26,7 +27,16 @@ import {
 export function usePluginCenter() {
   const { t } = useI18n();
   const [items, setItems] = useState<PluginListItem[]>([]);
-  const [official, setOfficial] = useState<OfficialCatalogPlugin[]>([]);
+  const [marketCatalog, setMarketCatalog] = useState<MarketplaceItem[]>([]);
+  const [updates, setUpdates] = useState<PluginUpdateInfo[]>([]);
+  const [sources, setSources] = useState<RegistrySourceDto[]>([]);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [sourceBusyId, setSourceBusyId] = useState<string | null>(null);
+  const [sourceTest, setSourceTest] = useState<SourceTestResult | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<{
+    targetId: string;
+    plan: ResolvePlan;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -63,8 +73,14 @@ export function usePluginCenter() {
 
   const reloadOfficial = useCallback(async (force = false) => {
     try {
-      const list = await unwrapCommand(commands.pluginOfficialCatalog(force));
-      setOfficial(list);
+      const [list, nextUpdates, nextSources] = await Promise.all([
+        unwrapCommand(commands.pluginMarketCatalog(force), { quiet: true }),
+        unwrapCommand(commands.pluginCheckUpdates(), { quiet: true }),
+        unwrapCommand(commands.pluginRegistrySourcesList()),
+      ]);
+      setMarketCatalog(list);
+      setUpdates(nextUpdates);
+      setSources(nextSources);
     } catch (err) {
       setError(String(err));
     }
@@ -104,9 +120,19 @@ export function usePluginCenter() {
 
   const officialIds = useMemo(() => {
     const ids = firstPartyIdSet();
-    for (const plugin of official) ids.add(plugin.id);
+    for (const plugin of marketCatalog) {
+      if (plugin.sourceId === "official") ids.add(plugin.id);
+    }
     return ids;
-  }, [official]);
+  }, [marketCatalog]);
+
+  const registryThirdPartyIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const plugin of marketCatalog) {
+      if (plugin.sourceId !== "official") ids.add(plugin.id);
+    }
+    return ids;
+  }, [marketCatalog]);
 
   const dbxPluginIds = useMemo(
     () => new Set(catalog.map((driver) => driver.pluginId)),
@@ -114,23 +140,25 @@ export function usePluginCenter() {
   );
 
   const originOf = useCallback(
-    (item: PluginListItem): PluginOrigin => originForInstalled(item, officialIds, dbxPluginIds),
-    [officialIds, dbxPluginIds],
+    (item: PluginListItem): PluginOrigin =>
+      originForInstalled(item, officialIds, dbxPluginIds, registryThirdPartyIds),
+    [officialIds, dbxPluginIds, registryThirdPartyIds],
   );
 
   const marketItems = useMemo(() => {
-    const officialItems = official.map((plugin) =>
-      officialToMarketItem(plugin, pluginDisplayName(plugin.id, t, plugin.name)),
+    const fromRegistry = marketCatalog.map((plugin) =>
+      marketplaceToMarketItem(plugin, pluginDisplayName(plugin.id, t, plugin.name)),
     );
-    const dbxItems = catalog.map((driver) =>
-      dbxToMarketItem(driver, pluginDisplayName(driver.pluginId, t, driver.label)),
-    );
-    return [...officialItems, ...dbxItems].map((item) =>
+    const seen = new Set(fromRegistry.map((item) => item.id));
+    const dbxItems = catalog
+      .filter((driver) => !seen.has(driver.pluginId))
+      .map((driver) => dbxToMarketItem(driver, pluginDisplayName(driver.pluginId, t, driver.label)));
+    return [...fromRegistry, ...dbxItems].map((item) =>
       withLocalStats(item, {
         installs: statsById[item.id]?.installs ?? 0,
       }),
     );
-  }, [official, catalog, t, statsById]);
+  }, [marketCatalog, catalog, t, statsById]);
 
   const query = search.trim().toLowerCase();
   const matchesKind = useCallback(
@@ -207,6 +235,42 @@ export function usePluginCenter() {
     }
   };
 
+  const executeInstallPlan = async (plan: ResolvePlan, recordId: string) => {
+    setInstallingMarketId(recordId);
+    try {
+      const steps =
+        plan.items.length > 0
+          ? plan.items
+          : [{ id: recordId, version: null as string | null, action: "install", sourceId: "" }];
+      for (const step of steps) {
+        await unwrapCommand(commands.pluginInstallVersion(step.id, step.version, true));
+      }
+      recordInstall(recordId);
+      await reloadInstalled();
+      await reloadMarket();
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setInstallingMarketId(null);
+    }
+  };
+
+  const cancelPendingPlan = useCallback(() => {
+    if (!confirming) setPendingPlan(null);
+  }, [confirming]);
+
+  const confirmPendingPlan = async () => {
+    if (!pendingPlan || confirming) return;
+    setConfirming(true);
+    try {
+      await executeInstallPlan(pendingPlan.plan, pendingPlan.targetId);
+      setPendingPlan(null);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   const uninstall = async (item: PluginListItem) => {
     setBusyId(item.id);
     try {
@@ -271,21 +335,126 @@ export function usePluginCenter() {
   };
 
   const installMarket = async (item: MarketItem) => {
-    setInstallingMarketId(item.id);
-    try {
-      if (item.origin === "thirdParty" && item.dbxKey) {
+    if (item.dbxKey) {
+      setInstallingMarketId(item.id);
+      try {
         await unwrapCommand(commands.pluginDbxInstall(item.dbxKey));
-      } else {
-        await unwrapCommand(commands.pluginOfficialInstall(item.id));
+        recordInstall(item.id);
+        await reloadInstalled();
+        await reloadMarket();
+        setError(null);
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        setInstallingMarketId(null);
       }
-      recordInstall(item.id);
+      return;
+    }
+    try {
+      const plan = await unwrapCommand(commands.pluginResolvePlan(item.id, `=${item.version}`));
+      if (shouldConfirmInstallPlan(plan, item.id)) {
+        setPendingPlan({ targetId: item.id, plan });
+        return;
+      }
+      await executeInstallPlan(plan, item.id);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const updatePlugins = async (ids: string[] | null) => {
+    setInstallingMarketId(ids?.length === 1 ? ids[0] : "__all__");
+    try {
+      const results = await unwrapCommand(commands.pluginUpdateAll(ids));
+      const failed = results.filter((row) => !row.ok);
+      setError(
+        failed.length
+          ? failed
+              .map((row) =>
+                t("plugins.center.updateFailed", { id: row.id, error: row.error ?? "" }),
+              )
+              .join("\n")
+          : null,
+      );
       await reloadInstalled();
       await reloadMarket();
-      setError(null);
     } catch (err) {
       setError(String(err));
     } finally {
       setInstallingMarketId(null);
+    }
+  };
+
+  const refreshSources = async () => {
+    setSources(await unwrapCommand(commands.pluginRegistrySourcesList()));
+  };
+
+  const addSource = async (id: string, url: string, keys: string[], token: string | null) => {
+    setSourceBusyId("__add__");
+    try {
+      await unwrapCommand(commands.pluginRegistrySourceAdd(id, url, keys, token));
+      setSourceTest(null);
+      await refreshSources();
+      await reloadMarket(true);
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSourceBusyId(null);
+    }
+  };
+
+  const removeSource = async (id: string) => {
+    setSourceBusyId(id);
+    try {
+      await unwrapCommand(commands.pluginRegistrySourceRemove(id));
+      await refreshSources();
+      await reloadMarket(true);
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSourceBusyId(null);
+    }
+  };
+
+  const setSourceEnabled = async (id: string, enabled: boolean) => {
+    setSourceBusyId(id);
+    try {
+      await unwrapCommand(commands.pluginRegistrySourceSetEnabled(id, enabled));
+      await refreshSources();
+      await reloadMarket(true);
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSourceBusyId(null);
+    }
+  };
+
+  const testSource = async (id: string) => {
+    setSourceBusyId(id);
+    try {
+      setSourceTest(await unwrapCommand(commands.pluginRegistrySourceTest(id)));
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSourceBusyId(null);
+    }
+  };
+
+  const confirmSourceKey = async (id: string, key: string) => {
+    setSourceBusyId(id);
+    try {
+      await unwrapCommand(commands.pluginRegistryConfirmKey(id, key));
+      await refreshSources();
+      await reloadMarket(true);
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSourceBusyId(null);
     }
   };
 
@@ -324,5 +493,22 @@ export function usePluginCenter() {
     homeHiddenIds,
     setHomePinned,
     setError,
+    updates,
+    updatePlugins,
+    sources,
+    sourcesOpen,
+    setSourcesOpen,
+    sourceBusyId,
+    sourceTest,
+    addSource,
+    removeSource,
+    setSourceEnabled,
+    testSource,
+    confirmSourceKey,
+    pendingPlan,
+    cancelPendingPlan,
+    confirmPendingPlan,
+    isDbxId: (id: string) => dbxPluginIds.has(id),
+    dbxIds: dbxPluginIds,
   };
 }

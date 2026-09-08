@@ -10,14 +10,22 @@
 //! - release 构建仅接受 [`OFFICIAL_VERIFY_PUBKEYS_HEX`] 内的签名；
 //! - debug 构建（dev）可经 [`verify_file_dev`] 装载未签名包，仅供本地开发。
 
+pub mod atomic;
 pub mod devkey;
 pub mod pack;
 pub mod registry;
 
-pub use pack::{extract_to, pack_dir, pack_dir_with_entries};
+pub use atomic::{
+    cleanup_staging_root, extract_and_swap, is_reserved_dir_name, last_good_dir, live_dir,
+    purge_plugin_dirs, restore_last_good, staging_dir, staging_root,
+};
+pub use pack::{
+    extract_to, pack_dir, pack_dir_with_entries, registry_plugin_from_dir,
+    registry_plugin_from_packed,
+};
 pub use registry::{
     RegistryArtifact, RegistryFile, RegistryPlugin, RegistryVersion, canonical_registry_bytes,
-    parse_registry, sign_registry, verify_registry,
+    parse_registry, sign_registry, verify_registry, verify_registry_allow_unsigned,
 };
 
 use std::fs::File;

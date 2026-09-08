@@ -3,6 +3,8 @@ import type { MarketItem } from "./pluginCenterTypes";
 import {
   effectiveDownloads,
   formatPluginCount,
+  marketplaceToMarketItem,
+  shouldConfirmInstallPlan,
   sortMarketItems,
 } from "./pluginCenterTypes";
 
@@ -24,6 +26,8 @@ function item(partial: Partial<MarketItem> & Pick<MarketItem, "id" | "name">): M
     updatedAt: null,
     downloads: null,
     localInstalls: 0,
+    changelog: null,
+    sourceId: "official",
     ...partial,
   };
 }
@@ -81,5 +85,82 @@ describe("formatPluginCount", () => {
     expect(formatPluginCount(12)).toBe("12");
     expect(formatPluginCount(1500)).toBe("1.5k");
     expect(formatPluginCount(12_000)).toBe("12k");
+  });
+});
+
+describe("marketplaceToMarketItem", () => {
+  it("marks official source and update flag", () => {
+    const row = marketplaceToMarketItem(
+      {
+        id: "omni.addon.demo",
+        kind: "addon",
+        name: "Demo",
+        description: "d",
+        version: "2.0.0",
+        changelog: "fix",
+        installed: true,
+        installedVersion: "1.0.0",
+        updateAvailable: true,
+        sourceId: "official",
+        downloadSize: 12,
+        permissions: ["net:connect"],
+      },
+      "演示",
+    );
+    expect(row.origin).toBe("official");
+    expect(row.needsUpdate).toBe(true);
+    expect(row.changelog).toBe("fix");
+    expect(row.distribution).toBe("download");
+  });
+
+  it("maps zero downloadSize to bundled", () => {
+    const row = marketplaceToMarketItem(
+      {
+        id: "omni.addon.everything",
+        kind: "addon",
+        name: "Everything",
+        description: "",
+        version: "0.1.0",
+        installed: true,
+        sourceId: "official",
+        downloadSize: 0,
+        permissions: [],
+        updateAvailable: false,
+      },
+      "Everything",
+    );
+    expect(row.distribution).toBe("bundled");
+  });
+});
+
+describe("shouldConfirmInstallPlan", () => {
+  it("skips confirm when only the target is installed", () => {
+    expect(
+      shouldConfirmInstallPlan(
+        { items: [{ id: "a", version: "1.0.0", action: "install", sourceId: "official" }], warnings: [] },
+        "a",
+      ),
+    ).toBe(false);
+  });
+
+  it("requires confirm when deps or warnings exist", () => {
+    expect(
+      shouldConfirmInstallPlan(
+        {
+          items: [
+            { id: "a", version: "1.0.0", action: "install", sourceId: "official" },
+            { id: "b", version: "2.0.0", action: "install", sourceId: "community" },
+          ],
+          warnings: [],
+        },
+        "a",
+      ),
+    ).toBe(true);
+    expect(
+      shouldConfirmInstallPlan(
+        { items: [{ id: "a", version: "1.0.0", action: "install", sourceId: "official" }], warnings: ["bundled"] },
+        "a",
+      ),
+    ).toBe(true);
   });
 });

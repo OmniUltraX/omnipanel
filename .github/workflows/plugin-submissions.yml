@@ -1,0 +1,59 @@
+name: Ingest plugin submissions
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+  issues:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  ingest:
+    name: Closed submissions → registry PR
+    if: github.event_name != 'issues' || (github.event.issue.state_reason == 'completed' && contains(join(github.event.issue.labels.*.name, ','), 'plugin-submission'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Self-test ingest script
+        run: node scripts/ingest-plugin-submissions.mjs --self-test
+
+      - name: Merge qualifying issues into registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/ingest-plugin-submissions.mjs
+
+      - name: Sign registry when official key is present
+        env:
+          PLUGIN_REGISTRY_SIGNING_KEY: ${{ secrets.PLUGIN_REGISTRY_SIGNING_KEY }}
+        run: |
+          if [ -z "$PLUGIN_REGISTRY_SIGNING_KEY" ]; then
+            echo "skip sign: PLUGIN_REGISTRY_SIGNING_KEY not set"
+            exit 0
+          fi
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          . "$HOME/.cargo/env"
+          cargo run -q -p omnipanel-plugin-pkg --bin sign-registry -- plugins/registry.json
+
+      - name: Open registry PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(plugins): 归档已审核的插件投稿"
+          title: "chore(plugins): 归档已审核的插件投稿"
+          body: |
+            由 `plugin-submissions` Action 从 `plugin-submission` + completed issue 生成。
+            含 `ssh:exec` 的投稿不会自动入库，需人工复核后再跑本工作流。
+          branch: plugin-submission/ingest
+          delete-branch: true
+          labels: plugin-submission

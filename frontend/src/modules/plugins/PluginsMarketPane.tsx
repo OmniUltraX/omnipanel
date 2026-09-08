@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
 import { getPluginManifest } from "../../lib/pluginManifests";
-import type { PluginListItem } from "../../ipc/bindings";
+import type { PluginListItem, PluginUpdateInfo } from "../../ipc/bindings";
 import { IconChevronLeft, IconChevronRight, IconGrid, IconList } from "../../components/ui/icons/Icons";
 import { Select } from "../../components/ui/form/Select";
-import { isDbxOrigin, originMetaLabel } from "./pluginOrigin";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { originMetaLabel } from "./pluginOrigin";
 import { PluginGlyph } from "./pluginGlyph";
 import {
   MARKET_PAGE_SIZE_DEFAULT,
@@ -101,9 +102,13 @@ type Props = {
   onSelect: (id: string) => void;
   installingMarketId: string | null;
   catalogRefreshing: boolean;
+  updates: PluginUpdateInfo[];
   onInstallMarket: (item: MarketItem) => void;
   onOpenOverlay: (id: string) => void;
   onRefreshMarket: () => void;
+  onOpenSources: () => void;
+  onUpdateAll: () => void;
+  onUpdateOne: (id: string) => void;
 };
 
 export function PluginsMarketPane({
@@ -116,9 +121,13 @@ export function PluginsMarketPane({
   onSelect,
   installingMarketId,
   catalogRefreshing,
+  updates,
   onInstallMarket,
   onOpenOverlay,
   onRefreshMarket,
+  onOpenSources,
+  onUpdateAll,
+  onUpdateOne,
 }: Props) {
   const { t, locale } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
@@ -126,6 +135,7 @@ export function PluginsMarketPane({
   const [pageSize, setPageSize] = useState(readPageSize);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<StoredSort>(readMarketSort);
+  const [openLogs, setOpenLogs] = useState<Record<string, boolean>>({});
   const installedById = useMemo(
     () => new Map(installed.map((item) => [item.id, item])),
     [installed],
@@ -229,15 +239,64 @@ export function PluginsMarketPane({
             <IconGrid size={16} />
           </button>
         </div>
-        <button
-          type="button"
-          className="btn btn-sm btn-secondary"
-          disabled={catalogRefreshing}
-          onClick={onRefreshMarket}
-        >
+        <WorkbenchActionButton onClick={onOpenSources}>
+          {t("plugins.sources.title")}
+        </WorkbenchActionButton>
+        <WorkbenchActionButton disabled={catalogRefreshing} onClick={onRefreshMarket}>
           {t("plugins.center.refresh")}
-        </button>
+        </WorkbenchActionButton>
       </div>
+      {updates.length > 0 ? (
+        <div className="plugin-center-updates">
+          <div className="plugin-center-col__head">
+            <h2>{t("plugins.center.updates", { count: updates.length })}</h2>
+            <WorkbenchActionButton
+              disabled={Boolean(installingMarketId)}
+              onClick={onUpdateAll}
+            >
+              {installingMarketId === "__all__"
+                ? t("plugins.catalog.installing")
+                : t("plugins.center.updateAll")}
+            </WorkbenchActionButton>
+          </div>
+          <ul className="plugin-center-updates__list">
+            {updates.map((item) => (
+              <li key={item.id} className="plugin-center-updates__item">
+                <div className="plugin-center-updates__row">
+                  <span className="font-mono text-xs">{item.id}</span>
+                  <span className="text-xs text-muted">
+                    {item.installedVersion} → {item.latestVersion}
+                  </span>
+                  <WorkbenchActionButton
+                    disabled={Boolean(installingMarketId)}
+                    onClick={() => onUpdateOne(item.id)}
+                  >
+                    {installingMarketId === item.id
+                      ? t("plugins.catalog.installing")
+                      : t("plugins.catalog.update")}
+                  </WorkbenchActionButton>
+                </div>
+                {item.changelog ? (
+                  <button
+                    type="button"
+                    className="plugin-center-updates__log-toggle"
+                    onClick={() =>
+                      setOpenLogs((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
+                    }
+                  >
+                    {t("plugins.center.changelog")}
+                  </button>
+                ) : (
+                  <p className="text-xs text-muted">{t("plugins.center.noChangelog")}</p>
+                )}
+                {item.changelog && openLogs[item.id] ? (
+                  <pre className="plugin-center-updates__log">{item.changelog}</pre>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div
         ref={listRef}
         className={view === "grid" ? "plugin-center-grid" : "plugin-center-list"}
@@ -358,7 +417,7 @@ function marketMetaBits(
   t: (key: string, params?: Record<string, string | number>) => string,
   locale: string,
 ): string[] {
-  const bits = [originMetaLabel(item.origin, t), t(`plugins.center.kinds.${item.kind}`)];
+  const bits = [originMetaLabel(item.origin, t, { dbx: Boolean(item.dbxKey) }), t(`plugins.center.kinds.${item.kind}`)];
   const updated = formatPluginDate(item.updatedAt, locale);
   if (updated) bits.push(t("plugins.center.updatedAt", { time: updated }));
   if (item.downloads != null && item.downloads > 0) {
@@ -453,7 +512,7 @@ function MarketRow({
   return (
     <div className={`plugin-center-row plugin-center-row--split${selected ? " is-active" : ""}`}>
       <button type="button" className="plugin-center-row__hit plugin-center-row__hit--icon" onClick={() => onSelect(item.id)}>
-        <PluginGlyph pluginId={item.id} kind={item.kind} name={item.name} size="sm" fromDbx={isDbxOrigin(item.origin)} />
+        <PluginGlyph pluginId={item.id} kind={item.kind} name={item.name} size="sm" fromDbx={Boolean(item.dbxKey)} />
         <span className="plugin-center-row__body">
           <span className="plugin-center-row__name">{item.name}</span>
           <span className="plugin-center-row__meta">{meta.join(" · ")}</span>
@@ -492,14 +551,14 @@ function MarketCard({
   const { t } = useI18n();
   const desc =
     item.description.trim() ||
-    (isDbxOrigin(item.origin)
+    (item.dbxKey
       ? t("plugins.center.sourceDbx")
       : `${t(`plugins.center.kinds.${item.kind}`)} · v${item.version}`);
   return (
     <div className={`plugin-center-card${selected ? " is-active" : ""}`}>
       <button type="button" className="plugin-center-card__hit" onClick={() => onSelect(item.id)}>
         <span className="plugin-center-card__top">
-          <PluginGlyph pluginId={item.id} kind={item.kind} name={item.name} size="md" fromDbx={isDbxOrigin(item.origin)} />
+          <PluginGlyph pluginId={item.id} kind={item.kind} name={item.name} size="md" fromDbx={Boolean(item.dbxKey)} />
           <span className="plugin-center-card__titles">
             <span className="plugin-center-card__name">{item.name}</span>
             <span className="plugin-center-card__meta">{marketMetaBits(item, t, locale).join(" · ")}</span>

@@ -26,6 +26,12 @@ pub struct StudioProject {
     pub name: String,
     pub files: Vec<String>,
     pub has_manifest: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -51,7 +57,7 @@ pub struct StudioEnv {
 
 /// 仓库根目录（编译期 src-tauri 的父目录），运行时校验标记文件；
 /// 打包产物内无源码树时返回 None（studio 仅源码运行可用）。
-fn repo_root() -> Option<PathBuf> {
+pub(crate) fn repo_root() -> Option<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()?
         .to_path_buf();
@@ -69,7 +75,7 @@ fn projects_dir() -> Result<PathBuf, OmniError> {
     Ok(root.join("plugins-custom"))
 }
 
-fn project_dir(name: &str) -> Result<PathBuf, OmniError> {
+pub(crate) fn project_dir(name: &str) -> Result<PathBuf, OmniError> {
     if name.trim().is_empty()
         || name.contains("..")
         || name.contains('/')
@@ -98,6 +104,8 @@ fn jail_path(project: &str, rel: &str) -> Result<PathBuf, OmniError> {
     Ok(target)
 }
 
+const SKIP_DIR_NAMES: &[&str] = &["node_modules", "target", ".git", "dist", ".idea"];
+
 fn collect_files(dir: &Path, base: &Path, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -107,10 +115,84 @@ fn collect_files(dir: &Path, base: &Path, out: &mut Vec<String>) {
     for entry in names {
         let path = entry.path();
         if path.is_dir() {
+            let skip = entry
+                .file_name()
+                .to_str()
+                .is_some_and(|n| SKIP_DIR_NAMES.iter().any(|s| n.eq_ignore_ascii_case(s)));
+            if skip {
+                continue;
+            }
             collect_files(&path, base, out);
         } else if let Ok(rel) = path.strip_prefix(base) {
             out.push(rel.to_string_lossy().replace('\\', "/"));
         }
+    }
+}
+
+fn json_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn load_studio_project(dir: &Path, name: String) -> StudioProject {
+    let mut files = Vec::new();
+    collect_files(dir, dir, &mut files);
+    files.retain(|rel| {
+        dir.join(rel)
+            .metadata()
+            .map(|m| m.len() <= MAX_READ_BYTES && m.is_file())
+            .unwrap_or(false)
+    });
+    let manifest_path = dir.join("plugin.json");
+    let has_manifest = manifest_path.is_file();
+    let (kind, version, display_name) = std::fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .map(|value| {
+            (
+                json_string_field(&value, "kind"),
+                json_string_field(&value, "version"),
+                json_string_field(&value, "displayName"),
+            )
+        })
+        .unwrap_or((None, None, None));
+    StudioProject {
+        name,
+        files,
+        has_manifest,
+        kind,
+        version,
+        display_name,
+    }
+}
+
+const PLUGIN_KINDS: &[&str] = &[
+    "engine", "panel", "importer", "cloud", "module", "theme", "addon",
+];
+
+/// 把七种身份映射成 create-plugin.mjs 真正能干活的模板（默认给可跑样板，不要空壳）。
+fn resolve_scaffold_template(kind: &str, starter: Option<&str>) -> Result<&'static str, OmniError> {
+    let starter = starter.map(str::trim).filter(|s| !s.is_empty());
+    match (kind, starter) {
+        ("engine", None | Some("sidecar")) => Ok("engine-sidecar"),
+        ("engine", Some("blank")) => Ok("engine"),
+        ("addon", None | Some("js")) => Ok("js-logic"),
+        ("addon", Some("overlay")) => Ok("l3-overlay"),
+        ("addon", Some("wasm")) => Ok("wasm-stub"),
+        ("addon", Some("blank")) => Ok("addon"),
+        ("panel", None | Some("blank")) => Ok("panel"),
+        ("importer", None | Some("blank")) => Ok("importer"),
+        ("cloud", None | Some("blank")) => Ok("cloud"),
+        ("module", None | Some("blank")) => Ok("module"),
+        ("theme", None | Some("blank")) => Ok("theme"),
+        (other, _) if PLUGIN_KINDS.contains(&other) => Err(OmniError::invalid_input(format!(
+            "该类型不支持起步方式 {starter:?}"
+        ))),
+        (other, _) => Err(OmniError::invalid_input(format!("不支持的类型: {other}"))),
     }
 }
 
@@ -140,22 +222,7 @@ pub async fn plugin_studio_list_projects(
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
-        let mut files = Vec::new();
-        collect_files(&entry.path(), &entry.path(), &mut files);
-        // 隐藏超大/二进制文件（>512KB 不进列表，避免误点）
-        files.retain(|rel| {
-            entry
-                .path()
-                .join(rel)
-                .metadata()
-                .map(|m| m.len() <= MAX_READ_BYTES && m.is_file())
-                .unwrap_or(false)
-        });
-        out.push(StudioProject {
-            has_manifest: entry.path().join("plugin.json").is_file(),
-            name,
-            files,
-        });
+        out.push(load_studio_project(&entry.path(), name));
     }
     Ok(out)
 }
@@ -199,8 +266,23 @@ pub async fn plugin_studio_write_file(
     Ok(())
 }
 
+fn command_hidden(program: &str) -> std::process::Command {
+    let resolved = resolve_program(program);
+    let mut cmd = std::process::Command::new(&resolved);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    if let Some(path) = toolchain_path() {
+        cmd.env("PATH", path);
+    }
+    cmd
+}
+
 fn run_blocking(program: &str, args: &[String], cwd: &Path) -> Result<String, OmniError> {
-    let output = std::process::Command::new(program)
+    let output = command_hidden(program)
         .args(args)
         .current_dir(cwd)
         .output()
@@ -231,55 +313,335 @@ pub async fn plugin_studio_env_check(
     _state: State<'_, AppState>,
 ) -> Result<StudioEnv, OmniError> {
     let cwd = repo_root().unwrap_or_else(|| PathBuf::from("."));
-    let probe = |program: &str| {
-        std::process::Command::new(program)
-            .arg("--version")
-            .current_dir(&cwd)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .trim()
-                    .to_string()
-            })
-            .filter(|s| !s.is_empty())
-    };
     Ok(StudioEnv {
-        cargo: probe("cargo"),
-        node: probe("node"),
-        wat2wasm: probe("wat2wasm"),
+        cargo: probe_version("cargo", &cwd),
+        node: probe_version("node", &cwd),
+        wat2wasm: probe_version("wat2wasm", &cwd),
         repo_root: repo_root().map(|p| p.to_string_lossy().into_owned()),
     })
 }
 
-/// 脚手架：`node scripts/create-plugin.mjs <name> <kind>`，返回刷新后的工程。
-/// name 规则与脚本一致（小写字母开头）；kind 不在白名单直接拒绝。
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(900);
+#[cfg(windows)]
+const RUSTUP_INIT_URL: &str =
+    "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe";
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioEnvInstallResult {
+    pub tool: String,
+    pub ok: bool,
+    pub output: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+fn normalize_env_tool(tool: &str) -> Result<&'static str, OmniError> {
+    match tool.trim().to_ascii_lowercase().as_str() {
+        "node" => Ok("node"),
+        "cargo" => Ok("cargo"),
+        "wat2wasm" => Ok("wat2wasm"),
+        other => Err(OmniError::invalid_input(format!(
+            "不支持自动安装: {other}（仅 node / cargo / wat2wasm）"
+        ))),
+    }
+}
+
+fn extra_bin_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+    {
+        dirs.push(home.join(".cargo").join("bin"));
+        #[cfg(windows)]
+        {
+            dirs.push(home.join("AppData").join("Roaming").join("npm"));
+            dirs.push(home.join("AppData").join("Local").join("fnm_multishells"));
+        }
+        #[cfg(not(windows))]
+        {
+            dirs.push(home.join(".local").join("bin"));
+            dirs.push(PathBuf::from("/opt/homebrew/bin"));
+            dirs.push(PathBuf::from("/usr/local/bin"));
+        }
+    }
+    #[cfg(windows)]
+    {
+        dirs.push(PathBuf::from(r"C:\Program Files\nodejs"));
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(local).join("Programs").join("nodejs"));
+        }
+    }
+    dirs
+}
+
+fn program_names(program: &str) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        if Path::new(program).extension().is_some() {
+            vec![program.to_string()]
+        } else {
+            vec![
+                format!("{program}.exe"),
+                format!("{program}.cmd"),
+                format!("{program}.bat"),
+                program.to_string(),
+            ]
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        vec![program.to_string()]
+    }
+}
+
+/// Windows 上 `Command::new("node")` 只查当前进程 PATH，不看子进程 env。
+/// 先在 cargo/node 常见目录里解析出绝对路径。
+fn resolve_program(program: &str) -> PathBuf {
+    let raw = Path::new(program);
+    if raw.is_absolute() || program.contains('/') || program.contains('\\') {
+        return raw.to_path_buf();
+    }
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let mut dirs = extra_bin_dirs();
+    if let Ok(path) = std::env::var("PATH") {
+        for part in path.split(sep) {
+            if !part.is_empty() {
+                dirs.push(PathBuf::from(part));
+            }
+        }
+    }
+    let names = program_names(program);
+    for dir in dirs {
+        for name in &names {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    raw.to_path_buf()
+}
+
+/// 给子进程补 cargo / node / npm 常见安装路径，不改当前进程环境
+///（Rust 2024 起 `env::set_var` 是 unsafe）。
+fn toolchain_path() -> Option<String> {
+    let extras = extra_bin_dirs();
+    let old = std::env::var("PATH").unwrap_or_default();
+    let old_lower = old.to_ascii_lowercase();
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let mut prefix: Vec<String> = Vec::new();
+    for dir in extras {
+        if !dir.is_dir() {
+            continue;
+        }
+        let text = dir.to_string_lossy().into_owned();
+        if old_lower.contains(&text.to_ascii_lowercase()) {
+            continue;
+        }
+        if prefix
+            .iter()
+            .any(|item| item.eq_ignore_ascii_case(&text))
+        {
+            continue;
+        }
+        prefix.push(text);
+    }
+    if prefix.is_empty() {
+        return None;
+    }
+    let mut next = prefix.join(&sep.to_string());
+    next.push(sep);
+    next.push_str(&old);
+    Some(next)
+}
+
+fn probe_version(program: &str, cwd: &Path) -> Option<String> {
+    command_hidden(program)
+        .arg("--version")
+        .current_dir(cwd)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn collect_output(output: &std::process::Output) -> String {
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.trim().is_empty() {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(stderr.trim());
+    }
+    text
+}
+
+fn run_hidden_args(program: &str, args: &[&str], cwd: &Path) -> Result<String, OmniError> {
+    let output = command_hidden(program)
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| OmniError::invalid_input(format!("无法启动 {program}: {e}")))?;
+    let text = collect_output(&output);
+    if !output.status.success() {
+        return Err(OmniError::internal(format!(
+            "{program} 退出码 {}:\n{text}",
+            output.status.code().unwrap_or(-1)
+        )));
+    }
+    Ok(text)
+}
+
+fn install_node(cwd: &Path) -> Result<String, OmniError> {
+    #[cfg(windows)]
+    {
+        run_hidden_args(
+            "winget",
+            &[
+                "install",
+                "-e",
+                "--id",
+                "OpenJS.NodeJS.LTS",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ],
+            cwd,
+        )
+    }
+    #[cfg(target_os = "macos")]
+    {
+        run_hidden_args("brew", &["install", "node"], cwd)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = cwd;
+        Err(OmniError::invalid_input(
+            "Linux 请用发行版包管理器安装 Node.js 后点刷新",
+        ))
+    }
+}
+
+fn install_cargo(rustup_init: Option<PathBuf>, cwd: &Path) -> Result<String, OmniError> {
+    if probe_version("rustup", cwd).is_some() {
+        return run_hidden_args("rustup", &["toolchain", "install", "stable"], cwd);
+    }
+    if let Some(path) = rustup_init {
+        let out = run_hidden_args(
+            &path.to_string_lossy(),
+            &["-y", "--default-toolchain", "stable"],
+            cwd,
+        )?;
+        return Ok(out);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = run_hidden_args("brew", &["install", "rustup-init"], cwd);
+        return run_hidden_args("rustup-init", &["-y", "--default-toolchain", "stable"], cwd);
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err(OmniError::invalid_input(
+        "未找到 rustup，请先安装 Rust 工具链后刷新",
+    ))
+}
+
+fn install_wat2wasm(cwd: &Path) -> Result<String, OmniError> {
+    if probe_version("node", cwd).is_none() {
+        let node_out = install_node(cwd)?;
+        let wabt = run_hidden_args("npm", &["install", "-g", "wabt"], cwd)?;
+        return Ok(format!("{node_out}\n{wabt}"));
+    }
+    run_hidden_args("npm", &["install", "-g", "wabt"], cwd)
+}
+
+/// 按白名单安装本机工具链（Windows 优先 winget / rustup-init；安装后刷新 PATH 再探测）。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_studio_env_install(
+    state: State<'_, AppState>,
+    tool: String,
+) -> Result<StudioEnvInstallResult, OmniError> {
+    let tool = normalize_env_tool(&tool)?.to_string();
+    let cwd = repo_root().unwrap_or_else(|| PathBuf::from("."));
+    let rustup_init = if tool == "cargo" {
+        download_rustup_init(&state.plugin_http).await?
+    } else {
+        None
+    };
+    let join = tokio::task::spawn_blocking(move || {
+        let result = match tool.as_str() {
+            "node" => install_node(&cwd),
+            "cargo" => install_cargo(rustup_init, &cwd),
+            "wat2wasm" => install_wat2wasm(&cwd),
+            _ => Err(OmniError::invalid_input("未知工具")),
+        };
+        let version = probe_version(&tool, &cwd);
+        match result {
+            Ok(output) => StudioEnvInstallResult {
+                ok: version.is_some(),
+                output,
+                version,
+                tool,
+            },
+            Err(err) => StudioEnvInstallResult {
+                ok: false,
+                output: err.to_string(),
+                version,
+                tool,
+            },
+        }
+    });
+    match tokio::time::timeout(INSTALL_TIMEOUT, join).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(e)) => Err(OmniError::internal(e.to_string())),
+        Err(_) => Err(OmniError::internal("安装超时（15 分钟）")),
+    }
+}
+
+async fn download_rustup_init(client: &reqwest::Client) -> Result<Option<PathBuf>, OmniError> {
+    let cwd = repo_root().unwrap_or_else(|| PathBuf::from("."));
+    if probe_version("rustup", &cwd).is_some() {
+        return Ok(None);
+    }
+    #[cfg(windows)]
+    {
+        let bytes = client
+            .get(RUSTUP_INIT_URL)
+            .send()
+            .await
+            .map_err(|e| OmniError::connection(format!("下载 rustup-init 失败: {e}")))?
+            .bytes()
+            .await
+            .map_err(|e| OmniError::connection(format!("读取 rustup-init 失败: {e}")))?;
+        let path = std::env::temp_dir().join("omni-rustup-init.exe");
+        tokio::fs::write(&path, &bytes)
+            .await
+            .map_err(|e| OmniError::internal(e.to_string()))?;
+        return Ok(Some(path));
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = client;
+        Ok(None)
+    }
+}
+
+/// 脚手架：`node scripts/create-plugin.mjs <name> <template>`。
+/// `kind` 仅七种身份；`starter` 把身份映射成可跑模板（引擎默认 sidecar，附加组件默认 JS 逻辑）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_scaffold(
     _state: State<'_, AppState>,
     name: String,
     kind: String,
+    starter: Option<String>,
 ) -> Result<StudioProject, OmniError> {
-    const KINDS: &[&str] = &[
-        "engine",
-        "engine-sidecar",
-        "theme",
-        "module",
-        "cloud",
-        "panel",
-        "importer",
-        "addon",
-        "js-logic",
-        "l3-overlay",
-        "wasm-stub",
-    ];
     let name = name.trim().to_string();
     let kind = kind.trim().to_lowercase();
-    if !KINDS.contains(&kind.as_str()) {
-        return Err(OmniError::invalid_input(format!("不支持的模板: {kind}")));
-    }
+    let template = resolve_scaffold_template(&kind, starter.as_deref())?.to_string();
     if name.is_empty()
         || !name
             .chars()
@@ -303,7 +665,7 @@ pub async fn plugin_studio_scaffold(
             &[
                 "scripts/create-plugin.mjs".to_string(),
                 name_for_task.clone(),
-                kind.clone(),
+                template,
             ],
             &root,
         )
@@ -311,14 +673,32 @@ pub async fn plugin_studio_scaffold(
     .await
     .map_err(|e| OmniError::internal(e.to_string()))??;
     let _ = output;
+    Ok(load_studio_project(&project_dir(&name)?, name))
+}
+
+/// 删除 `plugins-custom/<name>`（仅允许该目录本身，禁锢与读写相同）。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_studio_remove_project(
+    _state: State<'_, AppState>,
+    name: String,
+) -> Result<(), OmniError> {
     let dir = project_dir(&name)?;
-    let mut files = Vec::new();
-    collect_files(&dir, &dir, &mut files);
-    Ok(StudioProject {
-        has_manifest: dir.join("plugin.json").is_file(),
-        name,
-        files,
-    })
+    if !dir.is_dir() {
+        return Err(OmniError::not_found(format!("工程不存在: {name}")));
+    }
+    let parent = projects_dir()?;
+    let canon = dir
+        .canonicalize()
+        .map_err(|e| OmniError::internal(e.to_string()))?;
+    let parent_canon = parent
+        .canonicalize()
+        .map_err(|e| OmniError::internal(e.to_string()))?;
+    if !canon.starts_with(&parent_canon) || canon == parent_canon {
+        return Err(OmniError::invalid_input("路径越界"));
+    }
+    std::fs::remove_dir_all(&canon).map_err(|e| OmniError::internal(e.to_string()))?;
+    Ok(())
 }
 
 /// 跑脚本：`validate`（node validate-plugin.mjs）或 `pack`
@@ -435,5 +815,14 @@ mod tests {
         assert!(project_dir("a/b").is_err());
         assert!(project_dir("../x").is_err());
         assert!(project_dir("my-plugin-1").is_ok());
+    }
+
+    #[test]
+    fn env_install_tool_whitelist() {
+        assert_eq!(normalize_env_tool("Node").unwrap(), "node");
+        assert_eq!(normalize_env_tool("CARGO").unwrap(), "cargo");
+        assert_eq!(normalize_env_tool("wat2wasm").unwrap(), "wat2wasm");
+        assert!(normalize_env_tool("pnpm").is_err());
+        assert!(normalize_env_tool("").is_err());
     }
 }

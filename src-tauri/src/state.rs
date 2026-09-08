@@ -215,6 +215,9 @@ impl AppState {
             .app_data_dir()
             .ok()
             .map(|dir| dir.join("plugins"));
+        if let Some(root) = plugin_packages_dir.as_deref() {
+            let _ = omnipanel_plugin_pkg::cleanup_staging_root(root);
+        }
         let (plugin_registry, plugin_invoke) = {
             let store = storage.lock().await;
             crate::commands::plugin::seed_plugin_runtime(&store, plugin_packages_dir.as_deref())

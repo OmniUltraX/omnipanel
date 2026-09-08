@@ -967,15 +967,26 @@ export const commands = {
 	/**  列出 plugins-custom 下的工程（有�?plugin.json 都列）�?*/
 	pluginStudioListProjects: () => typedError<StudioProject[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
 	/**  脚手架：node create-plugin.mjs 建新工程，返回刷新后的工程�?*/
-	pluginStudioScaffold: (name: string, kind: string) => typedError<StudioProject, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind })),
+	pluginStudioScaffold: (name: string, kind: string, starter: string | null) => typedError<StudioProject, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind, starter })),
+	pluginStudioRemoveProject: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_remove_project", { name })),
 	/**  读工程文件（文本，≤512KB）�?*/
 	pluginStudioReadFile: (project: string, path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_read_file", { project, path })),
 	/**  写工程文件（文本，≤1MB，自动建父目录）�?*/
 	pluginStudioWriteFile: (project: string, path: string, content: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_write_file", { project, path, content })),
 	/**  环境检测：cargo / node / wat2wasm 版本（缺失为 null）�?*/
 	pluginStudioEnvCheck: () => typedError<StudioEnv, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_env_check")),
+	/**  白名单安装本机工具链（node / cargo / wat2wasm）。 */
+	pluginStudioEnvInstall: (tool: string) => typedError<StudioEnvInstallResult, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_env_install", { tool })),
 	/**  跑脚本：validate（node）或 pack（cargo，返�?artifact 路径）�?*/
 	pluginStudioRun: (project: string, op: string) => typedError<StudioRunResult, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_run", { project, op })),
+	/**  投稿 GitHub token 只进钥匙串（plugin:studio:github-token），空字符串视为删除。 */
+	pluginStudioGithubTokenPut: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_github_token_put", { token })),
+	pluginStudioGithubTokenHas: () => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_github_token_has")),
+	pluginStudioGithubTokenDelete: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_github_token_delete")),
+	/**  组装投稿预览（不发 GitHub）。超限时 waitMs 有值。 */
+	pluginSubmitPreview: (project: string, artifactUrl: string, changelog: string | null, repo: string | null, packedPath: string | null) => typedError<SubmitPreview, OmniError_Serialize>(__TAURI_INVOKE("plugin_submit_preview", { project, artifactUrl, changelog, repo, packedPath })),
+	/**  确认后建 GitHub issue；token 只在 Rust 侧从钥匙串读取。 */
+	pluginSubmitIssue: (project: string, artifactUrl: string, changelog: string | null, repo: string | null, packedPath: string | null) => typedError<SubmitResult, OmniError_Serialize>(__TAURI_INVOKE("plugin_submit_issue", { project, artifactUrl, changelog, repo, packedPath })),
 	/**  源列表（�?token 有无，不含明文）�?*/
 	pluginRegistrySourcesList: () => typedError<RegistrySourceDto[], OmniError_Serialize>(__TAURI_INVOKE("plugin_registry_sources_list")),
 	/**  新增第三方源（token 可选；公钥可选，无则首次拉取 TOFU）�?*/
@@ -4444,6 +4455,9 @@ export type StudioProject = {
   name: string;
   files: string[];
   hasManifest: boolean;
+  kind?: string | null;
+  version?: string | null;
+  displayName?: string | null;
 };
 
 export type StudioRunResult = {
@@ -4457,6 +4471,29 @@ export type StudioEnv = {
   node?: string | null;
   wat2wasm?: string | null;
   repoRoot?: string | null;
+};
+
+export type StudioEnvInstallResult = {
+  tool: string;
+  ok: boolean;
+  output: string;
+  version?: string | null;
+};
+
+export type SubmitPreview = {
+  title: string;
+  body: string;
+  repo: string;
+  remaining: number;
+  waitMs?: number | null;
+  hasToken: boolean;
+  permissions: string[];
+  needsManualReview: boolean;
+};
+
+export type SubmitResult = {
+  url: string;
+  number: number;
 };
 
 /* 手补（待 gen:bindings 覆盖）：marketplace 命令�?specta 类型。Rust 侧以

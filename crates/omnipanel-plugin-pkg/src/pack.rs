@@ -12,6 +12,10 @@ use ed25519_dalek::Signer;
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
 
+use omnipanel_plugin::PluginManifest;
+use sha2::{Digest, Sha256};
+
+use crate::registry::{RegistryArtifact, RegistryPlugin, RegistryVersion};
 use crate::{MANIFEST_ENTRY, PkgError, SIGNATURE_ENTRY};
 
 /// 从条目集合打包（name → bytes；路径用 `/`，禁止 `..` 与绝对路径）。
@@ -73,6 +77,64 @@ pub fn pack_dir(
     let mut entries = BTreeMap::new();
     collect_files(dir, dir, &mut entries)?;
     pack_dir_with_entries(entries, out, signing_key)
+}
+
+/// 从工程目录打出 registry v2 单插件片段（pack → sha256/size → `RegistryPlugin`）。
+/// `signing_key = None` 产出未签名包（仅 dev 可装）。临时 zip 打完即删。
+pub fn registry_plugin_from_dir(
+    dir: &Path,
+    artifact_url: &str,
+    changelog: Option<&str>,
+    signing_key: Option<&ed25519_dalek::SigningKey>,
+) -> Result<RegistryPlugin, PkgError> {
+    let manifest_text = std::fs::read_to_string(dir.join(MANIFEST_ENTRY))?;
+    let manifest =
+        PluginManifest::from_json(&manifest_text).map_err(|e| PkgError::Manifest(e.to_string()))?;
+    manifest
+        .validate()
+        .map_err(|e| PkgError::Manifest(e.to_string()))?;
+    let tmp = std::env::temp_dir().join(format!(
+        "omni-pub-{}-{}.omni-plugin",
+        manifest.id.replace('.', "_"),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+    pack_dir(dir, &tmp, signing_key)?;
+    let plugin = registry_plugin_from_packed(&manifest, artifact_url, changelog, &tmp)?;
+    let _ = std::fs::remove_file(&tmp);
+    Ok(plugin)
+}
+
+/// 已有 `.omni-plugin` 时只算哈希，不再打包。
+pub fn registry_plugin_from_packed(
+    manifest: &PluginManifest,
+    artifact_url: &str,
+    changelog: Option<&str>,
+    packed: &Path,
+) -> Result<RegistryPlugin, PkgError> {
+    let bytes = std::fs::read(packed)?;
+    Ok(RegistryPlugin {
+        id: manifest.id.clone(),
+        kind: manifest.kind.as_str().to_string(),
+        name: manifest
+            .display_name
+            .clone()
+            .unwrap_or_else(|| manifest.id.clone()),
+        description: String::new(),
+        versions: vec![RegistryVersion {
+            version: manifest.version.clone(),
+            changelog: changelog.map(str::to_string).filter(|s| !s.is_empty()),
+            min_host_api: manifest.min_host_api,
+            artifact: Some(RegistryArtifact {
+                url: artifact_url.to_string(),
+                sha256: hex::encode(Sha256::digest(&bytes)),
+                size: bytes.len() as u64,
+            }),
+            dependencies: manifest.dependencies.clone(),
+        }],
+    })
 }
 
 fn collect_files(
@@ -177,5 +239,31 @@ mod tests {
         let dest = temp.path().join("dest");
         assert!(extract_to(&out, &dest).is_err());
         assert!(!temp.path().join("evil.txt").exists());
+    }
+
+    #[test]
+    fn registry_fragment_contains_sha_and_size() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("plugin");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(MANIFEST_ENTRY),
+            br#"{"id":"omni.addon.demo","version":"0.1.0","kind":"addon","permissions":[]}"#,
+        )
+        .unwrap();
+        let fragment = registry_plugin_from_dir(
+            &dir,
+            "https://example.com/demo.omni-plugin",
+            Some("fix overlay"),
+            Some(&dev_signing_key()),
+        )
+        .unwrap();
+        assert_eq!(fragment.id, "omni.addon.demo");
+        let ver = &fragment.versions[0];
+        assert_eq!(ver.version, "0.1.0");
+        assert_eq!(ver.changelog.as_deref(), Some("fix overlay"));
+        let artifact = ver.artifact.as_ref().unwrap();
+        assert_eq!(artifact.sha256.len(), 64);
+        assert!(artifact.size > 0);
     }
 }

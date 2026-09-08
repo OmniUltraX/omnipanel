@@ -48,10 +48,10 @@ describe("originForInstalled", () => {
 });
 
 describe("isDbxOrigin", () => {
-  it("treats third-party as DBX", () => {
-    expect(isDbxOrigin("thirdParty")).toBe(true);
-    expect(isDbxOrigin("official")).toBe(false);
-    expect(isDbxOrigin("local")).toBe(false);
+  it("requires an explicit DBX flag", () => {
+    expect(isDbxOrigin("thirdParty")).toBe(false);
+    expect(isDbxOrigin("thirdParty", true)).toBe(true);
+    expect(isDbxOrigin("official", true)).toBe(false);
   });
 });
 
@@ -64,8 +64,9 @@ describe("originMetaLabel", () => {
       "plugins.center.origin.dbx": "DBX",
     })[key] ?? key;
 
-  it("appends DBX to third-party labels", () => {
-    expect(originMetaLabel("thirdParty", t)).toBe("第三方 · DBX");
+  it("appends DBX only when flagged", () => {
+    expect(originMetaLabel("thirdParty", t)).toBe("第三方");
+    expect(originMetaLabel("thirdParty", t, { dbx: true })).toBe("第三方 · DBX");
   });
 
   it("leaves official and local unchanged", () => {
