@@ -1,12 +1,26 @@
 //! 模块独立 WebView 窗口（如数据库模块弹出）。
 //!
 //! 策略：用户首次「在新窗口打开」时再创建隐藏 WebView；关闭改为隐藏以复用热 WebView。
+//! 隐藏后若 **10 分钟内未再次打开**，则 `destroy` 卸载 WebView，释放内存；下次打开冷启动。
 //! Windows 配置了 `additionalBrowserArgs` 时必须独立 `data_directory`（与 workspace 子窗相同），
 //! 无法与主窗共用。
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const MODULE_WINDOW_PREFIX: &str = "module-";
+
+/// 隐藏态空闲多久后销毁模块窗（释放 WebView / JS 堆）。
+const MODULE_WINDOW_IDLE_UNLOAD: Duration = Duration::from_secs(10 * 60);
+
+/// label → 当前有效的卸载令牌；令牌变化则取消旧定时器。
+static IDLE_UNLOAD_TOKENS: LazyLock<Mutex<HashMap<String, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static IDLE_UNLOAD_SEQ: AtomicU64 = AtomicU64::new(1);
 
 fn module_window_label(module_key: &str) -> String {
     let safe = module_key
@@ -35,6 +49,61 @@ fn webview_data_directory(app: &AppHandle, label: &str) -> Result<std::path::Pat
 
 fn default_title(module_key: &str) -> String {
     format!("OmniPanel · {module_key}")
+}
+
+fn next_idle_token(label: &str) -> u64 {
+    let token = IDLE_UNLOAD_SEQ.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut map) = IDLE_UNLOAD_TOKENS.lock() {
+        map.insert(label.to_string(), token);
+    }
+    token
+}
+
+fn clear_idle_unload(label: &str) {
+    if let Ok(mut map) = IDLE_UNLOAD_TOKENS.lock() {
+        map.remove(label);
+    }
+}
+
+/// 取消该模块窗的空闲卸载定时器（再次打开时调用）。
+fn cancel_idle_unload(label: &str) {
+    clear_idle_unload(label);
+}
+
+/// 隐藏后启动空闲卸载：到期仍隐藏则 destroy。
+fn schedule_idle_unload(app: AppHandle, label: String) {
+    let token = next_idle_token(&label);
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(MODULE_WINDOW_IDLE_UNLOAD).await;
+        let still_current = IDLE_UNLOAD_TOKENS
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&label).copied())
+            == Some(token);
+        if !still_current {
+            return;
+        }
+        clear_idle_unload(&label);
+
+        let Some(window) = app.get_webview_window(&label) else {
+            return;
+        };
+        // 仍可见（用户又打开了但令牌竞态）则不销毁
+        match window.is_visible() {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(_) => return,
+        }
+
+        tracing::info!(
+            target: "module_window",
+            "模块窗空闲超过 {:?}，卸载: {label}",
+            MODULE_WINDOW_IDLE_UNLOAD
+        );
+        if let Err(e) = window.destroy() {
+            tracing::warn!(target: "module_window", "卸载模块窗失败 {label}: {e}");
+        }
+    });
 }
 
 /// 确保模块窗存在；不存在则创建（默认隐藏）。已存在则原样返回 label。
@@ -107,7 +176,7 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
         }
     }
 
-    // 关闭改为隐藏，保持 WebView / JS 堆热复用
+    // 关闭改为隐藏，短时复用热 WebView；超时由 schedule_idle_unload 真正销毁
     let win_hide = window.clone();
     let app_hide = app.clone();
     let key_hide = key_destroy.clone();
@@ -124,8 +193,10 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
                     "label": label_hide,
                 }),
             );
+            schedule_idle_unload(app_hide.clone(), label_hide.clone());
         }
         tauri::WindowEvent::Destroyed => {
+            clear_idle_unload(&label_destroy);
             let _ = app_destroy.emit(
                 "omnipanel:module-window-destroyed",
                 serde_json::json!({
@@ -136,6 +207,9 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
         }
         _ => {}
     });
+
+    // 新建即隐藏：也启动空闲计时，避免预热后从未打开长期占资源
+    schedule_idle_unload(app.clone(), label.clone());
 
     Ok(label)
 }
@@ -166,6 +240,9 @@ pub async fn open_module_window(
     }
 
     let label = ensure_module_window(&app, &key)?;
+    // 再次打开：取消隐藏态空闲卸载
+    cancel_idle_unload(&label);
+
     let window = app
         .get_webview_window(&label)
         .ok_or_else(|| format!("模块窗口不存在: {label}"))?;

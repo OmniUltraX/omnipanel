@@ -262,6 +262,25 @@ export default {
       suggestions: {
         title: "Suggested actions",
       },
+      askHistory: {
+        title: "Ask history",
+        favorite: "Favorite",
+        unfavorite: "Unfavorite",
+        delete: "Delete",
+        tag: "Ask",
+      },
+      ai: {
+        title: "AI",
+        streaming: "Streaming…",
+        done: "Done",
+        failed: "Failed",
+        waiting: "Thinking…",
+        back: "Back",
+        noModel: "No model",
+        noModelHint: "Configure the assistant scenario model in Settings → AI",
+        noProvider: "No HTTP AI model configured. Add a provider and API key in Settings first.",
+        error: "Request failed: {message}",
+      },
       entity: {
         ipv4: "IP",
         ipv6: "IPv6",

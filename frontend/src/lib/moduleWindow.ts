@@ -29,6 +29,30 @@ const SUPPORTED_MODULE_KEY_SET = new Set<ModuleKey>(SUPPORTED_MODULE_KEYS);
 const ensureInflight = new Set<ModuleKey>();
 const ensureDone = new Set<ModuleKey>();
 
+function forgetModuleWindowWarm(moduleKey: string): void {
+  if (!isModuleWindowSupported(moduleKey)) return;
+  ensureDone.delete(moduleKey);
+  ensureInflight.delete(moduleKey);
+}
+
+/** 模块窗被后端空闲卸载后，清除前端「已预热」标记，下次打开走冷启动。 */
+let destroyedListenerStarted = false;
+function ensureDestroyedListener(): void {
+  if (destroyedListenerStarted || !isTauriRuntime()) return;
+  destroyedListenerStarted = true;
+  void listen<ModuleWindowLifecyclePayload>(
+    "omnipanel:module-window-destroyed",
+    (event) => {
+      const key = event.payload?.moduleKey?.trim();
+      if (!key) return;
+      forgetModuleWindowWarm(key);
+    },
+  ).catch((e) => {
+    console.warn("[moduleWindow] listen destroyed failed", e);
+    destroyedListenerStarted = false;
+  });
+}
+
 export function isModuleWindowSupported(moduleKey: string): moduleKey is ModuleKey {
   return SUPPORTED_MODULE_KEY_SET.has(moduleKey as ModuleKey);
 }
@@ -71,6 +95,7 @@ export function parseModuleWindowParams(): ModuleWindowParams | null {
 /** 按需创建模块窗并保持隐藏（已存在则立即返回）。 */
 async function ensureModuleWindowHidden(moduleKey: ModuleKey): Promise<void> {
   if (!isTauriRuntime() || !isModuleWindowSupported(moduleKey)) return;
+  ensureDestroyedListener();
   if (ensureDone.has(moduleKey) || ensureInflight.has(moduleKey)) return;
   ensureInflight.add(moduleKey);
   try {
@@ -93,14 +118,23 @@ export async function openModuleWindow(moduleKey: ModuleKey, title: string): Pro
     showToast(`模块「${moduleKey}」暂不支持独立窗口`);
     return;
   }
+  ensureDestroyedListener();
   try {
     await ensureModuleWindowHidden(moduleKey);
     await invoke<string>("open_module_window", { moduleKey, title });
     ensureDone.add(moduleKey);
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    showToast(`打开独立窗口失败: ${message}`);
-    throw e;
+    // 可能已被空闲卸载，清标记后重试一次冷启动
+    forgetModuleWindowWarm(moduleKey);
+    try {
+      await ensureModuleWindowHidden(moduleKey);
+      await invoke<string>("open_module_window", { moduleKey, title });
+      ensureDone.add(moduleKey);
+    } catch (retryErr) {
+      const message = retryErr instanceof Error ? retryErr.message : String(retryErr);
+      showToast(`打开独立窗口失败: ${message}`);
+      throw retryErr;
+    }
   }
 }
 

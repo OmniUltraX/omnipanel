@@ -51,19 +51,71 @@ import {
   initAppearanceSyncSubscriber,
   requestAppearanceSync,
 } from "../../lib/appearanceSync";
-import { initSettings } from "../../stores/settingsStore";
+import { initSettings, useSettingsStore } from "../../stores/settingsStore";
 import { readClipboardText } from "../../lib/quickLaunch/clipboard";
 import {
   buildSuggestions,
   primaryEntityKind,
   type SuggestedAction,
 } from "../../lib/quickLaunch/buildSuggestions";
+import { streamQuickLauncherAskAi } from "../../lib/quickLaunch/streamAskAi";
+import { QuickLauncherAiAnswer } from "./QuickLauncherAiAnswer";
 import { type EntityKind } from "../../lib/quickLaunch/detectText";
 import { isKernelModuleKey, type ModuleKey } from "../../lib/paths";
 import { useQuickLauncherActionStatsStore } from "../../stores/quickLauncherActionStatsStore";
+import {
+  useQuickLauncherAskHistoryStore,
+  type QuickLauncherAskHistoryEntry,
+} from "../../stores/quickLauncherAskHistoryStore";
+import {
+  initAiModelsStore,
+  resolveModelSelection,
+  useAiModelsStore,
+  type AiModelProvider,
+} from "../../stores/aiModelsStore";
+import { resolveScenarioModelSelectionId } from "../../lib/aiScenarioModels";
+import { resolveBackendFromSelection } from "../../lib/ai/inferenceBackend";
 
 const CLIPBOARD_PREVIEW_H = 36;
 const SUGGESTION_SECTION_LABEL_H = 24;
+/** 询问 AI 结果区高度（含提问摘要 + Markdown 正文滚动区） */
+const AI_ANSWER_PANEL_H = 360;
+
+type AiAskState = {
+  prompt: string;
+  answer: string;
+  status: "streaming" | "done" | "error";
+  errorMessage?: string;
+};
+
+/** 与页内询问 AI 相同的解析规则，展示当前将使用的模型名 */
+function resolveQuickLauncherModelLabel(
+  providers: AiModelProvider[],
+  configuredId: string | null | undefined,
+): { short: string; full: string } | null {
+  const selectionId = resolveScenarioModelSelectionId(providers, configuredId);
+  if (!selectionId) return null;
+
+  const backend = resolveBackendFromSelection(providers, selectionId);
+  if (backend?.kind === "http") {
+    const resolved = resolveModelSelection(providers, selectionId);
+    const name = resolved?.name
+      ?? (backend.backendId.includes("::")
+        ? backend.backendId.slice(backend.backendId.lastIndexOf("::") + 2)
+        : backend.httpProvider.providerId);
+    const provider = providers.find((p) => p.id === backend.httpProvider.providerId);
+    const providerName = provider?.providerName?.trim() || backend.httpProvider.providerId;
+    return { short: name, full: `${providerName} / ${name}` };
+  }
+  if (backend?.kind === "cli") {
+    const short = backend.modelId || backend.providerId;
+    return { short, full: backend.backendId };
+  }
+  if (backend?.kind === "acp") {
+    return { short: backend.agentKind, full: backend.backendId };
+  }
+  return { short: selectionId, full: selectionId };
+}
 /** 与侧栏一致的模块图标行（点击打开独立窗） */
 const MODULE_ICON_DEFS: Array<{ key: ModuleKey; icon: ReactNode }> = [
   {
@@ -208,7 +260,8 @@ function rowToAction(row: QuickLaunchMatchRow): QuickLauncherAction {
 
 type ListItem =
   | { kind: "match"; id: string; row: QuickLaunchMatchRow }
-  | { kind: "suggestion"; id: string; suggestion: SuggestedAction };
+  | { kind: "suggestion"; id: string; suggestion: SuggestedAction }
+  | { kind: "history"; id: string; entry: QuickLauncherAskHistoryEntry };
 
 function entityLabel(
   kind: EntityKind,
@@ -262,6 +315,35 @@ function formatQuickLaunchLastUsed(
   return t("knowledge.time.daysAgo", { n: days });
 }
 
+function AskHistoryStarIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8 6.8 19.5l1-5.8L3.6 9.6l5.8-.8L12 3.5z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function AskHistoryTrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M5 7h14M9 7V5h6v2m-8 0l1 12h8l1-12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /**
  * 托盘态快捷启动窗：顶部模块图标 + 单行搜索 + 底部匹配列表。
  * 独立于主窗口 Bootstrap，仅轻量初始化连接列表。
@@ -283,6 +365,7 @@ export function QuickLauncherRoot() {
   const [ctrlHeld, setCtrlHeld] = useState(false);
   const [clipboardText, setClipboardText] = useState("");
   const [clipboardSensitive, setClipboardSensitive] = useState(false);
+  const [aiAsk, setAiAsk] = useState<AiAskState | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const moduleButtonsRef = useRef<typeof MODULE_ICON_DEFS>([]);
@@ -291,6 +374,9 @@ export function QuickLauncherRoot() {
   );
   const openMainWindowRef = useRef<() => Promise<void>>(async () => {});
   const lastClipboardRef = useRef("");
+  const aiAbortRef = useRef<AbortController | null>(null);
+  /** 页内 AI 进行中：失焦不关窗，避免流式中途被关掉 */
+  const aiAskOpenRef = useRef(false);
   const unifiedConnections = useConnectionStore((s) => s.connections);
   const [dbConnections, setDbConnections] = useState<Connection[]>([]);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
@@ -299,6 +385,20 @@ export function QuickLauncherRoot() {
   const recordRecentOpen = useQuickLauncherRecentStore((s) => s.recordOpen);
   const actionUseCounts = useQuickLauncherActionStatsStore((s) => s.useCounts);
   const recordActionUse = useQuickLauncherActionStatsStore((s) => s.recordUse);
+  const askHistoryEntries = useQuickLauncherAskHistoryStore((s) => s.entries);
+  const addAskHistoryEntry = useQuickLauncherAskHistoryStore((s) => s.addEntry);
+  const removeAskHistoryEntry = useQuickLauncherAskHistoryStore((s) => s.removeEntry);
+  const toggleAskHistoryFavorite = useQuickLauncherAskHistoryStore(
+    (s) => s.toggleFavorite,
+  );
+  const aiProviders = useAiModelsStore((s) => s.providers);
+  const assistantModelSelectionId = useSettingsStore(
+    (s) => s.aiScenarioAssistantModelSelectionId,
+  );
+  const activeModelLabel = useMemo(
+    () => resolveQuickLauncherModelLabel(aiProviders, assistantModelSelectionId),
+    [aiProviders, assistantModelSelectionId],
+  );
 
   const refreshClipboard = useCallback(async () => {
     const result = await readClipboardText();
@@ -330,6 +430,10 @@ export function QuickLauncherRoot() {
     dismissHtmlBootSplash();
     document.documentElement.classList.add("quick-launcher-root");
     document.body.classList.add("quick-launcher-body");
+    // 供 Rust show_launcher 判断：本窗已具备页内 AI，无需为追 HMR 而 reload
+    (
+      window as Window & { __OMNIPANEL_QL_HAS_INPANEL_AI__?: boolean }
+    ).__OMNIPANEL_QL_HAS_INPANEL_AI__ = true;
     // 本窗 localStorage 与主窗隔离；先套默认，再经 appearanceSync 拉主窗配置
     initSettings();
     const unsubAppearance = initAppearanceSyncSubscriber();
@@ -341,6 +445,7 @@ export function QuickLauncherRoot() {
           reloadDbConnections(),
           initAppModuleStore().catch(() => {}),
           initPluginRuntimeStore().catch(() => {}),
+          initAiModelsStore().catch(() => {}),
           useDbSchemaCacheStore.getState().hydrate().catch(() => {}),
           refreshClipboard(),
         ]);
@@ -369,6 +474,12 @@ export function QuickLauncherRoot() {
       ignoreBlurUntilRef.current = Date.now() + 250;
       setQuery("");
       setSelectedIndex(0);
+      // 页内 AI 进行中时不要被重复 shown（或误触）清掉
+      if (!aiAskOpenRef.current) {
+        aiAbortRef.current?.abort();
+        aiAbortRef.current = null;
+        setAiAsk(null);
+      }
       // Ctrl+Space 唤醒时 Ctrl 仍按着，直接显示角标；托盘等其它入口则不显示
       setCtrlHeld(payload.ctrlHeld === true);
       setVisibleModuleKeys(kernelNavKeys());
@@ -378,6 +489,7 @@ export function QuickLauncherRoot() {
       void useDbSchemaCacheStore.getState().hydrate({ force: true }).catch(() => {});
       void reloadDbConnections();
       void refreshClipboard();
+      void initAiModelsStore().catch(() => {});
       requestAnimationFrame(() => inputRef.current?.focus());
     }).then((fn) => {
       unlisten = fn;
@@ -399,6 +511,14 @@ export function QuickLauncherRoot() {
       .onFocusChanged(({ payload: focused }) => {
         if (!focused) {
           setCtrlHeld(false);
+          if (aiAskOpenRef.current) {
+            // 页内 AI 展示中：失焦不关窗，并抢回焦点，避免主窗被抬到前台
+            ignoreBlurUntilRef.current = Date.now() + 120_000;
+            void getCurrentWindow()
+              .setFocus()
+              .catch(() => {});
+            return;
+          }
           if (Date.now() >= ignoreBlurUntilRef.current) {
             void hideQuickLauncher();
           }
@@ -473,18 +593,33 @@ export function QuickLauncherRoot() {
   const resolvedMatchRows =
     parsedQuery.kind === "es" ? esRows : matchRows;
 
+  const askHistoryForDisplay = useMemo(() => {
+    return [...askHistoryEntries].sort((a, b) => {
+      if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
+      return b.createdAt - a.createdAt;
+    });
+  }, [askHistoryEntries]);
+
+  const showAskHistory =
+    (isEmptyQuery || parsedQuery.kind === "plain") && askHistoryForDisplay.length > 0;
+
   const listItems = useMemo<ListItem[]>(() => {
     const items: ListItem[] = [];
     for (const s of suggestions) {
       items.push({ kind: "suggestion", id: `sug:${s.actionKey}`, suggestion: s });
     }
-    // 空输入时：建议在上，最近在下；有前缀匹配时：匹配结果优先，建议次之
+    // 空输入 / plain：建议 → 询问记录 → 最近/匹配
     if (isEmptyQuery || parsedQuery.kind === "plain") {
+      if (showAskHistory) {
+        for (const entry of askHistoryForDisplay) {
+          items.push({ kind: "history", id: `ask:${entry.id}`, entry });
+        }
+      }
       for (const row of resolvedMatchRows) {
         items.push({ kind: "match", id: row.id, row });
       }
     } else {
-      // ssh/db 前缀：匹配结果优先
+      // ssh/db 前缀：匹配结果优先，建议次之（不含询问记录）
       const sugItems = items.splice(0, items.length);
       for (const row of resolvedMatchRows) {
         items.push({ kind: "match", id: row.id, row });
@@ -492,7 +627,14 @@ export function QuickLauncherRoot() {
       items.push(...sugItems);
     }
     return items;
-  }, [suggestions, resolvedMatchRows, isEmptyQuery, parsedQuery.kind]);
+  }, [
+    suggestions,
+    resolvedMatchRows,
+    isEmptyQuery,
+    parsedQuery.kind,
+    showAskHistory,
+    askHistoryForDisplay,
+  ]);
 
   const clipboardEntityKind = useMemo(
     () => (clipboardText ? primaryEntityKind(clipboardText) : null),
@@ -505,24 +647,127 @@ export function QuickLauncherRoot() {
     setSelectedIndex(0);
   }, [query, listItems.length, clipboardText]);
 
+  const listLayoutSig = useMemo(() => {
+    const suggestionCount = listItems.filter((i) => i.kind === "suggestion").length;
+    const historyCount = listItems.filter((i) => i.kind === "history").length;
+    return {
+      suggestionCount,
+      historyCount,
+      rowCount: Math.min(listItems.length, 12),
+      itemCount: listItems.length,
+    };
+  }, [listItems]);
+
   useEffect(() => {
-    const suggestionH =
-      suggestions.length > 0
-        ? SUGGESTION_SECTION_LABEL_H + Math.min(suggestions.length, 5) * 40
-        : 0;
-    const matchCount = Math.max(0, listItems.length - suggestions.length);
-    const matchH = matchCount > 0 ? Math.min(matchCount, 8) * 40 + 8 : 0;
-    // 列表合并时用总行数估算更稳
+    if (aiAsk) {
+      const height = MODULE_BAR_H + INPUT_ROW_H + AI_ANSWER_PANEL_H;
+      void setQuickLauncherHeight(height);
+      return;
+    }
+    const sectionLabels =
+      (listLayoutSig.suggestionCount > 0 ? 1 : 0) +
+      (listLayoutSig.historyCount > 0 ? 1 : 0);
     const listH =
-      listItems.length > 0
-        ? Math.min(listItems.length, 10) * 40 + 8 + (suggestions.length > 0 ? SUGGESTION_SECTION_LABEL_H : 0)
+      listLayoutSig.itemCount > 0
+        ? listLayoutSig.rowCount * 40 + 8 + sectionLabels * SUGGESTION_SECTION_LABEL_H
         : 0;
     const clipH = showClipboardBar ? CLIPBOARD_PREVIEW_H : 0;
-    void suggestionH;
-    void matchH;
     const height = MODULE_BAR_H + INPUT_ROW_H + clipH + listH;
     void setQuickLauncherHeight(height);
-  }, [listItems.length, suggestions.length, showClipboardBar]);
+  }, [aiAsk, listLayoutSig, showClipboardBar]);
+
+  const clearAiAsk = useCallback(() => {
+    aiAbortRef.current?.abort();
+    aiAbortRef.current = null;
+    aiAskOpenRef.current = false;
+    ignoreBlurUntilRef.current = Date.now() + 400;
+    setAiAsk(null);
+  }, []);
+
+  const startInPanelAskAi = useCallback(async (prompt: string) => {
+    const text = prompt.trim();
+    if (!text) return;
+    aiAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    aiAskOpenRef.current = true;
+    // 拉长失焦忽略，避免改窗高时 Windows 短暂失焦把启动窗关掉、焦点落到主窗 AI 抽屉
+    ignoreBlurUntilRef.current = Date.now() + 120_000;
+    setAiAsk({
+      prompt: text,
+      answer: "",
+      status: "streaming",
+    });
+    try {
+      if (isTauriRuntime()) {
+        await getCurrentWindow().setFocus();
+      }
+    } catch {
+      /* ignore */
+    }
+    requestAnimationFrame(() => inputRef.current?.focus());
+
+    const result = await streamQuickLauncherAskAi({
+      prompt: text,
+      signal: controller.signal,
+      onDelta: (answer) => {
+        setAiAsk((prev) =>
+          prev && prev.status === "streaming" ? { ...prev, answer } : prev,
+        );
+      },
+    });
+    if (controller.signal.aborted) {
+      return;
+    }
+    if (aiAbortRef.current === controller) {
+      aiAbortRef.current = null;
+    }
+    // 结束后仍保持页内结果，直到用户 Esc / 返回；继续挡住失焦关窗
+    ignoreBlurUntilRef.current = Date.now() + 120_000;
+    if (result.ok) {
+      setAiAsk((prev) =>
+        prev
+          ? { ...prev, answer: result.content, status: "done" }
+          : prev,
+      );
+      addAskHistoryEntry(text, result.content);
+      return;
+    }
+    if (result.reason === "aborted") return;
+    const message =
+      result.reason === "no-provider"
+        ? "no-provider"
+        : result.message || "request-failed";
+    setAiAsk((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: "error",
+            errorMessage: message,
+          }
+        : prev,
+    );
+  }, [addAskHistoryEntry]);
+
+  const openAskHistoryEntry = useCallback((entry: QuickLauncherAskHistoryEntry) => {
+    aiAbortRef.current?.abort();
+    aiAbortRef.current = null;
+    aiAskOpenRef.current = true;
+    ignoreBlurUntilRef.current = Date.now() + 120_000;
+    setAiAsk({
+      prompt: entry.prompt,
+      answer: entry.answer,
+      status: "done",
+    });
+    try {
+      if (isTauriRuntime()) {
+        void getCurrentWindow().setFocus();
+      }
+    } catch {
+      /* ignore */
+    }
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
 
   const activateMatch = useCallback(
     async (row: QuickLaunchMatchRow) => {
@@ -561,6 +806,11 @@ export function QuickLauncherRoot() {
     async (suggestion: SuggestedAction) => {
       recordActionUse(suggestion.actionKey);
       const action = suggestion.action;
+      // 询问 AI：留在快捷启动窗内流式展示，不跳转 AI 助手、不 emit、不关窗
+      if (action.kind === "ask-ai") {
+        void startInPanelAskAi(action.prompt);
+        return;
+      }
       try {
         if (soloMode) {
           const moduleKey = moduleKeyForQuickLauncherAction(action);
@@ -579,18 +829,22 @@ export function QuickLauncherRoot() {
         await hideQuickLauncher();
       }
     },
-    [recordActionUse, soloMode, t],
+    [recordActionUse, soloMode, startInPanelAskAi, t],
   );
 
   const activateItem = useCallback(
     async (item: ListItem) => {
       if (item.kind === "match") {
         await activateMatch(item.row);
-      } else {
-        await activateSuggestion(item.suggestion);
+        return;
       }
+      if (item.kind === "history") {
+        openAskHistoryEntry(item.entry);
+        return;
+      }
+      await activateSuggestion(item.suggestion);
     },
-    [activateMatch, activateSuggestion],
+    [activateMatch, activateSuggestion, openAskHistoryEntry],
   );
 
   const toggleSoloMode = useCallback(() => {
@@ -605,6 +859,7 @@ export function QuickLauncherRoot() {
     async (moduleKey: ModuleKey) => {
       // 点击图标会抢焦点；延长忽略失焦窗口，避免未打开就关启动窗
       ignoreBlurUntilRef.current = Date.now() + 800;
+      clearAiAsk();
       try {
         if (soloMode) {
           await openModuleWindow(moduleKey, t(`shell.nav.${moduleKey}`));
@@ -616,18 +871,19 @@ export function QuickLauncherRoot() {
         await hideQuickLauncher();
       }
     },
-    [soloMode, t],
+    [clearAiAsk, soloMode, t],
   );
 
   /** 打开主窗口：始终聚焦主窗，不受 SOLO 开关限制 */
   const openMainWindow = useCallback(async () => {
     ignoreBlurUntilRef.current = Date.now() + 800;
+    clearAiAsk();
     try {
       await emitQuickLauncherAction({ kind: "command", id: "focus-main" });
     } finally {
       await hideQuickLauncher();
     }
-  }, []);
+  }, [clearAiAsk]);
 
   openModuleFromIconRef.current = openModuleFromIcon;
   openMainWindowRef.current = openMainWindow;
@@ -690,7 +946,16 @@ export function QuickLauncherRoot() {
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
+      if (aiAsk) {
+        clearAiAsk();
+        requestAnimationFrame(() => inputRef.current?.focus());
+        return;
+      }
       void hideQuickLauncher();
+      return;
+    }
+    if (aiAsk) {
+      // AI 结果态：方向键 / Enter 交给输入框，不操作列表
       return;
     }
     if (e.key === "ArrowDown") {
@@ -728,6 +993,15 @@ export function QuickLauncherRoot() {
       void activateItem(listItems[selectedIndex]!);
     }
   };
+
+  const firstSuggestionIndex = useMemo(
+    () => listItems.findIndex((x) => x.kind === "suggestion"),
+    [listItems],
+  );
+  const firstHistoryIndex = useMemo(
+    () => listItems.findIndex((x) => x.kind === "history"),
+    [listItems],
+  );
 
   const showEmptyHint = query.trim().length > 0 && listItems.length === 0;
   const openMainTitle = `${t("shell.quickLauncher.openMain")} (Ctrl+\`)`;
@@ -816,9 +1090,21 @@ export function QuickLauncherRoot() {
           className="quick-launcher__input"
           style={{ height: "auto", padding: 0, background: "transparent", border: "none" }}
         />
+        <span
+          className={`quick-launcher__model${activeModelLabel ? "" : " is-empty"}`}
+          title={
+            activeModelLabel
+              ? activeModelLabel.full
+              : t("shell.quickLauncher.ai.noModelHint")
+          }
+        >
+          {activeModelLabel
+            ? activeModelLabel.short
+            : t("shell.quickLauncher.ai.noModel")}
+        </span>
         <kbd className="quick-launcher__kbd">ESC</kbd>
       </div>
-      {showClipboardBar ? (
+      {!aiAsk && showClipboardBar ? (
         <div className="quick-launcher__clipboard" title={clipboardSensitive ? undefined : clipboardText}>
           <span className="quick-launcher__clipboard-tag">
             {clipboardEntityKind
@@ -832,17 +1118,35 @@ export function QuickLauncherRoot() {
           </span>
         </div>
       ) : null}
-      {listItems.length > 0 ? (
+      {aiAsk ? (
+        <QuickLauncherAiAnswer
+          prompt={aiAsk.prompt}
+          answer={aiAsk.answer}
+          status={aiAsk.status}
+          errorMessage={aiAsk.errorMessage}
+          onBack={() => {
+            clearAiAsk();
+            requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+        />
+      ) : listItems.length > 0 ? (
         <ul className="quick-launcher__list" role="listbox">
-          {suggestions.length > 0 ? (
-            <li className="quick-launcher__section-label" aria-hidden>
-              {t("shell.quickLauncher.suggestions.title")}
-            </li>
-          ) : null}
           {listItems.map((item, index) => {
+            const sectionLabel =
+              item.kind === "suggestion" && index === firstSuggestionIndex ? (
+                <li key="section-suggestions" className="quick-launcher__section-label" aria-hidden>
+                  {t("shell.quickLauncher.suggestions.title")}
+                </li>
+              ) : item.kind === "history" && index === firstHistoryIndex ? (
+                <li key="section-ask-history" className="quick-launcher__section-label" aria-hidden>
+                  {t("shell.quickLauncher.askHistory.title")}
+                </li>
+              ) : null;
+
             if (item.kind === "suggestion") {
               const s = item.suggestion;
-              return (
+              return [
+                sectionLabel,
                 <li key={item.id}>
                   <button
                     type="button"
@@ -851,7 +1155,18 @@ export function QuickLauncherRoot() {
                     className={`quick-launcher__item quick-launcher__item--suggestion${
                       index === selectedIndex ? " is-selected" : ""
                     }${s.dangerous ? " is-dangerous" : ""}`}
-                    onClick={() => void activateItem(item)}
+                    onMouseDown={(e) => {
+                      // 避免抢焦点关窗；询问 AI 在 pointerdown 即启动，防止旧逻辑漏网
+                      e.preventDefault();
+                      if (s.action.kind === "ask-ai") {
+                        setSelectedIndex(index);
+                        void activateItem(item);
+                      }
+                    }}
+                    onClick={() => {
+                      if (s.action.kind === "ask-ai") return;
+                      void activateItem(item);
+                    }}
                     onMouseEnter={() => setSelectedIndex(index)}
                   >
                     <span className="quick-launcher__item-module">
@@ -864,9 +1179,85 @@ export function QuickLauncherRoot() {
                       ) : null}
                     </span>
                   </button>
-                </li>
-              );
+                </li>,
+              ];
             }
+
+            if (item.kind === "history") {
+              const entry = item.entry;
+              return [
+                sectionLabel,
+                <li key={item.id}>
+                  <div
+                    role="option"
+                    aria-selected={index === selectedIndex}
+                    className={`quick-launcher__item quick-launcher__item--history${
+                      index === selectedIndex ? " is-selected" : ""
+                    }`}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                    onClick={() => void activateItem(item)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        void activateItem(item);
+                      }
+                    }}
+                    tabIndex={-1}
+                  >
+                    <span className="quick-launcher__item-module">
+                      {t("shell.quickLauncher.askHistory.tag")}
+                    </span>
+                    <span className="quick-launcher__item-main">
+                      <span className="quick-launcher__item-label">
+                        {entry.prompt.replace(/\s+/g, " ").slice(0, 80)}
+                      </span>
+                      <span className="quick-launcher__item-sub">
+                        {formatQuickLaunchLastUsed(entry.createdAt, t)}
+                      </span>
+                    </span>
+                    <span className="quick-launcher__item-actions">
+                      <button
+                        type="button"
+                        className={`quick-launcher__item-action${
+                          entry.favorited ? " is-active" : ""
+                        }`}
+                        title={
+                          entry.favorited
+                            ? t("shell.quickLauncher.askHistory.unfavorite")
+                            : t("shell.quickLauncher.askHistory.favorite")
+                        }
+                        aria-label={
+                          entry.favorited
+                            ? t("shell.quickLauncher.askHistory.unfavorite")
+                            : t("shell.quickLauncher.askHistory.favorite")
+                        }
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleAskHistoryFavorite(entry.id);
+                        }}
+                      >
+                        <AskHistoryStarIcon filled={entry.favorited} />
+                      </button>
+                      <button
+                        type="button"
+                        className="quick-launcher__item-action is-danger"
+                        title={t("shell.quickLauncher.askHistory.delete")}
+                        aria-label={t("shell.quickLauncher.askHistory.delete")}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeAskHistoryEntry(entry.id);
+                        }}
+                      >
+                        <AskHistoryTrashIcon />
+                      </button>
+                    </span>
+                  </div>
+                </li>,
+              ];
+            }
+
             const row = item.row;
             const moduleKey = quickLaunchRowModule(row);
             const lastUsedAt = recentLastUsedByKey.get(

@@ -262,6 +262,25 @@ export default {
       suggestions: {
         title: "建议操作",
       },
+      askHistory: {
+        title: "询问记录",
+        favorite: "收藏",
+        unfavorite: "取消收藏",
+        delete: "删除",
+        tag: "询问",
+      },
+      ai: {
+        title: "AI",
+        streaming: "生成中…",
+        done: "完成",
+        failed: "失败",
+        waiting: "正在思考…",
+        back: "返回",
+        noModel: "未配置模型",
+        noModelHint: "请在设置 → AI 中配置助手场景模型",
+        noProvider: "未配置可用的 HTTP AI 模型，请先在设置中添加提供商与 API Key。",
+        error: "请求失败：{message}",
+      },
       entity: {
         ipv4: "IP",
         ipv6: "IPv6",

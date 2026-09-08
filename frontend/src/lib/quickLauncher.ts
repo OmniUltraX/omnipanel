@@ -129,6 +129,11 @@ function isQuickLauncherAction(payload: unknown): payload is QuickLauncherAction
 
 export async function emitQuickLauncherAction(action: QuickLauncherAction): Promise<void> {
   if (!isTauriRuntime()) return;
+  // 询问 AI 只在启动窗内处理，禁止广播到主窗（避免打开 AI 抽屉）
+  if (action.kind === "ask-ai") {
+    console.warn("[quickLauncher] ask-ai 不应 emit，已忽略");
+    return;
+  }
   const { emit } = await import("@tauri-apps/api/event");
   await emit("omnipanel:quick-launcher-action", action);
 }

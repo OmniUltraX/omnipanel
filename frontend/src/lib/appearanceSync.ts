@@ -1,5 +1,6 @@
 /**
- * 跨独立 WebView 同步外观（主题 / 强调色 / 语言 / 缩放 / 密度）。
+ * 跨独立 WebView 同步外观（主题 / 强调色 / 语言 / 缩放 / 密度）
+ * 以及 AI 助手场景默认模型（与设置 → AI 场景一致）。
  *
  * Windows 下子窗必须使用独立 `data_directory`，与主窗 localStorage 隔离；
  * `storage` 事件与 zustand rehydrate 无法跨 profile，需走 Tauri App Event。
@@ -25,10 +26,18 @@ export interface AppearanceSnapshot {
   locale: Locale;
   uiScale: number;
   uiDensity: UiDensity;
+  /** 助手场景默认模型；缺省字段表示旧主窗未广播，子窗保持本地值 */
+  aiScenarioAssistantModelSelectionId?: string | null;
+  /** 终端内联 AI 场景默认模型 */
+  aiScenarioTerminalModelSelectionId?: string | null;
 }
 
 function isTheme(value: unknown): value is Theme {
   return value === "system" || value === "light" || value === "dark";
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function isAppearanceSnapshot(value: unknown): value is AppearanceSnapshot {
@@ -40,7 +49,11 @@ function isAppearanceSnapshot(value: unknown): value is AppearanceSnapshot {
     typeof v.accentColor === "string" &&
     typeof v.locale === "string" &&
     typeof v.uiScale === "number" &&
-    typeof v.uiDensity === "string"
+    typeof v.uiDensity === "string" &&
+    (v.aiScenarioAssistantModelSelectionId === undefined ||
+      isNullableString(v.aiScenarioAssistantModelSelectionId)) &&
+    (v.aiScenarioTerminalModelSelectionId === undefined ||
+      isNullableString(v.aiScenarioTerminalModelSelectionId))
   );
 }
 
@@ -53,6 +66,8 @@ export function collectAppearanceSnapshot(): AppearanceSnapshot {
     locale: s.locale,
     uiScale: s.uiScale,
     uiDensity: s.uiDensity,
+    aiScenarioAssistantModelSelectionId: s.aiScenarioAssistantModelSelectionId,
+    aiScenarioTerminalModelSelectionId: s.aiScenarioTerminalModelSelectionId,
   };
 }
 
@@ -68,6 +83,28 @@ export function applyAppearanceSnapshot(snapshot: AppearanceSnapshot): void {
   if (store.locale !== snapshot.locale) store.setLocale(snapshot.locale);
   if (store.uiScale !== snapshot.uiScale) store.setUiScale(snapshot.uiScale);
   if (store.uiDensity !== snapshot.uiDensity) store.setUiDensity(snapshot.uiDensity);
+
+  const scenarioPatch: {
+    aiScenarioAssistantModelSelectionId?: string | null;
+    aiScenarioTerminalModelSelectionId?: string | null;
+  } = {};
+  if (
+    snapshot.aiScenarioAssistantModelSelectionId !== undefined &&
+    store.aiScenarioAssistantModelSelectionId !== snapshot.aiScenarioAssistantModelSelectionId
+  ) {
+    scenarioPatch.aiScenarioAssistantModelSelectionId =
+      snapshot.aiScenarioAssistantModelSelectionId;
+  }
+  if (
+    snapshot.aiScenarioTerminalModelSelectionId !== undefined &&
+    store.aiScenarioTerminalModelSelectionId !== snapshot.aiScenarioTerminalModelSelectionId
+  ) {
+    scenarioPatch.aiScenarioTerminalModelSelectionId =
+      snapshot.aiScenarioTerminalModelSelectionId;
+  }
+  if (Object.keys(scenarioPatch).length > 0) {
+    store.setAiScenarioSettings(scenarioPatch);
+  }
 }
 
 export async function broadcastAppearance(
@@ -107,18 +144,13 @@ export function initAppearanceSyncPublisher(): () => void {
       state.accentColor === prev.accentColor &&
       state.locale === prev.locale &&
       state.uiScale === prev.uiScale &&
-      state.uiDensity === prev.uiDensity
+      state.uiDensity === prev.uiDensity &&
+      state.aiScenarioAssistantModelSelectionId === prev.aiScenarioAssistantModelSelectionId &&
+      state.aiScenarioTerminalModelSelectionId === prev.aiScenarioTerminalModelSelectionId
     ) {
       return;
     }
-    void broadcastAppearance({
-      theme: state.theme,
-      themePackId: state.themePackId,
-      accentColor: state.accentColor,
-      locale: state.locale,
-      uiScale: state.uiScale,
-      uiDensity: state.uiDensity,
-    });
+    void broadcastAppearance(collectAppearanceSnapshot());
   });
 
   let unlistenReq: UnlistenFn | undefined;

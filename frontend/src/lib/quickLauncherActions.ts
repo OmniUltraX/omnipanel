@@ -21,7 +21,6 @@ import {
   openModuleWindow,
   parseModuleWindowParams,
 } from "./moduleWindow";
-import { sendToAiDock } from "./ai/sendToAiDock";
 import { useCommandBarDraftStore } from "../modules/terminal/commandBarDraftStore";
 import { requestTerminalExecution } from "../modules/terminal/executeTerminalCommand";
 
@@ -189,11 +188,6 @@ async function runSqlAction(action: Extract<QuickLauncherAction, { kind: "run-sq
   });
 }
 
-async function runAskAiAction(action: Extract<QuickLauncherAction, { kind: "ask-ai" }>) {
-  await wakeMainUnlessModuleWindow();
-  await sendToAiDock(action.prompt, { newConversation: true, openDrawer: true });
-}
-
 async function runSaveNoteAction(action: Extract<QuickLauncherAction, { kind: "save-note" }>) {
   await wakeMainUnlessModuleWindow();
   navigateToPath(MODULE_PATHS.knowledge);
@@ -316,7 +310,7 @@ export function applyQuickLauncherResourceAction(action: QuickLauncherAction): v
       void runSqlAction(action);
       return;
     case "ask-ai":
-      void runAskAiAction(action);
+      // 仅兼容旧模块窗广播；主窗 listener 已吞掉 ask-ai
       return;
     case "save-note":
       void runSaveNoteAction(action);
@@ -410,7 +404,6 @@ async function handleAction(action: QuickLauncherAction): Promise<void> {
     case "db-table":
     case "run-terminal":
     case "run-sql":
-    case "ask-ai":
     case "save-note":
     case "create-todo":
     case "open-url":
@@ -418,6 +411,9 @@ async function handleAction(action: QuickLauncherAction): Promise<void> {
     case "module-service":
       await wakeMainFromTray();
       applyQuickLauncherResourceAction(action);
+      return;
+    case "ask-ai":
+      // 页内流式；旧版启动窗若仍 emit，在此吞掉，绝不唤醒 AI 助手
       return;
     default:
       break;

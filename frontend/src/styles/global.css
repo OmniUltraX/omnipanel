@@ -28479,6 +28479,26 @@ body.quick-launcher-body {
     outline: none;
 }
 
+.quick-launcher__model {
+    flex-shrink: 0;
+    max-width: 148px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 2px 8px;
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--muted, #8b919a);
+    border: 1px solid var(--border, #2a2e36);
+    border-radius: 4px;
+    background: transparent;
+}
+
+.quick-launcher__model.is-empty {
+    color: color-mix(in srgb, var(--muted, #8b919a) 75%, transparent);
+    border-style: dashed;
+}
+
 .quick-launcher__kbd {
     padding: 2px 6px;
     font-size: 10px;
@@ -28571,11 +28591,197 @@ body.quick-launcher-body {
     text-align: right;
 }
 
+.quick-launcher__item-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.quick-launcher__item-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted, #8b919a);
+    cursor: pointer;
+}
+
+.quick-launcher__item-action:hover {
+    color: var(--accent, #3b82f6);
+    border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border, #2a2e36));
+    background: var(--bg, #1a1d22);
+}
+
+.quick-launcher__item-action.is-active {
+    color: var(--accent, #3b82f6);
+}
+
+.quick-launcher__item-action.is-danger:hover {
+    color: var(--danger, #ef4444);
+    border-color: color-mix(in srgb, var(--danger, #ef4444) 45%, var(--border, #2a2e36));
+}
+
+.quick-launcher__item--history {
+    cursor: pointer;
+}
+
 .quick-launcher__empty {
     padding: 20px 14px;
     text-align: center;
     font-size: 13px;
     color: var(--muted, #8b919a);
+}
+
+.quick-launcher__ai {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    height: 360px;
+    border-top: 1px solid var(--border, #2a2e36);
+}
+
+.quick-launcher__ai-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 10px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border, #2a2e36);
+}
+
+.quick-launcher__ai-tag {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent, #3b82f6);
+}
+
+.quick-launcher__ai-status {
+    font-size: 11px;
+    color: var(--muted, #8b919a);
+}
+
+.quick-launcher__ai-close {
+    margin-left: auto;
+    padding: 2px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted, #8b919a);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.quick-launcher__ai-close:hover {
+    color: var(--accent, #3b82f6);
+    border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border, #2a2e36));
+    background: var(--bg, #1a1d22);
+}
+
+.quick-launcher__ai-prompt {
+    flex-shrink: 0;
+    padding: 8px 12px 6px;
+    font-size: 11px;
+    color: var(--muted, #8b919a);
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.quick-launcher__ai-answer {
+    flex: 1;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 8px 12px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--fg, #e8eaed);
+}
+
+.quick-launcher__ai-markdown {
+    min-width: 0;
+    height: auto;
+}
+
+/*
+ * ThreadMessagesOnly 的 Viewport 带 overflow-y-hidden；再叠加 content-visibility:auto
+ * 会把 scrollHeight 算矮，父级以为已经到底、无法继续下滚。
+ * 与终端内嵌一致：让线程随内容撑开，滚动只交给 .quick-launcher__ai-answer。
+ */
+.quick-launcher__ai-markdown .aui-thread-root,
+.quick-launcher__ai-markdown .term-warp-ai-thread-root {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0;
+    overflow: visible !important;
+}
+
+.quick-launcher__ai-markdown .aui-thread-root > div,
+.quick-launcher__ai-markdown [class*="overflow-y-hidden"] {
+    overflow-y: visible !important;
+    overflow-x: auto !important;
+    height: auto !important;
+    max-height: none !important;
+}
+
+.quick-launcher__ai-markdown .aui_message-group {
+    gap: 0;
+}
+
+.quick-launcher__ai-markdown [data-slot="aui_assistant-message-root"],
+.quick-launcher__ai-markdown [data-slot="aui_assistant-message-content"],
+.quick-launcher__ai-markdown [data-slot="aui_user-message-root"] {
+    content-visibility: visible !important;
+    contain: none !important;
+    contain-intrinsic-size: none;
+}
+
+.quick-launcher__ai-markdown [data-slot="aui_assistant-message-footer"] {
+    display: none;
+}
+
+.quick-launcher__ai-markdown .aui-md {
+    font-size: 12.5px;
+}
+
+.quick-launcher__ai-markdown .aui-md :where(h1) {
+    font-size: 1.15em;
+}
+
+.quick-launcher__ai-markdown .aui-md :where(h2) {
+    font-size: 1.08em;
+}
+
+.quick-launcher__ai-markdown .aui-md :where(h3, h4) {
+    font-size: 1.02em;
+}
+
+.quick-launcher__ai-markdown .aui-md :where(pre, .aui-md-pre) {
+    font-size: 12px;
+}
+
+.quick-launcher__ai-placeholder,
+.quick-launcher__ai-error {
+    margin: 0;
+    padding: 4px;
+    color: var(--muted, #8b919a);
+}
+
+.quick-launcher__ai-error {
+    color: var(--danger, #ef4444);
 }
 
 

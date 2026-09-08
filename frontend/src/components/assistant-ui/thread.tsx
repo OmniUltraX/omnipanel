@@ -1097,7 +1097,7 @@ const BranchPicker: FC<BranchPickerPrimitive.Root.Props> = ({
   );
 };
 
-/** 仅消息列表（无 Composer），供终端内嵌 AI 卡片使用 */
+/** 仅消息列表（无 Composer），供终端内嵌 / 快捷启动等「外层滚动」场景使用 */
 export const ThreadMessagesOnly: FC<ThreadProps> = ({ components = EMPTY_COMPONENTS }) => {
   const mergedComponents = useMemo<ThreadComponents>(
     () => ({
@@ -1115,7 +1115,14 @@ export const ThreadMessagesOnly: FC<ThreadProps> = ({ components = EMPTY_COMPONE
           ["--thread-max-width" as string]: "100%",
         }}
       >
-        <ThreadPrimitive.Viewport className="flex flex-col overflow-x-auto overflow-y-hidden px-1 py-1">
+        {/*
+          外层容器负责纵向滚动：关闭 Viewport 自身 autoScroll，且勿用 overflow-y-hidden
+          截断内容（否则父级 scrollHeight 偏小，无法滚到底部）。
+        */}
+        <ThreadPrimitive.Viewport
+          autoScroll={false}
+          className="flex flex-col overflow-x-auto overflow-y-visible px-1 py-1"
+        >
           <div className="aui_message-group flex flex-col gap-y-4 empty:hidden">
             <ThreadPrimitive.Messages>{() => <TerminalThreadMessage />}</ThreadPrimitive.Messages>
           </div>

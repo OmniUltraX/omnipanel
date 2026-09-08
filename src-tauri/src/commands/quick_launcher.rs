@@ -145,6 +145,17 @@ fn show_launcher(app: &AppHandle, ctrl_held: bool) -> Result<(), String> {
     let window = app
         .get_webview_window(QUICK_LAUNCHER_LABEL)
         .ok_or_else(|| "快捷启动窗不存在".to_string())?;
+
+    // 独立 WebView 常驻时易漏收 Vite HMR：若前端尚未挂上页内 AI 标记，先 reload 一次。
+    let _ = window.eval(
+        r#"(function(){
+  try {
+    if (window.__OMNIPANEL_QL_HAS_INPANEL_AI__ === true) return;
+    location.reload();
+  } catch (e) {}
+})();"#,
+    );
+
     center_on_cursor_monitor(app, &window);
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;

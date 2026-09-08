@@ -962,6 +962,8 @@ fn build_and_run_tauri() {
             commands::ai_chat::audit_log_append,
             commands::ai_chat::ai_gateway_configure,
             commands::ai_chat::ai_services_probe,
+            // 桌面端流式 HTTP 代理（chatModel / 快捷启动页内 AI 走此命令，Channel 不进 specta）
+            commands::ai::ai_http_stream_post,
             // ACP agent
             commands::acp::acp_connect,
             commands::acp::acp_connect_default,
