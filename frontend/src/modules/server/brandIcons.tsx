@@ -2,10 +2,12 @@ import onePanelIcon from "../../assets/icons/1Panel.svg";
 import baotaIcon from "../../assets/icons/Baota.svg";
 import aliyunIcon from "../../assets/icons/Aliyun.svg";
 import tencentIcon from "../../assets/icons/Tencent.svg";
+import huaweiIcon from "../../assets/icons/Huawei.svg";
+import hestiaIcon from "../../assets/icons/Hestia.svg";
 import dockerIcon from "../../assets/icons/docker.svg";
 
 /** 第三方 / 面板品牌图标（侧栏树、引擎选择等复用）。 */
-export type BrandIconKind = "bt" | "1panel" | "aliyun" | "tencent" | "docker";
+export type BrandIconKind = "bt" | "1panel" | "hestia" | "aliyun" | "tencent" | "huawei" | "docker";
 
 /** 面板侧栏 / Dock 用的品牌子集（不含 docker）。 */
 export type PanelBrandIconKind = Exclude<BrandIconKind, "docker">;
@@ -13,8 +15,10 @@ export type PanelBrandIconKind = Exclude<BrandIconKind, "docker">;
 const BRAND_ICONS: Record<BrandIconKind, string> = {
   bt: baotaIcon,
   "1panel": onePanelIcon,
+  hestia: hestiaIcon,
   aliyun: aliyunIcon,
   tencent: tencentIcon,
+  huawei: huaweiIcon,
   docker: dockerIcon,
 };
 
@@ -28,6 +32,7 @@ export function resolvePanelBrandIcon(
   const raw = (serviceType ?? "").trim().toLowerCase();
   if (raw === "bt" || raw === "baota" || raw === "omni.panel.bt") return "bt";
   if (raw === "1panel" || raw === "onepanel" || raw === "omni.panel.1panel") return "1panel";
+  if (raw === "hestia" || raw === "hestiacp" || raw === "omni.panel.hestia") return "hestia";
   return null;
 }
 

@@ -44,6 +44,19 @@
       ]
     },
     {
+      "id": "omni.cloud.huawei",
+      "kind": "cloud",
+      "name": "Huawei Cloud",
+      "description": "Manage ECS, Flexus L, VPC, RDS, DCS, OBS, DNS, and other Huawei Cloud resources.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
       "id": "omni.engine.clickhouse",
       "kind": "engine",
       "name": "ClickHouse",
@@ -222,6 +235,21 @@
       ],
       "createdAt": "2026-08-21T19:08:54+08:00",
       "updatedAt": "2026-08-21T19:08:54+08:00"
+    },
+    {
+      "id": "omni.panel.hestia",
+      "kind": "panel",
+      "name": "HestiaCP",
+      "description": "Connect to HestiaCP hosts for sites, databases, certificates, and cron jobs.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-09T16:58:00+08:00",
+      "updatedAt": "2026-09-09T16:58:00+08:00"
     },
     {
       "id": "omni.theme.default",

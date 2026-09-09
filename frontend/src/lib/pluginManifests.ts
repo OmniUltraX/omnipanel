@@ -5,6 +5,7 @@ import {
 } from "@omnipanel/plugin-sdk";
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
 import cloudAliyunJson from "../../../plugins/cloud-aliyun/plugin.json";
+import cloudHuaweiJson from "../../../plugins/cloud-huawei/plugin.json";
 import cloudTencentJson from "../../../plugins/cloud-tencent/plugin.json";
 import dbClickhouseJson from "../../../plugins/db-clickhouse/plugin.json";
 import dbMongodbJson from "../../../plugins/db-mongodb/plugin.json";
@@ -19,6 +20,7 @@ import importerWarpgateJson from "../../../plugins/importer-warpgate/plugin.json
 import moduleNacosJson from "../../../plugins/module-nacos/plugin.json";
 import panel1panelJson from "../../../plugins/panel-1panel/plugin.json";
 import panelBtJson from "../../../plugins/panel-bt/plugin.json";
+import panelHestiaJson from "../../../plugins/panel-hestia/plugin.json";
 import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
 
 /**
@@ -29,6 +31,7 @@ import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
   parsePluginManifest(cloudAliyunJson),
+  parsePluginManifest(cloudHuaweiJson),
   parsePluginManifest(cloudTencentJson),
   parsePluginManifest(dbClickhouseJson),
   parsePluginManifest(dbMongodbJson),
@@ -43,6 +46,7 @@ export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(moduleNacosJson),
   parsePluginManifest(panel1panelJson),
   parsePluginManifest(panelBtJson),
+  parsePluginManifest(panelHestiaJson),
   parsePluginManifest(themeDefaultJson),
 ];
 
@@ -88,6 +92,9 @@ export const LEGACY_PLUGIN_ALIASES: Readonly<Record<string, string>> = {
   aliyun: "omni.cloud.aliyun",
   tencent: "omni.cloud.tencent",
   qcloud: "omni.cloud.tencent",
+  huawei: "omni.cloud.huawei",
+  hwc: "omni.cloud.huawei",
+  hwcloud: "omni.cloud.huawei",
 };
 
 export function manifestCloudCapabilities(

@@ -5553,7 +5553,6 @@ dependencies = [
  "omnipanel-bg",
  "omnipanel-cloud",
  "omnipanel-cloud-aliyun",
- "omnipanel-cloud-tencent",
  "omnipanel-core",
  "omnipanel-db",
  "omnipanel-db-sync",
@@ -5662,9 +5661,7 @@ dependencies = [
 name = "omnipanel-cloud"
 version = "0.0.5"
 dependencies = [
- "async-trait",
  "omnipanel-cloud-aliyun",
- "omnipanel-cloud-tencent",
  "omnipanel-error",
  "reqwest 0.12.28",
  "tokio",

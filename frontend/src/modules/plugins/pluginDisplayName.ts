@@ -6,6 +6,7 @@ const PLUGIN_NAME_KEYS: Record<string, string> = {
   [PLUGIN_ID_EVERYTHING]: "plugins.names.everything",
   "omni.cloud.aliyun": "plugins.names.aliyun",
   "omni.cloud.tencent": "plugins.names.tencent",
+  "omni.cloud.huawei": "plugins.names.huawei",
   "omni.engine.qdrant": "plugins.names.qdrant",
   "omni.engine.clickhouse": "plugins.names.clickhouse",
   "omni.engine.mongodb": "plugins.names.mongodb",
@@ -19,6 +20,7 @@ const PLUGIN_NAME_KEYS: Record<string, string> = {
   "omni.importer.docker-db": "plugins.names.dockerDb",
   "omni.panel.1panel": "plugins.names.onepanel",
   "omni.panel.bt": "plugins.names.bt",
+  "omni.panel.hestia": "plugins.names.hestia",
   "omni.theme.default": "plugins.names.themeDefault",
   "omni.addon.translator": "plugins.names.translator",
 };

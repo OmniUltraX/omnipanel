@@ -2,7 +2,7 @@
 
 - [x] 1.1 受控脚本桥：`src-tauri/src/commands/plugin_studio.rs`（list/read/write 限 `plugins-custom/` + `dedot` 禁锢；run 仅 validate/pack/scaffold，日志回显，600s 超时）+ `collect_commands!` 双处登记 + bindings 生成。验证：越界读写单测拒绝；`cargo check -p omnipanel-app` 通过
 - [x] 1.2 Studio 模块：`frontend/src/modules/studio/`（路由 `/studio`、CodeEditor 复用公共层并补 js/html 高亮、运行日志、环境检测、打包后 peek 权限 inline 确认安装、插件中心入口按钮），无跨模块 store 依赖，文案走 i18n 中英，不跨 module import。验证：`tsc -b` 零 error；手动从零建工程到装上（待你验收）
-- [x] 1.3 AI 脚手架：studio 内经 `requestAiCompletionOnce` 按定版模板生成三件套 → 落盘 → 自动校验（围栏解析单测通过；端到端待有模型时验收；audit 落 `plugin.ai_scaffold` 待补）
+- [x] 1.3 AI 脚手架：studio 内经 AI Dock + `omni_studio_*` 按描述生成并落盘校验；audit 记 `plugin.ai_scaffold`（摘要不落原文）
 
 ## 2. 一键投稿 P2
 

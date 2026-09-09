@@ -58,6 +58,12 @@ jobs:
       - name: Validate third-party plugin samples
         run: npm run plugin:validate -- plugins-samples
 
+      - name: Pack plugin-sdk (dry-run)
+        working-directory: packages/plugin-sdk
+        run: |
+          npm install
+          npm run pack:check
+
       - name: Installed-pack plugin smoke
         run: npm run plugin:smoke
 

@@ -285,7 +285,7 @@ function HostTreeIcon() {
   );
 }
 
-const PANEL_ICON_ORDER: PanelBrandIconKind[] = ["bt", "1panel"];
+const PANEL_ICON_ORDER: PanelBrandIconKind[] = ["bt", "1panel", "hestia"];
 
 function HostPanelIcons({ sshId }: { sshId: string }) {
   const { t } = useI18n();
@@ -315,7 +315,9 @@ function HostPanelIcons({ sshId }: { sshId: string }) {
           title={
             kind === "1panel"
               ? t("server.serviceType.1panel")
-              : t("server.serviceType.bt")
+              : kind === "hestia"
+                ? t("server.serviceType.hestia")
+                : t("server.serviceType.bt")
           }
         />
       ))}

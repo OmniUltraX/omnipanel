@@ -5,10 +5,7 @@
   "permissions": [],
   "contributes": {
     "themes": {
-      "tokens": {
-        "id": "omni.theme.default",
-        "js": false
-      }
+      "tokens": "tokens.json"
     }
   }
 }

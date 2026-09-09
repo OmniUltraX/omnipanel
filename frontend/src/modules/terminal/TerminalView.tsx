@@ -15,7 +15,7 @@ import {
   getPromptPrefix,
   seedMockTerminal,
 } from "./mockTerminal";
-import { applyTerminalTheme, getTerminalTheme, resolveActiveAppTheme } from "./terminalTheme";
+import { applyTerminalTheme, getTerminalTheme, resolveActiveAppTheme, subscribeTerminalPalette } from "./terminalTheme";
 import { triggerAiDrawerToggle } from "../../hooks/useAiDrawerShortcut";
 
 export type TerminalViewProps = {
@@ -170,11 +170,9 @@ export function TerminalView({
 
   // 主题变化时动态更新终端主题（仅 mock 路径使用 termRef；真实路径由 useTerminal 处理）
   useEffect(() => {
-    const unsub = useSettingsStore.subscribe((state, prev) => {
-      if (state.resolved !== prev.resolved) {
-        const term = termRef.current;
-        if (term) applyTerminalTheme(term, state.resolved);
-      }
+    const unsub = subscribeTerminalPalette((resolved) => {
+      const term = termRef.current;
+      if (term) applyTerminalTheme(term, resolved);
     });
     return unsub;
   }, []);

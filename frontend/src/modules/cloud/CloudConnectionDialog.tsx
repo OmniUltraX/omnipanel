@@ -24,6 +24,7 @@ import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRun
 import { pluginDisplayName } from "../plugins/pluginDisplayName";
 import aliyunIcon from "../../assets/icons/Aliyun.svg";
 import tencentIcon from "../../assets/icons/Tencent.svg";
+import huaweiIcon from "../../assets/icons/Huawei.svg";
 
 interface CloudConnectionDialogProps {
   open: boolean;
@@ -35,6 +36,7 @@ interface CloudConnectionDialogProps {
 const PLUGIN_ICONS: Record<string, string> = {
   "omni.cloud.aliyun": aliyunIcon,
   "omni.cloud.tencent": tencentIcon,
+  "omni.cloud.huawei": huaweiIcon,
 };
 
 export function CloudConnectionDialog({

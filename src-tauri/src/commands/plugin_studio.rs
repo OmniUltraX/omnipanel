@@ -1,18 +1,21 @@
-//! 插件工程桥（IDE P1）：`plugins-custom/` 工程的列举/读写/跑脚本/环境检测。
+//! 插件工程桥：用户目录 `plugin-projects/`（发行版）∪ 仓库 `plugins-custom/`（开发态）。
 //!
 //! 安全边界（与开放 shell 有本质区别）：
-//! - 读写禁锢在仓库 `plugins-custom/` 内（`..` / 绝对路径一律拒绝）；
-//! - `run` 只允许白名单内的三类调用（validate / pack / 版本探测），
-//!   参数仅为工程名；命令模板写死在代码里，不接受任意命令字符串；
+//! - 读写禁锢在对应工程目录内（`..` / 绝对路径一律拒绝）；
+//! - `run` 只允许 validate / pack；校验与打包走应用内 Rust，不 `cargo run`；
 //! - 单文件上限（读 512KB / 写 1MB），非 UTF-8 文本拒绝。
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use omnipanel_error::OmniError;
+use omnipanel_plugin::PluginManifest;
+use omnipanel_plugin_pkg::{devkey::dev_signing_key, pack_dir};
+use omnipanel_store::AuditEntry;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::state::AppState;
 
@@ -26,6 +29,8 @@ pub struct StudioProject {
     pub name: String,
     pub files: Vec<String>,
     pub has_manifest: bool,
+    /// `user` = app_data/plugin-projects；`repo` = 仓库 plugins-custom。
+    pub location: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -56,7 +61,7 @@ pub struct StudioEnv {
 }
 
 /// 仓库根目录（编译期 src-tauri 的父目录），运行时校验标记文件；
-/// 打包产物内无源码树时返回 None（studio 仅源码运行可用）。
+/// 打包产物内无源码树时返回 None。开发态用来并集扫描 `plugins-custom/`。
 pub(crate) fn repo_root() -> Option<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()?
@@ -68,15 +73,27 @@ pub(crate) fn repo_root() -> Option<PathBuf> {
     }
 }
 
-fn projects_dir() -> Result<PathBuf, OmniError> {
-    let root = repo_root().ok_or_else(|| {
-        OmniError::invalid_input("插件工程仅在源码运行可用（找不到仓库 plugins-custom）")
-    })?;
-    Ok(root.join("plugins-custom"))
+#[derive(Debug, Clone)]
+pub(crate) struct StudioRoots {
+    pub user: PathBuf,
+    pub repo: Option<PathBuf>,
 }
 
-pub(crate) fn project_dir(name: &str) -> Result<PathBuf, OmniError> {
-    if name.trim().is_empty()
+pub(crate) fn studio_roots(app: &AppHandle) -> Result<StudioRoots, OmniError> {
+    let user = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| OmniError::internal(format!("无法定位应用数据目录: {e}")))?
+        .join("plugin-projects");
+    Ok(StudioRoots {
+        user,
+        repo: repo_root().map(|r| r.join("plugins-custom")),
+    })
+}
+
+fn valid_project_name(name: &str) -> Result<&str, OmniError> {
+    let name = name.trim();
+    if name.is_empty()
         || name.contains("..")
         || name.contains('/')
         || name.contains('\\')
@@ -84,10 +101,26 @@ pub(crate) fn project_dir(name: &str) -> Result<PathBuf, OmniError> {
     {
         return Err(OmniError::invalid_input("工程名非法"));
     }
-    Ok(projects_dir()?.join(name.trim()))
+    Ok(name)
 }
 
-fn jail_path(project: &str, rel: &str) -> Result<PathBuf, OmniError> {
+/// 已存在则优先用户目录，否则仓库目录；都不存在时指向用户目录（供新建/写入）。
+pub(crate) fn resolve_project_dir(roots: &StudioRoots, name: &str) -> Result<PathBuf, OmniError> {
+    let name = valid_project_name(name)?;
+    let user = roots.user.join(name);
+    if user.is_dir() {
+        return Ok(user);
+    }
+    if let Some(repo) = &roots.repo {
+        let repo_dir = repo.join(name);
+        if repo_dir.is_dir() {
+            return Ok(repo_dir);
+        }
+    }
+    Ok(user)
+}
+
+fn jail_rel(rel: &str) -> Result<String, OmniError> {
     let trimmed = rel.trim().replace('\\', "/");
     if trimmed.is_empty()
         || trimmed.starts_with('/')
@@ -96,12 +129,28 @@ fn jail_path(project: &str, rel: &str) -> Result<PathBuf, OmniError> {
     {
         return Err(OmniError::invalid_input(format!("路径越界: {rel}")));
     }
-    let base = project_dir(project)?;
+    Ok(trimmed)
+}
+
+fn jail_path_in(base: &Path, rel: &str) -> Result<PathBuf, OmniError> {
+    let trimmed = jail_rel(rel)?;
     let target = base.join(&trimmed);
-    if !target.starts_with(&base) {
+    if !target.starts_with(base) {
         return Err(OmniError::invalid_input("路径越界"));
     }
     Ok(target)
+}
+
+fn jail_path(roots: &StudioRoots, project: &str, rel: &str) -> Result<PathBuf, OmniError> {
+    let base = resolve_project_dir(roots, project)?;
+    jail_path_in(&base, rel)
+}
+
+/// 提示词只记 sha256+len，禁止把原文写入 audit。
+pub(crate) fn scaffold_prompt_digest(prompt: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(prompt.as_bytes());
+    format!("sha256:{:x} len={}", hasher.finalize(), prompt.len())
 }
 
 const SKIP_DIR_NAMES: &[&str] = &["node_modules", "target", ".git", "dist", ".idea"];
@@ -138,7 +187,7 @@ fn json_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn load_studio_project(dir: &Path, name: String) -> StudioProject {
+fn load_studio_project(dir: &Path, name: String, location: &str) -> StudioProject {
     let mut files = Vec::new();
     collect_files(dir, dir, &mut files);
     files.retain(|rel| {
@@ -164,6 +213,7 @@ fn load_studio_project(dir: &Path, name: String) -> StudioProject {
         name,
         files,
         has_manifest,
+        location: location.into(),
         kind,
         version,
         display_name,
@@ -196,22 +246,12 @@ fn resolve_scaffold_template(kind: &str, starter: Option<&str>) -> Result<&'stat
     }
 }
 
-/// 列出 `plugins-custom/` 下的工程（有无 plugin.json 都列，缺失标 has_manifest=false）。
-#[tauri::command]
-#[specta::specta]
-pub async fn plugin_studio_list_projects(
-    _state: State<'_, AppState>,
-) -> Result<Vec<StudioProject>, OmniError> {
-    let root = match projects_dir() {
-        Ok(dir) => dir,
-        Err(_) => return Ok(Vec::new()),
-    };
+fn scan_root(root: &Path, location: &str, seen: &mut std::collections::HashSet<String>, out: &mut Vec<StudioProject>) {
     if !root.is_dir() {
-        return Ok(Vec::new());
+        return;
     }
-    let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&root) else {
-        return Ok(Vec::new());
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
     };
     let mut dirs: Vec<_> = entries
         .filter_map(|e| e.ok())
@@ -222,8 +262,28 @@ pub async fn plugin_studio_list_projects(
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
-        out.push(load_studio_project(&entry.path(), name));
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        out.push(load_studio_project(&entry.path(), name, location));
     }
+}
+
+/// 列出用户目录 + 开发态仓库目录（同名以用户目录为准）。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_studio_list_projects(
+    app: AppHandle,
+    _state: State<'_, AppState>,
+) -> Result<Vec<StudioProject>, OmniError> {
+    let roots = studio_roots(&app)?;
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    scan_root(&roots.user, "user", &mut seen, &mut out);
+    if let Some(repo) = &roots.repo {
+        scan_root(repo, "repo", &mut seen, &mut out);
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
 }
 
@@ -231,11 +291,13 @@ pub async fn plugin_studio_list_projects(
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_read_file(
+    app: AppHandle,
     _state: State<'_, AppState>,
     project: String,
     path: String,
 ) -> Result<String, OmniError> {
-    let target = jail_path(&project, &path)?;
+    let roots = studio_roots(&app)?;
+    let target = jail_path(&roots, &project, &path)?;
     let meta = std::fs::metadata(&target)
         .map_err(|_| OmniError::not_found(format!("文件不存在: {path}")))?;
     if meta.len() > MAX_READ_BYTES {
@@ -249,6 +311,7 @@ pub async fn plugin_studio_read_file(
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_write_file(
+    app: AppHandle,
     _state: State<'_, AppState>,
     project: String,
     path: String,
@@ -257,7 +320,8 @@ pub async fn plugin_studio_write_file(
     if content.len() > MAX_WRITE_BYTES {
         return Err(OmniError::invalid_input("内容超过 1MB 上限"));
     }
-    let target = jail_path(&project, &path)?;
+    let roots = studio_roots(&app)?;
+    let target = jail_path(&roots, &project, &path)?;
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| OmniError::internal(e.to_string()))?;
     }
@@ -279,31 +343,6 @@ fn command_hidden(program: &str) -> std::process::Command {
         cmd.env("PATH", path);
     }
     cmd
-}
-
-fn run_blocking(program: &str, args: &[String], cwd: &Path) -> Result<String, OmniError> {
-    let output = command_hidden(program)
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .map_err(|e| {
-            OmniError::invalid_input(format!(
-                "找不到 {program}（{e}），请先安装对应工具链，见工作台环境页"
-            ))
-        })?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if !stderr.trim().is_empty() {
-        text.push_str("\n[stderr]\n");
-        text.push_str(&stderr);
-    }
-    if !output.status.success() {
-        return Err(OmniError::internal(format!(
-            "{program} 退出码 {}:\n{text}",
-            output.status.code().unwrap_or(-1)
-        )));
-    }
-    Ok(text)
 }
 
 /// 环境检测：cargo / node / wat2wasm 版本（缺失为 None，前端给安装引导）。
@@ -629,11 +668,11 @@ async fn download_rustup_init(client: &reqwest::Client) -> Result<Option<PathBuf
     }
 }
 
-/// 脚手架：`node scripts/create-plugin.mjs <name> <template>`。
-/// `kind` 仅七种身份；`starter` 把身份映射成可跑模板（引擎默认 sidecar，附加组件默认 JS 逻辑）。
+/// 脚手架：新建一律写用户目录。有仓库+node 时复用 create-plugin.mjs；否则写内置 JS/L1 骨架。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_scaffold(
+    app: AppHandle,
     _state: State<'_, AppState>,
     name: String,
     kind: String,
@@ -652,110 +691,131 @@ pub async fn plugin_studio_scaffold(
             "工程名非法（小写字母开头，仅字母/数字/连字符）",
         ));
     }
-    if project_dir(&name)?.exists() {
+    let roots = studio_roots(&app)?;
+    let dest = roots.user.join(&name);
+    if dest.exists() {
         return Err(OmniError::invalid_input(format!("工程已存在: {name}")));
     }
-    let root = repo_root().ok_or_else(|| {
-        OmniError::invalid_input("插件工程仅在源码运行可用（找不到仓库根）")
-    })?;
-    let name_for_task = name.clone();
-    let output = tokio::task::spawn_blocking(move || {
-        run_blocking(
-            "node",
-            &[
+    if roots
+        .repo
+        .as_ref()
+        .is_some_and(|repo| repo.join(&name).exists())
+    {
+        return Err(OmniError::invalid_input(format!("工程已存在: {name}")));
+    }
+    std::fs::create_dir_all(&roots.user).map_err(|e| OmniError::internal(e.to_string()))?;
+
+    let used_script = if let Some(repo) = repo_root() {
+        let name_for_task = name.clone();
+        let template_for_task = template.clone();
+        let dest_str = roots.user.to_string_lossy().into_owned();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut cmd = command_hidden("node");
+            cmd.args([
                 "scripts/create-plugin.mjs".to_string(),
-                name_for_task.clone(),
-                template,
-            ],
-            &root,
-        )
-    })
-    .await
-    .map_err(|e| OmniError::internal(e.to_string()))??;
-    let _ = output;
-    Ok(load_studio_project(&project_dir(&name)?, name))
+                name_for_task,
+                template_for_task,
+            ])
+            .current_dir(&repo)
+            .env("OMNIPANEL_PLUGIN_PROJECTS_DIR", &dest_str);
+            if let Some(path) = toolchain_path() {
+                cmd.env("PATH", path);
+            }
+            cmd.output()
+        })
+        .await
+        .map_err(|e| OmniError::internal(e.to_string()))?;
+        match result {
+            Ok(output) if output.status.success() && dest.is_dir() => true,
+            _ => false,
+        }
+    } else {
+        false
+    };
+    if !used_script {
+        write_builtin_scaffold(&dest, &name, &template)?;
+    }
+    Ok(load_studio_project(&dest, name, "user"))
 }
 
-/// 删除 `plugins-custom/<name>`（仅允许该目录本身，禁锢与读写相同）。
+/// 记录 AI 脚手架意图（detail 仅为摘要）。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_studio_audit_scaffold(
+    state: State<'_, AppState>,
+    project: String,
+    prompt: String,
+) -> Result<(), OmniError> {
+    let _ = valid_project_name(&project)?;
+    let detail = scaffold_prompt_digest(&prompt);
+    let entry = AuditEntry {
+        ts: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0),
+        action: "plugin.ai_scaffold".into(),
+        target: project.trim().to_string(),
+        env_tag: "-".into(),
+        risk: "medium".into(),
+        status: "success".into(),
+        detail,
+    };
+    if let Ok(store) = state.storage.try_lock() {
+        let _ = store.append_audit(&entry);
+    }
+    Ok(())
+}
+
+/// 删除工程目录（用户目录或仓库 plugins-custom，禁锢与读写相同）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_remove_project(
+    app: AppHandle,
     _state: State<'_, AppState>,
     name: String,
 ) -> Result<(), OmniError> {
-    let dir = project_dir(&name)?;
+    let roots = studio_roots(&app)?;
+    let dir = resolve_project_dir(&roots, &name)?;
     if !dir.is_dir() {
         return Err(OmniError::not_found(format!("工程不存在: {name}")));
     }
-    let parent = projects_dir()?;
+    let parent = dir
+        .parent()
+        .ok_or_else(|| OmniError::invalid_input("路径越界"))?;
+    let allowed = parent == roots.user
+        || roots.repo.as_ref().is_some_and(|repo| parent == repo);
     let canon = dir
         .canonicalize()
         .map_err(|e| OmniError::internal(e.to_string()))?;
     let parent_canon = parent
         .canonicalize()
         .map_err(|e| OmniError::internal(e.to_string()))?;
-    if !canon.starts_with(&parent_canon) || canon == parent_canon {
+    if !allowed || !canon.starts_with(&parent_canon) || canon == parent_canon {
         return Err(OmniError::invalid_input("路径越界"));
     }
     std::fs::remove_dir_all(&canon).map_err(|e| OmniError::internal(e.to_string()))?;
     Ok(())
 }
 
-/// 跑脚本：`validate`（node validate-plugin.mjs）或 `pack`
-///（cargo run pack → temp 产物，返回 artifact 路径）。
-/// 首次编译 pack 工具较慢，属预期内。
+/// 校验走清单 Rust 解析；打包走 `omnipanel-plugin-pkg::pack_dir`（dev 签名，可本地安装）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_run(
+    app: AppHandle,
     _state: State<'_, AppState>,
     project: String,
     op: String,
 ) -> Result<StudioRunResult, OmniError> {
-    let dir = project_dir(&project)?;
+    let roots = studio_roots(&app)?;
+    let dir = resolve_project_dir(&roots, &project)?;
     if !dir.is_dir() {
         return Err(OmniError::not_found(format!("工程不存在: {project}")));
     }
-    let root = repo_root().ok_or_else(|| {
-        OmniError::invalid_input("插件工程仅在源码运行可用（找不到仓库根）")
-    })?;
     let join = tokio::task::spawn_blocking(move || match op.as_str() {
-        "validate" => run_blocking(
-            "node",
-            &[
-                "scripts/validate-plugin.mjs".to_string(),
-                format!("plugins-custom/{project}"),
-            ],
-            &root,
-        ),
-        "pack" => {
-            let out = std::env::temp_dir().join(format!(
-                "omni-studio-{project}-{}.omni-plugin",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0)
-            ));
-            let out_str = out.to_string_lossy().into_owned();
-            run_blocking(
-                "cargo",
-                &[
-                    "run".into(),
-                    "-q".into(),
-                    "-p".into(),
-                    "omnipanel-plugin-pkg".into(),
-                    "--bin".into(),
-                    "pack".into(),
-                    "--".into(),
-                    format!("plugins-custom/{project}"),
-                    out_str.clone(),
-                ],
-                &root,
-            )
-            .map(|text| format!("{text}\n[artifact] {out_str}"))
-        }
+        "validate" => validate_project_dir(&dir),
+        "pack" => pack_project_dir(&dir, &project),
         _ => Err(OmniError::invalid_input(format!("未知操作: {op}"))),
     });
-    // 真超时：600s 未完成则 abort 后台任务并报错（首次编译 pack 工具较慢属预期）
     let output = match tokio::time::timeout(RUN_TIMEOUT, join).await {
         Ok(join_result) => join_result.map_err(|e| OmniError::internal(e.to_string()))?,
         Err(_) => return Err(OmniError::internal("执行超时（600s），已终止任务")),
@@ -779,42 +839,275 @@ pub async fn plugin_studio_run(
     }
 }
 
+fn validate_project_dir(dir: &Path) -> Result<String, OmniError> {
+    let path = dir.join("plugin.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|_| OmniError::not_found("工程缺少 plugin.json"))?;
+    let manifest =
+        PluginManifest::from_json(&text).map_err(|e| OmniError::invalid_input(e.to_string()))?;
+    manifest
+        .validate()
+        .map_err(|e| OmniError::invalid_input(e.to_string()))?;
+    Ok(format!(
+        "ok id={} version={} kind={kind}",
+        manifest.id,
+        manifest.version,
+        kind = manifest.kind.as_str()
+    ))
+}
+
+fn pack_project_dir(dir: &Path, project: &str) -> Result<String, OmniError> {
+    let out = std::env::temp_dir().join(format!(
+        "omni-studio-{project}-{}.omni-plugin",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    ));
+    let key = dev_signing_key();
+    pack_dir(dir, &out, Some(&key)).map_err(|e| OmniError::internal(e.to_string()))?;
+    let out_str = out.to_string_lossy().into_owned();
+    Ok(format!("packed\n[artifact] {out_str}"))
+}
+
+fn write_file(path: &Path, content: &str) -> Result<(), OmniError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| OmniError::internal(e.to_string()))?;
+    }
+    std::fs::write(path, content).map_err(|e| OmniError::internal(e.to_string()))
+}
+
+fn write_builtin_scaffold(dir: &Path, name: &str, template: &str) -> Result<(), OmniError> {
+    std::fs::create_dir_all(dir).map_err(|e| OmniError::internal(e.to_string()))?;
+    let id = match template {
+        "engine" | "engine-sidecar" => format!("omni.engine.{name}"),
+        "js-logic" | "l3-overlay" | "wasm-stub" => format!("omni.sample.{name}"),
+        other => format!("omni.{other}.{name}"),
+    };
+    let kind = match template {
+        "engine" | "engine-sidecar" => "engine",
+        "js-logic" | "l3-overlay" | "wasm-stub" | "addon" => "addon",
+        other => other,
+    };
+    let mut manifest = serde_json::json!({
+        "id": id,
+        "version": "0.1.0",
+        "displayName": name,
+        "kind": kind,
+        "permissions": [],
+        "minHostApi": 1,
+        "contributes": {}
+    });
+    match template {
+        "js-logic" | "addon" => {
+            manifest["methods"] = serde_json::json!([{ "name": "echo", "permissions": [] }]);
+            manifest["entry"] = serde_json::json!({ "logic": "logic.js", "ui": "ui/main.js" });
+            write_file(dir.join("logic.js").as_path(), JS_LOGIC)?;
+            write_file(dir.join("ui/main.js").as_path(), UI_MAIN)?;
+        }
+        "l3-overlay" => {
+            manifest["permissions"] = serde_json::json!(["ui:selection"]);
+            manifest["entry"] = serde_json::json!({ "ui": "ui/main.js" });
+            manifest["contributes"] = serde_json::json!({
+                "overlays": [{ "id": "main", "entry": "ui/index.html" }]
+            });
+            write_file(dir.join("ui/main.js").as_path(), UI_MAIN)?;
+            write_file(dir.join("ui/index.html").as_path(), "<html><body>overlay</body></html>")?;
+        }
+        "wasm-stub" => {
+            manifest["methods"] = serde_json::json!([{ "name": "echo", "permissions": [] }]);
+            manifest["entry"] = serde_json::json!({ "logic": "logic.wasm" });
+            write_file(dir.join("logic.wat").as_path(), "(module)\n")?;
+        }
+        "theme" => {
+            manifest["permissions"] = serde_json::json!([]);
+            manifest["contributes"] = serde_json::json!({
+                "themes": { "tokens": "tokens.json" }
+            });
+            write_file(dir.join("tokens.json").as_path(), THEME_STARTER_TOKENS)?;
+        }
+        _ => {
+            manifest["methods"] = serde_json::json!([{ "name": "echo", "permissions": [] }]);
+            manifest["entry"] = serde_json::json!({ "logic": "logic.js" });
+            write_file(dir.join("logic.js").as_path(), JS_LOGIC)?;
+        }
+    }
+    let json = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| OmniError::internal(e.to_string()))?;
+    write_file(&dir.join("plugin.json"), &json)?;
+    Ok(())
+}
+
+const THEME_STARTER_TOKENS: &str = r##"{
+  "js": false,
+  "css": {
+    "dark": {
+      "--accent": "#ff6b00",
+      "--accent-hover": "#cc5600",
+      "--accent-active": "#993f00",
+      "--accent-soft": "rgba(255, 107, 0, 0.12)",
+      "--border-focus": "#ff6b00"
+    },
+    "light": {
+      "--accent": "#e05a00",
+      "--accent-hover": "#b34700",
+      "--accent-active": "#803300",
+      "--accent-soft": "rgba(224, 90, 0, 0.1)",
+      "--border-focus": "#e05a00"
+    }
+  },
+  "terminal": {
+    "dark": {
+      "background": "#1a1717",
+      "foreground": "#f4f1ed",
+      "cursor": "#ff6b00",
+      "selectionBackground": "#5b504a",
+      "black": "#1a1717",
+      "red": "#ff6b6b",
+      "green": "#51cf66",
+      "yellow": "#ffd43b",
+      "blue": "#ff922b",
+      "magenta": "#da77f2",
+      "cyan": "#66d9e8",
+      "white": "#f4f1ed",
+      "brightBlack": "#7c6f66",
+      "brightRed": "#ff8787",
+      "brightGreen": "#69db7c",
+      "brightYellow": "#ffe066",
+      "brightBlue": "#ffa94d",
+      "brightMagenta": "#e599f7",
+      "brightCyan": "#99e9f2",
+      "brightWhite": "#fff9f0"
+    },
+    "light": {
+      "background": "#ffffff",
+      "foreground": "#1d1d1f",
+      "cursor": "#e05a00",
+      "selectionBackground": "rgba(224, 90, 0, 0.18)",
+      "black": "#000000",
+      "red": "#c91b00",
+      "green": "#008400",
+      "yellow": "#a8810c",
+      "blue": "#b34700",
+      "magenta": "#a800b0",
+      "cyan": "#0a7a83",
+      "white": "#5a5a5a",
+      "brightBlack": "#3a3a3c",
+      "brightRed": "#e60023",
+      "brightGreen": "#00a300",
+      "brightYellow": "#b58900",
+      "brightBlue": "#e05a00",
+      "brightMagenta": "#c400cc",
+      "brightCyan": "#0099b0",
+      "brightWhite": "#000000"
+    }
+  }
+}
+"##;
+
+const JS_LOGIC: &str = r#"function asObj(v) {
+  if (v && typeof v === "object") return v;
+  try { return JSON.parse(String(v || "{}")); } catch (e) { return {}; }
+}
+function echo(args) {
+  var a = asObj(args);
+  return { echo: a.text || a || "", at: Date.now() };
+}
+var HANDLERS = { echo: echo };
+function call(method, argsJson) {
+  var handler = HANDLERS[String(method || "")];
+  if (!handler) throw new Error("UnknownMethod: " + method);
+  var result = handler(asObj(argsJson));
+  return typeof result === "string" ? result : JSON.stringify(result);
+}
+globalThis.call = call;
+"#;
+
+const UI_MAIN: &str = r#"module.exports = definePlugin({
+  activate: async () => {},
+  deactivate: () => {},
+});
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn jail_rejects_traversal_and_absolute() {
-        assert!(jail_path("demo", "../evil.txt").is_err());
-        assert!(jail_path("demo", "/abs/path.js").is_err());
-        assert!(jail_path("demo", "https://x/y.js").is_err());
-        assert!(jail_path("demo", "ui/../../x.js").is_err());
-        assert!(jail_path("../demo", "ui/main.js").is_err());
-        assert!(jail_path("demo", "").is_err());
+        let base = PathBuf::from("demo-root");
+        assert!(jail_path_in(&base, "../evil.txt").is_err());
+        assert!(jail_path_in(&base, "/abs/path.js").is_err());
+        assert!(jail_path_in(&base, "https://x/y.js").is_err());
+        assert!(jail_path_in(&base, "ui/../../x.js").is_err());
+        assert!(valid_project_name("../demo").is_err());
+        assert!(jail_path_in(&base, "").is_err());
     }
 
     #[test]
     fn jail_allows_normal_rel_paths() {
-        let base = project_dir("demo").unwrap();
+        let base = PathBuf::from("demo-root");
         assert_eq!(
-            jail_path("demo", "ui/main.js").unwrap(),
+            jail_path_in(&base, "ui/main.js").unwrap(),
             base.join("ui/main.js")
         );
         assert_eq!(
-            jail_path("demo", "plugin.json").unwrap(),
+            jail_path_in(&base, "plugin.json").unwrap(),
             base.join("plugin.json")
         );
     }
 
     #[test]
     fn project_name_rules() {
-        // project_dir 只防穿越/空名（宽松，兼容已存在目录）；
-        // 小写字母开头等严规则在 scaffold 入口执行。
-        assert!(project_dir("Demo").is_ok());
-        assert!(project_dir("").is_err());
-        assert!(project_dir("a/b").is_err());
-        assert!(project_dir("../x").is_err());
-        assert!(project_dir("my-plugin-1").is_ok());
+        assert!(valid_project_name("Demo").is_ok());
+        assert!(valid_project_name("").is_err());
+        assert!(valid_project_name("a/b").is_err());
+        assert!(valid_project_name("../x").is_err());
+        assert!(valid_project_name("my-plugin-1").is_ok());
+    }
+
+    #[test]
+    fn scaffold_digest_has_no_plaintext() {
+        let secret = "做个选中翻译插件 super-secret";
+        let digest = scaffold_prompt_digest(secret);
+        assert!(digest.starts_with("sha256:"));
+        assert!(digest.contains("len="));
+        assert!(!digest.contains("翻译"));
+        assert!(!digest.contains("super-secret"));
+    }
+
+    #[test]
+    fn builtin_js_scaffold_validates_and_packs() {
+        let dir = std::env::temp_dir().join(format!(
+            "omni-studio-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_builtin_scaffold(&dir, "demo", "js-logic").unwrap();
+        let msg = validate_project_dir(&dir).unwrap();
+        assert!(msg.contains("omni.sample.demo"), "{msg}");
+        let packed = pack_project_dir(&dir, "demo").unwrap();
+        assert!(packed.contains("[artifact]"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn builtin_theme_scaffold_validates() {
+        let dir = std::env::temp_dir().join(format!(
+            "omni-studio-theme-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_builtin_scaffold(&dir, "skin", "theme").unwrap();
+        let msg = validate_project_dir(&dir).unwrap();
+        assert!(msg.contains("theme"), "{msg}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

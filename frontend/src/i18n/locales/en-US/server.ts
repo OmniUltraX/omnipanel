@@ -48,6 +48,7 @@ export default {
       providers: {
         aliyun: "Alibaba Cloud",
         tencent: "Tencent Cloud",
+        huawei: "Huawei Cloud",
       },
       readonlyHint: "Read-only · no write operations",
       actions: {
@@ -170,12 +171,18 @@ export default {
       addressRequired: "Panel URL is required",
       onePanelAddressHint:
         "Include the security entrance in the URL (http://IP:port/entrance). Auth follows the official docs: API key (MD5 / HMAC-SHA256) then username/password JWT. Allowlist this machine's public IP.",
+      hestiaAddressHint:
+        "Default is https://IP:8083. If a reverse proxy serves 443, use https://hostname. Enable the API in Hestia and allowlist this machine (or allow-all).",
       panelUser: "Panel username",
       panelUserHint: "For 1Panel without API Interface, use the panel login user (default admin) and put the login password in the key field.",
+      hestiaUserHint: "Hestia system user (default admin). List/write commands send this USER.",
       key: "API Key",
       keyRequired: "API key is required",
       keyPlaceholderEdit: "Saved key loaded; leave blank when saving to keep it",
       keyEditHint: "Loaded from the local credential store. You can edit it; leave blank when saving to keep the existing key.",
+      hestiaKeyPlaceholder: "ACCESS_KEY:SECRET_KEY",
+      hestiaKeyHint:
+        "Create an Access Key in Hestia (permission *). Put ACCESS_KEY:SECRET_KEY in this field. Login password + username also works. Self-signed TLS is accepted.",
       serviceType: "Panel Type",
       pluginRequired: "Select a panel plugin",
       noPlugin: "No panel plugin is enabled. Turn one on in Settings → Plugins.",
@@ -347,6 +354,7 @@ export default {
     serviceType: {
       bt: "aaPanel",
       "1panel": "1Panel",
+      hestia: "HestiaCP",
     },
     hostList: {
       panelConfigured: "Panel configured",
@@ -404,6 +412,11 @@ export default {
       certificates: "Certificates",
       cronjobs: "Cron Jobs",
       logs: "Logs",
+    },
+    pluginTab: {
+      label: "Plugin",
+      invoke: "Invoke",
+      noMethod: "No invokable method declared in the manifest",
     },
     appMarket: {
       search: "Search",

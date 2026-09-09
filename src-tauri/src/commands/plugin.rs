@@ -102,19 +102,6 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
                 })
             }),
         );
-        let tencent_method = method.to_string();
-        gateway.register(
-            omnipanel_plugin::PLUGIN_ID_CLOUD_TENCENT,
-            method,
-            Arc::new(move |args| {
-                let method_name = tencent_method.clone();
-                Box::pin(async move {
-                    omnipanel_cloud_tencent::handle_invoke(&method_name, args)
-                        .await
-                        .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))
-                })
-            }),
-        );
     }
 }
 

@@ -4,7 +4,7 @@
 //! - 脚本在实例化时整体求值；MUST 定义全局函数
 //!   `call(method: string, argsJson: string): string`（返回 JSON 字符串）；
 //! - 宿主注入全局只读对象 `host`：
-//!   `ping(): number`、`hmac(specJson): string`、`netFetch(url): string`、`fsRead(path): string`、
+//!   `ping(): number`、`hmac(specJson): string`、`hash(specJson): string`、`netFetch(url): string`、`fsRead(path): string`、
 //!   `connectionUpsert(candidateJson): void`、`invoke(method, argsJson): string`、
 //!   `vaultGet/Has/Put/Delete`、`stateGet/Set`；
 //!   失败以 JS 异常抛出。
@@ -24,7 +24,7 @@ use rquickjs::{Context, Function, Object, Runtime};
 
 const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 const STACK_LIMIT: usize = 1024 * 1024;
-pub const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(10);
+pub const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct JsExecutor {
     call_timeout: Duration,
@@ -118,6 +118,17 @@ impl JsInstanceInner {
                     move |spec: String| -> rquickjs::Result<String> {
                         b.hmac(&spec).map_err(|msg| {
                             rquickjs::Error::new_from_js_message("host.hmac", "string", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
+                "hash",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |spec: String| -> rquickjs::Result<String> {
+                        b.hash(&spec).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.hash", "string", msg)
                         })
                     }
                 }),

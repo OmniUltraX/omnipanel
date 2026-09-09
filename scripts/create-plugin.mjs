@@ -48,7 +48,10 @@ if (!KINDS.includes(kind)) {
   process.exit(2);
 }
 
-const dir = path.join(root, "plugins-custom", name);
+const projectsRoot = process.env.OMNIPANEL_PLUGIN_PROJECTS_DIR
+  ? path.resolve(process.env.OMNIPANEL_PLUGIN_PROJECTS_DIR)
+  : path.join(root, "plugins-custom");
+const dir = path.join(projectsRoot, name);
 if (existsSync(dir)) {
   console.error(`已存在: ${dir}`);
   process.exit(1);
@@ -154,10 +157,7 @@ if (kind === "wasm-stub") {
     permissions: [],
     contributes: {
       themes: {
-        tokens: {
-          id,
-          js: false,
-        },
+        tokens: "tokens.json",
       },
     },
   };
@@ -253,10 +253,20 @@ if (kind === "wasm-stub") {
       { name: "listApps", permissions: ["net:connect", "vault:read"] },
       { name: "listInstalledApps", permissions: ["net:connect", "vault:read"] },
       { name: "getDashboard", permissions: ["net:connect", "vault:read"] },
+      { name: "echo", permissions: [] },
     ],
     contributes: {
       ui: {
-        panelTabs: [{ id: "overview" }, { id: "databases" }],
+        panelTabs: [
+          { id: "overview" },
+          { id: "databases" },
+          {
+            id: "echo",
+            label: "回显",
+            formFields: [{ key: "text", label: "文本" }],
+            actions: [{ id: "create", method: "echo", target: "toolbar" }],
+          },
+        ],
       },
     },
   };
@@ -356,6 +366,82 @@ if (kind === "wasm-stub") {
 }
 
 writeFileSync(path.join(dir, "plugin.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+
+if (kind === "theme") {
+  writeFileSync(
+    path.join(dir, "tokens.json"),
+    `${JSON.stringify(
+      {
+        id,
+        js: false,
+        css: {
+          dark: {
+            "--accent": "#ff6b00",
+            "--accent-hover": "#cc5600",
+            "--accent-active": "#993f00",
+            "--accent-soft": "rgba(255, 107, 0, 0.12)",
+            "--border-focus": "#ff6b00",
+          },
+          light: {
+            "--accent": "#e05a00",
+            "--accent-hover": "#b34700",
+            "--accent-active": "#803300",
+            "--accent-soft": "rgba(224, 90, 0, 0.1)",
+            "--border-focus": "#e05a00",
+          },
+        },
+        terminal: {
+          dark: {
+            background: "#1a1717",
+            foreground: "#f4f1ed",
+            cursor: "#ff6b00",
+            selectionBackground: "#5b504a",
+            black: "#1a1717",
+            red: "#ff6b6b",
+            green: "#51cf66",
+            yellow: "#ffd43b",
+            blue: "#ff922b",
+            magenta: "#da77f2",
+            cyan: "#66d9e8",
+            white: "#f4f1ed",
+            brightBlack: "#7c6f66",
+            brightRed: "#ff8787",
+            brightGreen: "#69db7c",
+            brightYellow: "#ffe066",
+            brightBlue: "#ffa94d",
+            brightMagenta: "#e599f7",
+            brightCyan: "#99e9f2",
+            brightWhite: "#fff9f0",
+          },
+          light: {
+            background: "#ffffff",
+            foreground: "#1d1d1f",
+            cursor: "#e05a00",
+            selectionBackground: "rgba(224, 90, 0, 0.18)",
+            black: "#000000",
+            red: "#c91b00",
+            green: "#008400",
+            yellow: "#a8810c",
+            blue: "#b34700",
+            magenta: "#a800b0",
+            cyan: "#0a7a83",
+            white: "#5a5a5a",
+            brightBlack: "#3a3a3c",
+            brightRed: "#e60023",
+            brightGreen: "#00a300",
+            brightYellow: "#b58900",
+            brightBlue: "#e05a00",
+            brightMagenta: "#c400cc",
+            brightCyan: "#0099b0",
+            brightWhite: "#000000",
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
 
 if (kind === "wasm-stub") {
   writeFileSync(
@@ -464,7 +550,8 @@ var HANDLERS = {
   runCronjob: ok,
   deleteCronjob: ok,
   listApps: emptyList,
-  listInstalledApps: emptyList
+  listInstalledApps: emptyList,
+  echo: function (args) { return { ok: true, echo: String(args.text || "") }; }
 };
 function call(method, argsJson) {
   var handler = HANDLERS[String(method || "")];
@@ -529,9 +616,20 @@ function listRegions(args) {
   return { items: (args.regions || []).map(function (id) { return { regionId: id, localName: id }; }) };
 }
 function getAccount(args) {
-  return { accountId: args.accessKeyId || "", displayName: args.accessKeyId || "" };
+  return { callerId: String(args.accessKeyId || ""), currency: "CNY" };
 }
-function listResources() { return { items: [] }; }
+function listResources() {
+  return {
+    items: [{
+      id: "demo-1",
+      name: "demo",
+      capability: "compute",
+      regionId: "cn-north-4",
+      status: "Running",
+      fields: { instanceType: "s6.large.2" }
+    }]
+  };
+}
 function getResource(args) {
   return { id: args.resourceId || "", name: args.resourceId || "", capability: args.capability || "", fields: {} };
 }

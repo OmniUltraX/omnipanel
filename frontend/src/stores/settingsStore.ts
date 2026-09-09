@@ -466,6 +466,9 @@ function applyDocumentLocale(locale: Locale) {
 }
 
 function applyDocumentAccentColor(color: AccentColor) {
+  if (typeof document !== "undefined" && document.documentElement.getAttribute("data-plugin-theme") === "1") {
+    return;
+  }
   const palette = ACCENT_PRESETS[color];
   const root = document.documentElement;
   root.style.setProperty("--accent", palette.accent);
@@ -839,6 +842,11 @@ applyDocumentLocale(useSettingsStore.getState().locale);
 applyDocumentUiScale(useSettingsStore.getState().uiScale);
 applyDocumentAccentColor(useSettingsStore.getState().accentColor);
 applyDocumentDatabaseTableGridFontSize(useSettingsStore.getState().databaseTableGridFontSize);
+
+/** 主题插件卸下后，把设置里的强调色写回 :root。 */
+export function reapplyDocumentAccentColor(): void {
+  applyDocumentAccentColor(useSettingsStore.getState().accentColor);
+}
 
 /** 应用启动时调用：应用当前语言与主题，并监听系统主题变化。 */
 export function initSettings() {

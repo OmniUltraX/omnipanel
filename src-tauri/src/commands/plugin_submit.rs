@@ -10,9 +10,9 @@ use omnipanel_plugin_pkg::{registry_plugin_from_dir, registry_plugin_from_packed
 use omnipanel_store::{plugin_secret_ref, AuditEntry, Storage, Vault};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, State};
 
-use super::plugin_studio::project_dir;
+use super::plugin_studio::{resolve_project_dir, studio_roots};
 use crate::state::AppState;
 
 const STUDIO_SECRET_PLUGIN: &str = "studio";
@@ -227,8 +227,7 @@ pub(crate) fn assemble_issue(title_id: &str, version: &str, kind: &str, permissi
     (title, body)
 }
 
-fn load_manifest(project: &str) -> Result<PluginManifest, OmniError> {
-    let dir = project_dir(project)?;
+fn load_manifest(dir: &std::path::Path, project: &str) -> Result<PluginManifest, OmniError> {
     let text = std::fs::read_to_string(dir.join("plugin.json")).map_err(|_| {
         OmniError::not_found(format!("工程缺少 plugin.json: {project}"))
     })?;
@@ -241,18 +240,18 @@ fn load_manifest(project: &str) -> Result<PluginManifest, OmniError> {
 }
 
 fn build_fragment(
+    dir: &std::path::Path,
     project: &str,
     artifact_url: &str,
     changelog: Option<&str>,
     packed_path: Option<&str>,
 ) -> Result<(PluginManifest, String), OmniError> {
     require_https_url(artifact_url)?;
-    let dir = project_dir(project)?;
     if !dir.is_dir() {
         return Err(OmniError::not_found(format!("工程不存在: {project}")));
     }
     let changelog = changelog.map(str::trim).filter(|s| !s.is_empty());
-    let manifest = load_manifest(project)?;
+    let manifest = load_manifest(dir, project)?;
     let plugin = if let Some(packed) = packed_path.map(str::trim).filter(|s| !s.is_empty()) {
         let path = std::path::Path::new(packed);
         if !path.is_file() {
@@ -331,6 +330,7 @@ pub async fn plugin_studio_github_token_delete(
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_submit_preview(
+    app: AppHandle,
     state: State<'_, AppState>,
     project: String,
     artifact_url: String,
@@ -339,12 +339,14 @@ pub async fn plugin_submit_preview(
     packed_path: Option<String>,
 ) -> Result<SubmitPreview, OmniError> {
     let repo = parse_repo(repo.as_deref())?;
+    let dir = resolve_project_dir(&studio_roots(&app)?, &project)?;
     let project_name = project.clone();
     let packed = packed_path.clone();
     let changelog_owned = changelog.clone();
     let url_owned = artifact_url.clone();
     let (manifest, fragment) = tokio::task::spawn_blocking(move || {
         build_fragment(
+            &dir,
             &project_name,
             &url_owned,
             changelog_owned.as_deref(),
@@ -381,6 +383,7 @@ pub async fn plugin_submit_preview(
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_submit_issue(
+    app: AppHandle,
     state: State<'_, AppState>,
     project: String,
     artifact_url: String,
@@ -410,12 +413,14 @@ pub async fn plugin_submit_issue(
             return Err(err);
         }
     };
+    let dir = resolve_project_dir(&studio_roots(&app)?, &project)?;
     let project_name = project.clone();
     let packed = packed_path.clone();
     let changelog_owned = changelog.clone();
     let url_owned = artifact_url.clone();
     let (manifest, fragment) = tokio::task::spawn_blocking(move || {
         build_fragment(
+            &dir,
             &project_name,
             &url_owned,
             changelog_owned.as_deref(),

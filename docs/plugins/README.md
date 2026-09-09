@@ -1,6 +1,6 @@
 # OmniPanel 插件开发指南
 
-第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** Nacos / 阿里云 / 腾讯云只是第一方样板。
+第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** Nacos / 阿里云 / 腾讯云 / 华为云只是第一方样板。
 
 字段枚举与 schema 单源：`packages/plugin-sdk/src/index.ts`。
 
@@ -40,8 +40,8 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omn
 |---|---|---|
 | `engine` | 数据库工作台 | `ui.connectionForm` + `ui.workbench`（tree / editor / preview） |
 | `module` | 模块工作台 | `module.capabilities[]` + L2 `logic.js` |
-| `cloud` | 云工作台 | `cloud.capabilities[]`；第一方走 crate，其它走 L2 |
-| `panel` | 服务器面板 | `ui.panelTabs` + L2（`testConnection` / `list*`；第一方 1Panel/宝塔走进程内 driver） |
+| `cloud` | 云工作台 | `cloud.capabilities[]`；阿里云走 crate，腾讯云 / 华为云走 L2 |
+| `panel` | 服务器面板 | `ui.panelTabs` + L2（`testConnection` / `list*`；第一方 1Panel/宝塔走进程内 driver；HestiaCP 走第一方 L2） |
 | `importer` | 导入向导 | `importers[]` + L2 `fetchMethod` |
 | `theme` | 主题 | `themes.tokens`，禁止 JS |
 | `addon` | Overlay / 菜单 / 启动条 | `overlays` / `menus` / `launcher` |
@@ -57,14 +57,28 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 
 - **L1**：只写 `plugin.json`。表单、workbench 槽、主题、菜单、AI 工具元数据。
 - **L2**：`globalThis.call(method, argsJson)` 返回 JSON 字符串。IO 只走 `host.*`。
-- **L3**：`overlays[].entry` 指向 HTML，iframe 沙箱 + postMessage 白名单。
+- **L3**：`overlays[].entry` 指向 HTML，进 Overlay iframe（见下节），不是整应用框架。
+
+### UI 沙箱边界（Function vs Overlay iframe）
+
+两条路不要混：
+
+| | 第三方 `entry.ui`（`ui/main.js`） | Overlay HTML（`overlays[].entry`） |
+|---|---|---|
+| 装载 | 受限 `Function` 求值（CommonJS / `definePlugin`） | `sandbox="allow-scripts"` iframe + `srcdoc` CSP |
+| 合同 | 必须导出 `{ activate, deactivate? }` | postMessage 白名单：`selection.get` / `invoke` / `netFetch` / `overlay.hide` 等 |
+| 失败 | 记 `unsupported_reason=ui.invalid_entry`，该插件 UI 不注册，其它插件不受影响 | 越权消息拒绝并 audit |
+| 上限 | 单文件 ≤ 512KB | 走 `plugin_read_asset` 白名单 |
+
+**不**把 `ui/main.js` 改成 blob `import()` 或通用 iframe 应用。Overlay iframe 只服务声明过的浮层页。
 
 ### `host.*`（QuickJS）
 
 | API | 权限 | 说明 |
 |---|---|---|
 | `host.ping()` | — | 管道自检 |
-| `host.hmac(specJson)` | — | `{ alg: "sha256"\|"sha1", key, data, encoding: "hex"\|"base64" }`，签厂商 API |
+| `host.hmac(specJson)` | — | `{ alg: "sha256"\|"sha1", key, data, encoding: "hex"\|"base64", keyEncoding?, dataEncoding? }`；`keyEncoding`/`dataEncoding` 为 `utf8`（默认）/`hex`/`base64`，用于 TC3 派生钥 |
+| `host.hash(specJson)` | — | `{ alg: "sha256"\|"sha1", data, encoding?, dataEncoding? }`，签 TC3 / 华为 SDK-HMAC / COS / OBS |
 | `host.netFetch(specJson)` | `net:connect` | `{ url, method?, headers?, body? }`，prod 目标要确认 |
 | `host.fsRead(path)` | `fs:read` | 仅插件自己的安装目录 |
 | `host.vaultGet/Has/Put/Delete(key)` | `vault:read` | 命名空间 `plugin:{id}:{key}` |
@@ -83,7 +97,7 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 | Host 保证 | 插件禁止 |
 |---|---|
 | Panel：`plugin_invoke` 前注入 `apiKey`（存盘后从 `panel-key-{id}` 回源） | `vaultGet` 读 `panel-key-*` / 云 AK；插件 vault 只有 `plugin:{id}:*` |
-| Cloud：后端 `cloud_plugin_args` 注入 AccessKey | 自己拼阿里云 / 腾讯云 crate |
+| Cloud：后端 `cloud_plugin_args` 注入 AccessKey | 自己拼阿里云 crate；腾讯云 / 华为云走 L2 `logic.js` |
 | Module：`pluginSecretPut` + `host.vaultGet(connectionId)` | 读其它插件的 vault 命名空间 |
 | 按清单槽渲染固定壳；入口按已激活插件列出 | 按插件 ID 特判；第三方路径调用 `createOnePanelClient` / `createBtPanelClient` |
 | 写操作走 `dangerAction` + `consume_grant` | 插件自签确认令牌 |
@@ -279,7 +293,7 @@ Rust 参考在 `src-agent-rs/`（`cargo build --release` 后把产物拷为 `bin
 
 `kind=panel`。连接对话框按已激活的 panel 插件列厂商；`serviceType` 存插件 id。
 
-**页签 / 监控 / 缓存 / 测连只认 `getPanelDriver(serviceType)`**，不按插件 ID 分叉，也没有 `else` 默认宝塔。第一方 1Panel / 宝塔在 `activate` 里登记进程内 TS driver；其它 id 走 L2 `plugin_invoke`（只挂清单 `methods[]` 里声明的方法）。
+**页签 / 监控 / 缓存 / 测连只认 `getPanelDriver(serviceType)`**，不按插件 ID 分叉，也没有 `else` 默认宝塔。第一方 1Panel / 宝塔在 `activate` 里登记进程内 TS driver；其它 id（含第一方 HestiaCP `omni.panel.hestia`）走 L2 `plugin_invoke`（只挂清单 `methods[]` 里声明的方法）。
 
 ### 别人怎么接入新面板
 
@@ -292,7 +306,7 @@ node scripts/validate-plugin.mjs plugins-custom/my-panel
 cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/my-panel my-panel.omni-plugin
 ```
 
-设置 → 插件 → 「安装本地插件」。启用后出现在「添加面板」。测连、列表、通用表单新建、行内启停/删除、监控卡片、应用安装确认走 Host 固定壳。样板见 `plugins-samples/panel-starter`。
+设置 → 插件 → 「安装本地插件」。启用后出现在「添加面板」。测连、列表、通用表单新建、行内启停/删除、监控卡片、应用安装确认走 Host 固定壳。样板见 `plugins-samples/panel-starter`；第一方 L2 对照见 `plugins/panel-hestia`。
 
 `ui.panelTabs` 与宿主槽取交集：`overview` / `websites` / `apps` / `certificates` / `cronjobs` / `databases`。未声明的槽不出现。第三方页签升成和 Module 同构的槽声明（第一方仍可只写 `{ "id" }`）：
 

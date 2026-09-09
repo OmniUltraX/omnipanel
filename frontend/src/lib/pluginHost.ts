@@ -394,9 +394,26 @@ export function createPluginHost(pluginId: string): PluginHost {
     },
     ui: {
       overlay: {
-        show: ({ id, title, body }) =>
-          usePluginOverlayStore.getState().show({ id, pluginId, title, body }),
-        hide: (id) => usePluginOverlayStore.getState().hide(id),
+        show: ({ id, title, body }) => {
+          void (async () => {
+            try {
+              const { openPluginOverlay } = await import("./pluginHomeLaunch");
+              await openPluginOverlay(pluginId, id, body);
+            } catch {
+              usePluginOverlayStore.getState().show({
+                id: `${pluginId}:${id}`,
+                pluginId,
+                title,
+                body,
+              });
+            }
+          })();
+        },
+        hide: (id) => {
+          const store = usePluginOverlayStore.getState();
+          store.hide(id);
+          store.hide(`${pluginId}:${id}`);
+        },
         open: async (overlayId, opts) => {
           const { openPluginOverlay } = await import("./pluginHomeLaunch");
           await openPluginOverlay(pluginId, overlayId, opts?.text);

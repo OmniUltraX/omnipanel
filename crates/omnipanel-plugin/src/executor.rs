@@ -84,8 +84,13 @@ pub trait PluginHostBridge: Send + Sync {
         0
     }
     /// 本地 HMAC（sha256 / sha1 → hex / base64）。不经网络、不需权限。
+    /// `keyEncoding` / `dataEncoding` 为 `utf8`（默认）/`hex`/`base64`，供 TC3 派生钥。
     fn hmac(&self, spec_json: &str) -> Result<String, String> {
         crate::crypto::hmac_digest(spec_json)
+    }
+    /// 本地摘要（sha256 / sha1）。不经网络、不需权限。
+    fn hash(&self, spec_json: &str) -> Result<String, String> {
+        crate::crypto::hash_digest(spec_json)
     }
     fn net_fetch(&self, _url: &str) -> Result<String, String> {
         Err("net.fetch 未装配".into())

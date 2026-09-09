@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginHost } from "@omnipanel/plugin-sdk";
 import {
+  DYNAMIC_UI_MAX_BYTES,
   ensurePluginContributionsLoaded,
   evaluateDynamicPluginModule,
+  getDynamicUiUnsupportedReason,
   resetPluginLifecycleForTests,
   setPluginAssetReader,
   syncPluginLifecycles,
+  UI_INVALID_ENTRY_REASON,
 } from "./pluginRuntimeLoader";
 import { findPanelProbeMapper } from "./panelProbeRegistry";
 import { findPanelDriver } from "./panelDriverRegistry";
@@ -127,5 +130,84 @@ describe("pluginRuntimeLoader 差量生命周期", () => {
     setInstalledPluginManifests([]);
     resetPluginLifecycleForTests();
     delete (globalThis as Record<string, unknown>).__dynActivated;
+  });
+
+  it("非法 activate 形状、超体积、隔离失败互不影响", async () => {
+    resetPluginLifecycleForTests();
+    ensurePluginContributionsLoaded();
+    setInstalledPluginManifests([
+      {
+        id: "omni.test.ok",
+        version: "0.1.0",
+        kind: "addon",
+        permissions: [],
+        methods: [],
+        entry: { ui: "ui/main.js" },
+        contributes: {},
+      } as never,
+      {
+        id: "omni.test.shape",
+        version: "0.1.0",
+        kind: "addon",
+        permissions: [],
+        methods: [],
+        entry: { ui: "ui/main.js" },
+        contributes: {},
+      } as never,
+      {
+        id: "omni.test.boom",
+        version: "0.1.0",
+        kind: "addon",
+        permissions: [],
+        methods: [],
+        entry: { ui: "ui/main.js" },
+        contributes: {},
+      } as never,
+    ]);
+    setPluginAssetReader(async (pluginId) => {
+      if (pluginId === "omni.test.ok") {
+        return `module.exports = definePlugin({ activate: () => { globalThis.__okUi = true; }, deactivate: () => {} });`;
+      }
+      if (pluginId === "omni.test.boom") {
+        return `module.exports = definePlugin({ activate: () => { throw new Error("boom"); } });`;
+      }
+      return `module.exports = { deactivate: function () {} };`;
+    });
+
+    expect(
+      evaluateDynamicPluginModule(`module.exports = { hello: 1 };`, {
+        host: stubHost,
+        manifest: {},
+      }),
+    ).toBeNull();
+    expect(
+      evaluateDynamicPluginModule(`module.exports = { deactivate: function () {} };`, {
+        host: stubHost,
+        manifest: {},
+      }),
+    ).toBeNull();
+    expect(
+      evaluateDynamicPluginModule("x".repeat(DYNAMIC_UI_MAX_BYTES + 1), {
+        host: stubHost,
+        manifest: {},
+      }),
+    ).toBeNull();
+
+    await syncPluginLifecycles(
+      [
+        lifecycle("omni.test.ok", true, true),
+        lifecycle("omni.test.shape", true, true),
+        lifecycle("omni.test.boom", true, true),
+      ],
+      stubFactory,
+    );
+    expect((globalThis as Record<string, unknown>).__okUi).toBe(true);
+    expect(getDynamicUiUnsupportedReason("omni.test.shape")).toBe(UI_INVALID_ENTRY_REASON);
+    expect(getDynamicUiUnsupportedReason("omni.test.boom")).toBe(UI_INVALID_ENTRY_REASON);
+    expect(getDynamicUiUnsupportedReason("omni.test.ok")).toBeUndefined();
+
+    setInstalledPluginManifests([]);
+    resetPluginLifecycleForTests();
+    delete (globalThis as Record<string, unknown>).__okUi;
   });
 });

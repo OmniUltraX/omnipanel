@@ -12,6 +12,7 @@ export type CloudFormData = {
 
 export const PLUGIN_ID_ALIYUN = "omni.cloud.aliyun";
 export const PLUGIN_ID_TENCENT = "omni.cloud.tencent";
+export const PLUGIN_ID_HUAWEI = "omni.cloud.huawei";
 
 export const EMPTY_CLOUD_FORM: CloudFormData = {
   name: "",
@@ -27,13 +28,21 @@ export function isTencentCloud(pluginId: string | null | undefined): boolean {
   return id === PLUGIN_ID_TENCENT || id === "tencent" || id === "qcloud";
 }
 
+export function isHuaweiCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_HUAWEI || id === "huawei" || id === "hwc" || id === "hwcloud";
+}
+
 export function isAliyunCloud(pluginId: string | null | undefined): boolean {
   const id = (pluginId ?? "").trim();
   return id === PLUGIN_ID_ALIYUN || id === "aliyun";
 }
 
-export function cloudBrandKind(pluginId: string | null | undefined): "aliyun" | "tencent" | "server" {
+export function cloudBrandKind(
+  pluginId: string | null | undefined,
+): "aliyun" | "tencent" | "huawei" | "server" {
   if (isTencentCloud(pluginId)) return "tencent";
+  if (isHuaweiCloud(pluginId)) return "huawei";
   if (isAliyunCloud(pluginId)) return "aliyun";
   return "server";
 }
@@ -83,8 +92,23 @@ export const TENCENT_REGION_OPTIONS: { value: string; label: string }[] = [
   { value: "eu-moscow", label: "莫斯科" },
 ];
 
+/** 常用华为云 Region。 */
+export const HUAWEI_REGION_OPTIONS: { value: string; label: string }[] = [
+  { value: "cn-north-1", label: "华北-北京一" },
+  { value: "cn-north-4", label: "华北-北京四" },
+  { value: "cn-north-9", label: "华北-乌兰察布一" },
+  { value: "cn-east-2", label: "华东-上海二" },
+  { value: "cn-east-3", label: "华东-上海一" },
+  { value: "cn-south-1", label: "华南-广州" },
+  { value: "cn-south-2", label: "华南-深圳" },
+  { value: "cn-southwest-2", label: "西南-贵阳一" },
+  { value: "ap-southeast-1", label: "中国-香港" },
+  { value: "ap-southeast-3", label: "亚太-新加坡" },
+];
+
 export function cloudRegionOptions(pluginId: string | null | undefined): { value: string; label: string }[] {
   if (isTencentCloud(pluginId)) return TENCENT_REGION_OPTIONS;
+  if (isHuaweiCloud(pluginId)) return HUAWEI_REGION_OPTIONS;
   if (isAliyunCloud(pluginId) || !(pluginId ?? "").trim()) return ALIYUN_REGION_OPTIONS;
   const declared = getPluginManifest(pluginId ?? "")?.contributes.cloud?.regions ?? [];
   return declared
@@ -93,7 +117,7 @@ export function cloudRegionOptions(pluginId: string | null | undefined): { value
 }
 
 const REGION_LABEL_MAP = new Map(
-  [...ALIYUN_REGION_OPTIONS, ...TENCENT_REGION_OPTIONS].map((r) => [r.value, r.label]),
+  [...ALIYUN_REGION_OPTIONS, ...TENCENT_REGION_OPTIONS, ...HUAWEI_REGION_OPTIONS].map((r) => [r.value, r.label]),
 );
 
 export function cloudRegionLabel(regionId: string, localName?: string): string {
@@ -174,6 +198,9 @@ export function cloudAccountConsoleUrl(pluginId: string): string | null {
   if (isTencentCloud(id)) {
     return "https://console.cloud.tencent.com/";
   }
+  if (isHuaweiCloud(id)) {
+    return "https://console.huaweicloud.com/";
+  }
   return null;
 }
 
@@ -203,9 +230,11 @@ export function buildCloudConnection(
     pluginId,
     provider: isTencentCloud(pluginId)
       ? "tencent"
-      : isAliyunCloud(pluginId)
-        ? "aliyun"
-        : pluginId,
+      : isHuaweiCloud(pluginId)
+        ? "huawei"
+        : isAliyunCloud(pluginId)
+          ? "aliyun"
+          : pluginId,
     regions,
     region: regions[0],
     accessKeyId: form.accessKeyId.trim(),

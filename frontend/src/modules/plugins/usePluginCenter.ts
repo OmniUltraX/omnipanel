@@ -5,6 +5,7 @@ import { parsePluginManifest, type PluginManifest } from "@omnipanel/plugin-sdk"
 import { commands, type MarketplaceItem, type PluginListItem, type PluginUpdateInfo, type RegistrySourceDto, type ResolvePlan, type SourceTestResult } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { PLUGIN_OFFICIAL_CATALOG_UPDATED } from "../../ipc/events";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { useDbxCatalogStore } from "../../stores/dbxCatalogStore";
 import { usePluginHomePinStore } from "../../stores/pluginHomePinStore";
@@ -226,6 +227,9 @@ export function usePluginCenter() {
     setBusyId(item.id);
     try {
       await unwrapCommand(commands.pluginSetEnabled(item.id, enabled));
+      if (enabled && item.kind === "theme") {
+        useSettingsStore.getState().setThemePackId(item.id);
+      }
       await reloadInstalled();
       await reloadOfficial();
     } catch (err) {

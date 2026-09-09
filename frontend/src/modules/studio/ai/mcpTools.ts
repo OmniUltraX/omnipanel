@@ -16,6 +16,7 @@ function requireContent(args: Record<string, unknown>): string {
 function summarizeProject(item: StudioProject) {
   return {
     name: item.name,
+    location: item.location ?? "user",
     kind: item.kind ?? null,
     version: item.version ?? null,
     displayName: item.displayName ?? null,
@@ -83,7 +84,7 @@ export const STUDIO_MODULE_TOOLS: BuiltinToolRegistration[] = [
   {
     name: "omni_studio_list_projects",
     description:
-      "列出插件工作台（plugins-custom）工程：名称、kind、版本、文件列表。仅源码运行可用。",
+      "列出插件工作台工程（用户目录 plugin-projects，开发态并集扫描仓库 plugins-custom）：名称、来源、kind、版本、文件列表。",
     inputSchema: { type: "object", properties: {} },
     handler: studioListProjects,
   },
@@ -93,7 +94,7 @@ export const STUDIO_MODULE_TOOLS: BuiltinToolRegistration[] = [
     inputSchema: {
       type: "object",
       properties: {
-        project: { type: "string", description: "工程目录名（plugins-custom 下）" },
+        project: { type: "string", description: "工程目录名（用户目录或仓库 plugins-custom）" },
         path: { type: "string", description: "相对工程根的文件路径，如 plugin.json" },
       },
       required: ["project", "path"],
@@ -117,7 +118,8 @@ export const STUDIO_MODULE_TOOLS: BuiltinToolRegistration[] = [
   },
   {
     name: "omni_studio_validate",
-    description: "对插件工程跑 validate-plugin（清单/结构校验），返回成功与日志。",
+    description:
+      "对插件工程跑清单/结构校验，返回成功与日志。",
     inputSchema: {
       type: "object",
       properties: {

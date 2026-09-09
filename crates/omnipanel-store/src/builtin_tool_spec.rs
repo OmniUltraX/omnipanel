@@ -723,7 +723,7 @@ const SCHEMA_STUDIO_EMPTY: &str = r#"{
 const SCHEMA_STUDIO_READ: &str = r#"{
   "type": "object",
   "properties": {
-    "project": { "type": "string", "description": "工程目录名（plugins-custom 下）" },
+    "project": { "type": "string", "description": "工程目录名（用户目录或仓库 plugins-custom）" },
     "path": { "type": "string", "description": "相对工程根的文件路径，如 plugin.json" }
   },
   "required": ["project", "path"]
@@ -911,7 +911,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_studio_list_projects",
         module_key: "studio",
-        description: "列出插件工作台（plugins-custom）工程：名称、kind、版本、文件列表。仅源码运行可用。",
+        description: "列出插件工作台工程（用户目录 plugin-projects，开发态并集扫描仓库 plugins-custom）：名称、来源、kind、版本、文件列表。",
         input_schema: SCHEMA_STUDIO_EMPTY,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: false,
@@ -935,7 +935,7 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
         tool_name: "omni_studio_validate",
         module_key: "studio",
-        description: "对插件工程跑 validate-plugin（清单/结构校验），返回成功与日志。",
+        description: "对插件工程跑清单/结构校验，返回成功与日志。",
         input_schema: SCHEMA_STUDIO_VALIDATE,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: false,

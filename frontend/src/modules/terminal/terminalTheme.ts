@@ -1,11 +1,7 @@
 import type { ITheme, Terminal } from "@xterm/xterm";
 
 import { useSettingsStore } from "../../stores/settingsStore";
-import themeTokensJson from "../../../../plugins/theme-default/tokens.json";
-
-const themeTokens = themeTokensJson as {
-  terminal: { dark: Record<string, string>; light: Record<string, string> };
-};
+import { getAppliedPluginTheme, subscribePluginTheme } from "../../lib/pluginTheme";
 
 function paletteToTheme(
   palette: Record<string, string>,
@@ -36,30 +32,26 @@ function paletteToTheme(
   };
 }
 
-/**
- * 终端主题（暗色）：来自主题包 `omni.theme.default`，禁止主题 JS。
- */
-export const DARK_TERMINAL_THEME: ITheme = paletteToTheme(themeTokens.terminal.dark, {
-  scrollbarSliderBackground: "#f4f1ed33",
-  scrollbarSliderHoverBackground: "#f4f1ed66",
-  scrollbarSliderActiveBackground: "#f4f1ed80",
-});
+function extrasFor(resolved: "light" | "dark"): Partial<ITheme> {
+  return resolved === "light"
+    ? {
+        scrollbarSliderBackground: "rgba(0, 0, 0, 0.18)",
+        scrollbarSliderHoverBackground: "rgba(0, 0, 0, 0.32)",
+        scrollbarSliderActiveBackground: "rgba(0, 0, 0, 0.45)",
+      }
+    : {
+        scrollbarSliderBackground: "#f4f1ed33",
+        scrollbarSliderHoverBackground: "#f4f1ed66",
+        scrollbarSliderActiveBackground: "#f4f1ed80",
+      };
+}
 
 /**
- * 终端主题（浅色）：来自主题包，ANSI 对比度按 WCAG AA 校准。
- */
-export const LIGHT_TERMINAL_THEME: ITheme = paletteToTheme(themeTokens.terminal.light, {
-  scrollbarSliderBackground: "rgba(0, 0, 0, 0.18)",
-  scrollbarSliderHoverBackground: "rgba(0, 0, 0, 0.32)",
-  scrollbarSliderActiveBackground: "rgba(0, 0, 0, 0.45)",
-});
-
-/**
- * 根据应用 resolved 主题返回对应的终端主题。
- * resolved 为 "light" 时使用浅色终端主题，否则使用暗色主题。
+ * 根据应用 resolved 主题返回对应的终端主题（来自已应用的 theme 插件 tokens）。
  */
 export function getTerminalTheme(resolved: "light" | "dark"): ITheme {
-  return resolved === "light" ? LIGHT_TERMINAL_THEME : DARK_TERMINAL_THEME;
+  const palette = getAppliedPluginTheme().terminal[resolved];
+  return paletteToTheme(palette, extrasFor(resolved));
 }
 
 /** 以 document data-theme 为准（避免 persist 水合前 store.resolved 过期） */
@@ -89,4 +81,20 @@ export function applyTerminalTheme(
   } catch {
     // ignore
   }
+}
+
+/** 浅色/深色切换或插件 theme tokens 变更时刷新终端色板。 */
+export function subscribeTerminalPalette(
+  onChange: (resolved: "light" | "dark") => void,
+): () => void {
+  const unsubSettings = useSettingsStore.subscribe((state, prev) => {
+    if (state.resolved !== prev.resolved) {
+      onChange(state.resolved === "light" ? "light" : "dark");
+    }
+  });
+  const unsubPlugin = subscribePluginTheme(() => onChange(resolveActiveAppTheme()));
+  return () => {
+    unsubSettings();
+    unsubPlugin();
+  };
 }

@@ -1,7 +1,7 @@
 import type { Connection } from "../../../ipc/bindings";
 import { normalizeServerGroup } from "./panelConnection";
 import { parsePanelConfig, type PanelConfigJson } from "./serverConnection";
-import { isOnePanelService, panelServiceTypeToPluginId } from "./panelPlugin";
+import { panelServiceTypeToPluginId, panelUsesLoginUser } from "./panelPlugin";
 
 export interface PanelFormData {
   name: string;
@@ -52,7 +52,7 @@ export function buildPanelOnlyConnection(
   const config: PanelConfigJson & { remark?: string } = {
     address: form.panelAddress.trim(),
     key: form.panelKey.trim(),
-    panelUser: isOnePanelService(form.serviceType)
+    panelUser: panelUsesLoginUser(form.serviceType)
       ? form.panelUser.trim() || "admin"
       : undefined,
     serviceType: panelServiceTypeToPluginId(form.serviceType),

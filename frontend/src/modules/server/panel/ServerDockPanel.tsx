@@ -5,10 +5,21 @@ import { ServerMonitorTab } from "@/components/server";
 import { usePluginRuntimeStore } from "@/stores/pluginRuntimeStore";
 import type { ServerEntry } from "./serverConnection";
 import type { ServerSidebarNavTarget } from "./serverSidebarNav";
-import { ServerTreeIcon } from "./serverTreeIcons";
-import { listPanelDockTabs, type PanelDockTabId } from "./panelTabIds";
+import { ServerTreeIcon, type ServerTreeIconKind } from "./serverTreeIcons";
+import {
+  isFirstPartyPanelDockTab,
+  listPanelDockTabs,
+  panelDockTabLabel,
+  type PanelDockTabId,
+} from "./panelTabIds";
 import { PANEL_DOCK_TAB_SLOTS } from "./panelTabSlots";
+import { panelTabDecl } from "./panelPlugin";
 import { ServerWebsitesTab } from "./tabs/ServerWebsitesTab";
+import { GenericPanelTabPane } from "./GenericPanelTabPane";
+
+function dockTabIconKind(tab: string): ServerTreeIconKind {
+  return isFirstPartyPanelDockTab(tab) ? tab : "server";
+}
 
 interface ServerDockPanelProps {
   server: ServerEntry;
@@ -31,7 +42,7 @@ export function ServerDockPanel({ server, isActive, moduleLive, navTarget = null
     () => listPanelDockTabs(server.serviceType),
     [pluginItems, server.serviceType],
   );
-  const defaultTab: PanelDockTabId = visibleTabs[0] ?? "apps";
+  const defaultTab = visibleTabs[0] ?? "apps";
 
   const [detailTab, setDetailTab] = usePersistedModuleTab(
     `server-panel-detail-${server.id}`,
@@ -46,7 +57,7 @@ export function ServerDockPanel({ server, isActive, moduleLive, navTarget = null
     }
   }, [navTarget, server.id, setDetailTab, visibleTabs]);
 
-  const ActiveTab = PANEL_DOCK_TAB_SLOTS[detailTab];
+  const ActiveTab = isFirstPartyPanelDockTab(detailTab) ? PANEL_DOCK_TAB_SLOTS[detailTab] : undefined;
 
   return (
     <div className="server-dock-panel">
@@ -65,9 +76,15 @@ export function ServerDockPanel({ server, isActive, moduleLive, navTarget = null
               onClick={() => setDetailTab(tab)}
             >
               <span className="server-dock-panel__tab-icon" aria-hidden>
-                <ServerTreeIcon kind={tab} />
+                <ServerTreeIcon kind={dockTabIconKind(tab)} />
               </span>
-              <span className="server-dock-panel__tab-label">{t(`server.tabs.${tab}`)}</span>
+              <span className="server-dock-panel__tab-label">
+                {panelDockTabLabel(
+                  tab,
+                  isFirstPartyPanelDockTab(tab) ? t(`server.tabs.${tab}`) : undefined,
+                  panelTabDecl(server.serviceType, tab)?.label,
+                )}
+              </span>
             </button>
           ))}
         </div>
@@ -78,7 +95,9 @@ export function ServerDockPanel({ server, isActive, moduleLive, navTarget = null
                 <ServerWebsitesTab server={server} selectedItemId={selectedItemId} />
               ) : ActiveTab ? (
                 <ActiveTab server={server} />
-              ) : null}
+              ) : (
+                <GenericPanelTabPane server={server} tabId={detailTab} />
+              )}
             </div>
           ) : (
             <div className="server-panel-tab-pane" aria-hidden />

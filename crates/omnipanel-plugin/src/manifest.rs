@@ -206,10 +206,17 @@ impl PluginManifest {
         if self.version.trim().is_empty() {
             return Err(PluginError::InvalidManifest("清单 version 不能为空".into()));
         }
-        if self.kind == PluginKind::Theme && !self.permissions.is_empty() {
-            return Err(PluginError::InvalidManifest(
-                "theme 插件 permissions 必须为空".into(),
-            ));
+        if self.kind == PluginKind::Theme {
+            if !self.permissions.is_empty() {
+                return Err(PluginError::InvalidManifest(
+                    "theme 插件 permissions 必须为空".into(),
+                ));
+            }
+            if self.logic_entry().is_some() || self.ui_entry().is_some() {
+                return Err(PluginError::InvalidManifest(
+                    "theme 插件不得包含 JS 入口".into(),
+                ));
+            }
         }
         let mut seen = std::collections::BTreeSet::new();
         for method in &self.methods {
@@ -254,6 +261,9 @@ impl PluginManifest {
                     "minHostApi {min_api} 高于宿主当前版本 {HOST_API_VERSION}"
                 )));
             }
+        }
+        if let Some(themes) = &self.contributes.themes {
+            themes.validate()?;
         }
         if let Some(home) = &self.contributes.ui.home {
             home.validate()?;

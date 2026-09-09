@@ -15,6 +15,7 @@
   "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "pack:check": "npm run build && npm pack --dry-run",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

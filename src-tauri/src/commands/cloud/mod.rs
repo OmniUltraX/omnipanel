@@ -5,7 +5,7 @@ use omnipanel_cloud::{
     is_first_party_cloud, is_write_action, list_regions, list_resources, query_logs, test_account,
     CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
     CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail, CloudResourceFilter,
-    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT,
+    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_HUAWEI, PLUGIN_ID_TENCENT,
 };
 use serde_json::{json, Value};
 use omnipanel_cloud_aliyun::{
@@ -123,6 +123,8 @@ pub(crate) fn normalize_cloud_connection(
     let plugin_id = plugin_id_of(&cfg).unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
     let provider = if plugin_id == PLUGIN_ID_TENCENT {
         "tencent"
+    } else if plugin_id == PLUGIN_ID_HUAWEI {
+        "huawei"
     } else if plugin_id == PLUGIN_ID_ALIYUN {
         "aliyun"
     } else {

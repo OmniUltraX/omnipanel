@@ -287,6 +287,10 @@ function uninstallApp(args) {
   return { ok: true };
 }
 
+function echo(args) {
+  return { ok: true, echo: String(args.text || "") };
+}
+
 var HANDLERS = {
   testConnection: testConnection,
   getDashboard: getDashboard,
@@ -309,6 +313,7 @@ var HANDLERS = {
   listInstalledApps: listInstalledApps,
   installApp: installApp,
   uninstallApp: uninstallApp,
+  echo: echo,
 };
 
 function call(method, argsJson) {

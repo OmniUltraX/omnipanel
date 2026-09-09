@@ -38,6 +38,16 @@ const idConstRe =
   /pub const PLUGIN_ID_[A-Z0-9_]+: &str = "([^"]+)";/g;
 const rustIds = [...firstPartySrc.matchAll(idConstRe)].map((m) => m[1]);
 
+function isRelJsonPath(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith("/") || trimmed.startsWith("\\") || trimmed.includes("://")) {
+    return false;
+  }
+  if (trimmed.split(/[\\/]/).includes("..")) return false;
+  return /\.json$/i.test(trimmed);
+}
+
 const dirs = fs.readdirSync(pluginsDir, { withFileTypes: true }).filter((d) => d.isDirectory());
 const jsonDirs = dirs.map((d) => d.name);
 
@@ -222,8 +232,20 @@ for (const dir of dirs) {
     }
   }
   if (raw.kind === "theme") {
-    const js = raw.contributes?.themes?.tokens?.js ?? raw.contributes?.themes?.js;
-    if (js === true) errors.push("theme packs must not ship JS (js: true)");
+    const tokens = raw.contributes?.themes?.tokens;
+    if (tokens != null) {
+      if (typeof tokens !== "string" || !isRelJsonPath(tokens)) {
+        errors.push("themes.tokens must be a relative .json path without '..'");
+      } else {
+        const tokensFile = path.join(pluginsDir, dir.name, tokens);
+        if (!fs.existsSync(tokensFile)) {
+          errors.push(`themes.tokens file missing: ${tokens}`);
+        }
+      }
+    }
+    if (raw.entry?.logic || raw.entry?.ui) {
+      errors.push("theme packs must not ship JS");
+    }
   }
   if (errors.length > 0) {
     console.error(`[plugin-manifest] ${dir.name}:\n  - ${errors.join("\n  - ")}`);

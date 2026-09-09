@@ -173,8 +173,17 @@ function kindErrors(raw, dir) {
     }
   }
   if (kind === "theme") {
-    const js = raw.contributes?.themes?.tokens?.js ?? raw.contributes?.themes?.js;
-    if (js === true) errors.push("theme 禁止 js: true");
+    const tokens = raw.contributes?.themes?.tokens;
+    if (tokens != null) {
+      if (!isSafeRel(tokens) || !/\.json$/i.test(tokens) || tokens.includes("://")) {
+        errors.push("themes.tokens 必须是包内相对 .json 路径");
+      } else if (!existsSync(path.join(dir, tokens))) {
+        errors.push(`缺少 tokens 文件 ${tokens}`);
+      }
+    }
+    if (raw.entry?.logic || raw.entry?.ui) {
+      errors.push("theme 禁止 JS 入口");
+    }
   }
   if (kind === "addon") {
     const c = raw.contributes ?? {};

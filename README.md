@@ -52,7 +52,7 @@ AI Agent inspection report — structured health checks grounded in live contain
 | **Files** | Local / remote browsing, favorites, **cross-connection transfer** |
 | **Database** | SQL editor, virtual-scroll grid, NL2SQL, schema tools; first-party engines plus sidecar/DBX (Oracle, Dameng, Hive, and more) |
 | **Docker** | Local / remote Engine / SSH host / 1Panel / **BT Panel** — containers, images, Compose, networks, volumes |
-| **Server** | Host monitor; **BT Panel / 1Panel** (sites, apps, certs, cron); **cloud vendors** (Aliyun / Tencent Cloud; switch region on the account) |
+| **Server** | Host monitor; **BT Panel / 1Panel / HestiaCP** (sites, apps, certs, cron); **cloud vendors** (Aliyun / Tencent Cloud; switch region on the account) |
 | **Modules** | Installable `kind=module` plugins (Nacos first): connection tree, namespace switcher on the current connection, config / discovery / cluster workbench |
 | **Protocol Lab** | HTTP/API, WebSocket, MQTT, serial — one workspace |
 | **AI Assistant** | Context-aware ops, Plans, Skills, `omni_ask_user`, secret redaction, multi-model |

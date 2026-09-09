@@ -964,10 +964,12 @@ export const commands = {
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
 	/**  预读本地包清单（安装前权限确认用）：只验�?+ 解析，不解压不安装�?*/
 	pluginPeekManifest: (path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_peek_manifest", { path })),
-	/**  列出 plugins-custom 下的工程（有�?plugin.json 都列）�?*/
+	/** 列出用户目录与开发态仓库下的插件工程 */
 	pluginStudioListProjects: () => typedError<StudioProject[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
-	/**  脚手架：node create-plugin.mjs 建新工程，返回刷新后的工程�?*/
+	/** 在用户工程目录新建脚手架 */
 	pluginStudioScaffold: (name: string, kind: string, starter: string | null) => typedError<StudioProject, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind, starter })),
+	/** 记录 AI 脚手架意图（后端只存 sha256+len） */
+	pluginStudioAuditScaffold: (project: string, prompt: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_audit_scaffold", { project, prompt })),
 	pluginStudioRemoveProject: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_remove_project", { name })),
 	/**  读工程文件（文本，≤512KB）�?*/
 	pluginStudioReadFile: (project: string, path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_read_file", { project, path })),
@@ -4455,6 +4457,7 @@ export type StudioProject = {
   name: string;
   files: string[];
   hasManifest: boolean;
+  location: string;
   kind?: string | null;
   version?: string | null;
   displayName?: string | null;

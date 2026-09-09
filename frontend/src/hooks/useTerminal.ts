@@ -162,6 +162,7 @@ import {
   applyTerminalTheme,
   getTerminalTheme,
   resolveActiveAppTheme,
+  subscribeTerminalPalette,
 } from "../modules/terminal/terminalTheme";
 import { useModuleVisibility } from "../lib/moduleVisibility";
 
@@ -2402,11 +2403,9 @@ export function useTerminal(
 
   // 主题变化时动态更新终端主题，避免浅色主题下终端仍为深色（或反向卡白底）
   useEffect(() => {
-    const unsub = useSettingsStore.subscribe((state, prev) => {
-      if (state.resolved !== prev.resolved) {
-        const term = termRef.current;
-        if (term) applyTerminalTheme(term, state.resolved);
-      }
+    const unsub = subscribeTerminalPalette((resolved) => {
+      const term = termRef.current;
+      if (term) applyTerminalTheme(term, resolved);
     });
     return unsub;
   }, []);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { panelCandidateMatches, panelTabCreateSpec } from "./panelPlugin";
-import { PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT } from "./panelPlugin";
+import { PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT, PLUGIN_ID_PANEL_HESTIA } from "./panelPlugin";
 import { parsePluginManifest } from "@omnipanel/plugin-sdk";
 import { setInstalledPluginManifests } from "../../../lib/pluginManifests";
 
@@ -44,6 +44,23 @@ describe("panelCandidateMatches", () => {
     ).toBe(true);
   });
 
+  it("将 hestia/hestiacp 与插件 id 视为同一连接", () => {
+    expect(
+      panelCandidateMatches(conn("hestia"), {
+        pluginId: PLUGIN_ID_PANEL_HESTIA,
+        accountId: "ssh-1",
+        remoteKind: "panel",
+      }),
+    ).toBe(true);
+    expect(
+      panelCandidateMatches(conn("hestiacp"), {
+        pluginId: PLUGIN_ID_PANEL_HESTIA,
+        accountId: "ssh-1",
+        remoteKind: "panel",
+      }),
+    ).toBe(true);
+  });
+
   it("第三方 pluginId 原样匹配", () => {
     expect(
       panelCandidateMatches(conn("omni.panel.acme"), {
@@ -73,9 +90,20 @@ describe("panelCandidateMatches", () => {
 });
 
 describe("panelTabCreateSpec", () => {
-  it("第一方不走通用表单", () => {
+  it("1Panel / 宝塔不走通用表单", () => {
     expect(panelTabCreateSpec("bt", "websites")).toBeNull();
     expect(panelTabCreateSpec("1panel", "websites")).toBeNull();
+  });
+
+  it("HestiaCP 走清单通用新建表单", () => {
+    expect(panelTabCreateSpec("omni.panel.hestia", "websites")).toEqual({
+      method: "createWebsite",
+      formFields: [
+        { key: "domain", label: "域名" },
+        { key: "ip", label: "IP（可空）" },
+      ],
+      label: undefined,
+    });
   });
 
   it("第三方声明 create + formFields 才点亮", () => {

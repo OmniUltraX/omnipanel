@@ -293,6 +293,28 @@ fn bundled_official_registry() -> Option<RegistryFile> {
     parse_registry(crate::commands::official_catalog::BUNDLED_REGISTRY).ok()
 }
 
+/// 全部源拉取失败时用内置官方目录垫底，避免市场空页报 `all sources unavailable`。
+fn seed_official_if_empty(
+    mut files: Vec<(String, RegistryFile)>,
+    errors: &[String],
+) -> Result<Vec<(String, RegistryFile)>, OmniError> {
+    if !files.is_empty() {
+        return Ok(files);
+    }
+    if let Some(seed) = bundled_official_registry() {
+        files.push((OFFICIAL_SOURCE_ID.to_string(), seed));
+        return Ok(files);
+    }
+    Err(OmniError::connection(format!(
+        "all sources unavailable{}",
+        if errors.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", errors.join("; "))
+        }
+    )))
+}
+
 fn write_source_cache(
     plugins_root: Option<&std::path::Path>,
     source_id: &str,
@@ -529,18 +551,7 @@ async fn merged_view(
         }
     }
     if files.is_empty() {
-        if let Some(seed) = bundled_official_registry() {
-            files.push((OFFICIAL_SOURCE_ID.to_string(), seed));
-        } else {
-            return Err(OmniError::connection(format!(
-                "all sources unavailable{}",
-                if errors.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", errors.join("; "))
-                }
-            )));
-        }
+        files = seed_official_if_empty(files, &errors)?;
     }
     Ok((merge_registries(files), errors))
 }
@@ -1185,5 +1196,19 @@ mod tests {
     fn bundled_seed_parses() {
         let seed = bundled_official_registry().expect("bundled registry");
         assert!(!seed.plugins.is_empty());
+    }
+
+    #[test]
+    fn bundled_seed_avoids_all_sources_unavailable() {
+        let files = seed_official_if_empty(vec![], &["official: timeout".into()]).expect("seed");
+        assert_eq!(files[0].0, OFFICIAL_SOURCE_ID);
+        assert!(!files[0].1.plugins.is_empty());
+    }
+
+    #[test]
+    fn seed_keeps_existing_files() {
+        let file = mk_file("official");
+        let files = seed_official_if_empty(vec![("official".into(), file)], &[]).unwrap();
+        assert_eq!(files.len(), 1);
     }
 }
