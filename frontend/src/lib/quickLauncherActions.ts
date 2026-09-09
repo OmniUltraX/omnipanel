@@ -273,6 +273,8 @@ export function moduleKeyForQuickLauncherAction(
       return "files";
     case "ask-ai":
     case "module-service":
+    case "launch-app":
+    case "open-dashboard":
       return null;
     default:
       return null;
@@ -425,6 +427,9 @@ async function handleAction(action: QuickLauncherAction): Promise<void> {
       return;
     case "ask-ai":
       // 页内流式；旧版启动窗若仍 emit，在此吞掉，绝不唤醒 AI 助手
+      return;
+    case "launch-app":
+      // 仅在快捷启动窗内启动
       return;
     default:
       break;

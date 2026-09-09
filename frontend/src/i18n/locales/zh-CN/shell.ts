@@ -245,9 +245,9 @@ export default {
       trayQuit: "退出",
     },
     quickLauncher: {
-      placeholder: "ssh 名称 · db 库名 · /model · /dash · 或粘贴文本",
+      placeholder: "ssh 名称 · db 库名 · 应用名 · /model · /dash · 或粘贴文本",
       noResults: "无匹配结果",
-      plainHint: "请使用前缀搜索（ssh / db）、斜杠命令（/model /dash），或粘贴 IP、SQL、文本获取建议",
+      plainHint: "输入应用名（如 note→记事本）、前缀（ssh / db）、斜杠命令（/model /dash），或粘贴文本获取建议",
       recentSubtitle: "最近 · {count} 次",
       neverUsed: "从未使用",
       modulesAria: "打开模块",
@@ -322,6 +322,7 @@ export default {
         database: "数据库",
         files: "文件",
         module: "模块",
+        app: "应用",
       },
       kinds: {
         command: "命令",

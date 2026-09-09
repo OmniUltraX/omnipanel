@@ -1574,6 +1574,9 @@ fn build_and_run_tauri() {
             commands::quick_launcher::hide_quick_launcher,
             commands::quick_launcher::toggle_quick_launcher,
             commands::quick_launcher::set_quick_launcher_height,
+            commands::system_apps::list_system_apps,
+            commands::system_apps::launch_system_app,
+            commands::system_apps::get_system_app_icons,
             // 模块独立窗口
             commands::module_window::ensure_module_window_prewarm,
             commands::module_window::open_module_window,

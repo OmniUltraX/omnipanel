@@ -245,9 +245,9 @@ export default {
       trayQuit: "Quit",
     },
     quickLauncher: {
-      placeholder: "ssh name · db database · /model · /dash · or paste text",
+      placeholder: "ssh name · db database · app name · /model · /dash · or paste text",
       noResults: "No matches",
-      plainHint: "Use a prefix (ssh / db), a slash command (/model /dash), or paste IP, SQL, or text for suggestions",
+      plainHint: "Type an app name (e.g. note→Notepad), a prefix (ssh / db), a slash command (/model /dash), or paste text for suggestions",
       recentSubtitle: "Recent · {count}×",
       neverUsed: "Never used",
       modulesAria: "Open modules",
@@ -322,6 +322,7 @@ export default {
         database: "Database",
         files: "Files",
         module: "Module",
+        app: "App",
       },
       kinds: {
         command: "Command",

@@ -45,6 +45,13 @@ import {
   resolveSlashModelCurrentId,
   type SlashCommandId,
 } from "../../lib/quickLaunch/slashCommands";
+import {
+  ensureSystemAppIcons,
+  getCachedSystemAppIcon,
+  launchSystemApp,
+  listSystemApps,
+  type SystemAppEntry,
+} from "../../lib/quickLaunch/systemApps";
 import { broadcastAppearance } from "../../lib/appearanceSync";
 import {
   initDashboardCatalogSubscriber,
@@ -263,6 +270,8 @@ function rowToAction(row: QuickLaunchMatchRow): QuickLauncherAction {
       };
     case "everything-path":
       return { kind: "open-path", path: row.path };
+    case "system-app":
+      return { kind: "launch-app", appId: row.appId, name: row.label };
     case "module-service":
       return {
         kind: "module-service",
@@ -330,6 +339,8 @@ function rowToRecentTarget(row: QuickLaunchMatchRow): QuickLaunchRecentTarget {
         table: row.table,
       };
     case "everything-path":
+      return { type: "ssh-connection", connectionId: "" };
+    case "system-app":
       return { type: "ssh-connection", connectionId: "" };
     case "module-service":
       return { type: "ssh-connection", connectionId: "" };
@@ -406,6 +417,9 @@ export function QuickLauncherRoot() {
   const [aiAsk, setAiAsk] = useState<AiAskState | null>(null);
   const [dashboardCatalog, setDashboardCatalog] = useState<DashboardCatalogEntry[]>([]);
   const [dashboardActiveTabId, setDashboardActiveTabId] = useState<string | null>(null);
+  const [systemApps, setSystemApps] = useState<SystemAppEntry[]>([]);
+  /** 触发系统应用图标重绘（Map 本身不进 state） */
+  const [systemAppIconTick, setSystemAppIconTick] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const moduleButtonsRef = useRef<typeof MODULE_ICON_DEFS>([]);
@@ -489,6 +503,9 @@ export function QuickLauncherRoot() {
           initAiModelsStore().catch(() => {}),
           useDbSchemaCacheStore.getState().hydrate().catch(() => {}),
           refreshClipboard(),
+          listSystemApps().then((apps) => {
+            if (!cancelled) setSystemApps(apps);
+          }),
         ]);
       } catch (e) {
         console.warn("[quickLauncher] init failed", e);
@@ -538,6 +555,7 @@ export function QuickLauncherRoot() {
       void refreshClipboard();
       void initAiModelsStore().catch(() => {});
       void requestDashboardCatalog();
+      void listSystemApps().then(setSystemApps);
       requestAnimationFrame(() => inputRef.current?.focus());
     }).then((fn) => {
       unlisten = fn;
@@ -631,6 +649,7 @@ export function QuickLauncherRoot() {
       query: parsedQuery,
       connections,
       schema: schemaSnapshot,
+      systemApps,
     });
   }, [
     isEmptyQuery,
@@ -639,6 +658,7 @@ export function QuickLauncherRoot() {
     connections,
     schemaSnapshot,
     schemaRevision,
+    systemApps,
   ]);
 
   const everythingEnabled = usePluginRuntimeStore((s) =>
@@ -651,6 +671,21 @@ export function QuickLauncherRoot() {
 
   const resolvedMatchRows =
     parsedQuery.kind === "es" ? esRows : matchRows;
+
+  // 可见系统应用行：按需拉图标
+  useEffect(() => {
+    const ids = resolvedMatchRows
+      .filter((r): r is Extract<QuickLaunchMatchRow, { type: "system-app" }> => r.type === "system-app")
+      .map((r) => r.appId);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void ensureSystemAppIcons(ids).then(() => {
+      if (!cancelled) setSystemAppIconTick((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedMatchRows]);
 
   const askHistoryForDisplay = useMemo(() => {
     return [...askHistoryEntries].sort((a, b) => {
@@ -917,6 +952,15 @@ export function QuickLauncherRoot() {
       if (row.type === "everything-path") {
         await hideQuickLauncher();
         await emitQuickLauncherAction({ kind: "open-path", path: row.path });
+        return;
+      }
+      if (row.type === "system-app") {
+        await hideQuickLauncher();
+        try {
+          await launchSystemApp(row.appId);
+        } catch (e) {
+          console.warn("[quickLauncher] launch_system_app failed", e);
+        }
         return;
       }
       recordRecentOpen(rowToRecentTarget(row), row.label);
@@ -1500,6 +1544,12 @@ export function QuickLauncherRoot() {
             const lastUsedAt = recentLastUsedByKey.get(
               quickLaunchRecentKey(rowToRecentTarget(row)),
             );
+            const appIcon =
+              row.type === "system-app"
+                ? getCachedSystemAppIcon(row.appId) ?? undefined
+                : undefined;
+            // systemAppIconTick：图标异步到位后强制重读缓存
+            void systemAppIconTick;
             return (
               <li key={item.id}>
                 <button
@@ -1510,9 +1560,20 @@ export function QuickLauncherRoot() {
                   onClick={() => void activateItem(item)}
                   onMouseEnter={() => setSelectedIndex(index)}
                 >
-                  <span className="quick-launcher__item-module">
-                    {t(`shell.quickLauncher.modules.${moduleKey}`)}
-                  </span>
+                  {row.type === "system-app" && appIcon ? (
+                    <img
+                      className="quick-launcher__item-app-icon"
+                      src={appIcon}
+                      alt=""
+                      width={20}
+                      height={20}
+                      draggable={false}
+                    />
+                  ) : (
+                    <span className="quick-launcher__item-module">
+                      {t(`shell.quickLauncher.modules.${moduleKey}`)}
+                    </span>
+                  )}
                   <span className="quick-launcher__item-main">
                     <span className="quick-launcher__item-label">{row.label}</span>
                     {row.subtitle ? (
