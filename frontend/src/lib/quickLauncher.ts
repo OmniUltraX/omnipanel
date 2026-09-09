@@ -26,7 +26,9 @@ export type QuickLauncherAction =
   | { kind: "create-todo"; title: string }
   | { kind: "open-url"; url: string; target: "http" | "browser" }
   | { kind: "open-path"; path: string }
-  | { kind: "module-service"; connectionId: string; moduleKey: string };
+  | { kind: "module-service"; connectionId: string; moduleKey: string }
+  | { kind: "open-dashboard"; tabId: string }
+  | { kind: "launch-app"; appId: string; name: string };
 
 declare global {
   interface Window {
@@ -122,6 +124,10 @@ function isQuickLauncherAction(payload: unknown): payload is QuickLauncherAction
       return isNonEmptyString(p.path);
     case "module-service":
       return isNonEmptyString(p.connectionId) && isNonEmptyString(p.moduleKey);
+    case "open-dashboard":
+      return isNonEmptyString(p.tabId);
+    case "launch-app":
+      return isNonEmptyString(p.appId) && isNonEmptyString(p.name);
     default:
       return false;
   }
@@ -129,9 +135,13 @@ function isQuickLauncherAction(payload: unknown): payload is QuickLauncherAction
 
 export async function emitQuickLauncherAction(action: QuickLauncherAction): Promise<void> {
   if (!isTauriRuntime()) return;
-  // 询问 AI 只在启动窗内处理，禁止广播到主窗（避免打开 AI 抽屉）
+  // 询问 AI / 启动系统应用只在启动窗内处理，禁止广播到主窗
   if (action.kind === "ask-ai") {
     console.warn("[quickLauncher] ask-ai 不应 emit，已忽略");
+    return;
+  }
+  if (action.kind === "launch-app") {
+    console.warn("[quickLauncher] launch-app 不应 emit，已忽略");
     return;
   }
   const { emit } = await import("@tauri-apps/api/event");
@@ -166,4 +176,12 @@ export async function listenQuickLauncherShown(
       );
     },
   );
+}
+
+export async function listenQuickLauncherHidden(
+  handler: () => void,
+): Promise<UnlistenFn> {
+  return listen("omnipanel:quick-launcher-hidden", () => {
+    handler();
+  });
 }

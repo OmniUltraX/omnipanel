@@ -245,9 +245,9 @@ export default {
       trayQuit: "退出",
     },
     quickLauncher: {
-      placeholder: "ssh 名称 · db 库名 · db 库.表 · 或粘贴文本",
+      placeholder: "ssh 名称 · db 库名 · 应用名 · /model · /dash · 或粘贴文本",
       noResults: "无匹配结果",
-      plainHint: "请使用前缀搜索（ssh / db），或粘贴 IP、SQL、文本获取建议",
+      plainHint: "输入应用名（如 note→记事本）、前缀（ssh / db）、斜杠命令（/model /dash），或粘贴文本获取建议",
       recentSubtitle: "最近 · {count} 次",
       neverUsed: "从未使用",
       modulesAria: "打开模块",
@@ -268,6 +268,28 @@ export default {
         unfavorite: "取消收藏",
         delete: "删除",
         tag: "询问",
+      },
+      slash: {
+        tag: "命令",
+        commandsSection: "斜杠命令",
+        noResults: "无匹配命令、模型或看板",
+        model: {
+          label: "/model",
+          desc: "切换 AI 助手使用的模型",
+          tag: "模型",
+          section: "选择模型",
+          current: "当前",
+        },
+        dash: {
+          label: "/dash",
+          desc: "打开看板或自定义面板",
+          tag: "看板",
+          section: "选择看板",
+          current: "当前",
+          untitled: "未命名面板",
+          builtinSub: "系统看板",
+          customSub: "自定义 · {n} 个组件",
+        },
       },
       ai: {
         title: "AI",
@@ -300,6 +322,7 @@ export default {
         database: "数据库",
         files: "文件",
         module: "模块",
+        app: "应用",
       },
       kinds: {
         command: "命令",

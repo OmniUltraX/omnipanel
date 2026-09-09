@@ -5546,6 +5546,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hmac 0.12.1",
+ "image",
  "md5",
  "omnipanel-ai",
  "omnipanel-assistant",
@@ -5619,6 +5620,7 @@ dependencies = [
  "urlencoding",
  "webview2-com",
  "windows 0.61.3",
+ "winreg 0.55.0",
  "zstd",
 ]
 

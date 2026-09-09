@@ -2,6 +2,11 @@ import type { Connection } from "../ipc/bindings";
 import type { DbConnectionConfig } from "../modules/database/api";
 import type { SchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
 import type { QuickLaunchRecentEntry } from "../stores/quickLauncherRecentStore";
+import { parseSlashLaunchQuery } from "./quickLaunch/slashCommands";
+import {
+  matchSystemApps,
+  type SystemAppEntry,
+} from "./quickLaunch/systemApps";
 
 /**
  * 内核保留前缀。其余前缀由 activated 插件经 Runtime Loader 登记
@@ -31,7 +36,13 @@ export type ParsedQuickLaunchQuery =
       prefix: string;
       pluginId: string;
       moduleKey: string;
-    };
+    }
+  /** `/` 斜杠命令目录（见 quickLaunch/slashCommands） */
+  | { kind: "slash-catalog"; raw: string; filter: string }
+  /** `/model` 模型选择 */
+  | { kind: "slash-model"; raw: string; filter: string }
+  /** `/dash` | `/dashboard` 看板选择 */
+  | { kind: "slash-dashboard"; raw: string; filter: string };
 
 /** 列表行（匹配结果） */
 export type QuickLaunchMatchRow =
@@ -85,6 +96,15 @@ export type QuickLaunchMatchRow =
       pluginId: string;
       moduleKey: string;
       prefix: string;
+      label: string;
+      subtitle: string;
+      score: number;
+    }
+  | {
+      type: "system-app";
+      id: string;
+      appId: string;
+      path: string;
       label: string;
       subtitle: string;
       score: number;
@@ -155,6 +175,12 @@ export function parseQuickLaunchQuery(rawInput: string): ParsedQuickLaunchQuery 
   const trimmed = rawInput.trim();
   if (!trimmed) {
     return { kind: "plain", raw, filter: "" };
+  }
+
+  // `/` 斜杠命令优先于 ssh/db 前缀
+  if (trimmed.startsWith("/")) {
+    const slash = parseSlashLaunchQuery(rawInput);
+    if (slash) return slash;
   }
 
   // 长前缀优先，避免未来短前缀误吃长前缀（如 dock vs docker）
@@ -298,10 +324,11 @@ export function mergeQuickLaunchConnections(
 /** 匹配行所属模块（展示用） */
 export function quickLaunchRowModule(
   row: Pick<QuickLaunchMatchRow, "type">,
-): "ssh" | "database" | "files" | "module" {
+): "ssh" | "database" | "files" | "module" | "app" {
   if (row.type === "ssh-connection") return "ssh";
   if (row.type === "everything-path") return "files";
   if (row.type === "module-service") return "module";
+  if (row.type === "system-app") return "app";
   return "database";
 }
 
@@ -315,6 +342,10 @@ export function rowToInsertQuery(row: QuickLaunchMatchRow, currentQuery: string)
 
   if (row.type === "everything-path") {
     return `es ${row.path}`;
+  }
+
+  if (row.type === "system-app") {
+    return row.label;
   }
 
   if (row.type === "module-service") {
@@ -414,17 +445,23 @@ export function buildQuickLaunchRecentRows(options: {
 
 /**
  * 按解析结果构建匹配列表。
- * - plain：暂不返回任何结果（空输入的最近列表由 buildQuickLaunchRecentRows 负责）
+ * - plain：系统应用模糊匹配（空输入的最近列表由 buildQuickLaunchRecentRows 负责）
  * - ssh / db（及后续前缀）：各自域内边输入边过滤
  */
 export function buildQuickLaunchMatches(options: {
   query: ParsedQuickLaunchQuery;
   connections: Connection[];
   schema: SchemaCacheSnapshot;
+  systemApps?: SystemAppEntry[];
 }): QuickLaunchMatchRow[] {
   const { query, connections, schema } = options;
 
   if (query.kind === "plain") {
+    if (!query.filter) return [];
+    return matchSystemApps(options.systemApps ?? [], query.filter);
+  }
+
+  if (query.kind === "slash-catalog" || query.kind === "slash-model" || query.kind === "slash-dashboard") {
     return [];
   }
 

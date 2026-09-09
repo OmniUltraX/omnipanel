@@ -28585,9 +28585,24 @@ body.quick-launcher-body {
     color: var(--meta, #8b919a);
 }
 
+.quick-launcher__item-app-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    margin-left: 12px;
+    margin-right: 12px;
+    object-fit: contain;
+    border-radius: 4px;
+    image-rendering: auto;
+}
+
 .quick-launcher__item:hover .quick-launcher__item-module,
 .quick-launcher__item.is-selected .quick-launcher__item-module {
     color: color-mix(in srgb, var(--accent, #3b82f6) 75%, var(--meta, #8b919a));
+}
+
+.quick-launcher__item.is-current .quick-launcher__item-module {
+    color: var(--accent, #3b82f6);
 }
 
 .quick-launcher__item-main {

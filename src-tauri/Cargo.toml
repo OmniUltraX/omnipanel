@@ -124,6 +124,15 @@ tauri-plugin-notification = "2"
 tailscale = "0.5"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+  "Win32_Graphics_Gdi",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+] }
 raw-window-handle = "0.6"
 webview2-com = "0.38"
+winreg = "0.55"
+image = { version = "0.25", default-features = false, features = ["png"] }

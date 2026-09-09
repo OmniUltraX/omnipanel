@@ -57,6 +57,7 @@ pub mod protocol;
 pub mod providers;
 pub mod proxy;
 pub mod quick_launcher;
+pub mod system_apps;
 pub mod resource_profile;
 pub(crate) mod s3_list_compat;
 pub mod secrets_vault;

@@ -39,6 +39,18 @@ async function quitApplication(): Promise<void> {
 async function hideCurrentWindowToTray(): Promise<void> {
   const win = getCurrentWindow();
   markWindowHiddenToTray(win.label);
+  // 后端统一穿透光标 + Win32 强制隐藏，避免无边框隐藏窗留下隐形命中区遮挡光标
+  try {
+    await invoke("hide_window_to_tray", { label: win.label });
+    return;
+  } catch {
+    /* 回退到前端隐藏 */
+  }
+  try {
+    await win.setIgnoreCursorEvents(true);
+  } catch {
+    /* ignore */
+  }
   await win.hide();
 }
 
