@@ -210,7 +210,7 @@ export function PluginsPanel() {
           style={{ display: studioOpen ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}
         >
           <Suspense fallback={null}>
-            <StudioPanel />
+            <StudioPanel active={studioOpen} />
           </Suspense>
         </div>
       ) : null}

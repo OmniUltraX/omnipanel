@@ -9,6 +9,7 @@ import { useAiStore } from "../../stores/aiStore";
 import { useStatusBarActionBarStore } from "../../stores/statusBarActionBarStore";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { usePluginStudioAiStore } from "../../stores/pluginStudioAiStore";
 
 export type AiContextStripProps = {
   /**
@@ -31,6 +32,7 @@ export function AiContextStrip({ variant = "block" }: AiContextStripProps) {
   const activeConversationId = useAiStore((s) => s.activeConversationId);
   const conversations = useAiStore((s) => s.conversations);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const studioSnapshot = usePluginStudioAiStore((s) => s.snapshot);
 
   const activeConv = conversations.find((c) => c.id === activeConversationId);
   const pinnedWorkspaceId = activeConv?.pinnedWorkspaceId ?? null;
@@ -68,8 +70,28 @@ export function AiContextStrip({ variant = "block" }: AiContextStripProps) {
       }
     }
 
+    if (studioSnapshot.active) {
+      const projectName =
+        studioSnapshot.displayName ||
+        studioSnapshot.project ||
+        t("plugins.studio.noProject");
+      out.push({
+        key: "studio:project",
+        label: t("ai.contextStrip.studio", { name: projectName }),
+      });
+      if (studioSnapshot.file) {
+        const fileLabel = studioSnapshot.dirty
+          ? `${studioSnapshot.file} · ${t("plugins.studio.unsaved")}`
+          : studioSnapshot.file;
+        out.push({
+          key: `studio:file:${studioSnapshot.file}`,
+          label: t("ai.contextStrip.studioFile", { path: fileLabel }),
+        });
+      }
+    }
+
     return out;
-  }, [revision, activeDock?.dockScope, activeTabId, tabs]);
+  }, [revision, activeDock?.dockScope, activeTabId, tabs, studioSnapshot, t]);
 
   const inline = variant === "inline";
   const composer = variant === "composer";

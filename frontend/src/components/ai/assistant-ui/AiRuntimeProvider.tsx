@@ -67,6 +67,7 @@ import {
   mergeAiContextAppend,
 } from "../../../lib/ai/composerContextAppend";
 import { resolveFocusModuleKey } from "../../../lib/ai/resolveFocusModuleKey";
+import { getPluginStudioAiContextText } from "../../../stores/pluginStudioAiStore";
 import {
   ASSISTANT_PAGE_AGENT_ID,
   resolveAgentRuntime,
@@ -277,7 +278,11 @@ function buildAiContext(inline?: InlineTerminalAiTarget) {
   const explicitAppend = buildComposerExplicitContextAppend(getComposerContextItems(), {
     skipTerminalSessionId: sessionId,
   });
-  const moduleContextAppend = mergeAiContextAppend(focusModuleAppend, explicitAppend);
+  const moduleContextAppend = mergeAiContextAppend(
+    getPluginStudioAiContextText(),
+    focusModuleAppend,
+    explicitAppend,
+  );
 
   if (!sessionId) {
     return {

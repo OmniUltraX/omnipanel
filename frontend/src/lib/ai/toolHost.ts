@@ -14,6 +14,7 @@ import { TERMINAL_MODULE_TOOLS } from "../../modules/terminal/ai/mcpTools";
 import { DATABASE_MODULE_TOOLS } from "../../modules/database/ai/mcpTools";
 import { DOCKER_MODULE_TOOLS } from "../../modules/docker/ai/mcpTools";
 import { FILES_MODULE_TOOLS } from "../../modules/files/ai/mcpTools";
+import { STUDIO_MODULE_TOOLS } from "../../modules/studio/ai/mcpTools";
 import { KNOWLEDGE_MODULE_TOOLS } from "../../modules/knowledge/ai/mcpTools";
 import { SSH_MODULE_TOOLS } from "../../modules/server/ssh/ai/mcpTools";
 import { WORKSPACE_MODULE_TOOLS } from "../../modules/workspace/ai/mcpTools";
@@ -44,6 +45,7 @@ export function registerToolHandlers(): void {
   registerHandlers(DATABASE_MODULE_TOOLS);
   registerHandlers(DOCKER_MODULE_TOOLS);
   registerHandlers(FILES_MODULE_TOOLS);
+  registerHandlers(STUDIO_MODULE_TOOLS);
   registerHandlers(KNOWLEDGE_MODULE_TOOLS);
   registerHandlers(SSH_MODULE_TOOLS);
   registerHandlers(WORKSPACE_MODULE_TOOLS);

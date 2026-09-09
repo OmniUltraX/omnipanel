@@ -9,10 +9,12 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { useLocation } from "react-router-dom";
 import { PanelRightCloseIcon } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { clampMenuPosition } from "../../../lib/contextMenuPosition";
 import { useI18n } from "../../../i18n";
+import { isPluginsPath } from "../../../lib/paths";
 import { useUiFollowStore } from "../../../lib/ai/uiFollow";
 import { useAiStore } from "../../../stores/aiStore";
 import {
@@ -298,9 +300,12 @@ export function AiFollowToggle() {
 /** Dock 边栏 ↔ 居中弹窗 */
 export function AiDisplayModeToggle() {
   const { t } = useI18n();
+  const location = useLocation();
   const mode = useSettingsStore((s) => s.aiDisplayMode);
   const setAiDisplayMode = useSettingsStore((s) => s.setAiDisplayMode);
   const openDrawer = useAiStore((s) => s.openDrawer);
+
+  if (isPluginsPath(location.pathname)) return null;
 
   const label =
     mode === "dockview"

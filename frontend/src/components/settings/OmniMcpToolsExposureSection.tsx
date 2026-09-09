@@ -48,6 +48,7 @@ const MODULE_LABEL_KEYS: Record<string, string> = {
   protocol: "routes.protocol",
   workflow: "routes.workflow",
   knowledge: "routes.knowledge",
+  studio: "plugins.studio.open",
 };
 
 /** 设置页「全局工具」分组（module_key = web） */
@@ -70,7 +71,7 @@ function moduleLabelKey(moduleKey: string): string {
 }
 
 function isToolActionable(moduleKey: string): boolean {
-  if (isGlobalWebTool(moduleKey)) return true;
+  if (isGlobalWebTool(moduleKey) || moduleKey === "studio") return true;
   return isModuleOpen(moduleKey as ModuleKey);
 }
 

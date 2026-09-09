@@ -715,6 +715,38 @@ const SCHEMA_FILES_SEARCH: &str = r#"{
   "required": ["connection_id", "query"]
 }"#;
 
+const SCHEMA_STUDIO_EMPTY: &str = r#"{
+  "type": "object",
+  "properties": {}
+}"#;
+
+const SCHEMA_STUDIO_READ: &str = r#"{
+  "type": "object",
+  "properties": {
+    "project": { "type": "string", "description": "工程目录名（plugins-custom 下）" },
+    "path": { "type": "string", "description": "相对工程根的文件路径，如 plugin.json" }
+  },
+  "required": ["project", "path"]
+}"#;
+
+const SCHEMA_STUDIO_WRITE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "project": { "type": "string", "description": "工程目录名" },
+    "path": { "type": "string", "description": "相对工程根的文件路径" },
+    "content": { "type": "string", "description": "完整文件内容（UTF-8）" }
+  },
+  "required": ["project", "path", "content"]
+}"#;
+
+const SCHEMA_STUDIO_VALIDATE: &str = r#"{
+  "type": "object",
+  "properties": {
+    "project": { "type": "string", "description": "工程目录名" }
+  },
+  "required": ["project"]
+}"#;
+
 /// 全部内置工具规格（单一真相源）。
 pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
     BuiltinToolSpec {
@@ -875,6 +907,38 @@ pub const BUILTIN_TOOL_SPECS: &[BuiltinToolSpec] = &[
         input_schema: SCHEMA_FILES_SEARCH,
         exec_kind: ToolExecKind::UiDelegated,
         omnimcp_backend: true,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_studio_list_projects",
+        module_key: "studio",
+        description: "列出插件工作台（plugins-custom）工程：名称、kind、版本、文件列表。仅源码运行可用。",
+        input_schema: SCHEMA_STUDIO_EMPTY,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_studio_read_file",
+        module_key: "studio",
+        description: "读取插件工程内相对路径文件（禁 ..）。用于查看 plugin.json / logic.js / ui。",
+        input_schema: SCHEMA_STUDIO_READ,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_studio_write_file",
+        module_key: "studio",
+        description: "写入插件工程内相对路径文件（覆盖）。改清单或逻辑后应再调 omni_studio_validate。需用户确认。",
+        input_schema: SCHEMA_STUDIO_WRITE,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
+    },
+    BuiltinToolSpec {
+        tool_name: "omni_studio_validate",
+        module_key: "studio",
+        description: "对插件工程跑 validate-plugin（清单/结构校验），返回成功与日志。",
+        input_schema: SCHEMA_STUDIO_VALIDATE,
+        exec_kind: ToolExecKind::UiDelegated,
+        omnimcp_backend: false,
     },
     BuiltinToolSpec {
         tool_name: "omni_database_list_connections",
@@ -1564,6 +1628,53 @@ mod tests {
         assert!(required.iter().any(|x| x.as_str() == Some("query")));
         // path 应当是可选
         assert!(!required.iter().any(|x| x.as_str() == Some("path")));
+    }
+
+    #[test]
+    fn studio_tools_registered_as_ui_delegated() {
+        for name in [
+            "omni_studio_list_projects",
+            "omni_studio_read_file",
+            "omni_studio_write_file",
+            "omni_studio_validate",
+        ] {
+            let spec = builtin_tool_spec(name).unwrap_or_else(|| panic!("{name} 未注册"));
+            assert_eq!(spec.exec_kind, ToolExecKind::UiDelegated, "{name}");
+            assert_eq!(spec.module_key, "studio", "{name}");
+            assert!(!spec.omnimcp_backend, "{name}");
+            assert!(!builtin_tool_is_native(name), "{name} 不应是 Native");
+        }
+    }
+
+    #[test]
+    fn studio_read_schema_requires_project_and_path() {
+        let spec = builtin_tool_spec("omni_studio_read_file").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        assert!(required.iter().any(|x| x.as_str() == Some("project")));
+        assert!(required.iter().any(|x| x.as_str() == Some("path")));
+    }
+
+    #[test]
+    fn studio_write_schema_requires_content() {
+        let spec = builtin_tool_spec("omni_studio_write_file").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        for key in ["project", "path", "content"] {
+            assert!(
+                required.iter().any(|x| x.as_str() == Some(key)),
+                "缺少 required: {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn studio_validate_schema_requires_project() {
+        let spec = builtin_tool_spec("omni_studio_validate").unwrap();
+        let v: serde_json::Value = serde_json::from_str(spec.input_schema).unwrap();
+        let required = v.get("required").and_then(|r| r.as_array()).unwrap();
+        assert!(required.iter().any(|x| x.as_str() == Some("project")));
+        assert_eq!(required.len(), 1);
     }
 
     #[test]

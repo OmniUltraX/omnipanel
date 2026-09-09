@@ -50,12 +50,16 @@ const READ_ONLY_TOOL_PATTERNS = [
   /files_read/,
   /files_search/,
   /files_stat/,
+  /studio_list/,
+  /studio_read/,
+  /studio_validate/,
 ];
 
 const ALWAYS_APPROVE_PATTERNS = [
   /kill_query/,
   /create_database/,
   /docker_exec/,
+  /studio_write/,
 ];
 
 function argsToRecord(args: Record<string, unknown> | string): Record<string, unknown> {

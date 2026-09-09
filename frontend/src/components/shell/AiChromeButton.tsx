@@ -1,8 +1,9 @@
 import { useAiStore } from "../../stores/aiStore";
 import { useI18n } from "../../i18n";
 import { formatModShortcut } from "../../lib/platform";
+import { IconSparkles } from "../ui/icons/Icons";
 
-/** Dock 右上角窗口控制旁的 AI 助手入口 */
+/** 主窗顶栏 / 模块窗右上角共用的 AI 助手入口 */
 export function AiChromeButton() {
   const { t } = useI18n();
   const drawerOpen = useAiStore((s) => s.drawerOpen);
@@ -21,12 +22,7 @@ export function AiChromeButton() {
         useAiStore.getState().toggleDrawer();
       }}
     >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
-        <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
-        <circle cx="18" cy="14" r="0.5" fill="currentColor" />
-        <circle cx="6" cy="14" r="0.5" fill="currentColor" />
-        <path d="M12 17v4M8 21h8" />
-      </svg>
+      <IconSparkles size={14} />
     </button>
   );
 }

@@ -5,7 +5,10 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useCallback } from "react";
 import { TopbarTabs } from "../ui/layout/TopbarTabs";
 import { WinControls } from "./WinControls";
+import { AiChromeButton } from "./AiChromeButton";
+import { IconBell, IconSearch } from "../ui/icons/Icons";
 import { usesMacTrafficLights } from "../../lib/platform";
+import "./chrome-flush.css";
 
 interface TopbarProps {
   title: string;
@@ -58,7 +61,7 @@ export function Topbar({ title, children, hidden = false }: TopbarProps) {
 
   const handleDoubleClick = async (event: React.MouseEvent) => {
     const target = event.target as HTMLElement;
-    if (target.closest(".win-controls") || target.closest(".topbar-btn") || target.closest(".topbar-actions")) {
+    if (target.closest(".win-controls, .topbar-btn, .topbar-actions, .dock-chrome-ai-btn")) {
       return;
     }
     const win = getCurrentWindow();
@@ -93,20 +96,14 @@ export function Topbar({ title, children, hidden = false }: TopbarProps) {
         {children && <div className="topbar-page-actions">{children}</div>}
 
         <div className="topbar-actions">
-          <button className="topbar-btn" title={t("shell.topbar.notifications")} onClick={handleNotifications}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 01-3.46 0" />
-            </svg>
+          <button type="button" className="topbar-btn" title={t("shell.topbar.notifications")} onClick={handleNotifications}>
+            <IconBell size={14} />
             <span className="notif-badge">3</span>
           </button>
-          <button className="topbar-btn" title={t("shell.topbar.commandPalette")} onClick={handleSearch}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.3-4.3" />
-            </svg>
+          <button type="button" className="topbar-btn" title={t("shell.topbar.commandPalette")} onClick={handleSearch}>
+            <IconSearch size={14} />
           </button>
-
+          <AiChromeButton />
           {!usesMacTrafficLights() ? <WinControls /> : null}
         </div>
       </div>

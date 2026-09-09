@@ -439,6 +439,23 @@ mod tests {
     }
 
     #[test]
+    fn studio_tools_available_when_studio_module_seeded() {
+        let storage = Storage::open_in_memory().unwrap();
+        let list = storage.builtin_tool_list().unwrap();
+        assert!(list.iter().any(|t| t.tool_name == "omni_studio_write_file"));
+        assert!(
+            storage
+                .builtin_tool_is_available("omni_studio_read_file")
+                .unwrap()
+        );
+        assert!(
+            storage
+                .builtin_tool_is_available("omni_studio_write_file")
+                .unwrap()
+        );
+    }
+
+    #[test]
     fn external_exposed_allows_all_builtin_tools_when_module_open() {
         let storage = Storage::open_in_memory().unwrap();
         assert!(

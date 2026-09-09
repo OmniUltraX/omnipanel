@@ -4,6 +4,7 @@ target/
 target-gen-bindings/
 target-bindings/
 target-sidecar-verify/
+target-agent/
 **/*.rs.bk
 
 # Node
