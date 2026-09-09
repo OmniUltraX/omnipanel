@@ -26,7 +26,8 @@ export type QuickLauncherAction =
   | { kind: "create-todo"; title: string }
   | { kind: "open-url"; url: string; target: "http" | "browser" }
   | { kind: "open-path"; path: string }
-  | { kind: "module-service"; connectionId: string; moduleKey: string };
+  | { kind: "module-service"; connectionId: string; moduleKey: string }
+  | { kind: "open-dashboard"; tabId: string };
 
 declare global {
   interface Window {
@@ -122,6 +123,8 @@ function isQuickLauncherAction(payload: unknown): payload is QuickLauncherAction
       return isNonEmptyString(p.path);
     case "module-service":
       return isNonEmptyString(p.connectionId) && isNonEmptyString(p.moduleKey);
+    case "open-dashboard":
+      return isNonEmptyString(p.tabId);
     default:
       return false;
   }
@@ -166,4 +169,12 @@ export async function listenQuickLauncherShown(
       );
     },
   );
+}
+
+export async function listenQuickLauncherHidden(
+  handler: () => void,
+): Promise<UnlistenFn> {
+  return listen("omnipanel:quick-launcher-hidden", () => {
+    handler();
+  });
 }

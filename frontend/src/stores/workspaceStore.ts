@@ -194,6 +194,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               const { workspaceWindowLabel } = await import("../lib/workspaceWindow");
               const win = await WebviewWindow.getByLabel(workspaceWindowLabel(id));
               if (win) {
+                await win.setIgnoreCursorEvents(false).catch(() => {});
                 await win.unminimize();
                 await win.show();
                 await win.setFocus();

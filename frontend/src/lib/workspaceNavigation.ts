@@ -39,6 +39,8 @@ export async function tryFocusLiveWorkspaceWindow(id: string): Promise<boolean> 
       return false;
     }
     const target = useWorkspaceStore.getState().workspaces.find((w) => w.id === id);
+    // 隐藏时已穿透光标，显示前先恢复，否则窗口点不中
+    await existing.setIgnoreCursorEvents(false).catch(() => {});
     await existing.unminimize().catch(() => {});
     await existing.show().catch(() => {});
     await existing.setFocus().catch(() => {});
@@ -54,9 +56,19 @@ export async function tryFocusLiveWorkspaceWindow(id: string): Promise<boolean> 
 /** 聚焦主窗口（工程工作区 / 首页入口）。 */
 export async function focusMainWindow(): Promise<void> {
   if (!isTauriRuntime()) return;
+  // 优先走后端统一恢复（恢复光标命中 + 显示聚焦），失败再回退前端直显
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("show_window_from_tray", { label: MAIN_WINDOW_LABEL });
+    return;
+  } catch {
+    /* fallback */
+  }
   try {
     const main = await WebviewWindow.getByLabel(MAIN_WINDOW_LABEL);
     if (!main) return;
+    // 隐藏时已穿透光标，显示前先恢复，否则窗口点不中
+    await main.setIgnoreCursorEvents(false).catch(() => {});
     await main.unminimize().catch(() => {});
     await main.show().catch(() => {});
     await main.setFocus().catch(() => {});

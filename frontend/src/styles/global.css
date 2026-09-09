@@ -28553,6 +28553,10 @@ body.quick-launcher-body {
     color: color-mix(in srgb, var(--accent, #3b82f6) 75%, var(--meta, #8b919a));
 }
 
+.quick-launcher__item.is-current .quick-launcher__item-module {
+    color: var(--accent, #3b82f6);
+}
+
 .quick-launcher__item-main {
     flex: 1;
     min-width: 0;

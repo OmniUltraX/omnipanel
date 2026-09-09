@@ -51,6 +51,40 @@ fn default_title(module_key: &str) -> String {
     format!("OmniPanel · {module_key}")
 }
 
+#[cfg(windows)]
+fn force_win32_hide(window: &tauri::WebviewWindow) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+
+    let Ok(handle) = window.window_handle() else {
+        return;
+    };
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = HWND(win32.hwnd.get() as *mut _);
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_HIDE);
+    }
+}
+
+/// 隐藏窗口并让出光标命中：无边框窗 hide 后 HWND 偶发仍占命中区，
+/// 先穿透光标再 hide，Windows 上再强制 SW_HIDE（与快捷启动窗同策略）。
+/// 不搬位置/尺寸，避免丢失模块窗记忆几何。
+fn hide_window_without_cursor_hit(window: &tauri::WebviewWindow) {
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.set_skip_taskbar(true);
+    let _ = window.hide();
+    #[cfg(windows)]
+    force_win32_hide(window);
+}
+
+/// 显示前恢复光标命中，否则复用“已穿透”的隐藏窗会点不中。
+fn restore_window_cursor_hit(window: &tauri::WebviewWindow) {
+    let _ = window.set_ignore_cursor_events(false);
+}
+
 fn next_idle_token(label: &str) -> u64 {
     let token = IDLE_UNLOAD_SEQ.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut map) = IDLE_UNLOAD_TOKENS.lock() {
@@ -164,6 +198,8 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
         .build()
         .map_err(|e| format!("创建模块窗口失败: {e}"))?;
 
+    // 预热即隐藏：先穿透光标，避免隐藏态隐形命中区遮挡光标
+    let _ = window.set_ignore_cursor_events(true);
     let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
     #[cfg(windows)]
     crate::webview_dpi::hook_window(&window);
@@ -184,8 +220,7 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
     window.on_window_event(move |event| match event {
         tauri::WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
-            let _ = win_hide.set_skip_taskbar(true);
-            let _ = win_hide.hide();
+            hide_window_without_cursor_hit(&win_hide);
             let _ = app_hide.emit(
                 "omnipanel:module-window-hidden",
                 serde_json::json!({
@@ -253,6 +288,8 @@ pub async fn open_module_window(
         title
     };
     let _ = window.set_title(&win_title);
+    // 显示前恢复光标命中（隐藏时已穿透）
+    restore_window_cursor_hit(&window);
     let _ = window.unminimize();
     let _ = window.set_skip_taskbar(false);
     window.show().map_err(|e| e.to_string())?;
@@ -276,4 +313,44 @@ pub async fn open_module_window(
     );
 
     Ok(label)
+}
+
+/// 主窗/任意窗隐藏到托盘：穿透光标 + 隐藏 + Win32 强制隐藏，
+/// 避免无边框隐藏窗留下隐形命中区遮挡光标（与快捷启动窗同策略）。
+/// 快捷启动窗仍走自己的 park 逻辑，此处拒绝以免破坏屏外停靠。
+#[tauri::command]
+pub fn hide_window_to_tray(app: AppHandle, label: String) -> Result<(), String> {
+    let label = label.trim().to_string();
+    if label.is_empty() {
+        return Err("label 不能为空".into());
+    }
+    if label == super::quick_launcher::QUICK_LAUNCHER_LABEL {
+        return Err("快捷启动窗请走 hide_quick_launcher".into());
+    }
+    let Some(window) = app.get_webview_window(&label) else {
+        return Ok(());
+    };
+    hide_window_without_cursor_hit(&window);
+    Ok(())
+}
+
+/// 从托盘恢复：先恢复光标命中，再显示聚焦，否则复用穿透态窗口会点不中。
+#[tauri::command]
+pub fn show_window_from_tray(app: AppHandle, label: String) -> Result<(), String> {
+    let label = label.trim().to_string();
+    if label.is_empty() {
+        return Err("label 不能为空".into());
+    }
+    if label == super::quick_launcher::QUICK_LAUNCHER_LABEL {
+        return Err("快捷启动窗请走 show_quick_launcher".into());
+    }
+    let Some(window) = app.get_webview_window(&label) else {
+        return Err(format!("窗口不存在: {label}"));
+    };
+    restore_window_cursor_hit(&window);
+    let _ = window.unminimize();
+    let _ = window.set_skip_taskbar(false);
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
 }

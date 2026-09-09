@@ -1577,6 +1577,8 @@ fn build_and_run_tauri() {
             // 模块独立窗口
             commands::module_window::ensure_module_window_prewarm,
             commands::module_window::open_module_window,
+            commands::module_window::hide_window_to_tray,
+            commands::module_window::show_window_from_tray,
             commands::workspace_window::app_exit,
             commands::workspace_window::main_window_show_splash,
             commands::workspace_window::main_window_reveal,

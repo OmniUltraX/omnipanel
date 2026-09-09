@@ -23,6 +23,10 @@ import {
 } from "./moduleWindow";
 import { useCommandBarDraftStore } from "../modules/terminal/commandBarDraftStore";
 import { requestTerminalExecution } from "../modules/terminal/executeTerminalCommand";
+import {
+  isHomeDashboardTabId,
+  useDashboardStore,
+} from "../modules/workspace/useDashboardStore";
 
 const DOCKER_ACTIVE_KEY = "omnipanel.docker.activeConnectionId";
 const MODULE_QUICK_ACTION_EVENT = "omnipanel:module-quick-action";
@@ -411,6 +415,13 @@ async function handleAction(action: QuickLauncherAction): Promise<void> {
     case "module-service":
       await wakeMainFromTray();
       applyQuickLauncherResourceAction(action);
+      return;
+    case "open-dashboard":
+      await wakeMainFromTray();
+      goWorkspaceHome();
+      if (isHomeDashboardTabId(action.tabId)) {
+        useDashboardStore.getState().openHomeTab(action.tabId);
+      }
       return;
     case "ask-ai":
       // 页内流式；旧版启动窗若仍 emit，在此吞掉，绝不唤醒 AI 助手

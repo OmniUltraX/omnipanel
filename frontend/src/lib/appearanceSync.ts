@@ -160,9 +160,19 @@ export function initAppearanceSyncPublisher(): () => void {
     unlistenReq = fn;
   });
 
+  // 子窗（如快捷启动）也可广播场景模型等变更；主窗 apply 后落盘并再广播
+  let unlistenSync: UnlistenFn | undefined;
+  void listen<AppearanceSnapshot>(APPEARANCE_SYNC_EVENT, (event) => {
+    if (!isAppearanceSnapshot(event.payload)) return;
+    applyAppearanceSnapshot(event.payload);
+  }).then((fn) => {
+    unlistenSync = fn;
+  });
+
   return () => {
     unsubStore();
     unlistenReq?.();
+    unlistenSync?.();
   };
 }
 

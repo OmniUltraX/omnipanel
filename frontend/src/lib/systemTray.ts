@@ -58,10 +58,20 @@ function resolveTrayModuleKeys(): ModuleKey[] {
 
 async function showWindowByLabel(label: string): Promise<boolean> {
   if (label === QUICK_LAUNCHER_LABEL) return false;
+  // 优先走后端统一恢复（恢复光标命中 + 显示聚焦）
+  try {
+    await invoke("show_window_from_tray", { label });
+    clearWindowHiddenToTray(label);
+    return true;
+  } catch {
+    /* 回退到前端直显 */
+  }
   try {
     const windows = await getAllWindows();
     const win = windows.find((w) => w.label === label);
     if (!win) return false;
+    // 隐藏时已穿透光标，显示前先恢复，否则窗口点不中
+    await win.setIgnoreCursorEvents(false).catch(() => {});
     await win.show();
     await win.unminimize();
     await win.setFocus();
@@ -79,6 +89,7 @@ async function showMainWindow(): Promise<void> {
   try {
     const windows = await getAllWindows();
     const main = windows.find((w) => w.label === "main") ?? getCurrentWindow();
+    await main.setIgnoreCursorEvents(false).catch(() => {});
     await main.show();
     await main.unminimize();
     await main.setFocus();
@@ -108,8 +119,13 @@ async function showAllWindows(): Promise<void> {
     for (const win of windows) {
       if (win.label === QUICK_LAUNCHER_LABEL) continue;
       try {
-        await win.show();
-        await win.unminimize();
+        try {
+          await invoke("show_window_from_tray", { label: win.label });
+        } catch {
+          await win.setIgnoreCursorEvents(false).catch(() => {});
+          await win.show();
+          await win.unminimize();
+        }
         clearWindowHiddenToTray(win.label);
       } catch {
         /* ignore single window */

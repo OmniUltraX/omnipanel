@@ -2,6 +2,7 @@ import type { Connection } from "../ipc/bindings";
 import type { DbConnectionConfig } from "../modules/database/api";
 import type { SchemaCacheSnapshot } from "../modules/database/schema/schemaCache";
 import type { QuickLaunchRecentEntry } from "../stores/quickLauncherRecentStore";
+import { parseSlashLaunchQuery } from "./quickLaunch/slashCommands";
 
 /**
  * 内核保留前缀。其余前缀由 activated 插件经 Runtime Loader 登记
@@ -31,7 +32,13 @@ export type ParsedQuickLaunchQuery =
       prefix: string;
       pluginId: string;
       moduleKey: string;
-    };
+    }
+  /** `/` 斜杠命令目录（见 quickLaunch/slashCommands） */
+  | { kind: "slash-catalog"; raw: string; filter: string }
+  /** `/model` 模型选择 */
+  | { kind: "slash-model"; raw: string; filter: string }
+  /** `/dash` | `/dashboard` 看板选择 */
+  | { kind: "slash-dashboard"; raw: string; filter: string };
 
 /** 列表行（匹配结果） */
 export type QuickLaunchMatchRow =
@@ -155,6 +162,12 @@ export function parseQuickLaunchQuery(rawInput: string): ParsedQuickLaunchQuery 
   const trimmed = rawInput.trim();
   if (!trimmed) {
     return { kind: "plain", raw, filter: "" };
+  }
+
+  // `/` 斜杠命令优先于 ssh/db 前缀
+  if (trimmed.startsWith("/")) {
+    const slash = parseSlashLaunchQuery(rawInput);
+    if (slash) return slash;
   }
 
   // 长前缀优先，避免未来短前缀误吃长前缀（如 dock vs docker）
@@ -425,6 +438,10 @@ export function buildQuickLaunchMatches(options: {
   const { query, connections, schema } = options;
 
   if (query.kind === "plain") {
+    return [];
+  }
+
+  if (query.kind === "slash-catalog" || query.kind === "slash-model" || query.kind === "slash-dashboard") {
     return [];
   }
 

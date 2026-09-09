@@ -15,6 +15,10 @@ struct QuickLauncherShownPayload {
 
 pub const QUICK_LAUNCHER_LABEL: &str = "quick-launcher";
 
+/// Windows 上 hide 后 HWND 偶发仍占命中区；移到屏外彻底避开光标。
+const LAUNCHER_PARK_X: i32 = -32000;
+const LAUNCHER_PARK_Y: i32 = -32000;
+
 static TRAY_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// 前端在进出托盘时同步（供其它逻辑查询；快捷启动不再依赖此标志）。
@@ -78,6 +82,39 @@ fn center_on_cursor_monitor(app: &AppHandle, window: &tauri::WebviewWindow) {
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
+/// 停靠到屏外并隐藏，避免 always_on_top / 无边框窗在 Windows 上留下隐形命中区。
+fn park_and_hide_launcher(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let _ = window.set_ignore_cursor_events(true);
+    let _ = window.set_always_on_top(false);
+    // 创建时 min 为 520×104，不先放开则 set_size(1×1) 会被钳住，屏外停靠失效时仍占大命中区
+    let _ = window.set_min_size(Some(tauri::LogicalSize::new(1.0, 1.0)));
+    // 先移出屏幕再缩、再 hide：即使 hide 后 HWND 仍参与 hit-test，光标也碰不到
+    let _ = window.set_position(tauri::PhysicalPosition::new(LAUNCHER_PARK_X, LAUNCHER_PARK_Y));
+    let _ = window.set_size(tauri::LogicalSize::new(1.0, 1.0));
+    window.hide().map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    force_win32_hide(window);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn force_win32_hide(window: &tauri::WebviewWindow) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+
+    let Ok(handle) = window.window_handle() else {
+        return;
+    };
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return;
+    };
+    let hwnd = HWND(win32.hwnd.get() as *mut _);
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_HIDE);
+    }
+}
+
 /// 启动时预创建（隐藏）。失败不阻断主流程。
 pub fn ensure_quick_launcher_window(app: &AppHandle) -> Result<(), String> {
     if app.get_webview_window(QUICK_LAUNCHER_LABEL).is_some() {
@@ -133,9 +170,12 @@ pub fn ensure_quick_launcher_window(app: &AppHandle) -> Result<(), String> {
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
-            let _ = win.hide();
+            let _ = park_and_hide_launcher(&win);
         }
     });
+
+    // 创建后立刻停靠屏外，避免预创建窗短暂占位
+    let _ = park_and_hide_launcher(&window);
 
     Ok(())
 }
@@ -156,6 +196,11 @@ fn show_launcher(app: &AppHandle, ctrl_held: bool) -> Result<(), String> {
 })();"#,
     );
 
+    // 从屏外停靠恢复：恢复最小尺寸 → 正常尺寸 → 命中/置顶 → 定位显示
+    let _ = window.set_min_size(Some(tauri::LogicalSize::new(520.0, 104.0)));
+    let _ = window.set_size(tauri::LogicalSize::new(600.0, 104.0));
+    let _ = window.set_ignore_cursor_events(false);
+    let _ = window.set_always_on_top(true);
     center_on_cursor_monitor(app, &window);
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
@@ -168,7 +213,7 @@ fn show_launcher(app: &AppHandle, ctrl_held: bool) -> Result<(), String> {
 
 fn hide_launcher(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(QUICK_LAUNCHER_LABEL) {
-        window.hide().map_err(|e| e.to_string())?;
+        park_and_hide_launcher(&window)?;
         let _ = app.emit("omnipanel:quick-launcher-hidden", ());
     }
     Ok(())
@@ -213,6 +258,10 @@ pub fn set_quick_launcher_height(app: AppHandle, height: f64) -> Result<(), Stri
     let window = app
         .get_webview_window(QUICK_LAUNCHER_LABEL)
         .ok_or_else(|| "快捷启动窗不存在".to_string())?;
+    // 隐藏/屏外停靠时不改尺寸，避免把 1×1 停靠窗拉回可见命中区
+    if !window.is_visible().unwrap_or(false) {
+        return Ok(());
+    }
     // 顶部模块图标行 + 搜索行，最小约 104
     let h = height.clamp(104.0, 480.0);
     window
