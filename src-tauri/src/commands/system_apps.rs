@@ -1,6 +1,6 @@
 //! 系统应用枚举与启动（快捷面板 plain 搜索）。
 //!
-//! Windows：开始菜单 `.lnk` + `App Paths` 注册表。
+//! Windows：开始菜单 `.lnk` + `App Paths` + `shell:AppsFolder`（含 UWP）。
 //! 其它平台：暂返回空列表。
 
 use std::collections::HashMap;
@@ -22,8 +22,11 @@ pub struct SystemAppEntry {
     pub name: String,
     /// 启动路径（.lnk / .exe）
     pub path: String,
-    /// `start-menu` | `app-paths`
+    /// `start-menu` | `app-paths` | `apps-folder`
     pub source: String,
+    /// 搜索别名（如 calc、notepad）；合并去重时保留被覆盖条目的可搜名
+    #[serde(default)]
+    pub aliases: Vec<String>,
 }
 
 struct AppCache {
@@ -65,7 +68,9 @@ fn should_skip_name(name: &str) -> bool {
 
 fn source_rank(source: &str) -> u8 {
     match source {
-        "start-menu" => 2,
+        // 开始菜单快捷方式展示名最好；AppsFolder 覆盖 UWP；App Paths 兜底
+        "start-menu" => 3,
+        "apps-folder" => 2,
         "app-paths" => 1,
         _ => 0,
     }
@@ -86,21 +91,6 @@ fn should_replace(existing: &SystemAppEntry, candidate: &SystemAppEntry) -> bool
     }
     // 同来源：更友好的展示名（更长通常是「Google Chrome」而非「chrome」）
     candidate.name.len() > existing.name.len()
-}
-
-/// 解析去重键：`.lnk` → 真实目标 exe；其它 → 自身路径。
-fn resolve_target_key(path: &Path) -> String {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-    if ext == "lnk" {
-        if let Some(target) = resolve_shortcut_target(path) {
-            return normalize_id(&target.to_string_lossy());
-        }
-    }
-    normalize_id(&path.to_string_lossy())
 }
 
 #[cfg(windows)]
@@ -141,6 +131,138 @@ fn resolve_shortcut_target(_lnk: &Path) -> Option<PathBuf> {
     None
 }
 
+fn push_alias(aliases: &mut Vec<String>, raw: &str) {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let lower = trimmed.to_lowercase();
+    if aliases
+        .iter()
+        .any(|a| a.eq_ignore_ascii_case(&lower) || a.to_lowercase() == lower)
+    {
+        return;
+    }
+    aliases.push(trimmed.to_string());
+}
+
+/// 常见中英文 / 可执行名互搜（合并后只留「计算器」时仍能用 calc 命中）。
+fn known_aliases_for(name: &str) -> &'static [&'static str] {
+    let key = name.trim().to_lowercase();
+    match key.as_str() {
+        "计算器" | "calculator" | "calc" => &["calc", "calculator", "计算器"],
+        "记事本" | "notepad" => &["notepad", "note", "记事本"],
+        "画图" | "paint" | "mspaint" => &["mspaint", "paint", "画图"],
+        "命令提示符" | "command prompt" | "cmd" => &["cmd", "command", "命令提示符"],
+        "windows powershell" | "powershell" | "pwsh" => &["powershell", "pwsh"],
+        "终端" | "terminal" | "windows terminal" => &["wt", "terminal", "windows terminal", "终端"],
+        "资源管理器" | "file explorer" | "explorer" => &["explorer", "file explorer", "资源管理器"],
+        _ => &[],
+    }
+}
+
+fn seed_aliases(entry: &mut SystemAppEntry, path: &Path, target: Option<&Path>) {
+    push_alias(&mut entry.aliases, &display_name_from_path(path));
+    if let Some(t) = target {
+        push_alias(&mut entry.aliases, &display_name_from_path(t));
+    }
+    for a in known_aliases_for(&entry.name) {
+        push_alias(&mut entry.aliases, a);
+    }
+    // 别名命中 known 表时再扩一轮（如 name=计算器 → calc → 再补 calculator）
+    let snapshot: Vec<String> = entry.aliases.clone();
+    for a in snapshot {
+        for k in known_aliases_for(&a) {
+            push_alias(&mut entry.aliases, k);
+        }
+    }
+    // 展示名本身不必留在 aliases
+    entry
+        .aliases
+        .retain(|a| !a.eq_ignore_ascii_case(&entry.name));
+}
+
+fn absorb_entry(into: &mut SystemAppEntry, other: &SystemAppEntry) {
+    push_alias(&mut into.aliases, &other.name);
+    for a in &other.aliases {
+        push_alias(&mut into.aliases, a);
+    }
+    for a in known_aliases_for(&other.name) {
+        push_alias(&mut into.aliases, a);
+    }
+    into.aliases
+        .retain(|a| !a.eq_ignore_ascii_case(&into.name));
+}
+
+fn merge_into_map(map: &mut HashMap<String, SystemAppEntry>, target_key: String, entry: SystemAppEntry) {
+    match map.remove(&target_key) {
+        Some(existing) => {
+            if should_replace(&existing, &entry) {
+                let mut kept = entry;
+                absorb_entry(&mut kept, &existing);
+                map.insert(target_key, kept);
+            } else {
+                let mut kept = existing;
+                absorb_entry(&mut kept, &entry);
+                map.insert(target_key, kept);
+            }
+        }
+        None => {
+            map.insert(target_key, entry);
+        }
+    }
+}
+
+fn seed_apps_folder_aliases(entry: &mut SystemAppEntry, aumid: &str) {
+    for a in known_aliases_for(&entry.name) {
+        push_alias(&mut entry.aliases, a);
+    }
+    // Microsoft.WindowsCalculator_8wekyb3d8bbwe!App → WindowsCalculator / Calculator
+    let package = aumid.split('!').next().unwrap_or(aumid);
+    let family = package.split('_').next().unwrap_or(package);
+    if let Some(short) = family.rsplit('.').next() {
+        push_alias(&mut entry.aliases, short);
+        // WindowsCalculator → 再跑 known（若表里有）
+        for a in known_aliases_for(short) {
+            push_alias(&mut entry.aliases, a);
+        }
+    }
+    let snapshot: Vec<String> = entry.aliases.clone();
+    for a in snapshot {
+        for k in known_aliases_for(&a) {
+            push_alias(&mut entry.aliases, k);
+        }
+    }
+    entry
+        .aliases
+        .retain(|a| !a.eq_ignore_ascii_case(&entry.name));
+}
+
+/// 同显示名再合并一轮（AppsFolder 与开始菜单/App Paths 目标键不同但名字相同）。
+fn collapse_by_display_name(apps: Vec<SystemAppEntry>) -> Vec<SystemAppEntry> {
+    let mut by_name: HashMap<String, SystemAppEntry> = HashMap::new();
+    for app in apps {
+        let key = app.name.to_lowercase();
+        match by_name.remove(&key) {
+            Some(existing) => {
+                if should_replace(&existing, &app) {
+                    let mut kept = app;
+                    absorb_entry(&mut kept, &existing);
+                    by_name.insert(key, kept);
+                } else {
+                    let mut kept = existing;
+                    absorb_entry(&mut kept, &app);
+                    by_name.insert(key, kept);
+                }
+            }
+            None => {
+                by_name.insert(key, app);
+            }
+        }
+    }
+    by_name.into_values().collect()
+}
+
 /// `map` 的 key 为解析后的目标 exe（规范化路径），value 为最终展示/启动条目。
 fn push_app(
     map: &mut HashMap<String, SystemAppEntry>,
@@ -156,22 +278,34 @@ fn push_app(
     if path_str.is_empty() {
         return;
     }
-    let target_key = resolve_target_key(&path);
+    let target = if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .eq_ignore_ascii_case("lnk")
+    {
+        resolve_shortcut_target(&path)
+    } else {
+        None
+    };
+    let target_key = target
+        .as_ref()
+        .map(|t| normalize_id(&t.to_string_lossy()))
+        .filter(|k| !k.is_empty())
+        .unwrap_or_else(|| normalize_id(&path_str));
     if target_key.is_empty() {
         return;
     }
-    let entry = SystemAppEntry {
+
+    let mut entry = SystemAppEntry {
         id: normalize_id(&path_str),
         name,
         path: path_str,
         source: source.to_string(),
+        aliases: Vec::new(),
     };
-    match map.get(&target_key) {
-        Some(existing) if !should_replace(existing, &entry) => {}
-        _ => {
-            map.insert(target_key, entry);
-        }
-    }
+    seed_aliases(&mut entry, &path, target.as_deref());
+    merge_into_map(map, target_key, entry);
 }
 
 #[cfg(windows)]
@@ -275,12 +409,116 @@ fn collect_app_paths(map: &mut HashMap<String, SystemAppEntry>) {
 }
 
 #[cfg(windows)]
+fn collect_apps_folder(map: &mut HashMap<String, SystemAppEntry>) {
+    use windows::core::{Interface, GUID, HSTRING, PCWSTR};
+    use windows::Win32::Foundation::PROPERTYKEY;
+    use windows::Win32::System::Com::{
+        CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{
+        IEnumShellItems, IShellItem, IShellItem2, SHCreateItemFromParsingName, BHID_EnumItems,
+        SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING,
+    };
+
+    // System.AppUserModel.ID
+    const PKEY_APP_USER_MODEL_ID: PROPERTYKEY = PROPERTYKEY {
+        fmtid: GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+        pid: 5,
+    };
+
+    unsafe fn take_pwstr(p: windows::core::PWSTR) -> String {
+        if p.is_null() {
+            return String::new();
+        }
+        unsafe {
+            let s = p.to_string().unwrap_or_default();
+            CoTaskMemFree(Some(p.0 as *const _));
+            s
+        }
+    }
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let folder_name = HSTRING::from("shell:AppsFolder");
+        let folder: IShellItem =
+            match SHCreateItemFromParsingName::<_, _, IShellItem>(PCWSTR(folder_name.as_ptr()), None::<&_>)
+            {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::warn!("打开 shell:AppsFolder 失败: {e}");
+                    return;
+                }
+            };
+        let enumerator: IEnumShellItems = match folder.BindToHandler(None, &BHID_EnumItems) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("枚举 AppsFolder 失败: {e}");
+                return;
+            }
+        };
+
+        loop {
+            if map.len() >= MAX_APPS {
+                break;
+            }
+            let mut slot: [Option<IShellItem>; 1] = [None];
+            let mut fetched: u32 = 0;
+            // S_FALSE（枚举结束）在 windows-rs 里表现为 Err，用 fetched 判断
+            let _ = enumerator.Next(&mut slot, Some(&mut fetched as *mut u32));
+            if fetched == 0 {
+                break;
+            }
+            let Some(item) = slot[0].take() else {
+                break;
+            };
+
+            let display = match item.GetDisplayName(SIGDN_NORMALDISPLAY) {
+                Ok(p) => take_pwstr(p),
+                Err(_) => continue,
+            };
+            if display.trim().is_empty() || should_skip_name(&display) {
+                continue;
+            }
+
+            let mut aumid = String::new();
+            if let Ok(item2) = item.cast::<IShellItem2>() {
+                if let Ok(p) = item2.GetString(&PKEY_APP_USER_MODEL_ID as *const _) {
+                    aumid = take_pwstr(p);
+                }
+            }
+            if aumid.is_empty() {
+                if let Ok(p) = item.GetDisplayName(SIGDN_PARENTRELATIVEPARSING) {
+                    aumid = take_pwstr(p);
+                }
+            }
+            aumid = aumid.trim().to_string();
+            if aumid.is_empty() {
+                continue;
+            }
+
+            let launch = format!("shell:AppsFolder\\{aumid}");
+            let target_key = format!("appsfolder:{}", aumid.to_lowercase());
+            let mut entry = SystemAppEntry {
+                id: normalize_id(&launch),
+                name: display,
+                path: launch,
+                source: "apps-folder".to_string(),
+                aliases: Vec::new(),
+            };
+            seed_apps_folder_aliases(&mut entry, &aumid);
+            merge_into_map(map, target_key, entry);
+        }
+    }
+}
+
+#[cfg(windows)]
 fn collect_system_apps_impl() -> Vec<SystemAppEntry> {
     let mut map = HashMap::new();
-    // 先扫开始菜单（.lnk），再补 App Paths；同目标 exe 保留快捷方式条目
+    // 开始菜单 → AppsFolder(UWP) → App Paths；再按显示名塌缩
     collect_start_menu_apps(&mut map);
+    collect_apps_folder(&mut map);
     collect_app_paths(&mut map);
-    let mut apps: Vec<_> = map.into_values().collect();
+    let mut apps = collapse_by_display_name(map.into_values().collect());
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     apps
 }
@@ -535,6 +773,13 @@ pub fn launch_system_app(id: String) -> Result<(), String> {
 
 #[cfg(windows)]
 fn launch_path(path: &str) -> Result<(), String> {
+    if let Some(aumid) = path
+        .strip_prefix("shell:AppsFolder\\")
+        .or_else(|| path.strip_prefix("shell:AppsFolder/"))
+    {
+        return launch_apps_folder_app(aumid);
+    }
+
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
@@ -546,6 +791,46 @@ fn launch_path(path: &str) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("启动失败: {e}"))?;
     let _ = status;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn launch_apps_folder_app(aumid: &str) -> Result<(), String> {
+    use windows::core::{HSTRING, PCWSTR};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{
+        IApplicationActivationManager, ApplicationActivationManager, AO_NONE,
+    };
+
+    let aumid = aumid.trim();
+    if aumid.is_empty() {
+        return Err("AppID 为空".to_string());
+    }
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        if let Ok(mgr) = CoCreateInstance::<_, IApplicationActivationManager>(
+            &ApplicationActivationManager,
+            None,
+            CLSCTX_LOCAL_SERVER,
+        ) {
+            let id = HSTRING::from(aumid);
+            if mgr
+                .ActivateApplication(&id, PCWSTR::null(), AO_NONE)
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+    }
+
+    // 回退：explorer 打开 AppsFolder 项（兼容部分 AutoGenerated AppID）
+    std::process::Command::new("explorer.exe")
+        .arg(format!("shell:AppsFolder\\{aumid}"))
+        .spawn()
+        .map_err(|e| format!("启动失败: {e}"))?;
     Ok(())
 }
 

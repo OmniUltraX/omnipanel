@@ -11,6 +11,8 @@ export type SystemAppEntry = {
   name: string;
   path: string;
   source: string;
+  /** 可搜索别名（如 calc）；缺省按空数组处理 */
+  aliases?: string[];
 };
 
 const MAX_APP_RESULTS = 8;
@@ -149,7 +151,7 @@ export async function ensureSystemAppIcons(
   return out;
 }
 
-/** 按名称模糊匹配系统应用，生成快捷面板行。 */
+/** 按名称 / 别名模糊匹配系统应用，生成快捷面板行。 */
 export function matchSystemApps(
   apps: SystemAppEntry[],
   filter: string,
@@ -159,8 +161,14 @@ export function matchSystemApps(
 
   const rows: QuickLaunchMatchRow[] = [];
   for (const app of apps) {
-    const score = scoreText(app.name, needle);
-    if (score == null) continue;
+    const texts = [app.name, ...(app.aliases ?? [])];
+    let best: number | null = null;
+    for (const text of texts) {
+      const score = scoreText(text, needle);
+      if (score == null) continue;
+      if (best == null || score > best) best = score;
+    }
+    if (best == null) continue;
     rows.push({
       type: "system-app",
       id: `app:${app.id}`,
@@ -169,7 +177,7 @@ export function matchSystemApps(
       label: app.name,
       // 不展示绝对路径；类型标签由列表左侧图标 /「应用」文案承担
       subtitle: "",
-      score,
+      score: best,
     });
   }
 

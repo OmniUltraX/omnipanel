@@ -99,6 +99,8 @@ import { resolveBackendFromSelection } from "../../lib/ai/inferenceBackend";
 
 const CLIPBOARD_PREVIEW_H = 36;
 const SUGGESTION_SECTION_LABEL_H = 24;
+/** 与 `.quick-launcher__list { max-height }` 保持一致，避免窗体高于列表留下底空白 */
+const LIST_MAX_H = 320;
 /** 询问 AI 结果区高度（含提问摘要 + Markdown 正文滚动区） */
 const AI_ANSWER_PANEL_H = 360;
 
@@ -805,6 +807,8 @@ export function QuickLauncherRoot() {
     t,
   ]);
 
+  const showEmptyHint = query.trim().length > 0 && listItems.length === 0;
+
   const clipboardEntityKind = useMemo(
     () => (clipboardText ? primaryEntityKind(clipboardText) : null),
     [clipboardText],
@@ -844,14 +848,18 @@ export function QuickLauncherRoot() {
       (listLayoutSig.suggestionCount > 0 ? 1 : 0) +
       (listLayoutSig.historyCount > 0 ? 1 : 0) +
       (listLayoutSig.slashCount > 0 ? 1 : 0);
-    const listH =
+    const rawListH =
       listLayoutSig.itemCount > 0
         ? listLayoutSig.rowCount * 40 + 8 + sectionLabels * SUGGESTION_SECTION_LABEL_H
-        : 0;
+        : showEmptyHint
+          ? 48
+          : 0;
+    // 不得超过列表 CSS max-height，否则窗体比可视列表更高，底部留白
+    const listH = Math.min(rawListH, LIST_MAX_H);
     const clipH = showClipboardBar ? CLIPBOARD_PREVIEW_H : 0;
     const height = MODULE_BAR_H + INPUT_ROW_H + clipH + listH;
     void setQuickLauncherHeight(height);
-  }, [aiAsk, listLayoutSig, showClipboardBar]);
+  }, [aiAsk, listLayoutSig, showClipboardBar, showEmptyHint]);
 
   const clearAiAsk = useCallback(() => {
     aiAbortRef.current?.abort();
@@ -1231,7 +1239,6 @@ export function QuickLauncherRoot() {
     [listItems],
   );
 
-  const showEmptyHint = query.trim().length > 0 && listItems.length === 0;
   const openMainTitle = `${t("shell.quickLauncher.openMain")} (Ctrl+\`)`;
 
   const recentLastUsedByKey = useMemo(() => {

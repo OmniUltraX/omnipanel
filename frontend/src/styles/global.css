@@ -28514,8 +28514,10 @@ body.quick-launcher-body {
     list-style: none;
     margin: 0;
     padding: 4px 0;
+    /* 与 QuickLauncherRoot LIST_MAX_H 同步；超出则内部滚动，窗高不得大于此 */
     max-height: 320px;
     overflow-y: auto;
+    flex-shrink: 0;
 }
 
 .quick-launcher__item {
