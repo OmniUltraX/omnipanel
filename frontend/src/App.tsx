@@ -70,7 +70,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useAppUpdateStore } from "./stores/appUpdateStore";
 import { useDockerTopbarStore } from "./stores/dockerTopbarStore";
 import { useProtocolTopbarStore } from "./stores/protocolTopbarStore";
-import { DASHBOARD_PATH, MODULE_PATHS, PLUGINS_PATH, isWorkspacePath, modulePathForType, navModuleKeyFromPath } from "./lib/paths";
+import { DASHBOARD_PATH, MODULE_PATHS, PLUGINS_PATH, isPluginsPath, isWorkspacePath, modulePathForType, navModuleKeyFromPath } from "./lib/paths";
 import { getNavVisibleModuleKeys, isModuleOpen, useAppModuleStore } from "./stores/appModuleStore";
 import { usePluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { startAutoNameSubscription } from "./modules/terminal/sessionAutoName";
@@ -505,9 +505,11 @@ function AppShell() {
   }, [navigate]);
 
   const aiDockWidth = useSettingsStore((s) => s.aiDockWidth);
+  const pluginsWorkbench = isPluginsPath(location.pathname);
+  const aiDockview = aiDisplayMode === "dockview" || pluginsWorkbench;
   const dockWidth =
-    aiDisplayMode === "dockview" && drawerOpen ? `${aiDockWidth}px` : "0px";
-  const dockOpen = aiDisplayMode === "dockview" && drawerOpen;
+    aiDockview && drawerOpen ? `${aiDockWidth}px` : "0px";
+  const dockOpen = aiDockview && drawerOpen;
 
   // 稳定引用：AppShell 因 AI 抽屉等重渲时不失效 WorkspaceShell / 叠层树 memo
   const routePanels = useMemo(() => <ModuleRuntimeOutlet />, []);
@@ -522,10 +524,10 @@ function AppShell() {
         routePanels={routePanels}
         dockWidth={dockWidth}
         dockOpen={dockOpen}
-        aiDockview={aiDisplayMode === "dockview"}
+        aiDockview={aiDockview}
         topbarActions={topbarActions}
       />
-      {aiDisplayMode !== "dockview" ? <AiDrawer /> : null}
+      {aiDockview ? null : <AiDrawer />}
       <CommandPalette />
       <RecentItemsPanel />
       <NotificationDrawer />

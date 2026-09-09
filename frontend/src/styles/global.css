@@ -9268,7 +9268,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         height: var(--topbar-h);
         display: flex;
         align-items: center;
-        padding: 0 var(--sp-4);
+        padding: 0 0 0 var(--sp-4);
         border-bottom: 1px solid var(--border);
         background: var(--bg);
         flex-shrink: 0;
@@ -9506,15 +9506,17 @@ button.omni-btn-tool[aria-pressed="true"] {
     .topbar-right {
         margin-left: auto;
         display: flex;
-        align-items: center;
-        gap: var(--sp-2);
+        align-items: stretch;
+        height: 100%;
+        gap: 0;
         flex-shrink: 0;
     }
 
     .topbar-actions {
         display: flex;
-        align-items: center;
-        gap: var(--sp-2);
+        align-items: stretch;
+        height: 100%;
+        gap: 0;
         flex-shrink: 0;
     }
 
@@ -9523,13 +9525,15 @@ button.omni-btn-tool[aria-pressed="true"] {
         align-items: center;
         gap: var(--sp-2);
         flex-shrink: 0;
+        padding: 0 var(--sp-2);
     }
 
     /* Window controls (Windows style) */
     .win-controls {
         display: flex;
-        align-items: center;
-        margin-left: var(--sp-2);
+        align-items: stretch;
+        height: 100%;
+        margin-left: 0;
         -webkit-app-region: no-drag;
     }
 
@@ -9701,40 +9705,55 @@ button.omni-btn-tool[aria-pressed="true"] {
         justify-content: flex-start;
     }
 
-    /* Topbar button */
-    .topbar-btn {
-        width: 28px;
-        height: 28px;
+    /* 主窗顶栏贴边通高以 chrome-flush.css 为准（Topbar 直接 import，避开本文件 HMR） */
+    .topbar-btn,
+    .topbar-actions .dock-chrome-ai-btn {
+        width: var(--topbar-h);
+        height: 100%;
+        min-width: var(--topbar-h);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         background: transparent;
-        border: 1px solid var(--border);
-        border-radius: var(--r-sm);
+        border: none;
+        border-left: 1px solid var(--border);
+        border-radius: 0;
         color: var(--muted);
         cursor: pointer;
-        transition: border-color 0.12s, color 0.12s, background 0.12s;
+        transition: color 0.1s, background 0.1s;
         position: relative;
         flex-shrink: 0;
+        -webkit-app-region: no-drag;
     }
 
-    .topbar-btn:hover {
-        border-color: var(--accent);
+    .topbar-btn:hover,
+    .topbar-actions .dock-chrome-ai-btn:hover {
         color: var(--fg);
-        background: var(--surface);
+        background: var(--surface-hover);
     }
 
-    .topbar-btn svg {
+    .topbar-actions .dock-chrome-ai-btn.is-active {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+
+    .topbar-btn svg,
+    .topbar-actions .dock-chrome-ai-btn svg {
         width: 14px;
         height: 14px;
+    }
+
+    .topbar .win-btn {
+        height: 100%;
     }
 
     .topbar-btn .notif-badge {
         position: absolute;
-        top: -4px;
-        right: -4px;
-        width: 14px;
+        top: 6px;
+        right: 7px;
+        min-width: 14px;
         height: 14px;
+        padding: 0 3px;
         background: var(--danger);
         color: #fff;
         font-size: 8px;
@@ -9747,7 +9766,6 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .topbar-btn.active {
-        border-color: var(--accent);
         color: var(--accent);
         background: var(--accent-soft);
     }
@@ -13551,6 +13569,25 @@ button.omni-btn-tool[aria-pressed="true"] {
         pointer-events: auto;
         z-index: 6;
         overflow: hidden;
+    }
+
+    /*
+     * 插件工作台没有 dockview tab 栏，不能用「侧栏盖住 + 内容让边距」。
+     * AI 参与 workspace-body 横向 flex，把编辑器挤开。
+     */
+    .workspace.workspace--ai-dock-reflow .ai-dockview.open {
+        position: relative;
+        top: auto;
+        right: auto;
+        bottom: auto;
+        z-index: 1;
+        height: auto;
+        max-height: none;
+        align-self: stretch;
+    }
+
+    .workspace.workspace--ai-dock-reflow .ai-dockview-resize-handle {
+        top: 0;
     }
 
     .ai-dockview.open > .ai-assistant-shell {
@@ -29232,6 +29269,7 @@ body.quick-launcher-body {
 .plugin-studio-ai {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--border);

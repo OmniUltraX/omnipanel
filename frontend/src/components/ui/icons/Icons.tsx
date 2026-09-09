@@ -174,6 +174,16 @@ export function IconRobot({ size = 20, className }: IconProps) {
   );
 }
 
+/** 助手入口：四角星芒，比机器人头更像现代 AI 控件。 */
+export function IconSparkles({ size = 20, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width={size} height={size} className={className}>
+      <path d="M12 3l1.35 4.55L18 9l-4.65 1.45L12 15l-1.35-4.55L6 9l4.65-1.45L12 3z" />
+      <path d="M19 14.2l.62 2.08 2.08.62-2.08.62L19 19.6l-.62-2.08-2.08-.62 2.08-.62.62-2.08z" />
+    </svg>
+  );
+}
+
 export function IconChevronDown({ size = 20, className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width={size} height={size} className={className}>

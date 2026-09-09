@@ -97,6 +97,35 @@ describe("decideToolInvocation", () => {
     });
     expect(r.decision).toBe("approve");
   });
+
+  it("allows studio list/read/validate", () => {
+    expect(
+      decideToolInvocation({
+        toolName: "omni_studio_list_projects",
+        args: {},
+      }).decision,
+    ).toBe("allow");
+    expect(
+      decideToolInvocation({
+        toolName: "omni_studio_read_file",
+        args: { project: "demo", path: "plugin.json" },
+      }).decision,
+    ).toBe("allow");
+    expect(
+      decideToolInvocation({
+        toolName: "omni_studio_validate",
+        args: { project: "demo" },
+      }).decision,
+    ).toBe("allow");
+  });
+
+  it("approves studio write", () => {
+    const r = decideToolInvocation({
+      toolName: "omni_studio_write_file",
+      args: { project: "demo", path: "plugin.json", content: "{}" },
+    });
+    expect(r.decision).toBe("approve");
+  });
 });
 
 describe("canAutoAllowAcp", () => {

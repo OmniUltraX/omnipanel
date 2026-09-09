@@ -3,6 +3,7 @@ import type { BuiltinToolCatalogEntry, ToolInfo } from "../../../ipc/bindings";
 import { DATABASE_MODULE_TOOLS } from "../../../modules/database/ai/mcpTools";
 import { DOCKER_MODULE_TOOLS } from "../../../modules/docker/ai/mcpTools";
 import { FILES_MODULE_TOOLS } from "../../../modules/files/ai/mcpTools";
+import { STUDIO_MODULE_TOOLS } from "../../../modules/studio/ai/mcpTools";
 import { TERMINAL_MODULE_TOOLS } from "../../../modules/terminal/ai/mcpTools";
 import { KNOWLEDGE_MODULE_TOOLS } from "../../../modules/knowledge/ai/mcpTools";
 import { SSH_MODULE_TOOLS } from "../../../modules/server/ssh/ai/mcpTools";
@@ -13,8 +14,8 @@ import {
 } from "../localServicePorts";
 import type { BuiltinToolRegistration } from "./types";
 
-/** 内置工具目录模块键（含无前端路由的 web 模块） */
-type BuiltinCatalogModuleKey = ModuleKey | "web";
+/** 内置工具目录模块键（含无前端路由的 web / studio） */
+type BuiltinCatalogModuleKey = ModuleKey | "web" | "studio";
 
 /** 与 Rust `BUILTIN_SERVICE_ID` 保持一致 */
 export const OMNIMCP_BUILTIN_SERVICE_ID = "omnimcp-builtin";
@@ -294,6 +295,7 @@ const FILES_BUILTIN_CATALOG: BuiltinToolRegistration[] = [
 ];
 
 MODULE_BUILTIN_CATALOG.files = [...FILES_BUILTIN_CATALOG, ...FILES_MODULE_TOOLS];
+MODULE_BUILTIN_CATALOG.studio = STUDIO_MODULE_TOOLS;
 
 export function parseModuleKeyFromToolName(toolName: string): ModuleKey | null {
   if (!toolName.startsWith("omni_")) return null;

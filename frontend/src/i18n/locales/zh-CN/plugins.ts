@@ -225,6 +225,7 @@ export default {
       emptyStep1: "点「新增」建工程，附加组件默认带 JS 逻辑，引擎默认带 Sidecar",
       emptyStep2: "改 plugin.json 和逻辑文件，Ctrl+S 保存",
       emptyStep3: "页头校验 → 打包 → 安装到本机，可在插件中心启用",
+      emptyStepAi: "也可在上方用 AI 问现场、按描述生成或解释校验",
       kindLabels: {
         engine: "引擎",
         panel: "面板",
@@ -235,8 +236,16 @@ export default {
         addon: "附加组件",
       },
       aiTitle: "AI 生成骨架",
-      aiPlaceholder: "一句话描述插件，例如：选中文字悬浮翻译按钮",
-      aiGenerate: "生成",
+      aiPlaceholder: "描述你想改什么，或直接问 AI。例如：选中文字悬浮翻译按钮",
+      aiAsk: "问 AI",
+      aiExplain: "解释校验",
+      aiGenerate: "按描述生成",
+      aiAskPrompt:
+        "请基于当前插件工作台现场帮我分析并给出可执行建议。改文件请用 omni_studio_read_file / omni_studio_write_file，校验用 omni_studio_validate。",
+      aiGeneratePrompt:
+        "请根据以下描述，用 omni_studio_list_projects / omni_studio_read_file 了解工程「{project}」，用 omni_studio_write_file 把 plugin.json 与逻辑/UI 落盘，再用 omni_studio_validate 校验。不要只给代码不写文件。描述：{desc}",
+      aiExplainPrompt:
+        "请解释最近一次校验/打包结果并给出修改建议。需要改文件时用 omni_studio_read_file / omni_studio_write_file，再用 omni_studio_validate 校验。",
       aiDone: "已写入并自动校验，请看日志",
       aiFailed: "解析失败，原文已贴到日志，自行复制",
       permsTitle: "该包声明的权限",

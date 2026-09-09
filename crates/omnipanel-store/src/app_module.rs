@@ -54,6 +54,8 @@ pub const DEFAULT_APP_MODULES: &[(&str, i32, AppModuleStatus)] = &[
     ("knowledge", 8, AppModuleStatus::Open),
     ("web", 9, AppModuleStatus::Open),
     ("cloud", 10, AppModuleStatus::Open),
+    // 插件工作台工具归属；非侧栏内核模块（无 ModuleKey / 路由）。
+    ("studio", 11, AppModuleStatus::Open),
 ];
 
 /// 持久化的模块配置条目。

@@ -53,6 +53,7 @@ export const WorkspaceShell = memo(function WorkspaceShell({
     ? "off"
     : workspaceShellState(workspaceMode);
   const showBottomFullscreen = isBottomFullscreen && !hideMainEmbeddedWorkspace;
+  const aiDockReflow = isPluginsPath(location.pathname);
   const embeddedModeClass =
     !hideMainEmbeddedWorkspace &&
     workspaceMode !== "fullscreen" &&
@@ -95,7 +96,7 @@ export const WorkspaceShell = memo(function WorkspaceShell({
   return (
     <div
       ref={workspaceRef}
-      className={`workspace workspace--${wsState}${showBottomFullscreen ? " workspace--bottom-fullscreen" : ""}${embeddedModeClass}`}
+      className={`workspace workspace--${wsState}${showBottomFullscreen ? " workspace--bottom-fullscreen" : ""}${embeddedModeClass}${aiDockReflow ? " workspace--ai-dock-reflow" : ""}`}
       style={{ "--ai-dock-w": dockWidth } as React.CSSProperties}
     >
       <Topbar title={title} hidden={!isPluginsPath(location.pathname)}>

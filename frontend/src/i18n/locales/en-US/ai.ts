@@ -177,8 +177,10 @@ export default {
       clearWorkspace: "Unpin workspace (global)",
     },
     contextStrip: {
-      empty: "No module context yet. Ask freely, or open Terminal / Database / Docker.",
+      empty: "No module context yet. Ask freely, or open Terminal / Database / Docker / Plugin Studio.",
       workspace: "Workspace: {name}",
+      studio: "Plugin Studio: {name}",
+      studioFile: "{path}",
     },
     follow: {
       on: "Follow: on",

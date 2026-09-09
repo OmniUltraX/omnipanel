@@ -170,8 +170,10 @@ export default {
       clearWorkspace: "清除工作区钉住（全局）",
     },
     contextStrip: {
-      empty: "未检测到模块现场；可直接提问，或打开终端/数据库/Docker 等面板。",
+      empty: "未检测到模块现场；可直接提问，或打开终端/数据库/Docker/插件工作台等面板。",
       workspace: "工作区：{name}",
+      studio: "插件工作台：{name}",
+      studioFile: "{path}",
     },
     follow: {
       on: "跟随：开",

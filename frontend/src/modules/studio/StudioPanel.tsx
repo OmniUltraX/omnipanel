@@ -10,7 +10,19 @@ import { WorkbenchPanelHeader } from "../../components/ui/primitives/WorkbenchPa
 import { useI18n } from "../../i18n";
 import { commands, type StudioEnv, type StudioProject, type SubmitPreview } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
-import { extractFencedBlocks } from "./scaffoldFormat";
+import { askAiFromSurface } from "../../lib/ai/surfaces";
+import { useAiStore } from "../../stores/aiStore";
+import {
+  excerptStudioFile,
+  readPluginStudioAutoOpenAiDock,
+  tailStudioLog,
+  usePluginStudioAiStore,
+  writePluginStudioAutoOpenAiDock,
+} from "../../stores/pluginStudioAiStore";
+import {
+  PLUGIN_STUDIO_FILE_WRITTEN_EVENT,
+  type PluginStudioFileWrittenDetail,
+} from "./studioFileEvents";
 import { StudioSubmitDialog } from "./StudioSubmitDialog";
 
 /** 与 PluginKind 七种身份对齐。 */
@@ -26,14 +38,6 @@ const PLUGIN_KINDS = [
 
 const ENV_CORE = ["node", "cargo"] as const;
 type EnvTool = "node" | "cargo" | "wat2wasm";
-
-const SCAFFOLD_SYSTEM = [
-  "你是 OmniPanel 第三方插件脚手架。只输出三段 fenced 代码块，顺序固定：",
-  "```plugin.json（合法清单：id 反向域名、kind 七选一、permissions 按需最小、entry.ui=ui/main.js（如需前端逻辑）、overlays 声明 L3 页）",
-  "```main.js（CommonJS：module.exports = definePlugin({activate, deactivate})，可用 host/ui/menu/aiComplete/overlay.open，deactivate 必须卸除登记）",
-  "```index.html（L3 沙箱页：用 var(--fg) 等主题变量与 .omni-card/.omni-toolbar 类，不过问宿主 DOM）",
-  "不要任何解释、前言、注释外的文字；JSON 必须可解析。",
-].join("\n");
 
 function appendLog(setLog: (updater: (prev: string) => string) => void, text: string): void {
   setLog((prev) => (prev ? `${prev}\n${text}` : text));
@@ -55,7 +59,7 @@ function manifestHint(file: string, content: string): { ok: boolean; text: strin
   }
 }
 
-export function StudioPanel() {
+export function StudioPanel({ active = true }: { active?: boolean }) {
   const { t } = useI18n();
   const [projects, setProjects] = useState<StudioProject[]>([]);
   const [project, setProject] = useState<string>("");
@@ -64,7 +68,6 @@ export function StudioPanel() {
   const [savedContent, setSavedContent] = useState<string>("");
   const [log, setLog] = useState<string>("");
   const [logOpen, setLogOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
   const [running, setRunning] = useState<string>("");
   const [lastStatus, setLastStatus] = useState<string>("");
   const [env, setEnv] = useState<StudioEnv | null>(null);
@@ -245,6 +248,74 @@ export function StudioPanel() {
     return () => window.removeEventListener("keydown", onKey);
   }, [saveFile]);
 
+  useEffect(() => {
+    if (!active) {
+      usePluginStudioAiStore.getState().clear();
+      return;
+    }
+    usePluginStudioAiStore.getState().setSnapshot({
+      active: true,
+      project,
+      file,
+      kind: current?.kind ?? null,
+      version: current?.version ?? null,
+      displayName: current?.displayName ?? null,
+      dirty,
+      files: current?.files ?? [],
+      lastLogTail: tailStudioLog(log),
+      lastStatus,
+      manifestOk: hint?.ok ?? null,
+      manifestHint: hint?.text ?? "",
+      fileExcerpt: excerptStudioFile(content),
+    });
+  }, [
+    active,
+    content,
+    current?.displayName,
+    current?.files,
+    current?.kind,
+    current?.version,
+    dirty,
+    file,
+    hint?.ok,
+    hint?.text,
+    lastStatus,
+    log,
+    project,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      usePluginStudioAiStore.getState().clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    const unsub = useAiStore.subscribe((state, prev) => {
+      if (state.drawerOpen === prev.drawerOpen) return;
+      writePluginStudioAutoOpenAiDock(state.drawerOpen);
+    });
+    if (readPluginStudioAutoOpenAiDock()) {
+      useAiStore.getState().openDrawer();
+    }
+    return unsub;
+  }, [active]);
+
+  useEffect(() => {
+    const onWritten = (event: Event) => {
+      const detail = (event as CustomEvent<PluginStudioFileWrittenDetail>).detail;
+      if (!detail) return;
+      if (detail.project === project && detail.path === file) {
+        void openFile(detail.project, detail.path, true);
+        return;
+      }
+      void reloadProjects(project || detail.project);
+    };
+    window.addEventListener(PLUGIN_STUDIO_FILE_WRITTEN_EVENT, onWritten);
+    return () => window.removeEventListener(PLUGIN_STUDIO_FILE_WRITTEN_EVENT, onWritten);
+  }, [file, openFile, project, reloadProjects]);
+
   const installEnv = useCallback(
     async (tool: EnvTool) => {
       if (installing || running) return;
@@ -375,41 +446,33 @@ export function StudioPanel() {
     }
   }, [project, reloadProjects, running]);
 
-  const aiScaffold = useCallback(async () => {
-    if (!project || !aiDesc.trim() || running) return;
-    if (!window.confirm(t("plugins.studio.aiOverwrite"))) return;
-    setRunning("ai");
-    setLogOpen(true);
-    try {
-      const { requestAiCompletionOnce } = await import("../../lib/ai/requestAiCompletionOnce");
-      const ret = await requestAiCompletionOnce({
-        system: SCAFFOLD_SYSTEM,
-        user: aiDesc.trim(),
-        maxTokens: 2048,
+  const askStudio = useCallback(
+    async (kind: "ask" | "generate" | "explain") => {
+      const extra = aiDesc.trim();
+      let prompt: string;
+      if (kind === "generate") {
+        if (!extra) return;
+        prompt = t("plugins.studio.aiGeneratePrompt", {
+          project: project || t("plugins.studio.noProject"),
+          desc: extra,
+        });
+      } else if (kind === "explain") {
+        prompt = extra
+          ? `${t("plugins.studio.aiExplainPrompt")}\n\n${extra}`
+          : t("plugins.studio.aiExplainPrompt");
+      } else {
+        prompt = extra
+          ? `${t("plugins.studio.aiAskPrompt")}\n\n${extra}`
+          : t("plugins.studio.aiAskPrompt");
+      }
+      await askAiFromSurface({
+        prompt,
+        surface: "dashboard",
+        newConversation: false,
       });
-      if (!ret.ok) {
-        appendLog(setLog, `AI scaffold failed: ${ret.reason}`);
-        return;
-      }
-      const blocks = extractFencedBlocks(ret.content);
-      if (!blocks["plugin.json"] || !blocks["ui/main.js"] || !blocks["ui/index.html"]) {
-        appendLog(setLog, `${t("plugins.studio.aiFailed")}:\n${ret.content}`);
-        return;
-      }
-      for (const [rel, body] of Object.entries(blocks)) {
-        await unwrapCommand(commands.pluginStudioWriteFile(project, rel, body));
-      }
-      appendLog(setLog, t("plugins.studio.aiDone"));
-      await reloadProjects(project);
-      await openFile(project, "plugin.json", true);
-      await runOp("validate");
-    } catch (err) {
-      appendLog(setLog, String(err));
-    } finally {
-      setRunning("");
-      setAiDesc("");
-    }
-  }, [aiDesc, openFile, project, reloadProjects, runOp, running, t]);
+    },
+    [aiDesc, project, t],
+  );
 
   const previewSubmit = useCallback(async () => {
     if (!project || !artifactUrl.trim()) return;
@@ -627,31 +690,38 @@ export function StudioPanel() {
             <span className="plugin-studio-filebar__path" title={file || undefined}>
               {file ? `${project}/${file}` : t("plugins.studio.noFile")}
             </span>
-            <WorkbenchActionButton disabled={!project || busy} onClick={() => setAiOpen((open) => !open)}>
-              {t("plugins.studio.aiToggle")}
-            </WorkbenchActionButton>
             <WorkbenchActionButton onClick={() => setLogOpen((open) => !open)}>
               {logOpen ? t("plugins.studio.hideLog") : t("plugins.studio.showLog")}
             </WorkbenchActionButton>
           </div>
-          {aiOpen ? (
-            <div className="plugin-studio-ai">
-              <TextInput
-                value={aiDesc}
-                onChange={setAiDesc}
-                placeholder={t("plugins.studio.aiPlaceholder")}
-                size="sm"
-                clearable
-                copyable={false}
-              />
-              <WorkbenchActionButton
-                disabled={!project || !aiDesc.trim() || busy}
-                onClick={() => void aiScaffold()}
-              >
-                {t("plugins.studio.aiGenerate")}
-              </WorkbenchActionButton>
-            </div>
-          ) : null}
+          <div className="plugin-studio-ai">
+            <TextInput
+              value={aiDesc}
+              onChange={setAiDesc}
+              placeholder={t("plugins.studio.aiPlaceholder")}
+              size="sm"
+              clearable
+              copyable={false}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void askStudio("ask");
+                }
+              }}
+            />
+            <WorkbenchActionButton disabled={busy} onClick={() => void askStudio("ask")}>
+              {t("plugins.studio.aiAsk")}
+            </WorkbenchActionButton>
+            <WorkbenchActionButton
+              disabled={!aiDesc.trim() || busy}
+              onClick={() => void askStudio("generate")}
+            >
+              {t("plugins.studio.aiGenerate")}
+            </WorkbenchActionButton>
+            <WorkbenchActionButton disabled={busy} onClick={() => void askStudio("explain")}>
+              {t("plugins.studio.aiExplain")}
+            </WorkbenchActionButton>
+          </div>
           <div className="plugin-studio-editor">
             {file ? (
               <CodeEditor
@@ -667,6 +737,7 @@ export function StudioPanel() {
                   <li>{t("plugins.studio.emptyStep1")}</li>
                   <li>{t("plugins.studio.emptyStep2")}</li>
                   <li>{t("plugins.studio.emptyStep3")}</li>
+                  <li>{t("plugins.studio.emptyStepAi")}</li>
                 </ol>
                 <WorkbenchActionButton
                   onClick={() => {

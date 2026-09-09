@@ -225,6 +225,7 @@ export default {
       emptyStep1: "Click New. Addons ship with JS logic; engines ship with a sidecar",
       emptyStep2: "Edit plugin.json and logic, then Ctrl+S",
       emptyStep3: "Validate → pack → install, then enable it in Plugin Center",
+      emptyStepAi: "Or ask AI above to inspect the scene, generate from a description, or explain validation",
       kindLabels: {
         engine: "Engine",
         panel: "Panel",
@@ -235,8 +236,16 @@ export default {
         addon: "Addon",
       },
       aiTitle: "AI scaffold",
-      aiPlaceholder: "Describe the plugin in one sentence, e.g. floating translate button for selections",
-      aiGenerate: "Generate",
+      aiPlaceholder: "Describe what to change, or just ask AI. e.g. floating translate button for selections",
+      aiAsk: "Ask AI",
+      aiExplain: "Explain validation",
+      aiGenerate: "Generate from description",
+      aiAskPrompt:
+        "Analyze the current Plugin Studio scene and give actionable advice. Use omni_studio_read_file / omni_studio_write_file to change files, and omni_studio_validate to check.",
+      aiGeneratePrompt:
+        "From this description, inspect project “{project}” with omni_studio_list_projects / omni_studio_read_file, write plugin.json and logic/UI with omni_studio_write_file, then omni_studio_validate. Do not only paste code — persist files. Description: {desc}",
+      aiExplainPrompt:
+        "Explain the latest validate/pack result and suggest fixes. Use omni_studio_read_file / omni_studio_write_file if files need changes, then omni_studio_validate.",
       aiDone: "Written and auto-validated, see log",
       aiFailed: "Parse failed, raw output pasted to log for manual copy",
       permsTitle: "Permissions declared by this package",

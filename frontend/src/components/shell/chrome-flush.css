@@ -1,0 +1,101 @@
+/* 主窗顶栏 chrome 与模块窗对齐：贴边通高、左描边。
+ * 由 Topbar 直接 import，避免只改 global.css 时 HMR/缓存导致 28px 带框按钮仍在。
+ * 必须放在 @layer 外，才能压过 Tailwind 层里的旧 .topbar-btn。 */
+
+.topbar {
+    align-items: stretch;
+    padding: 0 0 0 var(--sp-4);
+}
+
+.topbar-title {
+    display: inline-flex;
+    align-items: center;
+}
+
+.topbar-tabs,
+.topbar-right,
+.topbar-actions,
+.topbar .win-controls {
+    align-self: stretch;
+}
+
+.topbar-right,
+.topbar-actions,
+.topbar .win-controls {
+    display: flex;
+    align-items: stretch;
+    height: auto;
+    gap: 0;
+    margin-left: 0;
+}
+
+.topbar .topbar-btn,
+.topbar .dock-chrome-ai-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    width: var(--shell-dv-tab-bar-h, var(--topbar-h));
+    min-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--muted);
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    -webkit-app-region: no-drag;
+}
+
+.topbar .topbar-btn:hover,
+.topbar .dock-chrome-ai-btn:hover {
+    color: var(--fg);
+    background: var(--surface-hover);
+}
+
+.topbar .dock-chrome-ai-btn.is-active,
+.topbar .topbar-btn.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.topbar .topbar-btn svg,
+.topbar .dock-chrome-ai-btn svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}
+
+.topbar .win-btn {
+    height: 100%;
+    min-height: 0;
+    width: 46px;
+    border-radius: 0;
+    align-self: stretch;
+}
+
+.topbar .topbar-btn .notif-badge {
+    position: absolute;
+    top: 6px;
+    right: 7px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 8px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    line-height: 1;
+    pointer-events: none;
+}
