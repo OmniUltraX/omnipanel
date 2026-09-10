@@ -22,6 +22,10 @@ pub struct RegistryArtifact {
     pub sha256: String,
     #[serde(default)]
     pub size: u64,
+    /// npm `dist.integrity` 原样透传（`sha512-<base64>`）；有则验 integrity，
+    /// 无则回退 sha256。skip 序列化保证旧文件规范字节不变（签名兼容）。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub integrity: String,
 }
 
 /// registry 中某一插件的某一版本。
@@ -53,6 +57,10 @@ pub struct RegistryPlugin {
     pub description: String,
     #[serde(default)]
     pub versions: Vec<RegistryVersion>,
+    /// 外部来源包名（如 Rubick 的 npm 名）；官方包为空。缺省跳过序列化，
+    /// 旧文件规范字节不变。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_npm: Option<String>,
 }
 
 /// registry 文件（v1/v2 统一内存形态；`signature` 为 hex ed25519）。
@@ -157,6 +165,7 @@ fn from_v1(v1: RegistryFileV1) -> RegistryFile {
                 kind: p.kind,
                 name: p.name,
                 description: p.description,
+                external_npm: None,
             })
             .collect(),
         signature: None,
@@ -256,6 +265,7 @@ mod tests {
                         artifact: Some(RegistryArtifact {
                             url: "https://example.com/demo.omni-plugin".into(),
                             sha256: String::new(),
+                            integrity: String::new(),
                             size: 10,
                         }),
                         dependencies: vec![],
@@ -276,6 +286,37 @@ mod tests {
         let text = serde_json::to_string(&file).unwrap();
         let parsed = parse_registry(&text).unwrap();
         assert_eq!(parsed.plugins.len(), 1);
+        verify_registry(&parsed, &[key.verifying_key()]).unwrap();
+    }
+
+    #[test]
+    fn integrity_field_parses_and_defaults_empty() {
+        // 缺字段 → 默认为空（旧文件兼容）
+        let text = r#"{"schemaVersion":2,"plugins":[{"id":"x","versions":[{"version":"1.0.0","artifact":{"url":"https://example.com/a","sha256":"abc","size":1}}]}]}"#;
+        let file = parse_registry(text).unwrap();
+        let artifact = file.plugins[0].versions[0].artifact.as_ref().unwrap();
+        assert_eq!(artifact.integrity, "");
+        // 有字段 → 原样保留
+        let text2 = r#"{"schemaVersion":2,"plugins":[{"id":"x","versions":[{"version":"1.0.0","artifact":{"url":"https://example.com/a","sha256":"","size":1,"integrity":"sha512-AAA"}}]}]}"#;
+        let file2 = parse_registry(text2).unwrap();
+        assert_eq!(
+            file2.plugins[0].versions[0].artifact.as_ref().unwrap().integrity,
+            "sha512-AAA"
+        );
+    }
+
+    #[test]
+    fn empty_integrity_does_not_change_canonical_bytes() {
+        // 空 integrity 不进规范字节：旧签名文件加字段后仍能验过
+        let key = dev_signing_key();
+        let file = sample_v2();
+        let before = canonical_registry_bytes(&file).unwrap();
+        assert!(!String::from_utf8_lossy(&before).contains("integrity"));
+        let sig = sign_registry(&file, &key);
+        let mut signed = file;
+        signed.signature = Some(hex::encode(sig.to_bytes()));
+        let text = serde_json::to_string(&signed).unwrap();
+        let parsed = parse_registry(&text).unwrap();
         verify_registry(&parsed, &[key.verifying_key()]).unwrap();
     }
 

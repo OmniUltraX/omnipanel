@@ -17,6 +17,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::commands::plugin::install_plugin_from_path;
+use crate::commands::external::{RUBICK_SOURCE_ID, refuse_external_artifact};
 use crate::state::AppState;
 
 pub(crate) const OFFICIAL_SOURCE_ID: &str = "official";
@@ -60,6 +61,9 @@ pub struct MarketplaceItem {
     pub source_id: String,
     pub download_size: u64,
     pub permissions: Vec<String>,
+    /// 外部来源包名（Rubick npm 名）；官方/内置为空，前端转换安装用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_npm: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -123,6 +127,8 @@ struct MergedVersion {
     min_host_api: u32,
     url: String,
     sha256: String,
+    /// npm integrity（`sha512-<base64>`）；非空时优先于 sha256 校验。
+    integrity: String,
     size: u64,
     dependencies: Vec<PluginDependencyDecl>,
 }
@@ -136,6 +142,7 @@ struct MergedPlugin {
     source_id: String,
     permissions: Vec<String>,
     versions: Vec<MergedVersion>,
+    external_npm: Option<String>,
 }
 
 fn sanitize_cache_id(id: &str) -> Option<String> {
@@ -302,6 +309,7 @@ fn registry_plugin_from_manifest(manifest: &PluginManifest) -> RegistryPlugin {
             .clone()
             .unwrap_or_else(|| manifest.id.clone()),
         description: String::new(),
+        external_npm: None,
         versions: vec![RegistryVersion {
             version: manifest.version.clone(),
             changelog: None,
@@ -361,6 +369,30 @@ fn fill_bundled_official_gaps(
                 publisher_key: None,
             },
         ));
+    }
+    files
+}
+
+/// Rubick 第三方种子（curated，仓库 `plugins/rubick-registry.json`，随版本更新）。
+/// 仅展示与转换安装入口；条目为 npm tarball，一律走 convert 流程（见 refuse_external_artifact）。
+pub(crate) const RUBICK_SEED_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../plugins/rubick-registry.json"
+));
+
+fn bundled_rubick_registry() -> Option<RegistryFile> {
+    parse_registry(RUBICK_SEED_JSON).ok().filter(|f| !f.plugins.is_empty())
+}
+
+/// 无 rubick 来源时补内置种子（与 official 缺洞回填同模式；种子本身即信任根，不走签名流）。
+fn fill_bundled_rubick_seed(
+    mut files: Vec<(String, RegistryFile)>,
+) -> Vec<(String, RegistryFile)> {
+    if files.iter().any(|(id, _)| id == RUBICK_SOURCE_ID) {
+        return files;
+    }
+    if let Some(seed) = bundled_rubick_registry() {
+        files.push((RUBICK_SOURCE_ID.to_string(), seed));
     }
     files
 }
@@ -427,6 +459,7 @@ fn merge_registries(files: Vec<(String, RegistryFile)>) -> BTreeMap<String, Merg
                     min_host_api: ver.min_host_api.unwrap_or(1),
                     url: ver.artifact.as_ref().map(|a| a.url.clone()).unwrap_or_default(),
                     sha256: ver.artifact.as_ref().map(|a| a.sha256.clone()).unwrap_or_default(),
+                    integrity: ver.artifact.as_ref().map(|a| a.integrity.clone()).unwrap_or_default(),
                     size: ver.artifact.as_ref().map(|a| a.size).unwrap_or(0),
                     dependencies: ver.dependencies,
                 });
@@ -451,6 +484,7 @@ fn merge_registries(files: Vec<(String, RegistryFile)>) -> BTreeMap<String, Merg
                     source_id: source_id.clone(),
                     permissions: Vec::new(),
                     versions,
+                    external_npm: plugin.external_npm,
                 },
             );
         }
@@ -542,6 +576,58 @@ async fn download_bytes(client: &reqwest::Client, url: &str, plugin_id: &str) ->
         .map_err(|e| OmniError::connection(format!("read download {plugin_id} failed: {e}")))
 }
 
+/// 下载制品完整性校验：`integrity`（npm `dist.integrity`，`<alg>-<base64>`）
+/// 非空时优先校验，失败即拒绝（不回退 sha256）；否则回退 sha256 hex；两者
+/// 皆空表示无可验哈希（bundled 占位），直接放行。
+pub(crate) fn verify_download_bytes(
+    bytes: &[u8],
+    plugin_id: &str,
+    sha256_hex: &str,
+    integrity: &str,
+) -> Result<(), OmniError> {
+    let integrity = integrity.trim();
+    if !integrity.is_empty() {
+        verify_npm_integrity(bytes, plugin_id, integrity)?;
+        return Ok(());
+    }
+    let sha256_hex = sha256_hex.trim();
+    if sha256_hex.is_empty() {
+        return Ok(());
+    }
+    let actual = hex::encode(Sha256::digest(bytes));
+    if !actual.eq_ignore_ascii_case(sha256_hex) {
+        return Err(OmniError::invalid_input(format!(
+            "download checksum mismatch: {plugin_id}"
+        )));
+    }
+    Ok(())
+}
+
+fn verify_npm_integrity(bytes: &[u8], plugin_id: &str, integrity: &str) -> Result<(), OmniError> {
+    let invalid = || {
+        OmniError::invalid_input(format!("download integrity 非法，拒绝安装: {plugin_id}"))
+    };
+    let (alg, b64) = integrity.split_once('-').ok_or_else(invalid)?;
+    use base64::Engine;
+    let expected = base64::engine::general_purpose::STANDARD
+        .decode(b64.trim())
+        .map_err(|_| invalid())?;
+    let actual: Vec<u8> = match alg.trim().to_ascii_lowercase().as_str() {
+        "sha512" => sha2::Sha512::digest(bytes).to_vec(),
+        "sha384" => sha2::Sha384::digest(bytes).to_vec(),
+        "sha256" => sha2::Sha256::digest(bytes).to_vec(),
+        _ => return Err(invalid()),
+    };
+    if actual.len() != expected.len()
+        || !actual.iter().zip(expected.iter()).all(|(a, b)| a == b)
+    {
+        return Err(OmniError::invalid_input(format!(
+            "download checksum mismatch: {plugin_id}"
+        )));
+    }
+    Ok(())
+}
+
 async fn install_merged_version(
     state: &State<'_, AppState>,
     plugin: &MergedPlugin,
@@ -552,6 +638,10 @@ async fn install_merged_version(
         .iter()
         .find(|v| &v.version == version)
         .ok_or_else(|| OmniError::not_found(format!("version not in source: {} {version}", plugin.id)))?;
+    // Rubick 第三方源条目是 npm tarball（非 `.omni-plugin`），禁止直装，一律走 convert。
+    if plugin.source_id == RUBICK_SOURCE_ID {
+        return Err(refuse_external_artifact(&plugin.id));
+    }
     if entry.url.trim().is_empty() {
         return Err(refuse_bundled_artifact(&plugin.id));
     }
@@ -562,15 +652,7 @@ async fn install_merged_version(
         )));
     }
     let bytes = download_bytes(&state.plugin_http, entry.url.trim(), &plugin.id).await?;
-    if !entry.sha256.trim().is_empty() {
-        let actual = hex::encode(Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(entry.sha256.trim()) {
-            return Err(OmniError::invalid_input(format!(
-                "download checksum mismatch: {}",
-                plugin.id
-            )));
-        }
-    }
+    verify_download_bytes(&bytes, &plugin.id, entry.sha256.trim(), entry.integrity.trim())?;
     let tmp = std::env::temp_dir().join(format!(
         "omni-market-{}-{}-{}.omni-plugin",
         plugin.id.replace('.', "_"),
@@ -626,6 +708,7 @@ async fn merged_view(
         files = seed_official_if_empty(files, &errors)?;
     }
     files = fill_bundled_official_gaps(files);
+    files = fill_bundled_rubick_seed(files);
     Ok((merge_registries(files), errors))
 }
 
@@ -900,6 +983,7 @@ pub async fn plugin_market_catalog(
             source_id: plugin.source_id.clone(),
             download_size: top.size,
             permissions: plugin.permissions.clone(),
+            external_npm: plugin.external_npm.clone(),
         });
     }
     out.sort_by(|a, b| {
@@ -1130,6 +1214,7 @@ mod tests {
                 kind: "addon".into(),
                 name: "Demo".into(),
                 description: String::new(),
+                external_npm: None,
                 versions: vec![RegistryVersion {
                     version: "1.0.0".into(),
                     changelog: None,
@@ -1137,6 +1222,7 @@ mod tests {
                     artifact: Some(RegistryArtifact {
                         url: format!("https://{source}/a.omni-plugin"),
                         sha256: String::new(),
+                        integrity: String::new(),
                         size: 1,
                     }),
                     dependencies: vec![],
@@ -1169,6 +1255,7 @@ mod tests {
                 kind: "addon".into(),
                 name: String::new(),
                 description: String::new(),
+                external_npm: None,
                 versions: vec![
                     RegistryVersion {
                         version: "1.0.0".into(),
@@ -1221,6 +1308,7 @@ mod tests {
                 kind: "addon".into(),
                 name: "Everything".into(),
                 description: String::new(),
+                external_npm: None,
                 versions: vec![RegistryVersion {
                     version: "0.1.0".into(),
                     changelog: None,
@@ -1272,6 +1360,53 @@ mod tests {
         assert!(!seed.plugins.is_empty());
     }
 
+    fn npm_integrity_of(bytes: &[u8]) -> String {
+        use base64::Engine;
+        let digest = sha2::Sha512::digest(bytes);
+        format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode(digest)
+        )
+    }
+
+    #[test]
+    fn integrity_priority_over_sha256() {
+        let bytes = b"rubick-external-payload";
+        // integrity 正确即放行（sha256 故意写错也不看）
+        verify_download_bytes(bytes, "ext.demo", "deadbeef", &npm_integrity_of(bytes))
+            .expect("integrity ok");
+    }
+
+    #[test]
+    fn integrity_mismatch_rejected_without_fallback() {
+        let bytes = b"rubick-external-payload";
+        // integrity 错误 → 直接拒绝，不回退 sha256（即使 sha256 正确）
+        let good_sha256 = hex::encode(sha2::Sha256::digest(bytes));
+        let err = verify_download_bytes(bytes, "ext.demo", &good_sha256, "sha512-AAAA").unwrap_err();
+        assert!(err.message.contains("mismatch") || err.message.contains("非法"));
+    }
+
+    #[test]
+    fn sha256_fallback_when_no_integrity() {
+        let bytes = b"rubick-external-payload";
+        let good = hex::encode(sha2::Sha256::digest(bytes));
+        verify_download_bytes(bytes, "ext.demo", &good, "").expect("sha256 ok");
+        let err = verify_download_bytes(bytes, "ext.demo", "deadbeef", "").unwrap_err();
+        assert!(err.message.contains("mismatch"));
+    }
+
+    #[test]
+    fn unknown_integrity_alg_rejected() {
+        let err =
+            verify_download_bytes(b"x", "ext.demo", "", "md5-rubbish").unwrap_err();
+        assert!(err.message.contains("非法"));
+    }
+
+    #[test]
+    fn no_hash_means_bundled_placeholder() {
+        verify_download_bytes(b"x", "ext.demo", "", "").expect("no hash ok");
+    }
+
     #[test]
     fn bundled_seed_avoids_all_sources_unavailable() {
         let files = seed_official_if_empty(vec![], &["official: timeout".into()]).expect("seed");
@@ -1292,6 +1427,7 @@ mod tests {
             kind: kind.into(),
             name: name.into(),
             description: String::new(),
+            external_npm: None,
             versions: vec![RegistryVersion {
                 version: "0.1.0".into(),
                 changelog: None,
@@ -1338,5 +1474,33 @@ mod tests {
         assert!(official.plugins.len() >= before);
         assert!(unique.contains(PLUGIN_ID_CLOUD_HUAWEI));
         assert!(unique.contains(PLUGIN_ID_PANEL_HESTIA));
+    }
+
+    #[test]
+    fn fill_rubick_seed_adds_third_party_source() {
+        let files = fill_bundled_rubick_seed(vec![]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, crate::commands::external::RUBICK_SOURCE_ID);
+        let merged = merge_registries(files);
+        assert!(!merged.is_empty());
+        for plugin in merged.values() {
+            assert_eq!(plugin.source_id, crate::commands::external::RUBICK_SOURCE_ID);
+            assert!(
+                plugin.external_npm.as_deref().map(str::trim).unwrap_or_default().len() > 0,
+                "rubick 条目必须带 npm 名：{}",
+                plugin.id
+            );
+            assert!(
+                plugin.id.starts_with("omni.ext."),
+                "rubick 条目 id 命名空间：{}",
+                plugin.id
+            );
+        }
+        // 已有 rubick 来源不重复补
+        let again = fill_bundled_rubick_seed(vec![(
+            crate::commands::external::RUBICK_SOURCE_ID.into(),
+            bundled_rubick_registry().unwrap(),
+        )]);
+        assert_eq!(again.len(), 1);
     }
 }

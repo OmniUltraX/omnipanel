@@ -339,7 +339,11 @@ export default {
         thirdParty: "第三方",
         local: "本地",
         dbx: "DBX",
+        rubick: "Rubick",
       },
+      sourceRubick: "来源：Rubick 第三方市场（npm）",
+      sourceRubickHint: "社区插件，需经兼容判定后转换安装；Node 强依赖的只能外跳，不直接运行。",
+      convertInstall: "转换安装",
       sourceDbx: "来源：DBX 官方 Agent 目录",
       sourceDbxHint: "由 DBX 提供的第三方数据库引擎（native 或 JDBC），不是 OmniPanel 第一方捆绑插件。安装后可在数据库连接对话框中使用。",
       filter: {
@@ -370,6 +374,15 @@ export default {
         upgrade: "升级",
         keep: "已满足",
       },
+    },
+    external: {
+      title: "外部插件兼容判定",
+      runnableHint: "该插件为纯展示型，可转换为标准插件安装。转换包标记为第三方未审核，走正常安装管线。",
+      blockedHint: "该插件需要 Node/Electron 运行时，无法在沙箱内运行，只能去原市场安装。",
+      features: "声明的功能",
+      reasons: "判定原因",
+      npmPackage: "npm 包",
+      openExternalHint: "请在 Rubick 客户端或 npm 页面获取：{npm}",
     },
     sources: {
       title: "插件源",

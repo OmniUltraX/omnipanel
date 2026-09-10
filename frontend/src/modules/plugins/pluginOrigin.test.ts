@@ -62,10 +62,16 @@ describe("originMetaLabel", () => {
       "plugins.center.origin.thirdParty": "第三方",
       "plugins.center.origin.local": "本地",
       "plugins.center.origin.dbx": "DBX",
+      "plugins.center.origin.rubick": "Rubick",
     })[key] ?? key;
 
   it("appends DBX only when flagged", () => {
     expect(originMetaLabel("thirdParty", t)).toBe("第三方");
+    expect(originMetaLabel("thirdParty", t, { dbx: true })).toBe("第三方 · DBX");
+  });
+
+  it("appends Rubick only when flagged", () => {
+    expect(originMetaLabel("thirdParty", t, { rubick: true })).toBe("第三方 · Rubick");
     expect(originMetaLabel("thirdParty", t, { dbx: true })).toBe("第三方 · DBX");
   });
 

@@ -29,6 +29,7 @@ pub mod official_catalog;
 pub mod debug;
 pub mod docker;
 pub mod exec;
+pub mod external;
 pub mod file_index;
 pub mod file_manager;
 pub mod file_transfer;

@@ -1012,6 +1012,9 @@ export const commands = {
 	pluginCheckUpdates: () => typedError<PluginUpdateInfo[], OmniError_Serialize>(__TAURI_INVOKE("plugin_check_updates")),
 	/**  一键全更（ids 缺省全部可更新；单包失败记错继续）�?*/
 	pluginUpdateAll: (ids: string[] | null) => typedError<UpdateResultItem[], OmniError_Serialize>(__TAURI_INVOKE("plugin_update_all", { ids })),
+	pluginExternalAnalyzeNpm: (npm: string, version: string) => typedError<ExternalVerdictDto, OmniError_Serialize>(__TAURI_INVOKE("plugin_external_analyze_npm", { npm, version })),
+	pluginExternalConvertNpm: (npm: string, version: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_external_convert_npm", { npm, version })),
+	pluginExternalSearchNpm: (query: string, max: number | null) => typedError<ExternalSearchItem[], OmniError_Serialize>(__TAURI_INVOKE("plugin_external_search_npm", { query, max })),
 	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载�?*/
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
 	/**  插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`�?*/
@@ -4525,6 +4528,7 @@ export type MarketplaceItem = {
   sourceId: string;
   downloadSize: number;
   permissions: string[];
+  externalNpm?: string | null;
 };
 
 export type ResolvePlanItem = {
@@ -4557,6 +4561,33 @@ export type SourceTestResult = {
   ok: boolean;
   pluginCount: number;
   error?: string | null;
+};
+
+export type ExternalCmdDto = {
+  kind: string;
+  label: string;
+};
+
+export type ExternalFeatureDto = {
+  code: string;
+  explain: string;
+  cmds: ExternalCmdDto[];
+};
+
+export type ExternalSearchItem = {
+  npm: string;
+  version: string;
+  description: string;
+};
+
+export type ExternalVerdictDto = {
+  npm: string;
+  version: string;
+  runnable: boolean;
+  reasons: string[];
+  pluginName: string;
+  features: ExternalFeatureDto[];
+  mainEntry?: string | null;
 };
 
 /**  前端 / IPC 列表项�?*/

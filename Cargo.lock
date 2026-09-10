@@ -5946,12 +5946,14 @@ name = "omnipanel-plugin-pkg"
 version = "0.0.5"
 dependencies = [
  "ed25519-dalek",
+ "flate2",
  "hex",
  "omnipanel-plugin",
  "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
  "thiserror 2.0.18",
  "zip 2.4.2",

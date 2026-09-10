@@ -130,10 +130,12 @@ pub fn registry_plugin_from_packed(
             artifact: Some(RegistryArtifact {
                 url: artifact_url.to_string(),
                 sha256: hex::encode(Sha256::digest(&bytes)),
+                integrity: String::new(),
                 size: bytes.len() as u64,
             }),
             dependencies: manifest.dependencies.clone(),
         }],
+        external_npm: None,
     })
 }
 

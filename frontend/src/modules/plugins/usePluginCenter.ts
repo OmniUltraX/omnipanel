@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { parsePluginManifest, type PluginManifest } from "@omnipanel/plugin-sdk";
-import { commands, type MarketplaceItem, type PluginListItem, type PluginUpdateInfo, type RegistrySourceDto, type ResolvePlan, type SourceTestResult } from "../../ipc/bindings";
+import { commands, type ExternalVerdictDto, type MarketplaceItem, type PluginListItem, type PluginUpdateInfo, type RegistrySourceDto, type ResolvePlan, type SourceTestResult } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { PLUGIN_OFFICIAL_CATALOG_UPDATED } from "../../ipc/events";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -37,6 +37,10 @@ export function usePluginCenter() {
   const [pendingPlan, setPendingPlan] = useState<{
     targetId: string;
     plan: ResolvePlan;
+  } | null>(null);
+  const [pendingExternal, setPendingExternal] = useState<{
+    item: MarketItem;
+    verdict: ExternalVerdictDto;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -275,6 +279,51 @@ export function usePluginCenter() {
     }
   };
 
+  /** 外部插件：判定（analyze）→ 弹窗展示 verdict → 确认转换安装。 */
+  const startExternalAnalyze = async (item: MarketItem) => {
+    if (!item.externalNpm || confirming) return;
+    setInstallingMarketId(item.id);
+    try {
+      const verdict = await unwrapCommand(
+        commands.pluginExternalAnalyzeNpm(item.externalNpm, item.version),
+      );
+      setPendingExternal({ item, verdict });
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setInstallingMarketId(null);
+    }
+  };
+
+  const confirmPendingExternal = async () => {
+    if (!pendingExternal || confirming) return;
+    // external-only 无确认路径（弹窗只展示原因与外跳指引）
+    if (!pendingExternal.verdict.runnable || !pendingExternal.item.externalNpm) return;
+    setConfirming(true);
+    try {
+      await unwrapCommand(
+        commands.pluginExternalConvertNpm(
+          pendingExternal.item.externalNpm,
+          pendingExternal.item.version,
+        ),
+      );
+      recordInstall(pendingExternal.item.id);
+      setPendingExternal(null);
+      await reloadInstalled();
+      await reloadMarket();
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const cancelPendingExternal = useCallback(() => {
+    if (!confirming) setPendingExternal(null);
+  }, [confirming]);
+
   const uninstall = async (item: PluginListItem) => {
     setBusyId(item.id);
     try {
@@ -339,6 +388,11 @@ export function usePluginCenter() {
   };
 
   const installMarket = async (item: MarketItem) => {
+    // 外部来源（Rubick npm 包）：先判定再分级，不走版本直装
+    if (item.externalNpm) {
+      await startExternalAnalyze(item);
+      return;
+    }
     if (item.dbxKey) {
       setInstallingMarketId(item.id);
       try {
@@ -512,6 +566,9 @@ export function usePluginCenter() {
     pendingPlan,
     cancelPendingPlan,
     confirmPendingPlan,
+    pendingExternal,
+    cancelPendingExternal,
+    confirmPendingExternal,
     isDbxId: (id: string) => dbxPluginIds.has(id),
     dbxIds: dbxPluginIds,
   };

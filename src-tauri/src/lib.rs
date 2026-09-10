@@ -533,6 +533,9 @@ fn export_ipc_bindings() {
         commands::dbx_catalog::plugin_dbx_install_catalog_engines,
         commands::official_catalog::plugin_official_catalog,
         commands::official_catalog::plugin_official_install,
+        commands::external::plugin_external_analyze_npm,
+        commands::external::plugin_external_convert_npm,
+        commands::external::plugin_external_search_npm,
         // Task（任务）
         commands::task::task_list,
         commands::task::task_get,
@@ -1547,6 +1550,9 @@ fn build_and_run_tauri() {
             commands::dbx_catalog::plugin_dbx_install_catalog_engines,
             commands::official_catalog::plugin_official_catalog,
             commands::official_catalog::plugin_official_install,
+            commands::external::plugin_external_analyze_npm,
+            commands::external::plugin_external_convert_npm,
+            commands::external::plugin_external_search_npm,
             // Task（任务）
             commands::task::task_list,
             commands::task::task_get,

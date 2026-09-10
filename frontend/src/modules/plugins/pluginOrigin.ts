@@ -39,9 +39,10 @@ export function originLabelKey(origin: PluginOrigin): string {
 export function originMetaLabel(
   origin: PluginOrigin,
   t: (key: string, params?: Record<string, string | number>) => string,
-  opts?: { dbx?: boolean },
+  opts?: { dbx?: boolean; rubick?: boolean },
 ): string {
   const base = t(originLabelKey(origin));
   if (opts?.dbx) return `${base} · ${t("plugins.center.origin.dbx")}`;
+  if (opts?.rubick) return `${base} · ${t("plugins.center.origin.rubick")}`;
   return base;
 }
