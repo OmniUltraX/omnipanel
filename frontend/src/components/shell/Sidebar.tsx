@@ -10,6 +10,11 @@ import {
 import { isDashboardPath, isModulePath, moduleKeyFromPath } from "../../lib/paths";
 import { isOverlayModulePath } from "../../lib/routePanels";
 import { scheduleNavHoverWarm } from "../../lib/moduleWarmup";
+import {
+  SIDEBAR_PENDING_BACKSTOP_MS,
+  readCurrentPathname,
+  shouldClearPendingOnBackstop,
+} from "../../lib/sidebarPending";
 import { getNavVisibleModuleKeys, useAppModuleStore } from "../../stores/appModuleStore";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { sidebarItemsForVisible, type SidebarNavItem } from "../../lib/sidebarNav";
@@ -50,29 +55,62 @@ export function Sidebar() {
     path: string;
   } | null>(null);
   // 乐观高亮：pointerdown 当帧即点亮，不等路由提交（提交约 70~90ms 才到）。
-  // location 落定后由下面 effect 清掉，超时兜底防右键/未导航残留。
+  // location 落定后由下面 effect 清掉；兜底只处理“根本没导航”（拖拽/右键/未点击），
+  // 且必须是 location-aware 的——导航在途中（location 已离开起点，含 transition
+  // 慢提交与主线程拥堵乱序）时清除会把高亮打回旧项，造成 B→A→B 回闪。
   const [pendingPath, setPendingPath] = useState<string | null>(null);
   const pendingTimerRef = useRef<number | null>(null);
+  const pendingRafRef = useRef<number | null>(null);
 
-  const markPending = (path: string) => {
-    setPendingPath(path);
-    if (pendingTimerRef.current) window.clearTimeout(pendingTimerRef.current);
-    pendingTimerRef.current = window.setTimeout(() => {
-      setPendingPath((prev) => (prev === path ? null : prev));
-    }, 500);
-  };
-
-  useEffect(() => {
-    setPendingPath(null);
+  const clearPendingTimers = () => {
     if (pendingTimerRef.current) {
       window.clearTimeout(pendingTimerRef.current);
       pendingTimerRef.current = null;
     }
+    if (pendingRafRef.current) {
+      cancelAnimationFrame(pendingRafRef.current);
+      pendingRafRef.current = null;
+    }
+  };
+
+  const markPending = (path: string) => {
+    // pointerdown 即预热：触屏/键盘/快点无 hover，click 前能省则省
+    scheduleNavHoverWarm(path);
+    const fromPath = readCurrentPathname();
+    setPendingPath(path);
+    clearPendingTimers();
+    // 快捷路径：pointerup 后下一帧若 location 纹丝不动，说明是拖拽而非点击，即刻清除
+    //（click 若会发生必在 rAF 前提交 location；press-and-hold 的 click 同理）。
+    const onPointerUp = () => {
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      if (pendingRafRef.current) cancelAnimationFrame(pendingRafRef.current);
+      pendingRafRef.current = requestAnimationFrame(() => {
+        pendingRafRef.current = null;
+        if (shouldClearPendingOnBackstop(fromPath)) {
+          setPendingPath((prev) => (prev === path ? null : prev));
+        }
+      });
+    };
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    // 慢速兜底：窗口失焦/菜单拦截等 rAF 不触发的路径；location 动过则不动 pending。
+    pendingTimerRef.current = window.setTimeout(() => {
+      pendingTimerRef.current = null;
+      if (shouldClearPendingOnBackstop(fromPath)) {
+        setPendingPath((prev) => (prev === path ? null : prev));
+      }
+    }, SIDEBAR_PENDING_BACKSTOP_MS);
+  };
+
+  useEffect(() => {
+    setPendingPath(null);
+    clearPendingTimers();
   }, [location.pathname]);
 
   useEffect(() => {
     return () => {
-      if (pendingTimerRef.current) window.clearTimeout(pendingTimerRef.current);
+      clearPendingTimers();
     };
   }, []);
 
