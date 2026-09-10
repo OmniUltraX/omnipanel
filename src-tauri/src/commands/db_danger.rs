@@ -122,13 +122,7 @@ pub async fn db_restart_service(
     let session = pool_session(&state, &ssh_connection_id).await?;
     let output = session.exec_capture(&command).await?;
     if output.exit_code != 0 {
-        append_danger_audit(
-            &state,
-            ACTION_DB_RESTART,
-            &target,
-            "failed",
-            "重启命令失败",
-        );
+        append_danger_audit(&state, ACTION_DB_RESTART, &target, "failed", "重启命令失败");
         return Err(OmniError::ssh(format!(
             "重启失败: {}",
             output.stderr.trim()
@@ -163,7 +157,12 @@ pub(crate) fn normalize_drop_engine(db_type: &str) -> &'static str {
     }
 }
 
-pub(crate) fn build_drop_table_sql(db_type: &str, database: &str, table: &str, view: bool) -> String {
+pub(crate) fn build_drop_table_sql(
+    db_type: &str,
+    database: &str,
+    table: &str,
+    view: bool,
+) -> String {
     let engine = normalize_drop_engine(db_type);
     let verb = if view { "VIEW" } else { "TABLE" };
     let db = database.trim();
@@ -228,7 +227,13 @@ pub async fn db_drop_table(
         ACTION_DB_DROP_TABLE,
         &target,
     ) {
-        append_danger_audit(&state, ACTION_DB_DROP_TABLE, &target, "blocked", "token 无效");
+        append_danger_audit(
+            &state,
+            ACTION_DB_DROP_TABLE,
+            &target,
+            "blocked",
+            "token 无效",
+        );
         return Err(e);
     }
 

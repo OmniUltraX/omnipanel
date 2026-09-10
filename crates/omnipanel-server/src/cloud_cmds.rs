@@ -1,11 +1,11 @@
 //! 云厂商 Host 命令：经 `omnipanel-cloud` 分发到各厂商 Driver。
 
 use omnipanel_cloud::{
-    default_region, get_account, get_metrics, get_resource, http_probe_url, invoke_action,
-    is_write_action, list_regions, list_resources, query_logs, test_account, CloudAccountSnapshot,
-    CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery, CloudMetricQuery, CloudMetricSeries,
-    CloudRegion, CloudResourceDetail, CloudResourceFilter, CloudResourceRow, PLUGIN_ID_ALIYUN,
-    PLUGIN_ID_TENCENT,
+    CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
+    CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail, CloudResourceFilter,
+    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT, default_region, get_account,
+    get_metrics, get_resource, http_probe_url, invoke_action, is_write_action, list_regions,
+    list_resources, query_logs, test_account,
 };
 use omnipanel_cloud_aliyun::{
     AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
@@ -332,11 +332,8 @@ fn require_write_presence(
     if !is_write_action(&action.name) {
         return Ok(());
     }
-    let target = omnipanel_presence::pipe_target(&[
-        connection_id,
-        &action.resource_id,
-        &action.name,
-    ]);
+    let target =
+        omnipanel_presence::pipe_target(&[connection_id, &action.resource_id, &action.name]);
     omnipanel_presence::require_grant(
         &state.presence_tokens,
         action.presence_token.as_deref(),
@@ -380,7 +377,14 @@ pub async fn cloud_list_resources(
     let conn = load_connection(state, &connection_id).await?;
     let (plugin_id, creds) = resolve_credentials(&conn, None)?;
     let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    list_resources(&plugin_id, &creds, &http, &capability, &filter.unwrap_or_default()).await
+    list_resources(
+        &plugin_id,
+        &creds,
+        &http,
+        &capability,
+        &filter.unwrap_or_default(),
+    )
+    .await
 }
 
 pub async fn cloud_get_resource(
@@ -420,19 +424,39 @@ pub async fn cloud_invoke_action(
     });
     let plugin_id = plugin_id_of(&cfg).unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
     if let Err(err) = require_write_presence(state, &connection_id, &action) {
-        audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "blocked");
+        audit_cloud_action(
+            state,
+            &conn,
+            &plugin_id,
+            &action.name,
+            &action.resource_id,
+            "blocked",
+        );
         return Err(err);
     }
     let (plugin_id, creds) = resolve_credentials(&conn, None)?;
     let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    match invoke_action(&plugin_id, &creds, &http, &action).await
-    {
+    match invoke_action(&plugin_id, &creds, &http, &action).await {
         Ok(result) => {
-            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "success");
+            audit_cloud_action(
+                state,
+                &conn,
+                &plugin_id,
+                &action.name,
+                &action.resource_id,
+                "success",
+            );
             Ok(result)
         }
         Err(err) => {
-            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "failed");
+            audit_cloud_action(
+                state,
+                &conn,
+                &plugin_id,
+                &action.name,
+                &action.resource_id,
+                "failed",
+            );
             Err(err)
         }
     }

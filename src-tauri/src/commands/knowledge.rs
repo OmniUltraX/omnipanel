@@ -84,7 +84,10 @@ pub async fn knowledge_save(
     let storage = state.storage.lock().await;
     // 新建条目时打 creator 标签，标记创建设备
     if storage.get_knowledge(&entry.id)?.is_none() {
-        ensure_creator_tag(&mut entry.tags, &crate::commands::auth::current_device_name());
+        ensure_creator_tag(
+            &mut entry.tags,
+            &crate::commands::auth::current_device_name(),
+        );
     }
     storage.save_knowledge(&entry)
 }

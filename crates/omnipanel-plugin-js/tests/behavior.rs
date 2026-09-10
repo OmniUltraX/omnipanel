@@ -95,7 +95,10 @@ impl PluginHostBridge for MemoryHost {
         Ok(self.secret.lock().unwrap().contains_key(key))
     }
     fn vault_put(&self, key: &str, secret: &str) -> Result<(), String> {
-        self.secret.lock().unwrap().insert(key.to_string(), secret.to_string());
+        self.secret
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), secret.to_string());
         Ok(())
     }
     fn state_get(&self) -> Result<String, String> {

@@ -89,7 +89,10 @@ fn park_and_hide_launcher(window: &tauri::WebviewWindow) -> Result<(), String> {
     // 创建时 min 为 520×104，不先放开则 set_size(1×1) 会被钳住，屏外停靠失效时仍占大命中区
     let _ = window.set_min_size(Some(tauri::LogicalSize::new(1.0, 1.0)));
     // 先移出屏幕再缩、再 hide：即使 hide 后 HWND 仍参与 hit-test，光标也碰不到
-    let _ = window.set_position(tauri::PhysicalPosition::new(LAUNCHER_PARK_X, LAUNCHER_PARK_Y));
+    let _ = window.set_position(tauri::PhysicalPosition::new(
+        LAUNCHER_PARK_X,
+        LAUNCHER_PARK_Y,
+    ));
     let _ = window.set_size(tauri::LogicalSize::new(1.0, 1.0));
     window.hide().map_err(|e| e.to_string())?;
     #[cfg(windows)]
@@ -101,7 +104,7 @@ fn park_and_hide_launcher(window: &tauri::WebviewWindow) -> Result<(), String> {
 fn force_win32_hide(window: &tauri::WebviewWindow) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
 
     let Ok(handle) = window.window_handle() else {
         return;

@@ -23,7 +23,7 @@ import {
   type TerminalTab,
 } from "../stores/terminalStore";
 import { disposeTabBackendSessions } from "../hooks/useTerminal";
-import { clearPaneBackendPending } from "../hooks/useTerminal";
+import { clearPaneBackendPending } from "../modules/terminal/terminalSessionBackendBridge";
 import { clearTerminalPaneSender } from "../modules/terminal/terminalPaneSenders";
 import type { DbWorkspaceTab } from "../modules/database/workspace/workspaceTabs";
 import {

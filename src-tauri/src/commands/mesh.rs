@@ -116,11 +116,7 @@ pub async fn mesh_start(
     let control_server_url = control_server_url.trim().to_string();
     let hostname = {
         let h = hostname.trim().to_string();
-        if h.is_empty() {
-            mesh_hostname("")
-        } else {
-            h
-        }
+        if h.is_empty() { mesh_hostname("") } else { h }
     };
     if auth_key.is_empty() || control_server_url.is_empty() {
         return Err(OmniError::invalid_input("mesh 入网凭证不完整"));
@@ -152,9 +148,9 @@ pub async fn mesh_start(
     })?;
     let key_file = dir.join("tsrs_keys.json");
 
-    let control_url = control_server_url.parse::<url::Url>().map_err(|e| {
-        OmniError::invalid_input("Headscale 地址无效").with_cause(e.to_string())
-    })?;
+    let control_url = control_server_url
+        .parse::<url::Url>()
+        .map_err(|e| OmniError::invalid_input("Headscale 地址无效").with_cause(e.to_string()))?;
 
     let mut config = tailscale::Config::default_with_key_file(&key_file)
         .await
@@ -251,9 +247,9 @@ pub async fn mesh_request_sync_key(
 
     let device = {
         let guard = state.mesh.lock().await;
-        let cur = guard.as_ref().ok_or_else(|| {
-            OmniError::new(ErrorCode::Connection, "本机尚未加入团队 mesh")
-        })?;
+        let cur = guard
+            .as_ref()
+            .ok_or_else(|| OmniError::new(ErrorCode::Connection, "本机尚未加入团队 mesh"))?;
         if cur.team_id != team_id {
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
@@ -271,9 +267,8 @@ pub async fn mesh_request_sync_key(
         })?
         .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "mesh 对端不在线"))?;
 
-    let ip = node_ip(&peer).ok_or_else(|| {
-        OmniError::new(ErrorCode::Connection, "对端没有 tailnet IP")
-    })?;
+    let ip = node_ip(&peer)
+        .ok_or_else(|| OmniError::new(ErrorCode::Connection, "对端没有 tailnet IP"))?;
     let remote = SocketAddr::new(ip, MESH_LISTEN_PORT);
 
     let req = serde_json::json!({
@@ -306,9 +301,7 @@ pub async fn mesh_request_sync_key(
     })
     .await
     .map_err(|_| OmniError::new(ErrorCode::Timeout, "等待 mesh 对端响应超时"))?
-    .map_err(|e| {
-        OmniError::new(ErrorCode::Io, "读取 mesh 对端响应失败").with_cause(e.to_string())
-    })
+    .map_err(|e| OmniError::new(ErrorCode::Io, "读取 mesh 对端响应失败").with_cause(e.to_string()))
     .and_then(|resp| parse_wrapped_key(&resp))
 }
 
@@ -325,9 +318,9 @@ pub async fn mesh_peer_ips(
     }
     let device = {
         let guard = state.mesh.lock().await;
-        let cur = guard.as_ref().ok_or_else(|| {
-            OmniError::new(ErrorCode::Connection, "本机尚未加入团队 mesh")
-        })?;
+        let cur = guard
+            .as_ref()
+            .ok_or_else(|| OmniError::new(ErrorCode::Connection, "本机尚未加入团队 mesh"))?;
         if cur.team_id != team_id {
             return Err(OmniError::new(
                 ErrorCode::InvalidInput,
@@ -347,9 +340,9 @@ pub async fn mesh_peer_ips(
         }
         let hostname = mesh_hostname(&device_id);
         let ipv4 = match &self_node {
-            Some(node) if node.matches_name(&hostname) => node_ip(node)
-                .map(|ip| ip.to_string())
-                .unwrap_or_default(),
+            Some(node) if node.matches_name(&hostname) => {
+                node_ip(node).map(|ip| ip.to_string()).unwrap_or_default()
+            }
             _ => peer_ipv4(&device, &hostname).await,
         };
         out.push(MeshPeerIp { device_id, ipv4 });
@@ -373,7 +366,12 @@ async fn mesh_stop_inner(state: &AppState) {
         return;
     };
     handle.listen_task.abort();
-    let MeshHandle { device, hostname, team_id, .. } = handle;
+    let MeshHandle {
+        device,
+        hostname,
+        team_id,
+        ..
+    } = handle;
     tokio::task::yield_now().await;
     if let Ok(dev) = Arc::try_unwrap(device) {
         let _ = tokio::time::timeout(

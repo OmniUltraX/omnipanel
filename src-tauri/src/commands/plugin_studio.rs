@@ -309,9 +309,7 @@ fn run_blocking(program: &str, args: &[String], cwd: &Path) -> Result<String, Om
 /// 环境检测：cargo / node / wat2wasm 版本（缺失为 None，前端给安装引导）。
 #[tauri::command]
 #[specta::specta]
-pub async fn plugin_studio_env_check(
-    _state: State<'_, AppState>,
-) -> Result<StudioEnv, OmniError> {
+pub async fn plugin_studio_env_check(_state: State<'_, AppState>) -> Result<StudioEnv, OmniError> {
     let cwd = repo_root().unwrap_or_else(|| PathBuf::from("."));
     Ok(StudioEnv {
         cargo: probe_version("cargo", &cwd),
@@ -440,10 +438,7 @@ fn toolchain_path() -> Option<String> {
         if old_lower.contains(&text.to_ascii_lowercase()) {
             continue;
         }
-        if prefix
-            .iter()
-            .any(|item| item.eq_ignore_ascii_case(&text))
-        {
+        if prefix.iter().any(|item| item.eq_ignore_ascii_case(&text)) {
             continue;
         }
         prefix.push(text);
@@ -655,9 +650,8 @@ pub async fn plugin_studio_scaffold(
     if project_dir(&name)?.exists() {
         return Err(OmniError::invalid_input(format!("工程已存在: {name}")));
     }
-    let root = repo_root().ok_or_else(|| {
-        OmniError::invalid_input("插件工程仅在源码运行可用（找不到仓库根）")
-    })?;
+    let root = repo_root()
+        .ok_or_else(|| OmniError::invalid_input("插件工程仅在源码运行可用（找不到仓库根）"))?;
     let name_for_task = name.clone();
     let output = tokio::task::spawn_blocking(move || {
         run_blocking(
@@ -715,9 +709,8 @@ pub async fn plugin_studio_run(
     if !dir.is_dir() {
         return Err(OmniError::not_found(format!("工程不存在: {project}")));
     }
-    let root = repo_root().ok_or_else(|| {
-        OmniError::invalid_input("插件工程仅在源码运行可用（找不到仓库根）")
-    })?;
+    let root = repo_root()
+        .ok_or_else(|| OmniError::invalid_input("插件工程仅在源码运行可用（找不到仓库根）"))?;
     let join = tokio::task::spawn_blocking(move || match op.as_str() {
         "validate" => run_blocking(
             "node",

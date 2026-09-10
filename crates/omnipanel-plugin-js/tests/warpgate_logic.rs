@@ -80,7 +80,9 @@ impl PluginHostBridge for FallbackBridge {
     }
 }
 
-fn instantiate(bridge: Arc<dyn PluginHostBridge>) -> Box<dyn omnipanel_plugin::PluginLogicInstance> {
+fn instantiate(
+    bridge: Arc<dyn PluginHostBridge>,
+) -> Box<dyn omnipanel_plugin::PluginLogicInstance> {
     JsExecutor::new()
         .instantiate(
             "omni.importer.warpgate",

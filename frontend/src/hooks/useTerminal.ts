@@ -18,6 +18,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { useTerminalFileLinkProvider } from "../modules/terminal/useTerminalFileLinkProvider";
+import { registerTerminalSessionBackend } from "../modules/terminal/terminalSessionBackendBridge";
 import {
   findTerminalPane,
   useTerminalStore,
@@ -2413,3 +2414,10 @@ export function useTerminal(
 
   return { termRef, searchAddonRef };
 }
+
+// 注册到桥接模块，供 terminalReconnect / terminalSessionService / workspaceTabActions
+// 解耦调用（切断 autoReconnect -> terminalReconnect -> useTerminal 的环）。
+registerTerminalSessionBackend({
+  clearPaneBackendPending,
+  disposeSessionBackend,
+});

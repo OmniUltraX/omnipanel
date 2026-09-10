@@ -248,8 +248,22 @@ fn decode_pg_uuid(row: &PgRow, index: usize) -> Value {
 fn format_uuid_bytes(b: &[u8; 16]) -> String {
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13],
-        b[14], b[15]
+        b[0],
+        b[1],
+        b[2],
+        b[3],
+        b[4],
+        b[5],
+        b[6],
+        b[7],
+        b[8],
+        b[9],
+        b[10],
+        b[11],
+        b[12],
+        b[13],
+        b[14],
+        b[15]
     )
 }
 
@@ -430,10 +444,7 @@ mod tests {
     #[test]
     fn pg_numeric_1_25() {
         let bytes = pack(2, 0, 0, 2, &[1, 2500]);
-        assert_eq!(
-            pg_numeric_bytes_to_string(&bytes).as_deref(),
-            Some("1.25")
-        );
+        assert_eq!(pg_numeric_bytes_to_string(&bytes).as_deref(), Some("1.25"));
         assert_eq!(numeric_string_to_value("1.25"), json!(1.25));
     }
 

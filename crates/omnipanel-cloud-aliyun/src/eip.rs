@@ -6,7 +6,7 @@ use omnipanel_error::OmniError;
 use reqwest::Client;
 use serde_json::Value;
 
-use crate::client::{json_list, json_total_count, str_field, AliyunCredentials};
+use crate::client::{AliyunCredentials, json_list, json_total_count, str_field};
 use crate::types::CloudAction;
 
 #[derive(Debug, Clone, Default)]
@@ -63,7 +63,13 @@ impl AliyunCredentials {
             params.insert("PageNumber".into(), page.to_string());
             params.insert("PageSize".into(), "50".into());
             let body = self
-                .rpc_call(http, &endpoint, "2016-04-28", "DescribeEipAddresses", params)
+                .rpc_call(
+                    http,
+                    &endpoint,
+                    "2016-04-28",
+                    "DescribeEipAddresses",
+                    params,
+                )
                 .await?;
             let items = json_list(&body, "EipAddresses", "EipAddress");
             let count = items.len();
@@ -89,7 +95,13 @@ impl AliyunCredentials {
             params.insert("AllocationId".into(), id.to_string());
         }
         let body = self
-            .rpc_call(http, &endpoint, "2016-04-28", "DescribeEipAddresses", params)
+            .rpc_call(
+                http,
+                &endpoint,
+                "2016-04-28",
+                "DescribeEipAddresses",
+                params,
+            )
             .await?;
         json_list(&body, "EipAddresses", "EipAddress")
             .first()
@@ -97,7 +109,11 @@ impl AliyunCredentials {
             .ok_or_else(|| OmniError::not_found(format!("未找到 EIP: {id}")))
     }
 
-    pub async fn associate_eip(&self, http: &Client, action: &CloudAction) -> Result<(), OmniError> {
+    pub async fn associate_eip(
+        &self,
+        http: &Client,
+        action: &CloudAction,
+    ) -> Result<(), OmniError> {
         let instance_id = action.param("instanceId");
         if instance_id.is_empty() {
             return Err(OmniError::invalid_input("缺少要绑定的实例 id"));
@@ -122,7 +138,11 @@ impl AliyunCredentials {
         Ok(())
     }
 
-    pub async fn unassociate_eip(&self, http: &Client, action: &CloudAction) -> Result<(), OmniError> {
+    pub async fn unassociate_eip(
+        &self,
+        http: &Client,
+        action: &CloudAction,
+    ) -> Result<(), OmniError> {
         let region = self.region.trim();
         let endpoint = vpc_endpoint(region)?;
         let mut params = BTreeMap::new();
@@ -132,7 +152,13 @@ impl AliyunCredentials {
             params.insert("InstanceId".into(), id);
         }
         let _ = self
-            .rpc_call(http, &endpoint, "2016-04-28", "UnassociateEipAddress", params)
+            .rpc_call(
+                http,
+                &endpoint,
+                "2016-04-28",
+                "UnassociateEipAddress",
+                params,
+            )
             .await?;
         Ok(())
     }
@@ -165,9 +191,5 @@ impl AliyunCredentials {
 }
 
 fn nonempty(value: String) -> Option<String> {
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
+    if value.is_empty() { None } else { Some(value) }
 }

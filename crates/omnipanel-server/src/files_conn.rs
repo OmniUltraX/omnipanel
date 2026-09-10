@@ -116,7 +116,10 @@ pub async fn file_save_connection(
     let storage = state.storage.lock().await;
     // 新建连接时打 creator 标签，标记创建设备
     if storage.get_connection(&connection.id)?.is_none() {
-        ensure_creator_tag(&mut connection.tags, &crate::auth_cmds::current_device_name());
+        ensure_creator_tag(
+            &mut connection.tags,
+            &crate::auth_cmds::current_device_name(),
+        );
     }
     storage.save_connection(&connection)?;
     Ok(connection)

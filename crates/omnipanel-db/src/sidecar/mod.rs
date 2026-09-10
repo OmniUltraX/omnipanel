@@ -28,9 +28,8 @@ pub use engine::{
 #[cfg(feature = "sidecar-host")]
 pub use host::{
     SidecarDriver, connect_clickhouse, connect_engine, connect_launch, evict_all_external_launches,
-    evict_all_launches, evict_all_of_kind, evict_clickhouse, evict_engine, evict_launch, invoke_json,
-    invoke_query,
-    resolve_clickhouse_sidecar, resolve_sidecar,
+    evict_all_launches, evict_all_of_kind, evict_clickhouse, evict_engine, evict_launch,
+    invoke_json, invoke_query, resolve_clickhouse_sidecar, resolve_sidecar,
 };
 #[cfg(feature = "sidecar-host")]
 pub use plugin_gate::{

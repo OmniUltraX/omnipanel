@@ -46,9 +46,7 @@ pub fn ensure_sql_presence(
 ) -> OmniResult<Option<(String, String)>> {
     match classify_sql(sql) {
         DangerousSql::None => Ok(None),
-        DangerousSql::Multiple => Err(presence_denied(
-            "一次只能确认一条危险语句，请拆开执行",
-        )),
+        DangerousSql::Multiple => Err(presence_denied("一次只能确认一条危险语句，请拆开执行")),
         DangerousSql::DropTable { name } => {
             let db = if database.trim().is_empty() {
                 infer_qualifier_db(sql).unwrap_or_default()
@@ -271,7 +269,9 @@ mod tests {
     fn classifies_drop_database() {
         assert_eq!(
             classify_sql("DROP DATABASE IF EXISTS prod"),
-            DangerousSql::DropDatabase { name: "prod".into() }
+            DangerousSql::DropDatabase {
+                name: "prod".into()
+            }
         );
     }
 
@@ -286,9 +286,7 @@ mod tests {
     #[test]
     fn execute_drop_requires_token() {
         let store = TokenStore::system();
-        assert!(
-            ensure_sql_presence(&store, "DROP TABLE t", "c1", "db", None).is_err()
-        );
+        assert!(ensure_sql_presence(&store, "DROP TABLE t", "c1", "db", None).is_err());
         let target = drop_table_target("c1", "db", &["t"]);
         let issued = store.issue(ACTION_DB_DROP_TABLE, &target).unwrap();
         ensure_sql_presence(&store, "DROP TABLE t", "c1", "db", Some(&issued.token)).unwrap();

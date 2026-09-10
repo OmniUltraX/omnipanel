@@ -1,4 +1,4 @@
-﻿//! 数据库模块持久化：`~/.omnipd/database/connections.json`。
+//! 数据库模块持久化：`~/.omnipd/database/connections.json`。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -174,11 +174,7 @@ impl DatabaseConnectionStore {
     }
 
     fn storage_path(&self) -> OmniResult<PathBuf> {
-        Ok(self
-            .path
-            .lock()
-            .map_err(|_| lock_err())?
-            .clone())
+        Ok(self.path.lock().map_err(|_| lock_err())?.clone())
     }
 
     /// 按当前团队路径重新从磁盘加载（进程内换库）。

@@ -79,8 +79,9 @@ fn load_persisted_scope() -> String {
 pub fn persist_active_team_scope(scope: &str) -> OmniResult<()> {
     let scope = normalize_team_scope(scope);
     let path = active_team_file_path()?;
-    let json = serde_json::to_string_pretty(&ActiveTeamFile { scope })
-        .map_err(|e| OmniError::new(ErrorCode::Storage, "写入当前团队失败").with_cause(e.to_string()))?;
+    let json = serde_json::to_string_pretty(&ActiveTeamFile { scope }).map_err(|e| {
+        OmniError::new(ErrorCode::Storage, "写入当前团队失败").with_cause(e.to_string())
+    })?;
     std::fs::write(path, json).map_err(map_io)?;
     Ok(())
 }
@@ -188,7 +189,8 @@ pub fn migrate_legacy_into_current_team() -> OmniResult<()> {
     let dest_database = team_database_dir()?;
     let legacy_database = module_dir(modules::DATABASE)?;
     // 旧布局是 `~/.omnipd/database/`，不要把已在 teams/ 下的目录再迁一次
-    if legacy_database.is_dir() && !legacy_database.starts_with(module_dir(modules::STORE)?.join("teams"))
+    if legacy_database.is_dir()
+        && !legacy_database.starts_with(module_dir(modules::STORE)?.join("teams"))
     {
         move_dir_contents_if_dest_empty(&legacy_database, &dest_database)?;
     }
@@ -250,9 +252,7 @@ pub fn init_team_storage() -> OmniResult<String> {
 
 /// 主库文件在打开前是否已存在（用于判断「空团队，可拉云端」）。
 pub fn meta_db_exists_on_disk() -> bool {
-    paths::meta_db_path()
-        .map(|p| p.is_file())
-        .unwrap_or(false)
+    paths::meta_db_path().map(|p| p.is_file()).unwrap_or(false)
 }
 
 #[cfg(test)]

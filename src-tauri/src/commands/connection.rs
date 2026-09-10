@@ -5,8 +5,7 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
     Connection, ConnectionKind, DbConnectionConfig, Vault, ensure_creator_tag,
     get_cached_addresses, inject_ssh_vault_into_config, load_host_resolve_cache,
-    save_host_resolve_cache, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
-    upsert_cache_entry,
+    save_host_resolve_cache, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref, upsert_cache_entry,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -333,7 +332,10 @@ pub async fn conn_save(
     let storage = state.storage.lock().await;
     // 新建连接时打 creator 标签，标记创建设备（多设备同步时区分来源）
     if storage.get_connection(&connection.id)?.is_none() {
-        ensure_creator_tag(&mut connection.tags, &crate::commands::auth::current_device_name());
+        ensure_creator_tag(
+            &mut connection.tags,
+            &crate::commands::auth::current_device_name(),
+        );
     }
     storage.save_connection(&connection)?;
     drop(storage);

@@ -6,7 +6,7 @@ use omnipanel_error::OmniError;
 use reqwest::Client;
 use serde_json::Value;
 
-use crate::client::{json_list, json_total_count, str_field, AliyunCredentials};
+use crate::client::{AliyunCredentials, json_list, json_total_count, str_field};
 use crate::types::{CloudAction, CloudChildRow};
 
 const ENDPOINT: &str = "https://alidns.aliyuncs.com/";
@@ -125,12 +125,18 @@ impl AliyunCredentials {
         Ok(out)
     }
 
-    pub async fn add_dns_record(&self, http: &Client, action: &CloudAction) -> Result<(), OmniError> {
+    pub async fn add_dns_record(
+        &self,
+        http: &Client,
+        action: &CloudAction,
+    ) -> Result<(), OmniError> {
         let rr = action.param("rr");
         let rtype = action.param("type");
         let value = action.param("value");
         if rr.is_empty() || rtype.is_empty() || value.is_empty() {
-            return Err(OmniError::invalid_input("解析记录需要主机记录、类型与记录值"));
+            return Err(OmniError::invalid_input(
+                "解析记录需要主机记录、类型与记录值",
+            ));
         }
         let mut params = BTreeMap::new();
         params.insert("DomainName".into(), action.resource_id.trim().to_string());
@@ -194,11 +200,7 @@ impl AliyunCredentials {
 }
 
 fn nonempty(value: String) -> Option<String> {
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
+    if value.is_empty() { None } else { Some(value) }
 }
 
 fn nonempty_or(value: String, fallback: &str) -> String {

@@ -31,7 +31,12 @@ pub fn presence_denied(message: impl Into<String>) -> OmniError {
 }
 
 /// 校验 token 后执行（供 command 复用）。
-pub fn require_grant(store: &TokenStore, token: Option<&str>, action: &str, target: &str) -> OmniResult<()> {
+pub fn require_grant(
+    store: &TokenStore,
+    token: Option<&str>,
+    action: &str,
+    target: &str,
+) -> OmniResult<()> {
     let Some(token) = token.map(str::trim).filter(|s| !s.is_empty()) else {
         return Err(presence_denied("该操作需要在场验证"));
     };

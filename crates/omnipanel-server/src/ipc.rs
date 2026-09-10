@@ -293,12 +293,9 @@ pub async fn dispatch(
                 };
             let addr = get_str(&args, "addr").unwrap_or_default();
             let target = omnipanel_presence::pipe_target(&[&connection.id, &addr]);
-            if let Err(e) = consume_presence(
-                state,
-                &args,
-                omnipanel_presence::ACTION_DB_KILL,
-                &target,
-            ) {
+            if let Err(e) =
+                consume_presence(state, &args, omnipanel_presence::ACTION_DB_KILL, &target)
+            {
                 return InvokeResponse::err(e);
             }
             respond(crate::db::db_redis_client_kill(connection, addr).await)
@@ -610,7 +607,10 @@ pub async fn dispatch(
             })))
         }
         "presence_set_os_enabled" => {
-            let enabled = args.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+            let enabled = args
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
             state
                 .os_presence_enabled
                 .store(enabled, std::sync::atomic::Ordering::Relaxed);
@@ -641,34 +641,30 @@ pub async fn dispatch(
             let token = get_str(&args, "presenceToken").unwrap_or_default();
             respond(crate::db::db_drop_database(state, connection, databases, token).await)
         }
-        "db_restart_service" => {
-            respond(
-                crate::db::db_restart_service(
-                    state,
-                    get_str(&args, "sshConnectionId").unwrap_or_default(),
-                    get_str(&args, "service").unwrap_or_default(),
-                    get_str(&args, "kind").unwrap_or_default(),
-                    get_str(&args, "location").unwrap_or_default(),
-                    get_str(&args, "presenceToken").unwrap_or_default(),
-                )
-                .await,
+        "db_restart_service" => respond(
+            crate::db::db_restart_service(
+                state,
+                get_str(&args, "sshConnectionId").unwrap_or_default(),
+                get_str(&args, "service").unwrap_or_default(),
+                get_str(&args, "kind").unwrap_or_default(),
+                get_str(&args, "location").unwrap_or_default(),
+                get_str(&args, "presenceToken").unwrap_or_default(),
             )
-        }
+            .await,
+        ),
         "presence_issue_typed" => {
             let action = get_str(&args, "action").unwrap_or_default();
             let target = get_str(&args, "target").unwrap_or_default();
             let typed = get_str(&args, "typed").unwrap_or_default();
-            respond(
-                match omnipanel_presence::expected_typed(&action, &target) {
-                    Ok(expected) if typed.trim() == expected => state
-                        .presence_tokens
-                        .issue(&action, &target)
-                        .map(|issued| serde_json::to_value(issued).unwrap_or_default())
-                        .map_err(|e| e.to_string()),
-                    Ok(_) => Err("输入内容不匹配".into()),
-                    Err(e) => Err(e.to_string()),
-                },
-            )
+            respond(match omnipanel_presence::expected_typed(&action, &target) {
+                Ok(expected) if typed.trim() == expected => state
+                    .presence_tokens
+                    .issue(&action, &target)
+                    .map(|issued| serde_json::to_value(issued).unwrap_or_default())
+                    .map_err(|e| e.to_string()),
+                Ok(_) => Err("输入内容不匹配".into()),
+                Err(e) => Err(e.to_string()),
+            })
         }
         "db_execute_query" => {
             let connection: omnipanel_store::DbConnectionConfig =
@@ -2329,12 +2325,9 @@ pub async fn dispatch(
             if omnipanel_presence::ssh_command_is_critical(&command) {
                 let verb = command.split_whitespace().next().unwrap_or("exec");
                 let target = omnipanel_presence::pipe_target(&[&resource_id, verb]);
-                if let Err(e) = consume_presence(
-                    state,
-                    &args,
-                    omnipanel_presence::ACTION_SSH_EXEC,
-                    &target,
-                ) {
+                if let Err(e) =
+                    consume_presence(state, &args, omnipanel_presence::ACTION_SSH_EXEC, &target)
+                {
                     return InvokeResponse::err(e);
                 }
             }
@@ -2353,12 +2346,9 @@ pub async fn dispatch(
                 .and_then(|v| v.as_u64())
                 .map(|n| n as u32);
             let target = omnipanel_presence::pipe_target(&[&resource_id, &pid.to_string()]);
-            if let Err(e) = consume_presence(
-                state,
-                &args,
-                omnipanel_presence::ACTION_SSH_KILL,
-                &target,
-            ) {
+            if let Err(e) =
+                consume_presence(state, &args, omnipanel_presence::ACTION_SSH_KILL, &target)
+            {
                 return InvokeResponse::err(e);
             }
             respond_omni(
@@ -3845,15 +3835,12 @@ pub async fn dispatch(
         }
         "cloud_invoke_action" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();
-            let action = match serde_json::from_value(
-                args.get("action").cloned().unwrap_or_default(),
-            ) {
-                Ok(a) => a,
-                Err(e) => return InvokeResponse::err(format!("解析 action 失败: {e}")),
-            };
-            respond_omni(
-                crate::cloud_cmds::cloud_invoke_action(state, connection_id, action).await,
-            )
+            let action =
+                match serde_json::from_value(args.get("action").cloned().unwrap_or_default()) {
+                    Ok(a) => a,
+                    Err(e) => return InvokeResponse::err(format!("解析 action 失败: {e}")),
+                };
+            respond_omni(crate::cloud_cmds::cloud_invoke_action(state, connection_id, action).await)
         }
         "cloud_get_metrics" => {
             let connection_id = get_str(&args, "connectionId").unwrap_or_default();

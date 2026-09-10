@@ -5,7 +5,7 @@ use hmac::{Hmac, Mac};
 use omnipanel_cloud_aliyun::{AliyunCredentials, CloudAction, CloudLogQuery};
 use omnipanel_error::{ErrorCode, OmniError};
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha1::{Digest as Sha1Digest, Sha1};
 use sha2::Sha256;
 
@@ -204,9 +204,8 @@ fn tc3_authorization(
         action.to_ascii_lowercase()
     );
     let signed_headers = "content-type;host;x-tc-action";
-    let canonical_request = format!(
-        "POST\n/\n\n{canonical_headers}\n{signed_headers}\n{hashed_payload}"
-    );
+    let canonical_request =
+        format!("POST\n/\n\n{canonical_headers}\n{signed_headers}\n{hashed_payload}");
     let credential_scope = format!("{date}/{service}/tc3_request");
     let string_to_sign = format!(
         "TC3-HMAC-SHA256\n{timestamp}\n{credential_scope}\n{}",
@@ -277,10 +276,7 @@ pub async fn tc3_call(
         )
         .with_cause(text));
     }
-    Ok(parsed
-        .get("Response")
-        .cloned()
-        .unwrap_or(parsed))
+    Ok(parsed.get("Response").cloned().unwrap_or(parsed))
 }
 
 async fn paginate(
@@ -335,7 +331,10 @@ pub async fn list_cos_buckets(
         creds.access_key_secret.as_bytes(),
         key_time.as_bytes(),
     )?);
-    let signature = hex::encode(hmac_sha1_raw(sign_key.as_bytes(), string_to_sign.as_bytes())?);
+    let signature = hex::encode(hmac_sha1_raw(
+        sign_key.as_bytes(),
+        string_to_sign.as_bytes(),
+    )?);
     let authorization = format!(
         "q-sign-algorithm=sha1&q-ak={}&q-sign-time={key_time}&q-key-time={key_time}&q-header-list=host&q-url-param-list=&q-signature={signature}",
         creds.access_key_id
@@ -374,10 +373,7 @@ pub async fn list_cos_buckets(
     Ok(out)
 }
 
-pub async fn get_user_app_id(
-    creds: &AliyunCredentials,
-    http: &Client,
-) -> Result<Value, OmniError> {
+pub async fn get_user_app_id(creds: &AliyunCredentials, http: &Client) -> Result<Value, OmniError> {
     tc3_call(
         creds,
         http,
@@ -1235,7 +1231,9 @@ pub async fn mutate_dnspod_record(
             let rtype = action.param("type");
             let value = action.param("value");
             if rr.is_empty() || rtype.is_empty() || value.is_empty() {
-                return Err(OmniError::invalid_input("解析记录需要主机记录、类型与记录值"));
+                return Err(OmniError::invalid_input(
+                    "解析记录需要主机记录、类型与记录值",
+                ));
             }
             let mut body = json!({
                 "Domain": domain,
@@ -1285,7 +1283,16 @@ pub async fn mutate_dnspod_record(
             )
         }
     };
-    let _ = tc3_call(creds, http, "dnspod", "2021-03-23", api.0, DEFAULT_REGION, api.1).await?;
+    let _ = tc3_call(
+        creds,
+        http,
+        "dnspod",
+        "2021-03-23",
+        api.0,
+        DEFAULT_REGION,
+        api.1,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1414,11 +1421,7 @@ fn nonempty_or(value: String, fallback: &str) -> String {
 }
 
 fn nonempty_opt(value: String) -> Option<String> {
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
+    if value.is_empty() { None } else { Some(value) }
 }
 
 #[cfg(test)]

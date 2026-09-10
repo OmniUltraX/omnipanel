@@ -7,7 +7,7 @@ import { useTerminalStore } from "../../stores/terminalStore";
 import {
   clearPaneBackendPending,
   disposeSessionBackend,
-} from "../../hooks/useTerminal";
+} from "./terminalSessionBackendBridge";
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
 import { cancelAutoReconnectSsh } from "./autoReconnectTerminalSsh";
 import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";

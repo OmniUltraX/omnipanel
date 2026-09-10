@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::client::{
-    CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket, CloudRegion as ClientRegion,
-    CloudSwasInstance,
+    CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
+    CloudRegion as ClientRegion, CloudSwasInstance,
 };
 use crate::disk::CloudDisk;
 use crate::dns::CloudDnsZone;
@@ -15,10 +15,9 @@ use crate::rds::CloudRdsInstance;
 use crate::security_group::CloudSecurityGroup;
 use crate::slb::CloudLoadBalancer;
 use crate::types::{
-    CloudChildRow, CloudRelatedRef, CloudRegion, CloudResourceDetail, CloudResourceRow, CAP_CERTS,
-    CAP_COMPUTE,
-    CAP_COMPUTE_LITE, CAP_DATABASE, CAP_DATABASE_CACHE, CAP_DOMAINS, CAP_LOAD_BALANCER,
-    CAP_NETWORK_EIP, CAP_OBJECT_STORAGE, CAP_SECURITY_GROUP, CAP_STORAGE_DISK,
+    CAP_CERTS, CAP_COMPUTE, CAP_COMPUTE_LITE, CAP_DATABASE, CAP_DATABASE_CACHE, CAP_DOMAINS,
+    CAP_LOAD_BALANCER, CAP_NETWORK_EIP, CAP_OBJECT_STORAGE, CAP_SECURITY_GROUP, CAP_STORAGE_DISK,
+    CloudChildRow, CloudRegion, CloudRelatedRef, CloudResourceDetail, CloudResourceRow,
 };
 
 fn related_vpc(vpc_id: &str) -> Option<CloudRelatedRef> {
@@ -272,7 +271,10 @@ pub fn oss_to_detail(item: &CloudOssBucket) -> CloudResourceDetail {
 }
 
 pub fn domain_to_detail(item: &CloudDomainItem) -> CloudResourceDetail {
-    CloudResourceDetail::from_row(map_domain_row(item), Some(console_domain(&item.domain_name)))
+    CloudResourceDetail::from_row(
+        map_domain_row(item),
+        Some(console_domain(&item.domain_name)),
+    )
 }
 
 pub fn cert_to_detail(item: &CloudCertificateItem) -> CloudResourceDetail {
@@ -381,10 +383,12 @@ pub fn dns_to_detail(item: &CloudDnsZone) -> CloudResourceDetail {
 
 fn overlay_dns_fields(row: &mut CloudResourceRow, zone: &CloudDnsZone) {
     if !zone.record_count.is_empty() {
-        row.fields.insert("recordCount".into(), zone.record_count.clone());
+        row.fields
+            .insert("recordCount".into(), zone.record_count.clone());
     }
     if !zone.dns_servers.is_empty() {
-        row.fields.insert("dnsServers".into(), zone.dns_servers.clone());
+        row.fields
+            .insert("dnsServers".into(), zone.dns_servers.clone());
     }
     if row.status.trim().is_empty() && !zone.version_code.is_empty() {
         row.status = zone.version_code.clone();
@@ -392,16 +396,20 @@ fn overlay_dns_fields(row: &mut CloudResourceRow, zone: &CloudDnsZone) {
 }
 
 /// 注册域名 ∪ 解析托管区，同一域名只出现一次。
-pub fn merge_domain_rows(regs: &[CloudDomainItem], zones: &[CloudDnsZone]) -> Vec<CloudResourceRow> {
+pub fn merge_domain_rows(
+    regs: &[CloudDomainItem],
+    zones: &[CloudDnsZone],
+) -> Vec<CloudResourceRow> {
     let mut rows: Vec<CloudResourceRow> = regs.iter().map(map_domain_row).collect();
     for zone in zones {
         let name = zone.domain_name.trim();
         if name.is_empty() {
             continue;
         }
-        if let Some(row) = rows.iter_mut().find(|row| {
-            row.id.eq_ignore_ascii_case(name) || row.name.eq_ignore_ascii_case(name)
-        }) {
+        if let Some(row) = rows
+            .iter_mut()
+            .find(|row| row.id.eq_ignore_ascii_case(name) || row.name.eq_ignore_ascii_case(name))
+        {
             overlay_dns_fields(row, zone);
         } else {
             rows.push(map_dns_row(zone));
@@ -435,10 +443,14 @@ pub fn merged_domain_detail(
 
 fn overlay_dns_fields_on_detail(detail: &mut CloudResourceDetail, zone: &CloudDnsZone) {
     if !zone.record_count.is_empty() {
-        detail.fields.insert("recordCount".into(), zone.record_count.clone());
+        detail
+            .fields
+            .insert("recordCount".into(), zone.record_count.clone());
     }
     if !zone.dns_servers.is_empty() {
-        detail.fields.insert("dnsServers".into(), zone.dns_servers.clone());
+        detail
+            .fields
+            .insert("dnsServers".into(), zone.dns_servers.clone());
     }
 }
 
@@ -698,10 +710,22 @@ mod tests {
         let row = map_ecs_row(&ecs_fixture());
         assert_eq!(row.capability, CAP_COMPUTE);
         assert_eq!(row.id, "i-bp1");
-        assert_eq!(row.fields.get("publicIp").map(String::as_str), Some("47.1.2.3"));
-        assert_eq!(row.fields.get("instanceType").map(String::as_str), Some("ecs.t5"));
-        assert_eq!(row.fields.get("expiredTime").map(String::as_str), Some("2026-12-01T00:00:00Z"));
-        assert_eq!(row.fields.get("securityGroups").map(String::as_str), Some("sg-1,sg-2"));
+        assert_eq!(
+            row.fields.get("publicIp").map(String::as_str),
+            Some("47.1.2.3")
+        );
+        assert_eq!(
+            row.fields.get("instanceType").map(String::as_str),
+            Some("ecs.t5")
+        );
+        assert_eq!(
+            row.fields.get("expiredTime").map(String::as_str),
+            Some("2026-12-01T00:00:00Z")
+        );
+        assert_eq!(
+            row.fields.get("securityGroups").map(String::as_str),
+            Some("sg-1,sg-2")
+        );
         let detail = ecs_to_detail(&ecs_fixture());
         assert!(detail.console_url.unwrap().contains("i-bp1"));
     }
@@ -725,7 +749,10 @@ mod tests {
         };
         let row = map_swas_row(&item);
         assert_eq!(row.capability, CAP_COMPUTE_LITE);
-        assert_eq!(row.fields.get("plan").map(String::as_str), Some("swas.s2.c2m2"));
+        assert_eq!(
+            row.fields.get("plan").map(String::as_str),
+            Some("swas.s2.c2m2")
+        );
         assert_eq!(row.fields.get("imageId").map(String::as_str), Some("img-1"));
     }
 
@@ -784,8 +811,14 @@ mod tests {
         assert_eq!(rows.len(), 2);
         let registered = rows.iter().find(|r| r.id == "example.com").unwrap();
         assert_eq!(registered.capability, CAP_DOMAINS);
-        assert_eq!(registered.fields.get("expirationDate").map(String::as_str), Some("2027-01-01"));
-        assert_eq!(registered.fields.get("recordCount").map(String::as_str), Some("12"));
+        assert_eq!(
+            registered.fields.get("expirationDate").map(String::as_str),
+            Some("2027-01-01")
+        );
+        assert_eq!(
+            registered.fields.get("recordCount").map(String::as_str),
+            Some("12")
+        );
         assert!(rows.iter().any(|r| r.id == "only-dns.com"));
     }
 
@@ -822,7 +855,10 @@ mod tests {
                 ..CloudDisk::default()
             }],
         );
-        assert_eq!(detail.fields.get("diskCount").map(String::as_str), Some("1"));
+        assert_eq!(
+            detail.fields.get("diskCount").map(String::as_str),
+            Some("1")
+        );
         let disk = detail
             .related
             .iter()

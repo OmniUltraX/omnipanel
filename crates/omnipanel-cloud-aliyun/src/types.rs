@@ -294,20 +294,12 @@ pub struct CloudLogQuery {
 impl CloudLogQuery {
     pub fn trimmed_db_name(&self) -> Option<&str> {
         let value = self.db_name.trim();
-        if value.is_empty() {
-            None
-        } else {
-            Some(value)
-        }
+        if value.is_empty() { None } else { Some(value) }
     }
 
     pub fn trimmed_keyword(&self) -> Option<&str> {
         let value = self.keyword.trim();
-        if value.is_empty() {
-            None
-        } else {
-            Some(value)
-        }
+        if value.is_empty() { None } else { Some(value) }
     }
 
     pub fn redis_order_by(&self) -> &'static str {

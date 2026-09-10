@@ -12,12 +12,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use omnipanel_error::ErrorCode;
 use omnipanel_plugin::{
     ConfirmFuture, ConfirmRequest, InvokeGateway, PluginError, PluginHostBridge, PluginPermission,
     PluginRegistry, ProdConfirmer,
 };
-use omnipanel_error::ErrorCode;
-use omnipanel_store::{plugin_secret_ref, AuditEntry, Storage, Vault};
+use omnipanel_store::{AuditEntry, Storage, Vault, plugin_secret_ref};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
@@ -49,7 +49,8 @@ impl ProdConfirmer for TauriProdConfirmer {
     fn confirm(&self, req: ConfirmRequest) -> ConfirmFuture {
         let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
         let request_id = uuid_v4();
-        let grant_target = omnipanel_presence::pipe_target(&[&req.plugin_id, &req.action, &req.target]);
+        let grant_target =
+            omnipanel_presence::pipe_target(&[&req.plugin_id, &req.action, &req.target]);
         let payload = ConfirmRequestPayload {
             request_id: request_id.clone(),
             plugin_id: req.plugin_id,
@@ -63,13 +64,7 @@ impl ProdConfirmer for TauriProdConfirmer {
             {
                 let mut guard = pending.lock().await;
                 // 同 requestId 竞争时后到者替换（幂等保护）
-                guard.insert(
-                    rid.clone(),
-                    PendingPluginConfirm {
-                        tx,
-                        grant_target,
-                    },
-                );
+                guard.insert(rid.clone(), PendingPluginConfirm { tx, grant_target });
             }
             let _ = app.emit(PLUGIN_CONFIRM_REQUEST_EVENT, &payload);
             match tokio::time::timeout(CONFIRM_TIMEOUT, rx).await {
@@ -153,9 +148,7 @@ fn format_net_error(err: reqwest::Error) -> String {
         || lower.contains("self signed")
         || lower.contains("self-signed")
     {
-        format!(
-            "TLS 证书不受信任。若目标使用自签证书，请勾选「允许自签证书」后重试。{msg}"
-        )
+        format!("TLS 证书不受信任。若目标使用自签证书，请勾选「允许自签证书」后重试。{msg}")
     } else {
         format!("请求失败: {msg}")
     }
@@ -316,8 +309,9 @@ impl PluginHostBridge for PluginBridge {
     fn net_fetch(&self, spec_json: &str) -> Result<String, String> {
         self.require(PluginPermission::NetConnect)
             .map_err(|e| e.to_string())?;
-        let spec: NetSpec = serde_json::from_str(spec_json)
-            .map_err(|e| format!("netFetch 参数需为 {{url, headers?, method?, body?}} JSON: {e}"))?;
+        let spec: NetSpec = serde_json::from_str(spec_json).map_err(|e| {
+            format!("netFetch 参数需为 {{url, headers?, method?, body?}} JSON: {e}")
+        })?;
 
         // prod 闸是异步的，这里用独立 runtime 桥接同步边界
         let gate_bridge = Self {

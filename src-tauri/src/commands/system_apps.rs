@@ -95,12 +95,12 @@ fn should_replace(existing: &SystemAppEntry, candidate: &SystemAppEntry) -> bool
 
 #[cfg(windows)]
 fn resolve_shortcut_target(lnk: &Path) -> Option<PathBuf> {
-    use windows::core::{Interface, HSTRING};
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER,
-        COINIT_APARTMENTTHREADED, STGM_READ,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+        IPersistFile, STGM_READ,
     };
     use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+    use windows::core::{HSTRING, Interface};
 
     unsafe {
         // Tauri 进程通常已初始化 COM；重复调用返回 S_FALSE，可忽略
@@ -155,8 +155,12 @@ fn known_aliases_for(name: &str) -> &'static [&'static str] {
         "画图" | "paint" | "mspaint" => &["mspaint", "paint", "画图"],
         "命令提示符" | "command prompt" | "cmd" => &["cmd", "command", "命令提示符"],
         "windows powershell" | "powershell" | "pwsh" => &["powershell", "pwsh"],
-        "终端" | "terminal" | "windows terminal" => &["wt", "terminal", "windows terminal", "终端"],
-        "资源管理器" | "file explorer" | "explorer" => &["explorer", "file explorer", "资源管理器"],
+        "终端" | "terminal" | "windows terminal" => {
+            &["wt", "terminal", "windows terminal", "终端"]
+        }
+        "资源管理器" | "file explorer" | "explorer" => {
+            &["explorer", "file explorer", "资源管理器"]
+        }
         _ => &[],
     }
 }
@@ -190,11 +194,14 @@ fn absorb_entry(into: &mut SystemAppEntry, other: &SystemAppEntry) {
     for a in known_aliases_for(&other.name) {
         push_alias(&mut into.aliases, a);
     }
-    into.aliases
-        .retain(|a| !a.eq_ignore_ascii_case(&into.name));
+    into.aliases.retain(|a| !a.eq_ignore_ascii_case(&into.name));
 }
 
-fn merge_into_map(map: &mut HashMap<String, SystemAppEntry>, target_key: String, entry: SystemAppEntry) {
+fn merge_into_map(
+    map: &mut HashMap<String, SystemAppEntry>,
+    target_key: String,
+    entry: SystemAppEntry,
+) {
     match map.remove(&target_key) {
         Some(existing) => {
             if should_replace(&existing, &entry) {
@@ -264,12 +271,7 @@ fn collapse_by_display_name(apps: Vec<SystemAppEntry>) -> Vec<SystemAppEntry> {
 }
 
 /// `map` 的 key 为解析后的目标 exe（规范化路径），value 为最终展示/启动条目。
-fn push_app(
-    map: &mut HashMap<String, SystemAppEntry>,
-    name: String,
-    path: PathBuf,
-    source: &str,
-) {
+fn push_app(map: &mut HashMap<String, SystemAppEntry>, name: String, path: PathBuf, source: &str) {
     let name = name.trim().to_string();
     if name.is_empty() || should_skip_name(&name) {
         return;
@@ -366,8 +368,8 @@ fn visit_start_menu_dir(dir: &Path, map: &mut HashMap<String, SystemAppEntry>) {
 
 #[cfg(windows)]
 fn collect_app_paths(map: &mut HashMap<String, SystemAppEntry>) {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
 
     const SUBKEYS: &[&str] = &[
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths",
@@ -410,15 +412,13 @@ fn collect_app_paths(map: &mut HashMap<String, SystemAppEntry>) {
 
 #[cfg(windows)]
 fn collect_apps_folder(map: &mut HashMap<String, SystemAppEntry>) {
-    use windows::core::{Interface, GUID, HSTRING, PCWSTR};
     use windows::Win32::Foundation::PROPERTYKEY;
-    use windows::Win32::System::Com::{
-        CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED,
-    };
+    use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
     use windows::Win32::UI::Shell::{
-        IEnumShellItems, IShellItem, IShellItem2, SHCreateItemFromParsingName, BHID_EnumItems,
+        BHID_EnumItems, IEnumShellItems, IShellItem, IShellItem2, SHCreateItemFromParsingName,
         SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING,
     };
+    use windows::core::{GUID, HSTRING, Interface, PCWSTR};
 
     // System.AppUserModel.ID
     const PKEY_APP_USER_MODEL_ID: PROPERTYKEY = PROPERTYKEY {
@@ -440,15 +440,16 @@ fn collect_apps_folder(map: &mut HashMap<String, SystemAppEntry>) {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let folder_name = HSTRING::from("shell:AppsFolder");
-        let folder: IShellItem =
-            match SHCreateItemFromParsingName::<_, _, IShellItem>(PCWSTR(folder_name.as_ptr()), None::<&_>)
-            {
-                Ok(f) => f,
-                Err(e) => {
-                    tracing::warn!("打开 shell:AppsFolder 失败: {e}");
-                    return;
-                }
-            };
+        let folder: IShellItem = match SHCreateItemFromParsingName::<_, _, IShellItem>(
+            PCWSTR(folder_name.as_ptr()),
+            None::<&_>,
+        ) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!("打开 shell:AppsFolder 失败: {e}");
+                return;
+            }
+        };
         let enumerator: IEnumShellItems = match folder.BindToHandler(None, &BHID_EnumItems) {
             Ok(e) => e,
             Err(e) => {
@@ -553,7 +554,8 @@ fn get_cached_apps(force_refresh: bool) -> Vec<SystemAppEntry> {
 fn find_cached_by_id(id: &str) -> Option<SystemAppEntry> {
     let needle = normalize_id(id);
     let apps = get_cached_apps(false);
-    apps.into_iter().find(|a| a.id == needle || normalize_id(&a.path) == needle)
+    apps.into_iter()
+        .find(|a| a.id == needle || normalize_id(&a.path) == needle)
 }
 
 /// 进程内图标 data URL 缓存（按 app id）。
@@ -607,13 +609,13 @@ fn extract_file_icon_data_url(path: &str) -> Option<String> {
 
     use base64::Engine;
     use image::RgbaImage;
-    use windows::core::PCWSTR;
     use windows::Win32::Graphics::Gdi::{
-        CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
-        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+        BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC,
+        DeleteObject, GetDIBits, GetObjectW, HGDIOBJ,
     };
-    use windows::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
+    use windows::Win32::UI::Shell::{SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGetFileInfoW};
     use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, ICONINFO};
+    use windows::core::PCWSTR;
 
     let wide: Vec<u16> = std::ffi::OsStr::new(path)
         .encode_wide()
@@ -796,13 +798,13 @@ fn launch_path(path: &str) -> Result<(), String> {
 
 #[cfg(windows)]
 fn launch_apps_folder_app(aumid: &str) -> Result<(), String> {
-    use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED,
+        CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
     };
     use windows::Win32::UI::Shell::{
-        IApplicationActivationManager, ApplicationActivationManager, AO_NONE,
+        AO_NONE, ApplicationActivationManager, IApplicationActivationManager,
     };
+    use windows::core::{HSTRING, PCWSTR};
 
     let aumid = aumid.trim();
     if aumid.is_empty() {

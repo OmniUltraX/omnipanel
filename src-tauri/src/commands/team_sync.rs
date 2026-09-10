@@ -1316,7 +1316,10 @@ fn expand_tree_descendants(seeds: &HashSet<String>, pairs: &[(String, String)]) 
 
 /// 从 custom_panels_json（`{ customPanels, deletedIds }`）移除指定面板并写入 deletedIds。
 /// 返回实际移除的面板数；结构非法或无匹配时原样保留。
-pub(crate) fn remove_custom_panels_from_json(raw: &mut Option<String>, ids: &HashSet<String>) -> usize {
+pub(crate) fn remove_custom_panels_from_json(
+    raw: &mut Option<String>,
+    ids: &HashSet<String>,
+) -> usize {
     let Some(text) = raw.as_mut() else {
         return 0;
     };
@@ -1326,7 +1329,10 @@ pub(crate) fn remove_custom_panels_from_json(raw: &mut Option<String>, ids: &Has
     let Ok(mut value) = serde_json::from_str::<Value>(text) else {
         return 0;
     };
-    let Some(panels) = value.get_mut("customPanels").and_then(|v| v.as_object_mut()) else {
+    let Some(panels) = value
+        .get_mut("customPanels")
+        .and_then(|v| v.as_object_mut())
+    else {
         return 0;
     };
     let mut removed = 0usize;
@@ -1390,7 +1396,10 @@ pub async fn team_sync_delete_resources(
         + ws_ids.len()
         + panel_ids.len();
     if total == 0 {
-        return Err(OmniError::new(ErrorCode::InvalidInput, "请选择要删除的资源"));
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "请选择要删除的资源",
+        ));
     }
 
     let identity = auth_device_identity().await?;
@@ -1427,12 +1436,16 @@ pub async fn team_sync_delete_resources(
             .into_iter()
             .map(|entry| entry.reference)
             .collect();
-        bundle.vault_secrets.retain(|entry| !dead_refs.contains(&entry.reference));
+        bundle
+            .vault_secrets
+            .retain(|entry| !dead_refs.contains(&entry.reference));
         for conn in &removed_conns {
             push_tombstone(&mut bundle.deleted_connections, &conn.id, now);
         }
     }
-    bundle.connections.retain(|item| !conn_ids.contains(&item.connection.id));
+    bundle
+        .connections
+        .retain(|item| !conn_ids.contains(&item.connection.id));
     result.connections = removed_conns.len() as f64;
 
     // 数据库连接：平铺列表
@@ -1461,7 +1474,9 @@ pub async fn team_sync_delete_resources(
 
     // HTTP：集合平铺；删除集合时级联删除其下全部请求
     let before = bundle.http_collections.len();
-    bundle.http_collections.retain(|col| !col_ids.contains(&col.id));
+    bundle
+        .http_collections
+        .retain(|col| !col_ids.contains(&col.id));
     result.http_collections = (before - bundle.http_collections.len()) as f64;
     for id in &col_ids {
         push_tombstone(&mut bundle.deleted_http_collections, id, now);
@@ -1483,7 +1498,9 @@ pub async fn team_sync_delete_resources(
         .cloned()
         .collect();
     let before = bundle.http_requests.len();
-    bundle.http_requests.retain(|req| !req_all.contains(&req.id));
+    bundle
+        .http_requests
+        .retain(|req| !req_all.contains(&req.id));
     result.http_requests = (before - bundle.http_requests.len()) as f64;
     for id in &req_all {
         push_tombstone(&mut bundle.deleted_http_requests, id, now);

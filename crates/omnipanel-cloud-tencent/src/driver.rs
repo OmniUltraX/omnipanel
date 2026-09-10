@@ -2,19 +2,20 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use omnipanel_cloud_aliyun::{
-    AliyunCredentials, CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage,
+    ACTION_ADD_RECORD, ACTION_ATTACH, ACTION_AUTHORIZE_RULE, ACTION_CREATE_SNAPSHOT,
+    ACTION_DELETE_RECORD, ACTION_DETACH, ACTION_MODIFY_BANDWIDTH, ACTION_REBOOT,
+    ACTION_REVOKE_RULE, ACTION_START, ACTION_STOP, ACTION_UPDATE_RECORD, AliyunCredentials,
+    CAP_CERTS, CAP_COMPUTE, CAP_COMPUTE_LITE, CAP_DATABASE, CAP_DATABASE_CACHE, CAP_DNS,
+    CAP_DOMAINS, CAP_LOAD_BALANCER, CAP_NETWORK_EIP, CAP_OBJECT_STORAGE, CAP_SECURITY_GROUP,
+    CAP_STORAGE_DISK, CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage,
     CloudLogQuery, CloudMetricQuery, CloudMetricSeries, CloudProviderDriver, CloudRegion,
-    CloudResourceDetail, CloudResourceFilter, CloudResourceRow, ACTION_ADD_RECORD, ACTION_ATTACH,
-    ACTION_AUTHORIZE_RULE, ACTION_CREATE_SNAPSHOT, ACTION_DELETE_RECORD, ACTION_DETACH,
-    ACTION_MODIFY_BANDWIDTH, ACTION_REBOOT, ACTION_REVOKE_RULE, ACTION_START, ACTION_STOP,
-    ACTION_UPDATE_RECORD, CAP_CERTS, CAP_COMPUTE, CAP_COMPUTE_LITE, CAP_DATABASE,
-    CAP_DATABASE_CACHE, CAP_DNS, CAP_DOMAINS, CAP_LOAD_BALANCER, CAP_NETWORK_EIP,
-    CAP_OBJECT_STORAGE, CAP_SECURITY_GROUP, CAP_STORAGE_DISK,
+    CloudResourceDetail, CloudResourceFilter, CloudResourceRow,
 };
 use omnipanel_error::OmniError;
 use reqwest::Client;
 use tokio::sync::Semaphore;
 
+use crate::DEFAULT_REGION;
 use crate::client::{
     associate_address, associate_cvm_security_groups, attach_disks, cdb_instance_action,
     create_snapshot, cvm_instance_action, describe_account_balance, describe_addresses,
@@ -24,29 +25,42 @@ use crate::client::{
     describe_lighthouse_firewall_rules, describe_lighthouse_instances, describe_load_balancers,
     describe_redis_instances, describe_redis_slow_log, describe_regions,
     describe_registered_domains, describe_security_group_policies, describe_security_groups,
-    describe_snapshots, get_monitor_data, get_user_app_id, lighthouse_instance_action, list_cos_buckets,
-    modify_address_bandwidth, modify_cdb_security_groups, modify_lighthouse_firewall,
-    modify_security_group_policies, mutate_dnspod_record, redis_restart, region_or_default, jstr,
+    describe_snapshots, get_monitor_data, get_user_app_id, jstr, lighthouse_instance_action,
+    list_cos_buckets, modify_address_bandwidth, modify_cdb_security_groups,
+    modify_lighthouse_firewall, modify_security_group_policies, mutate_dnspod_record,
+    redis_restart, region_or_default,
 };
 use crate::mapping::{
     attach_instance_disks, attach_snapshots, cdb_to_detail, cert_to_detail, cos_to_detail,
-    cvm_to_detail, default_metric_ids, disk_to_detail, domain_detail, eip_to_detail,
-    lb_to_detail, lighthouse_to_detail, map_account_balance_fields, map_cdb_row, map_cdb_sg_rule,
-    map_cert_row, map_cos_row, map_cvm_row, map_disk_row, map_dns_record, map_eip_row,
-    map_firewall_rule, map_lb_row, map_lighthouse_row, map_redis_row, map_region_row, map_sg_row,
-    map_snapshot_child, merge_domain_rows, monitor_dimension, monitor_namespace, monitor_series,
-    parse_slow_log_page, redis_to_detail, sg_policies_from_set, sg_to_detail, tencent_metric_name,
+    cvm_to_detail, default_metric_ids, disk_to_detail, domain_detail, eip_to_detail, lb_to_detail,
+    lighthouse_to_detail, map_account_balance_fields, map_cdb_row, map_cdb_sg_rule, map_cert_row,
+    map_cos_row, map_cvm_row, map_disk_row, map_dns_record, map_eip_row, map_firewall_rule,
+    map_lb_row, map_lighthouse_row, map_redis_row, map_region_row, map_sg_row, map_snapshot_child,
+    merge_domain_rows, monitor_dimension, monitor_namespace, monitor_series, parse_slow_log_page,
+    redis_to_detail, sg_policies_from_set, sg_to_detail, tencent_metric_name,
 };
-use crate::DEFAULT_REGION;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TencentCloudDriver;
 
-fn apply_row_filter(mut rows: Vec<CloudResourceRow>, filter: &CloudResourceFilter) -> Vec<CloudResourceRow> {
-    if let Some(status) = filter.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+fn apply_row_filter(
+    mut rows: Vec<CloudResourceRow>,
+    filter: &CloudResourceFilter,
+) -> Vec<CloudResourceRow> {
+    if let Some(status) = filter
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         rows.retain(|row| row.status.eq_ignore_ascii_case(status));
     }
-    if let Some(query) = filter.query.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(query) = filter
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let q = query.to_ascii_lowercase();
         rows.retain(|row| {
             row.name.to_ascii_lowercase().contains(&q)
@@ -202,8 +216,9 @@ async fn get_merged_domain(
             .map(map_dns_record)
             .collect()
     };
-    domain_detail(reg, zone, records)
-        .ok_or_else(|| last_err.unwrap_or_else(|| OmniError::not_found(format!("未找到域名: {id}"))))
+    domain_detail(reg, zone, records).ok_or_else(|| {
+        last_err.unwrap_or_else(|| OmniError::not_found(format!("未找到域名: {id}")))
+    })
 }
 
 fn first_or_not_found(
@@ -733,9 +748,8 @@ impl CloudProviderDriver for TencentCloudDriver {
         if id.is_empty() {
             return Err(OmniError::invalid_input("缺少资源 id"));
         }
-        let namespace = monitor_namespace(capability).ok_or_else(|| {
-            OmniError::invalid_input(format!("该能力不支持监控: {capability}"))
-        })?;
+        let namespace = monitor_namespace(capability)
+            .ok_or_else(|| OmniError::invalid_input(format!("该能力不支持监控: {capability}")))?;
         let region = if region_id.trim().is_empty() {
             region_or_default(creds)
         } else {

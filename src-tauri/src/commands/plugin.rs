@@ -10,8 +10,8 @@ use omnipanel_plugin::{
     PluginPermission, PluginPlatform, PluginRegistry, PluginSource, load_installed,
 };
 use omnipanel_store::{
-    plugin_secret_ref, AppModuleStatus, AuditEntry, ConnectionKind, PLUGIN_MODULE_SORT_ORDER,
-    Storage, Vault,
+    AppModuleStatus, AuditEntry, ConnectionKind, PLUGIN_MODULE_SORT_ORDER, Storage, Vault,
+    plugin_secret_ref,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -295,7 +295,11 @@ pub(crate) async fn sync_plugin_app_modules(state: &State<'_, AppState>) {
             .filter(|item| item.kind == PluginKind::Module)
             .filter_map(|item| {
                 let key = registry.module_key_of(&item.id)?;
-                Some((key, PLUGIN_MODULE_SORT_ORDER, item.enabled && item.activated))
+                Some((
+                    key,
+                    PLUGIN_MODULE_SORT_ORDER,
+                    item.enabled && item.activated,
+                ))
             })
             .collect()
     };
@@ -448,7 +452,10 @@ pub(crate) async fn install_plugin_from_path(
 
     {
         let registry = state.plugin_registry.lock().await;
-        if first_party_id_conflict(registry.is_installed(&plugin_id), registry.get(&plugin_id).is_some()) {
+        if first_party_id_conflict(
+            registry.is_installed(&plugin_id),
+            registry.get(&plugin_id).is_some(),
+        ) {
             return Err(OmniError::invalid_input(format!(
                 "插件 id 与内置插件冲突: {plugin_id}"
             )));
@@ -566,10 +573,12 @@ pub async fn plugin_uninstall(
     }
     if let Some(dest_root) = state.plugin_packages_dir.clone() {
         let id = plugin_id.clone();
-        tokio::task::spawn_blocking(move || omnipanel_plugin_pkg::purge_plugin_dirs(&dest_root, &id))
-            .await
-            .map_err(|e| OmniError::internal(e.to_string()))?
-            .map_err(pkg_err_to_omni)?;
+        tokio::task::spawn_blocking(move || {
+            omnipanel_plugin_pkg::purge_plugin_dirs(&dest_root, &id)
+        })
+        .await
+        .map_err(|e| OmniError::internal(e.to_string()))?
+        .map_err(pkg_err_to_omni)?;
     }
     {
         let store = state.storage.lock().await;
@@ -781,12 +790,16 @@ pub async fn plugin_set_enabled(
 }
 
 /// 若 args 含 connectionId，把对应 `kind=service` 连接的 config 合并进去（AI / 扫描只传 id）。
-fn merge_service_connection_args(args: &mut Value, plugin_id: &str, conn: &omnipanel_store::Connection) {
+fn merge_service_connection_args(
+    args: &mut Value,
+    plugin_id: &str,
+    conn: &omnipanel_store::Connection,
+) {
     if conn.kind != ConnectionKind::Service {
         return;
     }
-    let parsed: Value = serde_json::from_str(&conn.config)
-        .unwrap_or_else(|_| Value::Object(Default::default()));
+    let parsed: Value =
+        serde_json::from_str(&conn.config).unwrap_or_else(|_| Value::Object(Default::default()));
     let cfg_plugin = parsed
         .get("pluginId")
         .and_then(|v| v.as_str())
@@ -1214,7 +1227,13 @@ pub async fn plugin_secret_put(
     }
     let reference = plugin_secret_ref(&plugin_id, &key)?;
     Vault::store(&reference, &secret)?;
-    audit_plugin_action(&state, "plugin.secret", &plugin_id, "success", format!("put {key}"));
+    audit_plugin_action(
+        &state,
+        "plugin.secret",
+        &plugin_id,
+        "success",
+        format!("put {key}"),
+    );
     Ok(())
 }
 
@@ -1244,7 +1263,13 @@ pub async fn plugin_secret_get(
     require_plugin_vault(&state, &plugin_id).await?;
     let reference = plugin_secret_ref(&plugin_id, &key)?;
     let secret = Vault::get(&reference)?;
-    audit_plugin_action(&state, "plugin.secret", &plugin_id, "success", format!("get {key}"));
+    audit_plugin_action(
+        &state,
+        "plugin.secret",
+        &plugin_id,
+        "success",
+        format!("get {key}"),
+    );
     Ok(secret)
 }
 

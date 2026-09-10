@@ -1,12 +1,11 @@
 //! 助手端同步：采集本机脱敏元数据并上传 OSS。
 
 use omnipanel_assistant::{
-    AuthContext, CollectContext, ModuleEncryptor, OssUploadResult, PushOptions,
-    PushSnapshotResult, assemble_modules, default_collectors, fetch_oss_sts, push_snapshot,
-    sanitize_ai_model_meta, sanitize_assistant_conversation_meta, sanitize_connection_meta,
-    sanitize_db_connection_meta, sanitize_http_request_meta, sanitize_knowledge_meta,
-    sanitize_task_meta, sanitize_terminal_session_meta, upload_object_bytes,
-    upload_snapshot_json,
+    AuthContext, CollectContext, ModuleEncryptor, OssUploadResult, PushOptions, PushSnapshotResult,
+    assemble_modules, default_collectors, fetch_oss_sts, push_snapshot, sanitize_ai_model_meta,
+    sanitize_assistant_conversation_meta, sanitize_connection_meta, sanitize_db_connection_meta,
+    sanitize_http_request_meta, sanitize_knowledge_meta, sanitize_task_meta,
+    sanitize_terminal_session_meta, upload_object_bytes, upload_snapshot_json,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{ConnectionKind, load_database_connections};

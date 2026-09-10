@@ -6,7 +6,7 @@ use omnipanel_error::OmniError;
 use reqwest::Client;
 use serde_json::Value;
 
-use crate::client::{json_list, json_total_count, str_field, AliyunCredentials};
+use crate::client::{AliyunCredentials, json_list, json_total_count, str_field};
 use crate::types::{CloudAction, CloudChildRow};
 
 #[derive(Debug, Clone, Default)]
@@ -64,7 +64,10 @@ fn parse_lb(item: &Value, region: &str) -> CloudLoadBalancer {
 }
 
 impl AliyunCredentials {
-    pub async fn list_load_balancers(&self, http: &Client) -> Result<Vec<CloudLoadBalancer>, OmniError> {
+    pub async fn list_load_balancers(
+        &self,
+        http: &Client,
+    ) -> Result<Vec<CloudLoadBalancer>, OmniError> {
         let region = self.region.trim();
         let endpoint = slb_endpoint(region)?;
         let mut out = Vec::new();
@@ -75,7 +78,13 @@ impl AliyunCredentials {
             params.insert("PageNumber".into(), page.to_string());
             params.insert("PageSize".into(), "50".into());
             let body = self
-                .rpc_call(http, &endpoint, "2014-05-15", "DescribeLoadBalancers", params)
+                .rpc_call(
+                    http,
+                    &endpoint,
+                    "2014-05-15",
+                    "DescribeLoadBalancers",
+                    params,
+                )
                 .await?;
             let items = json_list(&body, "LoadBalancers", "LoadBalancer");
             let count = items.len();
@@ -164,7 +173,13 @@ impl AliyunCredentials {
         params.insert("LoadBalancerId".into(), lb_id.trim().to_string());
         params.insert("LoadBalancerStatus".into(), status.to_string());
         let _ = self
-            .rpc_call(http, &endpoint, "2014-05-15", "SetLoadBalancerStatus", params)
+            .rpc_call(
+                http,
+                &endpoint,
+                "2014-05-15",
+                "SetLoadBalancerStatus",
+                params,
+            )
             .await?;
         Ok(())
     }
@@ -188,7 +203,10 @@ impl AliyunCredentials {
         };
         let mut params = BTreeMap::new();
         params.insert("RegionId".into(), region.to_string());
-        params.insert("LoadBalancerId".into(), action.resource_id.trim().to_string());
+        params.insert(
+            "LoadBalancerId".into(),
+            action.resource_id.trim().to_string(),
+        );
         params.insert("ListenerPort".into(), port);
         let _ = self
             .rpc_call(http, &endpoint, "2014-05-15", api, params)

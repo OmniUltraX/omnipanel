@@ -1,4 +1,5 @@
 import { commands } from "../../ipc/bindings";
+import { setAssistantSnapshotSyncHook } from "../../lib/assistantSnapshotSyncBridge";
 
 import type {
 
@@ -133,6 +134,9 @@ export function scheduleAssistantSnapshotSync(options?: {
   }, DEBOUNCE_MS);
 
 }
+
+// 注册到桥接模块，供 store 侧解耦调用（切断 assistant ↔ store 的循环依赖）。
+setAssistantSnapshotSyncHook(scheduleAssistantSnapshotSync);
 
 
 

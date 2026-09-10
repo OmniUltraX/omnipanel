@@ -1,4 +1,4 @@
-﻿//! 独立设备标签清理工具（无需运行 OmniPanel 应用）。
+//! 独立设备标签清理工具（无需运行 OmniPanel 应用）。
 //!
 //! 背景：旧版同步在上传时会给所有资源补当前设备名标签；应用启动会自动拉取云端快照，
 //! 若云端仍是旧标签，手动删除的设备名标签会被还原。本工具在应用关闭时运行：
@@ -41,10 +41,9 @@ use omnipanel_assistant::{
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_store::{
     Connection, DbConnectionConfig, HttpCollection, HttpEnvironment, KnowledgeEntry,
-    SavedHttpRequest, SshKeyRecord, Storage, SYNC_KIND_MODULES, decode_sync_blob_with_sources,
+    SYNC_KIND_MODULES, SavedHttpRequest, SshKeyRecord, Storage, decode_sync_blob_with_sources,
     encrypt_sync_team_blob, get_or_create_sync_team_key, load_database_connections_from,
-    load_sync_team_key, migrate_device_tags_to_creator, omnipd_root,
-    save_database_connections_to,
+    load_sync_team_key, migrate_device_tags_to_creator, omnipd_root, save_database_connections_to,
 };
 use serde::{Deserialize, Serialize};
 
@@ -403,7 +402,12 @@ async fn login_email(
     }
 
     let expire = parsed.expire_in_sec.unwrap_or(300).max(1);
-    let code = match parsed.code.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let code = match parsed
+        .code
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(code) => {
             println!("验证码已回显: {code}（有效期 {expire} 秒，直接使用）");
             code.to_string()
@@ -414,9 +418,9 @@ async fn login_email(
             }
             println!("已向 {email} 发送验证码（有效期 {expire} 秒），请查收并输入: ");
             let mut input = String::new();
-            std::io::stdin()
-                .read_line(&mut input)
-                .map_err(|e| OmniError::new(ErrorCode::Io, "读取验证码输入失败").with_cause(e.to_string()))?;
+            std::io::stdin().read_line(&mut input).map_err(|e| {
+                OmniError::new(ErrorCode::Io, "读取验证码输入失败").with_cause(e.to_string())
+            })?;
             let input = input.trim().to_string();
             if input.is_empty() {
                 return Err(OmniError::new(ErrorCode::InvalidInput, "验证码不能为空"));
@@ -440,9 +444,10 @@ async fn login_email(
             OmniError::new(ErrorCode::Connection, "邮箱登录失败").with_cause(e.to_string())
         })?;
     let status = resp.status();
-    let body = resp.text().await.map_err(|e| {
-        OmniError::new(ErrorCode::Io, "读取登录响应失败").with_cause(e.to_string())
-    })?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| OmniError::new(ErrorCode::Io, "读取登录响应失败").with_cause(e.to_string()))?;
     let parsed: ApiTokenLoginResponse = serde_json::from_str(&body).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析登录响应失败")
             .with_cause(format!("{e}; body={body}"))
@@ -525,7 +530,10 @@ async fn fetch_me(http: &reqwest::Client, token: &str) -> OmniResult<AccountProf
         OmniError::new(ErrorCode::Io, "读取用户信息响应失败").with_cause(e.to_string())
     })?;
     if status.as_u16() == 401 {
-        return Err(OmniError::new(ErrorCode::Auth, "登录已失效，请更新 token 后重试"));
+        return Err(OmniError::new(
+            ErrorCode::Auth,
+            "登录已失效，请更新 token 后重试",
+        ));
     }
     let parsed: ApiUserResponse = serde_json::from_str(&body).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析用户信息失败")
@@ -582,7 +590,10 @@ async fn fetch_device_names(
         OmniError::new(ErrorCode::Io, "读取设备列表响应失败").with_cause(e.to_string())
     })?;
     if status.as_u16() == 401 {
-        return Err(OmniError::new(ErrorCode::Auth, "登录已失效，请更新 token 后重试"));
+        return Err(OmniError::new(
+            ErrorCode::Auth,
+            "登录已失效，请更新 token 后重试",
+        ));
     }
     let parsed: ApiDeviceListResponse = serde_json::from_str(&body).map_err(|e| {
         OmniError::new(ErrorCode::Internal, "解析设备列表失败")
@@ -785,9 +796,7 @@ impl TagCleanup {
     /// 先迁移后删除：显式删除优先，例如删除 creator 标签后不会被迁移逻辑补回。
     fn apply(&self, tags: &mut Vec<String>) -> TagChange {
         let mut change = TagChange::default();
-        if self.migrate
-            && migrate_device_tags_to_creator(tags, &self.device_names, &self.current)
-        {
+        if self.migrate && migrate_device_tags_to_creator(tags, &self.device_names, &self.current) {
             change.migrated = true;
         }
         if self.removal_requested() && remove_specified_tags(tags, &self.remove) {
@@ -818,7 +827,10 @@ fn bump_tags(map: &mut BTreeMap<String, usize>, tags: &[String]) {
 }
 
 /// 统计指定 scope（SQLite 库 + 数据库连接 JSON）各标签覆盖的资源数。
-fn collect_local_tags(db_path: &Path, connections_path: &Path) -> OmniResult<BTreeMap<String, usize>> {
+fn collect_local_tags(
+    db_path: &Path,
+    connections_path: &Path,
+) -> OmniResult<BTreeMap<String, usize>> {
     let storage = Storage::open(db_path, None)?;
     let mut map = BTreeMap::new();
     for conn in storage.list_connections()? {
@@ -1104,7 +1116,10 @@ async fn push_team_bundle(
     let (team_key, _) = get_or_create_sync_team_key(team.id)?;
     let body = encrypt_sync_team_blob(&team_key, team.id, SYNC_KIND_MODULES, &plaintext)?;
     let uploaded = push_team_sync_json(auth, team.id, TEAM_MODULES_LATEST_LEAF, &body).await?;
-    println!("已推送清洗后的快照: {} ({} 字节)", uploaded.object_key, uploaded.bytes);
+    println!(
+        "已推送清洗后的快照: {} ({} 字节)",
+        uploaded.object_key, uploaded.bytes
+    );
     Ok(())
 }
 
@@ -1150,7 +1165,10 @@ async fn run_list_tags(
         http: http.clone(),
     };
     for team in target_teams(team_id, &me)? {
-        let title = format!("\n云端 [团队 {} · id={} · {}]", team.name, team.id, team.kind);
+        let title = format!(
+            "\n云端 [团队 {} · id={} · {}]",
+            team.name, team.id, team.kind
+        );
         match pull_team_bundle(&auth, &me, &team).await {
             Ok(Some(bundle)) => {
                 println!("{title}");
@@ -1174,7 +1192,10 @@ async fn run(args: &Args) -> OmniResult<()> {
         })?;
 
     let identity = load_device_identity()?;
-    println!("本机设备: {} ({})", identity.device_name, identity.device_id);
+    println!(
+        "本机设备: {} ({})",
+        identity.device_name, identity.device_id
+    );
 
     // 凭证优先级：--token > --email 登录 > 环境变量（--list-tags 允许无凭证）
     let token = match args
@@ -1227,8 +1248,16 @@ async fn run(args: &Args) -> OmniResult<()> {
     };
     println!("本地数据范围（{} 个 scope）:", scopes.len());
     for scope in &scopes {
-        let mark = if scope.active { "（当前团队）" } else { "" };
-        println!("  scope={} {mark}: {}", scope.scope, scope.db_path.display());
+        let mark = if scope.active {
+            "（当前团队）"
+        } else {
+            ""
+        };
+        println!(
+            "  scope={} {mark}: {}",
+            scope.scope,
+            scope.db_path.display()
+        );
     }
 
     if args.list_tags {
@@ -1318,7 +1347,10 @@ async fn run(args: &Args) -> OmniResult<()> {
                 continue;
             }
             Err(e) => {
-                let msg = format!("团队 {} (id={}) 快照拉取/解密失败: {e:?}", team.name, team.id);
+                let msg = format!(
+                    "团队 {} (id={}) 快照拉取/解密失败: {e:?}",
+                    team.name, team.id
+                );
                 println!("警告: {msg}");
                 failures.push(msg);
                 continue;
@@ -1435,7 +1467,10 @@ mod tests {
     #[test]
     fn remove_specified_tags_handles_multiple() {
         let mut tags = str_vec(&["a", "b", "c"]);
-        assert!(remove_specified_tags(&mut tags, &["a".to_string(), "c".to_string()]));
+        assert!(remove_specified_tags(
+            &mut tags,
+            &["a".to_string(), "c".to_string()]
+        ));
         assert_eq!(tags, str_vec(&["b"]));
     }
 
@@ -1512,7 +1547,12 @@ mod tests {
 
     #[test]
     fn parse_args_flags_without_value() {
-        let args = parse_args_from(["--no-migrate".to_string(), "--list-tags".to_string(), "--dry-run".to_string()]).unwrap();
+        let args = parse_args_from([
+            "--no-migrate".to_string(),
+            "--list-tags".to_string(),
+            "--dry-run".to_string(),
+        ])
+        .unwrap();
         assert!(args.no_migrate);
         assert!(args.list_tags);
         assert!(args.dry_run);
@@ -1520,7 +1560,8 @@ mod tests {
 
     #[test]
     fn discover_local_scopes_only_picks_dirs_with_db_and_marks_active() {
-        let root = std::env::temp_dir().join(format!("tct-scopes-{}-{}", std::process::id(), line!()));
+        let root =
+            std::env::temp_dir().join(format!("tct-scopes-{}-{}", std::process::id(), line!()));
         let _ = std::fs::remove_dir_all(&root);
         for scope in ["1", "2", "local", "no-db"] {
             std::fs::create_dir_all(root.join(scope)).unwrap();
@@ -1544,7 +1585,8 @@ mod tests {
 
     #[test]
     fn read_active_scope_defaults_and_parses() {
-        let root = std::env::temp_dir().join(format!("tct-active-{}-{}", std::process::id(), line!()));
+        let root =
+            std::env::temp_dir().join(format!("tct-active-{}-{}", std::process::id(), line!()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 

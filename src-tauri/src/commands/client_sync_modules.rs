@@ -439,7 +439,9 @@ fn filter_tombstoned_resources(bundle: &mut ClientSyncModulesBundle) {
     }
     let kn_deleted = tombstone_ids(&bundle.deleted_knowledge);
     if !kn_deleted.is_empty() {
-        bundle.knowledge.retain(|entry| !kn_deleted.contains(&entry.id));
+        bundle
+            .knowledge
+            .retain(|entry| !kn_deleted.contains(&entry.id));
     }
     let col_deleted = tombstone_ids(&bundle.deleted_http_collections);
     if !col_deleted.is_empty() {
@@ -521,7 +523,10 @@ fn push_vault_secret(out: &mut Vec<ClientSyncVaultSecret>, reference: String) {
     }
 }
 
-pub(crate) fn collect_connection_vault_secrets(conn: &Connection, out: &mut Vec<ClientSyncVaultSecret>) {
+pub(crate) fn collect_connection_vault_secrets(
+    conn: &Connection,
+    out: &mut Vec<ClientSyncVaultSecret>,
+) {
     match conn.kind {
         ConnectionKind::Ssh => {
             push_vault_secret(out, ssh_password_ref(&conn.id));
@@ -1492,7 +1497,10 @@ fn parse_custom_panels_peek(raw: Option<&str>) -> Vec<ClientSyncPeekItem> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .unwrap_or(id);
-        let created_at = panel.get("createdAt").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let created_at = panel
+            .get("createdAt")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         let widget_n = panel
             .get("widgets")
             .and_then(|v| v.as_array())
@@ -1669,7 +1677,6 @@ fn build_connection_peek_items(
     out
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1785,10 +1792,12 @@ mod tests {
 
         assert_eq!(bundle.http_collections.len(), 2);
         assert_eq!(bundle.workspaces.len(), 2);
-        assert!(bundle
-            .custom_panels_json
-            .as_deref()
-            .unwrap_or_default()
-            .contains("p-del"));
+        assert!(
+            bundle
+                .custom_panels_json
+                .as_deref()
+                .unwrap_or_default()
+                .contains("p-del")
+        );
     }
 }

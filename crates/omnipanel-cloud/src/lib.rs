@@ -6,11 +6,11 @@ use omnipanel_error::OmniError;
 use reqwest::Client;
 
 pub use omnipanel_cloud_aliyun::{
-    is_write_action, CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage,
-    CloudLogQuery, CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail,
-    CloudResourceFilter, CloudResourceRow, PLUGIN_ID_ALIYUN,
+    CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
+    CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail, CloudResourceFilter,
+    CloudResourceRow, PLUGIN_ID_ALIYUN, is_write_action,
 };
-pub use omnipanel_cloud_tencent::{PLUGIN_ID_TENCENT, DEFAULT_REGION as TENCENT_DEFAULT_REGION};
+pub use omnipanel_cloud_tencent::{DEFAULT_REGION as TENCENT_DEFAULT_REGION, PLUGIN_ID_TENCENT};
 
 pub fn resolve_plugin_id(raw: &str) -> Result<String, OmniError> {
     let value = raw.trim();

@@ -8,7 +8,7 @@ import {
 } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
 import { clearSshAuthHold } from "../modules/server/ssh/sshAuthHold";
-import { scheduleAssistantSnapshotSync } from "../modules/assistant";
+import { notifyAssistantSnapshotSync } from "../lib/assistantSnapshotSyncBridge";
 import { scheduleClientModuleSync } from "../modules/clientSync";
 import { recordModuleTombstones } from "../modules/clientSync/tombstones";
 import {
@@ -191,7 +191,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
               : [saved, ...state.connections];
           return { connections: next };
         });
-        scheduleAssistantSnapshotSync();
+        notifyAssistantSnapshotSync();
         if (!isNameOnlyChange(connection, existing, "name")) {
           scheduleClientModuleSync();
         }
@@ -226,7 +226,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       set((state) => ({
         connections: state.connections.map((c) => savedMap.get(c.id) ?? c),
       }));
-      scheduleAssistantSnapshotSync();
+      notifyAssistantSnapshotSync();
       scheduleClientModuleSync();
     } catch (e) {
       set({ error: String(e) });
@@ -245,7 +245,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           forceReleaseSshPoolSession(id);
         }
         recordModuleTombstones("connection", [id]);
-        scheduleAssistantSnapshotSync();
+        notifyAssistantSnapshotSync();
         scheduleClientModuleSync();
       } else {
         set({ error: res.error.message });
@@ -300,7 +300,7 @@ export async function syncFromOpenSshConfig(
     );
     if (res.status === "ok") {
       await useConnectionStore.getState().refresh();
-      scheduleAssistantSnapshotSync();
+      notifyAssistantSnapshotSync();
       return res.data;
     }
     useConnectionStore.setState({ error: res.error.message });

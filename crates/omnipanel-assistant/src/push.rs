@@ -11,7 +11,7 @@ use crate::error::{AssistantErrorKind, map_assistant_error_with_cause};
 use crate::notify::{SnapshotNotifyRequest, normalize_snapshot_dir, notify_snapshot_uploaded};
 use crate::oss::upload_snapshot_json;
 use crate::sts::{AuthContext, fetch_oss_sts};
-use crate::types::{SnapshotOverview, SnapshotBundle, build_snapshot_bundle};
+use crate::types::{SnapshotBundle, SnapshotOverview, build_snapshot_bundle};
 
 /// 模块加密回调：接收 module_id 和明文字节，返回加密后的信封字节。
 pub type ModuleEncryptor = Arc<dyn Fn(&str, &[u8]) -> OmniResult<Vec<u8>> + Send + Sync>;
@@ -199,25 +199,16 @@ fn apply_module_encryption(
         if let Some(overview_file) = bundle.files.last_mut() {
             let mut overview: SnapshotOverview = serde_json::from_slice(&overview_file.body)
                 .map_err(|e| {
-                    map_assistant_error_with_cause(
-                        AssistantErrorKind::Encode,
-                        e.to_string(),
-                        "",
-                    )
+                    map_assistant_error_with_cause(AssistantErrorKind::Encode, e.to_string(), "")
                 })?;
             for mid in &encrypted_ids {
                 if let Some(entry) = overview.modules.section_mut(mid) {
                     entry.encrypted = true;
                 }
             }
-            overview_file.body = serde_json::to_vec_pretty(&overview)
-                .map_err(|e| {
-                    map_assistant_error_with_cause(
-                        AssistantErrorKind::Encode,
-                        e.to_string(),
-                        "",
-                    )
-                })?;
+            overview_file.body = serde_json::to_vec_pretty(&overview).map_err(|e| {
+                map_assistant_error_with_cause(AssistantErrorKind::Encode, e.to_string(), "")
+            })?;
         }
     }
 

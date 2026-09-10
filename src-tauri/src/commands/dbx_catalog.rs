@@ -259,11 +259,7 @@ fn pick_artifact<'a>(
 fn artifact_file_name(url: &str) -> Option<&str> {
     let bare = url.split('?').next().unwrap_or(url);
     let name = bare.rsplit('/').next()?;
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 fn downloads_for(artifact: &Artifact, stats: &GithubReleaseStats) -> Option<u64> {

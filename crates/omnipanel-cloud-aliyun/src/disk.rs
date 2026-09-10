@@ -6,7 +6,7 @@ use omnipanel_error::OmniError;
 use reqwest::Client;
 use serde_json::Value;
 
-use crate::client::{json_list, json_total_count, str_field, AliyunCredentials};
+use crate::client::{AliyunCredentials, json_list, json_total_count, str_field};
 use crate::types::{CloudAction, CloudChildRow};
 
 #[derive(Debug, Clone, Default)]
@@ -269,11 +269,7 @@ impl AliyunCredentials {
         params.insert("DiskId".into(), action.resource_id.trim().to_string());
         if let Some(id) = {
             let v = action.param("instanceId");
-            if v.is_empty() {
-                None
-            } else {
-                Some(v)
-            }
+            if v.is_empty() { None } else { Some(v) }
         } {
             params.insert("InstanceId".into(), id);
         }
@@ -306,11 +302,7 @@ impl AliyunCredentials {
         params.insert("DiskId".into(), disk_id);
         if let Some(name) = {
             let v = action.param("name");
-            if v.is_empty() {
-                None
-            } else {
-                Some(v)
-            }
+            if v.is_empty() { None } else { Some(v) }
         } {
             params.insert("SnapshotName".into(), name);
         }
@@ -345,11 +337,7 @@ impl AliyunCredentials {
         params.insert("DiskId".into(), disk_id);
         if let Some(name) = {
             let v = action.param("name");
-            if v.is_empty() {
-                None
-            } else {
-                Some(v)
-            }
+            if v.is_empty() { None } else { Some(v) }
         } {
             params.insert("SnapshotName".into(), name);
         }
@@ -382,6 +370,9 @@ mod tests {
         assert_eq!(row.kind, "snapshot");
         assert_eq!(row.status, "accomplished");
         assert_eq!(row.fields.get("type").map(String::as_str), Some("timer"));
-        assert_eq!(row.fields.get("sourceDisk").map(String::as_str), Some("d-1"));
+        assert_eq!(
+            row.fields.get("sourceDisk").map(String::as_str),
+            Some("d-1")
+        );
     }
 }

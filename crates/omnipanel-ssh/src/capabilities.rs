@@ -2623,9 +2623,15 @@ note:v2
 
     #[test]
     fn bt_md5_token_is_not_usable_api_key() {
-        assert!(!panel_api_key_usable("bt", "0123456789abcdef0123456789abcdef"));
+        assert!(!panel_api_key_usable(
+            "bt",
+            "0123456789abcdef0123456789abcdef"
+        ));
         assert!(panel_api_key_usable("bt", "u6dS9qE1pyRZDnTp"));
-        assert!(panel_api_key_usable("1panel", "0123456789abcdef0123456789abcdef"));
+        assert!(panel_api_key_usable(
+            "1panel",
+            "0123456789abcdef0123456789abcdef"
+        ));
         assert!(!panel_api_key_usable("bt", ""));
     }
 
@@ -2633,7 +2639,8 @@ note:v2
     fn parse_enable_prefixed_ok() {
         let key = "abc123Key";
         let key_b64 = base64::engine::general_purpose::STANDARD.encode(key);
-        let out = format!("@RESULT:ok\napi_key:b64,{key_b64}\nmessage:ok done\nrestarted:1\n@END\n");
+        let out =
+            format!("@RESULT:ok\napi_key:b64,{key_b64}\nmessage:ok done\nrestarted:1\n@END\n");
         let res = parse_enable_panel_api_output("1panel", &out).unwrap();
         assert_eq!(res.api_key, key);
     }

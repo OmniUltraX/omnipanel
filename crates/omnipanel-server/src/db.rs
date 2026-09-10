@@ -121,7 +121,10 @@ pub async fn db_save_connection(
             .map_err(|e| e.to_string())?
             .is_some();
     if !existed {
-        ensure_creator_tag(&mut connection.tags, &crate::auth_cmds::current_device_name());
+        ensure_creator_tag(
+            &mut connection.tags,
+            &crate::auth_cmds::current_device_name(),
+        );
     }
     state
         .db_connections

@@ -67,14 +67,17 @@ impl TokenStore {
             action: action.to_string(),
             target: target.to_string(),
         };
-        self.grants.lock().unwrap_or_else(|e| e.into_inner()).insert(
-            token,
-            Grant {
-                action: action.to_string(),
-                target: target.to_string(),
-                expires_at_ms,
-            },
-        );
+        self.grants
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                token,
+                Grant {
+                    action: action.to_string(),
+                    target: target.to_string(),
+                    expires_at_ms,
+                },
+            );
         Ok(issued)
     }
 
@@ -124,7 +127,9 @@ mod tests {
     #[test]
     fn consume_ok_then_reuse_fails() {
         let (store, _) = store_at(1_000);
-        let issued = store.issue("db.service.restart", "ssh|mysql|host|a").unwrap();
+        let issued = store
+            .issue("db.service.restart", "ssh|mysql|host|a")
+            .unwrap();
         require_grant(
             &store,
             Some(&issued.token),
@@ -147,13 +152,7 @@ mod tests {
         let (store, _) = store_at(1_000);
         let issued = store.issue("db.service.restart", "t1").unwrap();
         assert!(
-            require_grant(
-                &store,
-                Some(&issued.token),
-                "db.schema.drop_database",
-                "t1",
-            )
-            .is_err()
+            require_grant(&store, Some(&issued.token), "db.schema.drop_database", "t1",).is_err()
         );
         let issued = store.issue("db.service.restart", "t1").unwrap();
         assert!(require_grant(&store, Some(&issued.token), "db.service.restart", "t2").is_err());

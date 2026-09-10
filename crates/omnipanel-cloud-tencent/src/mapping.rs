@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use omnipanel_cloud_aliyun::{
-    CloudChildRow, CloudLogEntry, CloudLogPage, CloudMetricPoint, CloudMetricSeries,
-    CloudNetworkRule, CloudRelatedRef, CloudRegion, CloudResourceDetail, CloudResourceRow,
     CAP_CERTS, CAP_COMPUTE, CAP_COMPUTE_LITE, CAP_DATABASE, CAP_DATABASE_CACHE, CAP_DOMAINS,
     CAP_LOAD_BALANCER, CAP_NETWORK_EIP, CAP_OBJECT_STORAGE, CAP_SECURITY_GROUP, CAP_STORAGE_DISK,
+    CloudChildRow, CloudLogEntry, CloudLogPage, CloudMetricPoint, CloudMetricSeries,
+    CloudNetworkRule, CloudRegion, CloudRelatedRef, CloudResourceDetail, CloudResourceRow,
 };
 use serde_json::Value;
 
@@ -177,7 +177,10 @@ pub fn map_cvm_row(item: &Value, region: &str) -> CloudResourceRow {
             ("os", jstr(item, &["OsName", "ImageId"])),
             ("creationTime", jstr(item, &["CreatedTime", "CreationTime"])),
             ("expiredTime", jstr(item, &["ExpiredTime"])),
-            ("chargeType", jstr(item, &["InstanceChargeType", "ChargeType"])),
+            (
+                "chargeType",
+                jstr(item, &["InstanceChargeType", "ChargeType"]),
+            ),
             ("securityGroups", sg_ids(item)),
             ("cpu", jstr(item, &["CPU", "Cpu"])),
             ("memory", jstr(item, &["Memory"])),
@@ -198,7 +201,13 @@ pub fn cvm_to_detail(item: &Value, region: &str) -> CloudResourceDetail {
             "https://console.cloud.tencent.com/cvm/instance/detail?rid=&id={id}&regionId={region_id}"
         )),
     );
-    detail.related = related_security_groups(detail.fields.get("securityGroups").map(String::as_str).unwrap_or(""));
+    detail.related = related_security_groups(
+        detail
+            .fields
+            .get("securityGroups")
+            .map(String::as_str)
+            .unwrap_or(""),
+    );
     if let Some(vpc) = related_vpc(detail.fields.get("vpcId").map(String::as_str).unwrap_or("")) {
         detail.related.push(vpc);
     }
@@ -290,7 +299,10 @@ pub fn map_sg_row(item: &Value, region: &str) -> CloudResourceRow {
         },
         fields: field_map(&[
             ("vpcId", vpc_of(item)),
-            ("description", jstr(item, &["SecurityGroupDesc", "Description"])),
+            (
+                "description",
+                jstr(item, &["SecurityGroupDesc", "Description"]),
+            ),
             ("creationTime", jstr(item, &["CreatedTime", "CreationTime"])),
             ("projectId", jstr(item, &["ProjectId"])),
         ]),
@@ -327,7 +339,11 @@ pub fn sg_policies_from_set(body: &Value) -> Vec<CloudNetworkRule> {
     rules
 }
 
-pub fn sg_to_detail(item: &Value, region: &str, rules: Vec<CloudNetworkRule>) -> CloudResourceDetail {
+pub fn sg_to_detail(
+    item: &Value,
+    region: &str,
+    rules: Vec<CloudNetworkRule>,
+) -> CloudResourceDetail {
     let mut row = map_sg_row(item, region);
     if !rules.is_empty() {
         row.fields
@@ -357,10 +373,16 @@ pub fn map_eip_row(item: &Value, region: &str) -> CloudResourceRow {
         status: jstr(item, &["AddressStatus", "Status"]),
         fields: field_map(&[
             ("publicIp", ip),
-            ("bandwidth", jstr(item, &["Bandwidth", "InternetMaxBandwidthOut"])),
+            (
+                "bandwidth",
+                jstr(item, &["Bandwidth", "InternetMaxBandwidthOut"]),
+            ),
             ("instanceId", jstr(item, &["InstanceId"])),
             ("instanceType", jstr(item, &["InstanceType"])),
-            ("chargeType", jstr(item, &["InternetChargeType", "ChargeType"])),
+            (
+                "chargeType",
+                jstr(item, &["InternetChargeType", "ChargeType"]),
+            ),
         ]),
     }
 }
@@ -407,9 +429,18 @@ pub fn map_lb_row(item: &Value, region: &str) -> CloudResourceRow {
         status: map_instance_status(&jstr(item, &["Status", "LoadBalancerStatus"])),
         fields: field_map(&[
             ("publicIp", jips(item, &["LoadBalancerVips", "Address"])),
-            ("addressType", jstr(item, &["LoadBalancerType", "AddressIPVersion"])),
-            ("instanceClass", jstr(item, &["LoadBalancerPassToTarget", "Forward"])),
-            ("bandwidth", jstr(item, &["Bandwidth", "InternetMaxBandwidthOut"])),
+            (
+                "addressType",
+                jstr(item, &["LoadBalancerType", "AddressIPVersion"]),
+            ),
+            (
+                "instanceClass",
+                jstr(item, &["LoadBalancerPassToTarget", "Forward"]),
+            ),
+            (
+                "bandwidth",
+                jstr(item, &["Bandwidth", "InternetMaxBandwidthOut"]),
+            ),
             ("vpcId", vpc_of(item)),
         ]),
     }
@@ -476,14 +507,20 @@ pub fn map_cdb_row(item: &Value, region: &str) -> CloudResourceRow {
         region_id: region_of(item, region),
         status: map_instance_status(&jstr(item, &["Status"])),
         fields: field_map(&[
-            ("engine", nonempty_or(jstr(item, &["EngineType", "DeviceType"]), "MySQL")),
+            (
+                "engine",
+                nonempty_or(jstr(item, &["EngineType", "DeviceType"]), "MySQL"),
+            ),
             ("engineVersion", jstr(item, &["EngineVersion"])),
             ("instanceClass", jstr(item, &["Memory", "InstanceType"])),
             ("storage", jstr(item, &["Volume", "DiskSize"])),
             ("zone", zone_of(item)),
             (
                 "connectionString",
-                nonempty_or(jstr(item, &["Vip", "WanDomain"]), jstr(item, &["UniqVpcId"])),
+                nonempty_or(
+                    jstr(item, &["Vip", "WanDomain"]),
+                    jstr(item, &["UniqVpcId"]),
+                ),
             ),
             ("port", jstr(item, &["Vport", "WanPort"])),
             ("vpcId", vpc_of(item)),
@@ -544,8 +581,14 @@ pub fn map_redis_row(item: &Value, region: &str) -> CloudResourceRow {
         region_id: region_of(item, region),
         status: map_instance_status(&jstr(item, &["Status"])),
         fields: field_map(&[
-            ("engine", nonempty_or(jstr(item, &["Type", "ProductType"]), "Redis")),
-            ("engineVersion", jstr(item, &["CurrentRedisVersion", "RedisVersion"])),
+            (
+                "engine",
+                nonempty_or(jstr(item, &["Type", "ProductType"]), "Redis"),
+            ),
+            (
+                "engineVersion",
+                jstr(item, &["CurrentRedisVersion", "RedisVersion"]),
+            ),
             ("instanceClass", jstr(item, &["Size", "RedisShardSize"])),
             ("capacity", jstr(item, &["Size"])),
             ("zone", zone_of(item)),
@@ -612,7 +655,11 @@ pub fn map_snapshot_child(item: &Value) -> CloudChildRow {
     }
 }
 
-pub fn disk_to_detail(item: &Value, region: &str, snapshots: Vec<CloudChildRow>) -> CloudResourceDetail {
+pub fn disk_to_detail(
+    item: &Value,
+    region: &str,
+    snapshots: Vec<CloudChildRow>,
+) -> CloudResourceDetail {
     let row = map_disk_row(item, region);
     let id = row.id.clone();
     let region_id = row.region_id.clone();
@@ -650,11 +697,19 @@ pub fn attach_instance_disks(detail: &mut CloudResourceDetail, disks: &[Value]) 
         let name = display_name(&jstr(disk, &["DiskName"]), &id);
         let size = jstr(disk, &["DiskSize"]);
         let usage = jstr(disk, &["DiskUsage"]);
-        let label = [name, if size.is_empty() { String::new() } else { format!("{size}GB") }, usage]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(" · ");
+        let label = [
+            name,
+            if size.is_empty() {
+                String::new()
+            } else {
+                format!("{size}GB")
+            },
+            usage,
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
         detail.related.push(CloudRelatedRef {
             capability: CAP_STORAGE_DISK.into(),
             resource_id: id,
@@ -739,7 +794,10 @@ pub fn map_registered_domain_row(item: &Value) -> CloudResourceRow {
         fields: field_map(&[
             ("domain", name),
             ("type", jstr(item, &["Tld", "DomainType"])),
-            ("registrationDate", jstr(item, &["CreationDate", "CreateTime"])),
+            (
+                "registrationDate",
+                jstr(item, &["CreationDate", "CreateTime"]),
+            ),
             (
                 "expirationDate",
                 jstr(item, &["ExpirationDate", "ExpireTime", "ExpiredDate"]),
@@ -894,7 +952,10 @@ pub fn parse_slow_log_page(kind: &str, body: &Value, page: i64) -> CloudLogPage 
             let sql = jstr(item, &["SqlText", "Sql", "Command", "Query"]);
             let ts = jstr(item, &["Timestamp", "ExecuteTime", "QueryTime", "Date"]);
             CloudLogEntry {
-                id: format!("{}:{index}", jstr(item, &["Database", "UserHost", "Client"])),
+                id: format!(
+                    "{}:{index}",
+                    jstr(item, &["Database", "UserHost", "Client"])
+                ),
                 ts_ms: parse_log_ts(&ts),
                 severity: "slow".into(),
                 summary: sql.chars().take(240).collect(),
@@ -928,7 +989,11 @@ fn parse_log_ts(raw: &str) -> i64 {
         return 0;
     }
     if let Ok(n) = trimmed.parse::<i64>() {
-        return if n > 1_000_000_000_000 { n } else { n.saturating_mul(1000) };
+        return if n > 1_000_000_000_000 {
+            n
+        } else {
+            n.saturating_mul(1000)
+        };
     }
     chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S")
         .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%SZ"))
@@ -961,7 +1026,10 @@ fn parse_monitor_points(body: &Value) -> Vec<CloudMetricPoint> {
             .cloned()
             .unwrap_or_default();
         for (ts, val) in timestamps.iter().zip(values.iter()) {
-            let ts_raw = ts.as_i64().or_else(|| ts.as_u64().map(|n| n as i64)).unwrap_or(0);
+            let ts_raw = ts
+                .as_i64()
+                .or_else(|| ts.as_u64().map(|n| n as i64))
+                .unwrap_or(0);
             let value = val
                 .as_f64()
                 .or_else(|| val.as_i64().map(|n| n as f64))
@@ -1088,9 +1156,18 @@ mod tests {
         );
         assert_eq!(row.capability, CAP_COMPUTE);
         assert_eq!(row.status, "RUNNING");
-        assert_eq!(row.fields.get("publicIp").map(String::as_str), Some("1.1.1.1"));
-        assert_eq!(row.fields.get("instanceType").map(String::as_str), Some("S5.MEDIUM2"));
-        assert_eq!(row.fields.get("zone").map(String::as_str), Some("ap-guangzhou-3"));
+        assert_eq!(
+            row.fields.get("publicIp").map(String::as_str),
+            Some("1.1.1.1")
+        );
+        assert_eq!(
+            row.fields.get("instanceType").map(String::as_str),
+            Some("S5.MEDIUM2")
+        );
+        assert_eq!(
+            row.fields.get("zone").map(String::as_str),
+            Some("ap-guangzhou-3")
+        );
         assert_eq!(row.fields.get("vpcId").map(String::as_str), Some("vpc-1"));
     }
 
@@ -1106,7 +1183,10 @@ mod tests {
         assert_eq!(child.kind, "dnsRecord");
         assert_eq!(child.fields.get("rr").map(String::as_str), Some("www"));
         assert_eq!(child.fields.get("type").map(String::as_str), Some("A"));
-        assert_eq!(child.fields.get("value").map(String::as_str), Some("1.2.3.4"));
+        assert_eq!(
+            child.fields.get("value").map(String::as_str),
+            Some("1.2.3.4")
+        );
         assert_eq!(child.fields.get("ttl").map(String::as_str), Some("600"));
     }
 }

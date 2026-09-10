@@ -7,11 +7,10 @@ use omnipanel_error::OmniError;
 use reqwest::Client;
 use serde_json::Value;
 
-use crate::client::{json_list, json_total_count, str_field, AliyunCredentials};
+use crate::client::{AliyunCredentials, json_list, json_total_count, str_field};
 use crate::types::{
-    clamp_aliyun_slow_log_page_size, clamp_aliyun_slow_log_window, CloudAction, CloudLogEntry,
-    CloudLogPage, CloudLogQuery,
-    CloudNetworkRule,
+    CloudAction, CloudLogEntry, CloudLogPage, CloudLogQuery, CloudNetworkRule,
+    clamp_aliyun_slow_log_page_size, clamp_aliyun_slow_log_window,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -106,7 +105,10 @@ fn parse_whitelist(body: &Value) -> Vec<CloudNetworkRule> {
 }
 
 impl AliyunCredentials {
-    pub async fn list_kv_instances(&self, http: &Client) -> Result<Vec<CloudKvInstance>, OmniError> {
+    pub async fn list_kv_instances(
+        &self,
+        http: &Client,
+    ) -> Result<Vec<CloudKvInstance>, OmniError> {
         let region = self.region.trim();
         let endpoint = endpoint(region)?;
         let mut out = Vec::new();
@@ -141,7 +143,13 @@ impl AliyunCredentials {
         let mut params = BTreeMap::new();
         params.insert("InstanceId".into(), instance_id.trim().to_string());
         let body = self
-            .rpc_call(http, &endpoint, "2015-01-01", "DescribeInstanceAttribute", params)
+            .rpc_call(
+                http,
+                &endpoint,
+                "2015-01-01",
+                "DescribeInstanceAttribute",
+                params,
+            )
             .await?;
         let items = json_list(&body, "Instances", "DBInstanceAttribute");
         let fallback = json_list(&body, "Instances", "KVStoreInstance");
@@ -252,7 +260,13 @@ impl AliyunCredentials {
         params.insert("OrderBy".into(), query.redis_order_by().into());
         params.insert("OrderType".into(), query.redis_order_type().into());
         let body = self
-            .rpc_call(http, &endpoint, "2015-01-01", "DescribeSlowLogRecords", params)
+            .rpc_call(
+                http,
+                &endpoint,
+                "2015-01-01",
+                "DescribeSlowLogRecords",
+                params,
+            )
             .await?;
         let entries = json_list(&body, "Items", "Log")
             .into_iter()

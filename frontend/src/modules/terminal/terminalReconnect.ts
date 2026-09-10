@@ -1,7 +1,7 @@
 import {
   clearPaneBackendPending,
   disposeSessionBackend,
-} from "../../hooks/useTerminal";
+} from "./terminalSessionBackendBridge";
 import { useTerminalStore } from "../../stores/terminalStore";
 import { clearTerminalPaneSender } from "./terminalPaneSenders";
 

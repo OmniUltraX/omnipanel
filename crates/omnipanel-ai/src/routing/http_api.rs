@@ -73,9 +73,7 @@ mod tests {
     #[test]
     fn bedrock_mantle_base_url_rewrite() {
         assert_eq!(
-            resolve_anthropic_messages_base_url(
-                "https://bedrock-mantle.eu-north-1.api.aws/v1"
-            ),
+            resolve_anthropic_messages_base_url("https://bedrock-mantle.eu-north-1.api.aws/v1"),
             "https://bedrock-mantle.eu-north-1.api.aws/anthropic/v1"
         );
         assert_eq!(

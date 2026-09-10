@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
-import { scheduleAssistantSnapshotSync } from "../modules/assistant";
+import { notifyAssistantSnapshotSync } from "../lib/assistantSnapshotSyncBridge";
 import type {
   LocalShellSpec,
   TerminalConnectionStatus,
@@ -305,7 +305,7 @@ export const useTerminalStore = create<TerminalState>()(
         set((state) => ({
           sessions: [...state.sessions, entity],
         }));
-        scheduleAssistantSnapshotSync();
+        notifyAssistantSnapshotSync();
         return entity.id;
       },
 
@@ -406,7 +406,7 @@ export const useTerminalStore = create<TerminalState>()(
                 : state.activeSessionId,
           };
         });
-        scheduleAssistantSnapshotSync();
+        notifyAssistantSnapshotSync();
       },
 
       renameSession: (sessionId, title) => {
@@ -416,7 +416,7 @@ export const useTerminalStore = create<TerminalState>()(
             tab.sessionId === sessionId ? { ...tab, title } : tab,
           ),
         }));
-        scheduleAssistantSnapshotSync();
+        notifyAssistantSnapshotSync();
       },
 
       touchSession: (sessionId, at = Date.now()) => {
@@ -528,7 +528,7 @@ export const useTerminalStore = create<TerminalState>()(
         });
         // 连接态变化需同步到助手端（创建时多为 connecting，连上后否则会一直卡住）
         if (changed) {
-          scheduleAssistantSnapshotSync();
+          notifyAssistantSnapshotSync();
         }
       },
 

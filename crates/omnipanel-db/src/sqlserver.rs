@@ -4,9 +4,9 @@
 //! `ssl` 只映射加密传输，不复用成 SYSDBA。
 
 use async_trait::async_trait;
+use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use omnipanel_error::{OmniError, OmniResult};
 use serde_json::{Value, json};
-use chrono::{Duration, NaiveDate, NaiveDateTime, NaiveTime};
 use tiberius::{AuthMethod, Client, ColumnData, Config, EncryptionLevel};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
@@ -115,8 +115,7 @@ fn format_naive_datetime(dt: NaiveDateTime) -> Value {
 }
 
 fn sqlserver_date_from(days: i64, start_year: i32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(start_year, 1, 1).unwrap_or(NaiveDate::MIN)
-        + Duration::days(days)
+    NaiveDate::from_ymd_opt(start_year, 1, 1).unwrap_or(NaiveDate::MIN) + Duration::days(days)
 }
 
 fn sqlserver_date(days: u32) -> NaiveDate {
@@ -159,7 +158,10 @@ mod tests {
     #[test]
     fn datetime_epoch_offset() {
         let dt = sqlserver_datetime(46259, 0);
-        assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-08-27 00:00:00");
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-27 00:00:00"
+        );
     }
 }
 

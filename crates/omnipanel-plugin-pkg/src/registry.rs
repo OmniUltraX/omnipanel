@@ -112,7 +112,10 @@ pub fn parse_registry(text: &str) -> Result<RegistryFile, PkgError> {
         .and_then(|p| p.as_array())
         .map(|arr| arr.iter().any(|item| item.get("versions").is_some()))
         .unwrap_or(false);
-    let schema_version = value.get("schemaVersion").and_then(|v| v.as_u64()).unwrap_or(0);
+    let schema_version = value
+        .get("schemaVersion")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     let mut file = if schema_version >= 2 || has_versions {
         serde_json::from_value::<RegistryFile>(value)
             .map_err(|e| PkgError::Registry(format!("v2 解析失败: {e}")))?
@@ -188,18 +191,13 @@ pub fn registry_is_signed(file: &RegistryFile) -> bool {
 }
 
 /// 验签 registry（任一 key 通过即放行；无 signature 视为未签名）。
-pub fn verify_registry(
-    file: &RegistryFile,
-    keys: &[VerifyingKey],
-) -> Result<(), PkgError> {
+pub fn verify_registry(file: &RegistryFile, keys: &[VerifyingKey]) -> Result<(), PkgError> {
     let sig_hex = file.signature.as_deref().map(str::trim).unwrap_or_default();
     if sig_hex.is_empty() {
         return Err(PkgError::UnsignedRejected);
     }
     let sig_bytes = hex::decode(sig_hex).map_err(|_| PkgError::BadSignature)?;
-    let sig_arr: [u8; 64] = sig_bytes
-        .try_into()
-        .map_err(|_| PkgError::BadSignature)?;
+    let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_| PkgError::BadSignature)?;
     let signature = Signature::from_bytes(&sig_arr);
     let message = canonical_registry_bytes(file)?;
     for key in keys {
@@ -302,7 +300,8 @@ mod tests {
 
     #[test]
     fn bad_version_rejected() {
-        let text = r#"{"schemaVersion":2,"plugins":[{"id":"a.b","versions":[{"version":"latest"}]}]}"#;
+        let text =
+            r#"{"schemaVersion":2,"plugins":[{"id":"a.b","versions":[{"version":"latest"}]}]}"#;
         assert!(parse_registry(text).is_err());
     }
 

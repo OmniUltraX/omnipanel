@@ -1,4 +1,4 @@
-﻿//! HTTP 请求历史与集合持久化。
+//! HTTP 请求历史与集合持久化。
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use rusqlite::params;
@@ -112,11 +112,10 @@ impl Storage {
             .map(|_| true)
             .or_else(|e| match e {
                 rusqlite::Error::QueryReturnedNoRows => Ok(false),
-                other => Err(OmniError::new(
-                    ErrorCode::Database,
-                    format!("查询 {table} 失败"),
-                )
-                .with_cause(other.to_string())),
+                other => Err(
+                    OmniError::new(ErrorCode::Database, format!("查询 {table} 失败"))
+                        .with_cause(other.to_string()),
+                ),
             })
     }
 

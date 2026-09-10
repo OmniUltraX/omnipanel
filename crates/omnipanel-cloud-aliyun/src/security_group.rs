@@ -6,7 +6,7 @@ use omnipanel_error::OmniError;
 use reqwest::Client;
 use serde_json::Value;
 
-use crate::client::{json_arr, json_list, json_total_count, str_field, AliyunCredentials};
+use crate::client::{AliyunCredentials, json_arr, json_list, json_total_count, str_field};
 use crate::types::{CloudAction, CloudNetworkRule};
 
 #[derive(Debug, Clone, Default)]
@@ -116,7 +116,13 @@ impl AliyunCredentials {
             params.insert("PageNumber".into(), page.to_string());
             params.insert("PageSize".into(), "50".into());
             let body = self
-                .rpc_call(http, &endpoint, "2014-05-26", "DescribeSecurityGroups", params)
+                .rpc_call(
+                    http,
+                    &endpoint,
+                    "2014-05-26",
+                    "DescribeSecurityGroups",
+                    params,
+                )
                 .await?;
             let items = json_list(&body, "SecurityGroups", "SecurityGroup");
             let count = items.len();
@@ -233,7 +239,10 @@ impl AliyunCredentials {
         };
         let mut params = BTreeMap::new();
         params.insert("RegionId".into(), region.to_string());
-        params.insert("SecurityGroupId".into(), action.resource_id.trim().to_string());
+        params.insert(
+            "SecurityGroupId".into(),
+            action.resource_id.trim().to_string(),
+        );
         params.insert(
             "IpProtocol".into(),
             nonempty_or(action.param("protocol").to_ascii_uppercase(), "TCP"),
@@ -242,8 +251,14 @@ impl AliyunCredentials {
             "PortRange".into(),
             nonempty_or(action.param("portRange"), "-1/-1"),
         );
-        params.insert("Policy".into(), nonempty_or(action.param("policy"), "accept"));
-        params.insert("NicType".into(), nonempty_or(action.param("nicType"), "intranet"));
+        params.insert(
+            "Policy".into(),
+            nonempty_or(action.param("policy"), "accept"),
+        );
+        params.insert(
+            "NicType".into(),
+            nonempty_or(action.param("nicType"), "intranet"),
+        );
         if let Some(prio) = nonempty_opt(action.param("priority")) {
             params.insert("Priority".into(), prio);
         }
@@ -284,7 +299,10 @@ impl AliyunCredentials {
         };
         let mut params = BTreeMap::new();
         params.insert("RegionId".into(), region.to_string());
-        params.insert("SecurityGroupId".into(), action.resource_id.trim().to_string());
+        params.insert(
+            "SecurityGroupId".into(),
+            action.resource_id.trim().to_string(),
+        );
         if let Some(rule_id) = nonempty_opt(action.param("ruleId")) {
             params.insert("SecurityGroupRuleId.1".into(), rule_id);
         } else {
@@ -296,7 +314,10 @@ impl AliyunCredentials {
                 "PortRange".into(),
                 nonempty_or(action.param("portRange"), "-1/-1"),
             );
-            params.insert("NicType".into(), nonempty_or(action.param("nicType"), "intranet"));
+            params.insert(
+                "NicType".into(),
+                nonempty_or(action.param("nicType"), "intranet"),
+            );
             let cidr = action.param("cidr");
             if !cidr.is_empty() {
                 if direction == "egress" {
@@ -413,11 +434,7 @@ fn nonempty_or(value: String, fallback: &str) -> String {
 }
 
 fn nonempty_opt(value: String) -> Option<String> {
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
+    if value.is_empty() { None } else { Some(value) }
 }
 
 #[cfg(test)]

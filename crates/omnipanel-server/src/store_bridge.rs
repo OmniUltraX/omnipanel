@@ -42,7 +42,10 @@ pub async fn conn_save(
     let storage = state.storage.lock().await;
     // 新建连接时打 creator 标签，标记创建设备（多设备同步时区分来源）
     if storage.get_connection(&connection.id)?.is_none() {
-        ensure_creator_tag(&mut connection.tags, &crate::auth_cmds::current_device_name());
+        ensure_creator_tag(
+            &mut connection.tags,
+            &crate::auth_cmds::current_device_name(),
+        );
     }
     storage.save_connection(&connection)?;
     Ok(connection)

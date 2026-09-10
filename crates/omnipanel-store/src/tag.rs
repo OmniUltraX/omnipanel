@@ -1614,19 +1614,37 @@ mod tests {
 
     #[test]
     fn migrate_device_tags_replaces_device_name_with_creator() {
-        let mut tags = vec!["Laptop-A".to_string(), "os:Linux".to_string(), "prod".to_string()];
+        let mut tags = vec![
+            "Laptop-A".to_string(),
+            "os:Linux".to_string(),
+            "prod".to_string(),
+        ];
         let names = vec!["Laptop-A".to_string(), "Desktop-B".to_string()];
         let changed = migrate_device_tags_to_creator(&mut tags, &names, "Desktop-B");
         assert!(changed);
-        assert_eq!(tags, vec!["os:Linux".to_string(), "prod".to_string(), "creator:Laptop-A".to_string()]);
+        assert_eq!(
+            tags,
+            vec![
+                "os:Linux".to_string(),
+                "prod".to_string(),
+                "creator:Laptop-A".to_string()
+            ]
+        );
     }
 
     #[test]
     fn migrate_device_tags_is_idempotent() {
         let mut tags = vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()];
         let names = vec!["Laptop-A".to_string()];
-        assert!(!migrate_device_tags_to_creator(&mut tags, &names, "Desktop-B"));
-        assert_eq!(tags, vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()]);
+        assert!(!migrate_device_tags_to_creator(
+            &mut tags,
+            &names,
+            "Desktop-B"
+        ));
+        assert_eq!(
+            tags,
+            vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()]
+        );
     }
 
     #[test]
@@ -1641,24 +1659,42 @@ mod tests {
     #[test]
     fn migrate_device_tags_falls_back_to_current_device() {
         let mut tags = vec!["os:Linux".to_string()];
-        let changed = migrate_device_tags_to_creator(&mut tags, &["Laptop-A".to_string()].as_slice(), " Desktop-B ");
+        let changed = migrate_device_tags_to_creator(
+            &mut tags,
+            &["Laptop-A".to_string()].as_slice(),
+            " Desktop-B ",
+        );
         assert!(changed);
-        assert_eq!(tags, vec!["os:Linux".to_string(), "creator:Desktop-B".to_string()]);
+        assert_eq!(
+            tags,
+            vec!["os:Linux".to_string(), "creator:Desktop-B".to_string()]
+        );
     }
 
     #[test]
     fn migrate_device_tags_without_creator_source_adds_nothing() {
         let mut tags = vec!["os:Linux".to_string()];
-        assert!(!migrate_device_tags_to_creator(&mut tags, &["Laptop-A".to_string()], "  "));
+        assert!(!migrate_device_tags_to_creator(
+            &mut tags,
+            &["Laptop-A".to_string()],
+            "  "
+        ));
         assert_eq!(tags, vec!["os:Linux".to_string()]);
     }
 
     #[test]
     fn migrate_device_tags_trims_and_skips_empty_device_names() {
         let mut tags = vec![" Laptop-A ".to_string(), "os:Linux".to_string()];
-        let changed = migrate_device_tags_to_creator(&mut tags, &[" Laptop-A ".to_string(), "  ".to_string()].as_slice(), "Desktop-B");
+        let changed = migrate_device_tags_to_creator(
+            &mut tags,
+            &[" Laptop-A ".to_string(), "  ".to_string()].as_slice(),
+            "Desktop-B",
+        );
         assert!(changed);
-        assert_eq!(tags, vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()]);
+        assert_eq!(
+            tags,
+            vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()]
+        );
     }
 
     #[test]

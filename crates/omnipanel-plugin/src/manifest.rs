@@ -44,7 +44,9 @@ impl PluginDependencyDecl {
                 "dependencies 禁止自依赖".into(),
             ));
         }
-        parse_version_req(&self.version_req).map(|_| ()).map_err(PluginError::InvalidManifest)
+        parse_version_req(&self.version_req)
+            .map(|_| ())
+            .map_err(PluginError::InvalidManifest)
     }
 }
 

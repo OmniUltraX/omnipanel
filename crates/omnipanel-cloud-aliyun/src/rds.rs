@@ -7,11 +7,10 @@ use omnipanel_error::OmniError;
 use reqwest::Client;
 use serde_json::Value;
 
-use crate::client::{json_list, json_total_count, str_field, AliyunCredentials};
+use crate::client::{AliyunCredentials, json_list, json_total_count, str_field};
 use crate::types::{
-    clamp_aliyun_slow_log_page_size, clamp_aliyun_slow_log_window, CloudAction, CloudChildRow,
-    CloudLogEntry, CloudLogPage,
-    CloudLogQuery, CloudNetworkRule,
+    CloudAction, CloudChildRow, CloudLogEntry, CloudLogPage, CloudLogQuery, CloudNetworkRule,
+    clamp_aliyun_slow_log_page_size, clamp_aliyun_slow_log_window,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -116,7 +115,10 @@ fn parse_slow_ts(raw: &str) -> i64 {
 }
 
 impl AliyunCredentials {
-    pub async fn list_rds_instances(&self, http: &Client) -> Result<Vec<CloudRdsInstance>, OmniError> {
+    pub async fn list_rds_instances(
+        &self,
+        http: &Client,
+    ) -> Result<Vec<CloudRdsInstance>, OmniError> {
         let region = self.region.trim();
         let endpoint = rds_endpoint(region)?;
         let mut out = Vec::new();
@@ -215,8 +217,14 @@ impl AliyunCredentials {
         if cidr.is_empty() {
             return Err(OmniError::invalid_input("请填写 CIDR / IP"));
         }
-        self.modify_rds_whitelist(http, &action.resource_id, &action.param("nicType"), "Append", &cidr)
-            .await
+        self.modify_rds_whitelist(
+            http,
+            &action.resource_id,
+            &action.param("nicType"),
+            "Append",
+            &cidr,
+        )
+        .await
     }
 
     pub async fn revoke_rds_whitelist(
@@ -228,8 +236,14 @@ impl AliyunCredentials {
         if cidr.is_empty() {
             return Err(OmniError::invalid_input("缺少要删除的 IP"));
         }
-        self.modify_rds_whitelist(http, &action.resource_id, &action.param("nicType"), "Delete", &cidr)
-            .await
+        self.modify_rds_whitelist(
+            http,
+            &action.resource_id,
+            &action.param("nicType"),
+            "Delete",
+            &cidr,
+        )
+        .await
     }
 
     async fn modify_rds_whitelist(
@@ -282,7 +296,13 @@ impl AliyunCredentials {
             params.insert("DBName".into(), db.to_string());
         }
         let body = self
-            .rpc_call(http, &endpoint, "2014-08-15", "DescribeSlowLogRecords", params)
+            .rpc_call(
+                http,
+                &endpoint,
+                "2014-08-15",
+                "DescribeSlowLogRecords",
+                params,
+            )
             .await?;
         let items = json_list(&body, "Items", "SQLSlowRecord");
         let entries = items
@@ -426,7 +446,10 @@ impl AliyunCredentials {
                 status: str_field(item, &["ParameterValue"]),
                 fields: child_fields(&[
                     ("value", str_field(item, &["ParameterValue"])),
-                    ("default", str_field(item, &["ParameterDefaultValue", "DefaultValue"])),
+                    (
+                        "default",
+                        str_field(item, &["ParameterDefaultValue", "DefaultValue"]),
+                    ),
                     ("description", str_field(item, &["ParameterDescription"])),
                 ]),
             })

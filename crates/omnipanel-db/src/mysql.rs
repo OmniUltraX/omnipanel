@@ -360,10 +360,7 @@ fn mysql_bit_bytes_to_value(bytes: &[u8]) -> Value {
 }
 
 fn is_mysql_text_type(type_name: &str) -> bool {
-    matches!(
-        type_name,
-        "text" | "tinytext" | "mediumtext" | "longtext"
-    )
+    matches!(type_name, "text" | "tinytext" | "mediumtext" | "longtext")
 }
 
 fn is_mysql_blob_type(type_name: &str) -> bool {
@@ -412,7 +409,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        is_mysql_blob_type, is_mysql_text_protocol_only, is_mysql_text_type, mysql_bit_bytes_to_value,
+        is_mysql_blob_type, is_mysql_text_protocol_only, is_mysql_text_type,
+        mysql_bit_bytes_to_value,
     };
     use serde_json::json;
 

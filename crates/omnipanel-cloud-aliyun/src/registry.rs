@@ -32,7 +32,10 @@ mod tests {
     fn empty_and_legacy_aliyun_resolve() {
         assert_eq!(resolve_plugin_id("").unwrap(), PLUGIN_ID_ALIYUN);
         assert_eq!(resolve_plugin_id("aliyun").unwrap(), PLUGIN_ID_ALIYUN);
-        assert_eq!(resolve_plugin_id("omni.cloud.aliyun").unwrap(), PLUGIN_ID_ALIYUN);
+        assert_eq!(
+            resolve_plugin_id("omni.cloud.aliyun").unwrap(),
+            PLUGIN_ID_ALIYUN
+        );
         assert!(driver_for("aliyun").is_ok());
     }
 

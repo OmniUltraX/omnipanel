@@ -460,15 +460,9 @@ async fn build_http_provider(
             );
             Ok(Box::new(RenamedProvider::new(provider_id, inner)))
         }
-        omnipanel_ai::routing::HttpInferenceApi::OpenAiChatCompletions => {
-            Ok(Box::new(OpenAiProvider::with_client(
-                provider_id,
-                &api_key,
-                base_url,
-                Vec::new(),
-                Some(client),
-            )))
-        }
+        omnipanel_ai::routing::HttpInferenceApi::OpenAiChatCompletions => Ok(Box::new(
+            OpenAiProvider::with_client(provider_id, &api_key, base_url, Vec::new(), Some(client)),
+        )),
     }
 }
 

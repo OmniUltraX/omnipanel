@@ -49,10 +49,9 @@ fn request_for_window(reason: &str, hwnd: isize) -> OmniResult<UserConsentVerifi
         windows::core::factory::<UserConsentVerifier, IUserConsentVerifierInterop>()
             .map_err(|e| presence_denied(format!("无法调起 Windows Hello: {e}")))?;
     let hwnd = HWND(hwnd as *mut c_void);
-    let op: IAsyncOperation<UserConsentVerificationResult> = unsafe {
-        interop.RequestVerificationForWindowAsync(hwnd, &HSTRING::from(reason))
-    }
-    .map_err(|e| presence_denied(format!("调起系统验证失败: {e}")))?;
+    let op: IAsyncOperation<UserConsentVerificationResult> =
+        unsafe { interop.RequestVerificationForWindowAsync(hwnd, &HSTRING::from(reason)) }
+            .map_err(|e| presence_denied(format!("调起系统验证失败: {e}")))?;
     op.get()
         .map_err(|e| presence_denied(format!("系统验证失败: {e}")))
 }

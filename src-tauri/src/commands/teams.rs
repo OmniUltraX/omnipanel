@@ -716,8 +716,7 @@ pub async fn team_create_invite(
         digits_from_json(parsed.invite_code.as_ref())
     };
     if code.len() != 6 {
-        return Err(OmniError::new(ErrorCode::Internal, "邀请码响应无效")
-            .with_cause(body));
+        return Err(OmniError::new(ErrorCode::Internal, "邀请码响应无效").with_cause(body));
     }
 
     let expires_at = json_to_expires_at(parsed.expires_at.as_ref());
@@ -771,7 +770,10 @@ pub async fn team_join_by_invite(
 
     let nested = parsed.team.or(parsed.item);
     Ok(TeamSummary {
-        id: parsed.id.or_else(|| nested.as_ref().and_then(|t| t.id)).unwrap_or(0),
+        id: parsed
+            .id
+            .or_else(|| nested.as_ref().and_then(|t| t.id))
+            .unwrap_or(0),
         name: parsed
             .name
             .or_else(|| nested.as_ref().and_then(|t| t.name.clone()))
@@ -871,8 +873,9 @@ pub async fn team_mesh_auth_key(
                 .and_then(|p| p.code.as_deref())
                 .is_some_and(|c| c.eq_ignore_ascii_case("mesh_unavailable"))
         {
-            return Err(OmniError::new(ErrorCode::Connection, "团队 mesh 暂不可用")
-                .with_cause(body));
+            return Err(
+                OmniError::new(ErrorCode::Connection, "团队 mesh 暂不可用").with_cause(body)
+            );
         }
         return Err(parse_api_error(&body, status, "申请 mesh 入网凭证失败"));
     }
@@ -892,8 +895,7 @@ pub async fn team_mesh_auth_key(
         .to_string();
     let hostname = parsed.hostname.unwrap_or_default().trim().to_string();
     if auth_key.is_empty() || control_server_url.is_empty() {
-        return Err(OmniError::new(ErrorCode::Internal, "mesh 凭证响应不完整")
-            .with_cause(body));
+        return Err(OmniError::new(ErrorCode::Internal, "mesh 凭证响应不完整").with_cause(body));
     }
     Ok(TeamMeshAuth {
         auth_key,

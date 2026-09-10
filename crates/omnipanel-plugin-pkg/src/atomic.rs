@@ -74,9 +74,7 @@ fn replace_dir(src: &Path, dst: &Path) -> Result<(), PkgError> {
 
 fn read_dir_version(dir: &Path) -> Option<String> {
     let text = fs::read_to_string(dir.join("plugin.json")).ok()?;
-    PluginManifest::from_json(&text)
-        .ok()
-        .map(|m| m.version)
+    PluginManifest::from_json(&text).ok().map(|m| m.version)
 }
 
 /// 读 staging 清单并做启用预检（含 minHostApi）。id 必须与目标一致。
@@ -191,7 +189,10 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let v1 = pack_manifest(temp.path(), "omni.addon.demo", "1.0.0", "");
         extract_and_swap(&v1, &root, "omni.addon.demo").unwrap();
-        assert_eq!(installed_version(&root, "omni.addon.demo").as_deref(), Some("1.0.0"));
+        assert_eq!(
+            installed_version(&root, "omni.addon.demo").as_deref(),
+            Some("1.0.0")
+        );
 
         let v2 = pack_manifest(
             temp.path(),
@@ -201,7 +202,10 @@ mod tests {
         );
         let err = extract_and_swap(&v2, &root, "omni.addon.demo").unwrap_err();
         assert!(matches!(err, PkgError::Manifest(_)), "{err}");
-        assert_eq!(installed_version(&root, "omni.addon.demo").as_deref(), Some("1.0.0"));
+        assert_eq!(
+            installed_version(&root, "omni.addon.demo").as_deref(),
+            Some("1.0.0")
+        );
         assert!(!staging_dir(&root, "omni.addon.demo").exists());
     }
 
@@ -214,7 +218,10 @@ mod tests {
         extract_and_swap(&v1, &root, "omni.addon.demo").unwrap();
         let v2 = pack_manifest(temp.path(), "omni.addon.demo", "2.0.0", "");
         extract_and_swap(&v2, &root, "omni.addon.demo").unwrap();
-        assert_eq!(installed_version(&root, "omni.addon.demo").as_deref(), Some("2.0.0"));
+        assert_eq!(
+            installed_version(&root, "omni.addon.demo").as_deref(),
+            Some("2.0.0")
+        );
         assert_eq!(
             read_dir_version(&last_good_dir(&root, "omni.addon.demo")).as_deref(),
             Some("1.0.0")
@@ -234,7 +241,10 @@ mod tests {
 
         fs::write(live_dir(&root, "omni.addon.demo").join("broken"), b"x").unwrap();
         assert!(restore_last_good(&root, "omni.addon.demo").unwrap());
-        assert_eq!(installed_version(&root, "omni.addon.demo").as_deref(), Some("1.0.0"));
+        assert_eq!(
+            installed_version(&root, "omni.addon.demo").as_deref(),
+            Some("1.0.0")
+        );
     }
 
     #[test]
@@ -249,7 +259,10 @@ mod tests {
         fs::write(leftover.join("junk"), b"x").unwrap();
         cleanup_staging_root(&root).unwrap();
         assert!(!staging_root(&root).exists());
-        assert_eq!(installed_version(&root, "omni.addon.demo").as_deref(), Some("1.0.0"));
+        assert_eq!(
+            installed_version(&root, "omni.addon.demo").as_deref(),
+            Some("1.0.0")
+        );
     }
 
     #[test]
@@ -280,9 +293,18 @@ mod tests {
             "omni.addon.c",
         )
         .unwrap();
-        assert_eq!(installed_version(&root, "omni.addon.a").as_deref(), Some("2.0.0"));
-        assert_eq!(installed_version(&root, "omni.addon.b").as_deref(), Some("1.0.0"));
-        assert_eq!(installed_version(&root, "omni.addon.c").as_deref(), Some("2.0.0"));
+        assert_eq!(
+            installed_version(&root, "omni.addon.a").as_deref(),
+            Some("2.0.0")
+        );
+        assert_eq!(
+            installed_version(&root, "omni.addon.b").as_deref(),
+            Some("1.0.0")
+        );
+        assert_eq!(
+            installed_version(&root, "omni.addon.c").as_deref(),
+            Some("2.0.0")
+        );
     }
 
     #[test]

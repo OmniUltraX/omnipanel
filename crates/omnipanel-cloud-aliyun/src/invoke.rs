@@ -78,7 +78,9 @@ pub fn default_http_client() -> Result<Client, OmniError> {
     Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
-        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e.to_string()))
+        .map_err(|e| {
+            OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e.to_string())
+        })
 }
 
 /// InvokeGateway 入口：解析 JSON 参数并调用 Driver。凭据只存在此次调用栈。
@@ -127,10 +129,9 @@ pub async fn handle_invoke(method: &str, args: Value) -> Result<Value, OmniError
             serde_json::to_value(detail).map_err(|e| OmniError::internal(e.to_string()))
         }
         "invokeAction" => {
-            let action: CloudAction = serde_json::from_value(
-                args.get("action").cloned().unwrap_or_else(|| args.clone()),
-            )
-            .map_err(|e| OmniError::invalid_input(e.to_string()))?;
+            let action: CloudAction =
+                serde_json::from_value(args.get("action").cloned().unwrap_or_else(|| args.clone()))
+                    .map_err(|e| OmniError::invalid_input(e.to_string()))?;
             let result = driver.invoke_action(&creds, &http, &action).await?;
             serde_json::to_value(result).map_err(|e| OmniError::internal(e.to_string()))
         }

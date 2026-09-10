@@ -7,7 +7,7 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_plugin::PluginManifest;
 use omnipanel_plugin_pkg::devkey::dev_signing_key;
 use omnipanel_plugin_pkg::{registry_plugin_from_dir, registry_plugin_from_packed};
-use omnipanel_store::{plugin_secret_ref, AuditEntry, Storage, Vault};
+use omnipanel_store::{AuditEntry, Storage, Vault, plugin_secret_ref};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -58,7 +58,10 @@ fn now_ms() -> i64 {
 }
 
 fn parse_repo(raw: Option<&str>) -> Result<String, OmniError> {
-    let repo = raw.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_REPO);
+    let repo = raw
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_REPO);
     let mut parts = repo.split('/');
     let owner = parts.next().unwrap_or("");
     let name = parts.next().unwrap_or("");
@@ -88,7 +91,10 @@ fn require_https_url(url: &str) -> Result<(), OmniError> {
 }
 
 /// 成功投稿时间戳 → 是否超限；超限返回需等待的毫秒。
-pub(crate) fn submit_quota(now_ms: i64, success_ts: &[i64]) -> Result<(u32, Option<i64>), OmniError> {
+pub(crate) fn submit_quota(
+    now_ms: i64,
+    success_ts: &[i64],
+) -> Result<(u32, Option<i64>), OmniError> {
     let window_start = now_ms.saturating_sub(SUBMIT_WINDOW_MS);
     let mut recent: Vec<i64> = success_ts
         .iter()
@@ -148,9 +154,7 @@ fn read_token() -> Result<String, OmniError> {
     match Vault::get(&reference) {
         Ok(secret) if !secret.trim().is_empty() => Ok(secret),
         Ok(_) => Err(OmniError::auth("未配置 GitHub token")),
-        Err(err) if err.code == ErrorCode::NotFound => {
-            Err(OmniError::auth("未配置 GitHub token"))
-        }
+        Err(err) if err.code == ErrorCode::NotFound => Err(OmniError::auth("未配置 GitHub token")),
         Err(err) => Err(err),
     }
 }
@@ -188,7 +192,13 @@ fn needs_manual_review(permissions: &[String]) -> bool {
         .any(|p| DANGEROUS_PERMISSIONS.contains(&p.as_str()))
 }
 
-pub(crate) fn assemble_issue(title_id: &str, version: &str, kind: &str, permissions: &[String], fragment_json: &str) -> (String, String) {
+pub(crate) fn assemble_issue(
+    title_id: &str,
+    version: &str,
+    kind: &str,
+    permissions: &[String],
+    fragment_json: &str,
+) -> (String, String) {
     let title = format!("[plugin-submission] {title_id} {version}");
     let perm_line = if permissions.is_empty() {
         "(none)".to_string()
@@ -229,9 +239,8 @@ pub(crate) fn assemble_issue(title_id: &str, version: &str, kind: &str, permissi
 
 fn load_manifest(project: &str) -> Result<PluginManifest, OmniError> {
     let dir = project_dir(project)?;
-    let text = std::fs::read_to_string(dir.join("plugin.json")).map_err(|_| {
-        OmniError::not_found(format!("工程缺少 plugin.json: {project}"))
-    })?;
+    let text = std::fs::read_to_string(dir.join("plugin.json"))
+        .map_err(|_| OmniError::not_found(format!("工程缺少 plugin.json: {project}")))?;
     let manifest =
         PluginManifest::from_json(&text).map_err(|e| OmniError::invalid_input(e.to_string()))?;
     manifest
@@ -269,8 +278,8 @@ fn build_fragment(
         )
         .map_err(|e| OmniError::internal(e.to_string()))?
     };
-    let json = serde_json::to_string_pretty(&plugin)
-        .map_err(|e| OmniError::internal(e.to_string()))?;
+    let json =
+        serde_json::to_string_pretty(&plugin).map_err(|e| OmniError::internal(e.to_string()))?;
     Ok((manifest, json))
 }
 
@@ -394,12 +403,7 @@ pub async fn plugin_submit_issue(
         let store = state.storage.lock().await;
         let ts = recent_submit_ts(&store, &project, now)?;
         if let Err(err) = submit_quota(now, &ts) {
-            audit(
-                &state,
-                &project,
-                "blocked",
-                "rate limited".into(),
-            );
+            audit(&state, &project, "blocked", "rate limited".into());
             return Err(err);
         }
     }
@@ -458,7 +462,11 @@ pub async fn plugin_submit_issue(
         audit(&state, &project, "failed", format!("github {status}"));
         let hint = serde_json::from_str::<serde_json::Value>(&text)
             .ok()
-            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_string))
+            .and_then(|v| {
+                v.get("message")
+                    .and_then(|m| m.as_str())
+                    .map(str::to_string)
+            })
             .unwrap_or_else(|| text.chars().take(180).collect());
         return Err(OmniError::connection(format!(
             "GitHub 建 issue 失败 ({status}): {hint}"
@@ -489,19 +497,13 @@ mod tests {
 
     #[test]
     fn github_token_ref_is_keyring_namespace() {
-        assert_eq!(
-            github_token_ref().unwrap(),
-            "plugin:studio:github-token"
-        );
+        assert_eq!(github_token_ref().unwrap(), "plugin:studio:github-token");
     }
 
     #[test]
     fn repo_parse_default_and_reject() {
         assert_eq!(parse_repo(None).unwrap(), DEFAULT_REPO);
-        assert_eq!(
-            parse_repo(Some(" acme/plugins ")).unwrap(),
-            "acme/plugins"
-        );
+        assert_eq!(parse_repo(Some(" acme/plugins ")).unwrap(), "acme/plugins");
         assert!(parse_repo(Some("https://github.com/a/b")).is_err());
         assert!(parse_repo(Some("a/b/c")).is_err());
     }
@@ -516,11 +518,7 @@ mod tests {
     #[test]
     fn fourth_submit_within_24h_is_rejected() {
         let now = 1_700_000_000_000;
-        let ts = [
-            now - 3_600_000,
-            now - 2_000_000,
-            now - 1_000_000,
-        ];
+        let ts = [now - 3_600_000, now - 2_000_000, now - 1_000_000];
         let err = submit_quota(now, &ts).unwrap_err();
         assert_eq!(err.code, ErrorCode::Permission);
         assert!(err.message.contains("3 次"));

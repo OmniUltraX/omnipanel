@@ -267,8 +267,7 @@ pub(crate) fn is_query(sql: &str) -> bool {
     [
         "select", "show", "with", "explain", "describe", "desc", "pragma", "values", "table",
         // Cypher 读路径（写语句仍以 CREATE/MERGE/DELETE 开头，走 DML）
-        "return", "match", "call", "unwind",
-        // CQL
+        "return", "match", "call", "unwind", // CQL
         "list",
     ]
     .iter()

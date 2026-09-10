@@ -6,7 +6,7 @@
 //! - `auth_ref`: keyring credential_ref（bearer token），库内无明文。
 
 use omnipanel_error::OmniResult;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use super::storage::{Storage, map_sqlite};
 
@@ -78,8 +78,9 @@ impl Storage {
                 "源 id 与 url 不能为空",
             ));
         }
-        let keys_json = serde_json::to_string(pinned_keys)
-            .map_err(|e| omnipanel_error::OmniError::invalid_input(format!("key 序列化失败: {e}")))?;
+        let keys_json = serde_json::to_string(pinned_keys).map_err(|e| {
+            omnipanel_error::OmniError::invalid_input(format!("key 序列化失败: {e}"))
+        })?;
         self.conn()
             .execute(
                 "INSERT INTO plugin_registry_sources
@@ -119,7 +120,9 @@ impl Storage {
             )
             .map_err(map_sqlite)?;
         if n == 0 {
-            return Err(omnipanel_error::OmniError::not_found(format!("未知源: {id}")));
+            return Err(omnipanel_error::OmniError::not_found(format!(
+                "未知源: {id}"
+            )));
         }
         Ok(())
     }
@@ -166,8 +169,9 @@ impl Storage {
 
     /// 直接覆盖 pinned keys（TOFU 首次 pin 用；调用方已验签）。
     pub fn registry_source_set_pinned(&self, id: &str, keys: &[String]) -> OmniResult<()> {
-        let keys_json = serde_json::to_string(keys)
-            .map_err(|e| omnipanel_error::OmniError::invalid_input(format!("key 序列化失败: {e}")))?;
+        let keys_json = serde_json::to_string(keys).map_err(|e| {
+            omnipanel_error::OmniError::invalid_input(format!("key 序列化失败: {e}"))
+        })?;
         let n = self
             .conn()
             .execute(
@@ -176,7 +180,9 @@ impl Storage {
             )
             .map_err(map_sqlite)?;
         if n == 0 {
-            return Err(omnipanel_error::OmniError::not_found(format!("未知源: {id}")));
+            return Err(omnipanel_error::OmniError::not_found(format!(
+                "未知源: {id}"
+            )));
         }
         Ok(())
     }
@@ -193,19 +199,22 @@ impl Storage {
             .optional()
             .map_err(map_sqlite)?;
         let Some((pinned_raw, pending)) = row else {
-            return Err(omnipanel_error::OmniError::not_found(format!("未知源: {id}")));
+            return Err(omnipanel_error::OmniError::not_found(format!(
+                "未知源: {id}"
+            )));
         };
         if pending.trim().is_empty() {
-            return Err(omnipanel_error::OmniError::invalid_input("没有待确认的 key"));
+            return Err(omnipanel_error::OmniError::invalid_input(
+                "没有待确认的 key",
+            ));
         }
         let mut keys = parse_keys(&pinned_raw);
         if !keys.iter().any(|k| k == pending.trim()) {
             keys.push(pending.trim().to_string());
         }
-        let keys_json =
-            serde_json::to_string(&keys).map_err(|e| {
-                omnipanel_error::OmniError::invalid_input(format!("key 序列化失败: {e}"))
-            })?;
+        let keys_json = serde_json::to_string(&keys).map_err(|e| {
+            omnipanel_error::OmniError::invalid_input(format!("key 序列化失败: {e}"))
+        })?;
         self.conn()
             .execute(
                 "UPDATE plugin_registry_sources SET pinned_keys = ?1, key_pending = '', updated_at = ?2 WHERE id = ?3",
@@ -226,14 +235,21 @@ mod tests {
         assert!(storage.registry_sources_list().unwrap().is_empty());
 
         storage
-            .registry_source_upsert("community", "https://example.com/registry.json", &["abc".into()], "")
+            .registry_source_upsert(
+                "community",
+                "https://example.com/registry.json",
+                &["abc".into()],
+                "",
+            )
             .unwrap();
         let listed = storage.registry_sources_list().unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].pinned_keys, vec!["abc".to_string()]);
         assert!(!listed[0].builtin);
 
-        storage.registry_source_set_enabled("community", false).unwrap();
+        storage
+            .registry_source_set_enabled("community", false)
+            .unwrap();
         assert!(!storage.registry_sources_list().unwrap()[0].enabled);
 
         storage
@@ -252,18 +268,27 @@ mod tests {
     fn key_rotation_staging_and_confirm() {
         let storage = Storage::open_in_memory().unwrap();
         storage
-            .registry_source_upsert("community", "https://example.com/r.json", &["k1".into()], "")
+            .registry_source_upsert(
+                "community",
+                "https://example.com/r.json",
+                &["k1".into()],
+                "",
+            )
             .unwrap();
-        storage.registry_source_stage_key("community", "k2").unwrap();
+        storage
+            .registry_source_stage_key("community", "k2")
+            .unwrap();
         assert_eq!(
             storage.registry_sources_list().unwrap()[0].key_pending,
             "k2"
         );
         let keys = storage.registry_source_confirm_key("community").unwrap();
         assert_eq!(keys, vec!["k1".to_string(), "k2".to_string()]);
-        assert!(storage.registry_sources_list().unwrap()[0]
-            .key_pending
-            .is_empty());
+        assert!(
+            storage.registry_sources_list().unwrap()[0]
+                .key_pending
+                .is_empty()
+        );
         // 无 pending 时确认报错
         assert!(storage.registry_source_confirm_key("community").is_err());
     }
@@ -271,7 +296,11 @@ mod tests {
     #[test]
     fn upsert_rejects_empty_and_never_escalates_builtin() {
         let storage = Storage::open_in_memory().unwrap();
-        assert!(storage.registry_source_upsert("", "https://x", &[], "").is_err());
+        assert!(
+            storage
+                .registry_source_upsert("", "https://x", &[], "")
+                .is_err()
+        );
         storage
             .registry_source_ensure_builtin("official", "https://example.com/o.json")
             .unwrap();

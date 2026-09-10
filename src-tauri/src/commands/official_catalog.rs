@@ -116,8 +116,11 @@ fn bundled_registry() -> RegistryFile {
 
 fn fill_first_party_gaps(registry: &mut RegistryFile) {
     let seed = bundled_registry();
-    let seed_by_id: HashMap<&str, &RegistryPlugin> =
-        seed.plugins.iter().map(|item| (item.id.as_str(), item)).collect();
+    let seed_by_id: HashMap<&str, &RegistryPlugin> = seed
+        .plugins
+        .iter()
+        .map(|item| (item.id.as_str(), item))
+        .collect();
     for plugin in &mut registry.plugins {
         if let Some(seed_item) = seed_by_id.get(plugin.id.as_str()) {
             if plugin.created_at.is_none() {
@@ -432,9 +435,9 @@ pub async fn plugin_official_install(
     if entry.distribution != PluginDistribution::Download {
         return Err(refuse_bundled_download(&plugin_id));
     }
-    let artifact = entry.artifact.ok_or_else(|| {
-        OmniError::invalid_input(format!("官方目录缺少下载地址: {plugin_id}"))
-    })?;
+    let artifact = entry
+        .artifact
+        .ok_or_else(|| OmniError::invalid_input(format!("官方目录缺少下载地址: {plugin_id}")))?;
     if artifact.url.trim().is_empty() {
         return Err(OmniError::invalid_input(format!(
             "官方目录缺少下载地址: {plugin_id}"
@@ -507,9 +510,12 @@ mod tests {
                 "missing first-party {id}"
             );
         }
-        assert!(registry.plugins.iter().all(|p| {
-            p.distribution == PluginDistribution::Bundled || p.artifact.is_some()
-        }));
+        assert!(
+            registry
+                .plugins
+                .iter()
+                .all(|p| { p.distribution == PluginDistribution::Bundled || p.artifact.is_some() })
+        );
     }
 
     #[test]

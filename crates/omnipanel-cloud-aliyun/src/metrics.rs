@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use crate::client::AliyunCredentials;
 use crate::types::{
-    CloudMetricPoint, CloudMetricQuery, CloudMetricSeries, CAP_COMPUTE, CAP_COMPUTE_LITE,
-    CAP_DATABASE, CAP_DATABASE_CACHE, CAP_LOAD_BALANCER, CAP_NETWORK_EIP,
+    CAP_COMPUTE, CAP_COMPUTE_LITE, CAP_DATABASE, CAP_DATABASE_CACHE, CAP_LOAD_BALANCER,
+    CAP_NETWORK_EIP, CloudMetricPoint, CloudMetricQuery, CloudMetricSeries,
 };
 
 pub const ECS_METRIC_IDS: &[&str] = &[
@@ -89,8 +89,13 @@ fn metric_namespace(capability: &str) -> Option<&'static str> {
 
 fn metric_unit(id: &str) -> &'static str {
     match id {
-        "CPUUtilization" | "memory_usedutilization" | "CpuUsage" | "MemoryUsage" | "DiskUsage"
-        | "ConnectionUsage" | "IOPSUsage" => "%",
+        "CPUUtilization"
+        | "memory_usedutilization"
+        | "CpuUsage"
+        | "MemoryUsage"
+        | "DiskUsage"
+        | "ConnectionUsage"
+        | "IOPSUsage" => "%",
         "InternetInRate" | "InternetOutRate" | "IntranetIn" | "IntranetOut" | "IntranetInRate"
         | "IntranetOutRate" | "TrafficTX" | "TrafficRX" | "net_rx.rate" | "net_tx.rate" => "bps",
         "DiskReadBPS" | "DiskWriteBPS" => "B/s",
@@ -209,9 +214,8 @@ impl AliyunCredentials {
         resource_id: &str,
         query: &CloudMetricQuery,
     ) -> Result<Vec<CloudMetricSeries>, OmniError> {
-        let namespace = metric_namespace(capability).ok_or_else(|| {
-            OmniError::invalid_input(format!("该能力不支持监控: {capability}"))
-        })?;
+        let namespace = metric_namespace(capability)
+            .ok_or_else(|| OmniError::invalid_input(format!("该能力不支持监控: {capability}")))?;
         let region = self.region.trim();
         if region.is_empty() {
             return Err(OmniError::invalid_input("请先配置 Region"));
@@ -339,7 +343,9 @@ mod tests {
 
     #[test]
     fn parses_string_datapoints() {
-        let raw = json!("[{\"timestamp\":1700000000000,\"Average\":12.5},{\"timestamp\":1700000060000,\"Average\":20}]");
+        let raw = json!(
+            "[{\"timestamp\":1700000000000,\"Average\":12.5},{\"timestamp\":1700000060000,\"Average\":20}]"
+        );
         let points = parse_datapoints(&raw);
         assert_eq!(points.len(), 2);
         assert_eq!(points[0].value, 12.5);

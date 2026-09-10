@@ -317,14 +317,12 @@ pub fn extract_onepanel_username(host: &str) -> String {
     let rest_start = normalized.find("://").map(|i| i + 3).unwrap_or(0);
     let after_scheme = &normalized[rest_start..];
     match after_scheme.find('@') {
-        Some(at) if !after_scheme[..at].contains('/') => {
-            after_scheme[..at]
-                .split(':')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_string()
-        }
+        Some(at) if !after_scheme[..at].contains('/') => after_scheme[..at]
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
         _ => String::new(),
     }
 }
@@ -3394,7 +3392,10 @@ mod normalize_tests {
         let endpoint = super::resolve_onepanel_endpoint("http://admin@host:7777/ent", None);
         assert_eq!(endpoint.base_url, "http://host:7777");
         assert_eq!(endpoint.entrance, "ent");
-        assert_eq!(super::extract_onepanel_username("http://admin@host:7777/ent"), "admin");
+        assert_eq!(
+            super::extract_onepanel_username("http://admin@host:7777/ent"),
+            "admin"
+        );
     }
 
     #[test]

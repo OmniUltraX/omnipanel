@@ -92,7 +92,10 @@ fn apply_auth_headers(
             req = req.header("PanelAuthorization", token);
         }
     }
-    let ent = entrance.trim().trim_start_matches('/').trim_end_matches('/');
+    let ent = entrance
+        .trim()
+        .trim_start_matches('/')
+        .trim_end_matches('/');
     if !ent.is_empty() {
         req = req.header("EntranceCode", STANDARD.encode(ent.as_bytes()));
     }
@@ -226,7 +229,11 @@ fn flavor_cache_key(host: &str) -> String {
 }
 
 fn cached_session(host: &str) -> Option<HostSession> {
-    SESSION_CACHE.lock().ok()?.get(&flavor_cache_key(host)).cloned()
+    SESSION_CACHE
+        .lock()
+        .ok()?
+        .get(&flavor_cache_key(host))
+        .cloned()
 }
 
 fn remember_session(host: &str, session: HostSession) {
@@ -270,12 +277,8 @@ fn flavor_candidates(has_entrance: bool, cached: Option<ApiFlavor>) -> Vec<ApiFl
 }
 
 fn sanitize_route_miss(err: OmniError) -> OmniError {
-    let hay = format!(
-        "{} {}",
-        err.message,
-        err.cause.as_deref().unwrap_or("")
-    )
-    .to_ascii_lowercase();
+    let hay =
+        format!("{} {}", err.message, err.cause.as_deref().unwrap_or("")).to_ascii_lowercase();
     if hay.contains("<html") || hay.contains("<!doctype") || hay.contains("404") {
         return OmniError::new(
             ErrorCode::Connection,
@@ -298,14 +301,16 @@ fn auth_candidates(cached: Option<&HostSession>) -> Vec<AuthStyle> {
     if let Some(hit) = cached {
         match &hit.auth {
             AuthStyle::Jwt { token } => {
-                all.insert(0, AuthStyle::Jwt { token: token.clone() });
+                all.insert(
+                    0,
+                    AuthStyle::Jwt {
+                        token: token.clone(),
+                    },
+                );
             }
             other => {
                 all.retain(|item| match (item, other) {
-                    (
-                        AuthStyle::ApiToken { algo: a },
-                        AuthStyle::ApiToken { algo: b },
-                    ) => a != b,
+                    (AuthStyle::ApiToken { algo: a }, AuthStyle::ApiToken { algo: b }) => a != b,
                     _ => true,
                 });
                 all.insert(0, other.clone());
@@ -371,9 +376,8 @@ async fn send_request_with_api_fallback(
                     if looks_like_html_bytes(&v.2) {
                         forget_session(host);
                         last_err = Some(
-                            OmniError::internal("1Panel 返回了 HTML 页面而非 JSON").with_cause(
-                                truncate_text(&String::from_utf8_lossy(&v.2), 300),
-                            ),
+                            OmniError::internal("1Panel 返回了 HTML 页面而非 JSON")
+                                .with_cause(truncate_text(&String::from_utf8_lossy(&v.2), 300)),
                         );
                         continue;
                     }
@@ -459,11 +463,8 @@ async fn jwt_login(host: &str, api_key: &str, flavor: ApiFlavor) -> Result<Strin
             let text = resp.text().await.unwrap_or_default();
             if looks_like_html_bytes(text.as_bytes()) || !status.is_success() {
                 last_err = Some(
-                    OmniError::new(
-                        ErrorCode::Auth,
-                        format!("1Panel JWT 登录失败 ({status})"),
-                    )
-                    .with_cause(truncate_text(&text, 300)),
+                    OmniError::new(ErrorCode::Auth, format!("1Panel JWT 登录失败 ({status})"))
+                        .with_cause(truncate_text(&text, 300)),
                 );
                 continue;
             }
@@ -515,7 +516,13 @@ async fn jwt_login(host: &str, api_key: &str, flavor: ApiFlavor) -> Result<Strin
     Err(last_err.unwrap_or_else(|| OmniError::new(ErrorCode::Auth, "1Panel JWT 登录失败")))
 }
 
-fn build_api_url(base_url: &str, entrance: &str, prefix: &str, path: &str, entrance_in_path: bool) -> String {
+fn build_api_url(
+    base_url: &str,
+    entrance: &str,
+    prefix: &str,
+    path: &str,
+    entrance_in_path: bool,
+) -> String {
     if entrance_in_path && !entrance.is_empty() {
         format!("{base_url}/{entrance}{prefix}{path}")
     } else {
@@ -775,7 +782,10 @@ async fn send_multipart(
     };
 
     let mut last_err: Option<OmniError> = None;
-    for flavor in flavor_candidates(!endpoint.entrance.is_empty(), cached_session(host).map(|s| s.flavor)) {
+    for flavor in flavor_candidates(
+        !endpoint.entrance.is_empty(),
+        cached_session(host).map(|s| s.flavor),
+    ) {
         let url = build_api_url(
             &endpoint.base_url,
             &endpoint.entrance,
@@ -1065,7 +1075,10 @@ pub async fn fetch_app_icon(host: &str, api_key: &str, app_key: &str) -> Result<
 
     let endpoint = resolve_endpoint(host)?;
     let mut last_err: Option<OmniError> = None;
-    for flavor in flavor_candidates(!endpoint.entrance.is_empty(), cached_session(host).map(|s| s.flavor)) {
+    for flavor in flavor_candidates(
+        !endpoint.entrance.is_empty(),
+        cached_session(host).map(|s| s.flavor),
+    ) {
         let url = build_api_url(
             &endpoint.base_url,
             &endpoint.entrance,
@@ -1193,7 +1206,11 @@ mod tests {
     fn hmac_token_matches_official_v2_formula() {
         let token = build_hmac_token("test-key", 1_700_000_000);
         assert_eq!(token.len(), 64);
-        assert!(token.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert!(
+            token
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+        );
         assert_ne!(token, build_token("test-key", 1_700_000_000));
     }
 }

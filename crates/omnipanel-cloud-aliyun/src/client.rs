@@ -284,7 +284,13 @@ pub(crate) fn json_list(v: &Value, wrapper: &str, item: &str) -> Vec<Value> {
 }
 
 pub(crate) fn json_total_count(v: &Value) -> u64 {
-    for key in ["TotalCount", "totalCount", "TotalItemNum", "TotalNum", "TotalRecordCount"] {
+    for key in [
+        "TotalCount",
+        "totalCount",
+        "TotalItemNum",
+        "TotalNum",
+        "TotalRecordCount",
+    ] {
         if let Some(n) = v.get(key).and_then(|x| x.as_u64()) {
             return n;
         }
@@ -494,10 +500,7 @@ fn parse_ecs_instance(item: &Value) -> CloudEcsInstance {
         memory: format_memory_mb(&str_field(item, &["Memory"])),
         hostname: str_field(item, &["HostName"]),
         bandwidth: str_field(item, &["InternetMaxBandwidthOut"]),
-        vpc_id: str_field(
-            item.get("VpcAttributes").unwrap_or(item),
-            &["VpcId"],
-        ),
+        vpc_id: str_field(item.get("VpcAttributes").unwrap_or(item), &["VpcId"]),
         key_pair_name: str_field(item, &["KeyPairName"]),
     }
 }
@@ -607,7 +610,10 @@ impl AliyunCredentials {
         Ok(format!("AccountId={}; Arn={}", snap.caller_id, snap.arn))
     }
 
-    pub async fn account_snapshot(&self, http: &Client) -> Result<crate::types::CloudAccountSnapshot, OmniError> {
+    pub async fn account_snapshot(
+        &self,
+        http: &Client,
+    ) -> Result<crate::types::CloudAccountSnapshot, OmniError> {
         let ident = self
             .rpc_call(
                 http,
@@ -1163,10 +1169,7 @@ mod tests {
         let items = json_arr(&body, &["Instances", "Instance"]);
         assert_eq!(items.len(), 2);
         assert_eq!(json_total_count(&body), 2);
-        assert_eq!(
-            json_total_count(&json!({ "TotalItemNum": "80" })),
-            80
-        );
+        assert_eq!(json_total_count(&json!({ "TotalItemNum": "80" })), 80);
     }
 
     #[test]

@@ -23,7 +23,6 @@ mod knowledge;
 mod knowledge_todo;
 mod knowledge_vector;
 mod paths;
-mod team_layout;
 mod plugin_settings;
 mod plugin_sources;
 mod resource_profile;
@@ -44,6 +43,7 @@ mod sync_team_key;
 mod tag;
 mod task;
 mod task_events;
+mod team_layout;
 mod terminal_history;
 mod third_party_account;
 mod todo;
@@ -57,9 +57,7 @@ pub use agent_prompt::{
     system_prompt,
 };
 pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
-pub use app_module::{
-    AppModule, AppModuleStatus, DEFAULT_APP_MODULES, PLUGIN_MODULE_SORT_ORDER,
-};
+pub use app_module::{AppModule, AppModuleStatus, DEFAULT_APP_MODULES, PLUGIN_MODULE_SORT_ORDER};
 pub use assistant_binding_key::{
     clear_assistant_binding_pubkey, load_assistant_binding_pubkey, store_assistant_binding_pubkey,
 };
@@ -117,11 +115,6 @@ pub use paths::{
     omnipd_root, prompts_root, skills_root, web_search_config_path,
 };
 pub use resource_profile::{ResourceObservation, ResourceProfileSummary};
-pub use team_layout::{
-    active_team_scope, init_team_storage, meta_db_exists_on_disk, normalize_team_scope,
-    persist_active_team_scope, promote_local_dir_to_team, set_active_team_scope, team_data_dir,
-    LOCAL_TEAM_SCOPE,
-};
 pub use schema_cache::{
     SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase, SchemaCacheIndex,
     SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser, load_schema_cache,
@@ -160,9 +153,9 @@ pub use ssh_vault::{
 pub use storage::{AuditEntry, Storage};
 pub use sync_crypto::{
     SYNC_BLOB_SCHEME, SYNC_BLOB_SCHEME_V2, SYNC_KIND_ASSISTANT_SNAPSHOT, SYNC_KIND_CONVERSATIONS,
-    SYNC_KIND_MODULES, SyncBlobEnvelope, decode_sync_blob_or_legacy,
-    decode_sync_blob_with_sources, decrypt_sync_blob, derive_sync_blob_key_material_v2,
-    encrypt_sync_blob, encrypt_sync_team_blob, looks_like_sync_blob_envelope,
+    SYNC_KIND_MODULES, SyncBlobEnvelope, decode_sync_blob_or_legacy, decode_sync_blob_with_sources,
+    decrypt_sync_blob, derive_sync_blob_key_material_v2, encrypt_sync_blob, encrypt_sync_team_blob,
+    looks_like_sync_blob_envelope,
 };
 pub use sync_key_wrap::{
     WRAP_ALG, decrypt_assistant_payload, encrypt_assistant_payload, generate_pairing_keypair,
@@ -187,6 +180,11 @@ pub use tag::{
 };
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use task_events::{TaskEventFilter, TaskEventRecord};
+pub use team_layout::{
+    LOCAL_TEAM_SCOPE, active_team_scope, init_team_storage, meta_db_exists_on_disk,
+    normalize_team_scope, persist_active_team_scope, promote_local_dir_to_team,
+    set_active_team_scope, team_data_dir,
+};
 pub use terminal_history::{
     TerminalHistoryBlockRecord, TerminalHistoryRetainPolicy, sanitize_payload_json,
 };
@@ -194,7 +192,7 @@ pub use third_party_account::{
     ThirdPartyAccount, ThirdPartyAuthMethod, ThirdPartyPlatform, UpsertThirdPartyAccountInput,
 };
 pub use todo::{TodoList, TodoRecurrence, TodoStep, TodoTask, TodoTaskQuery};
-pub use vault::{plugin_secret_ref, Vault};
+pub use vault::{Vault, plugin_secret_ref};
 pub use web_search::{
     FetchConfig, JinaDomainMode, JinaOpts, SearchConfig, WEB_SEARCH_CONFIG_VERSION,
     WEB_SEARCH_EXA_KEY_REF, WEB_SEARCH_JINA_KEY_REF, WEB_SEARCH_ZHIHU_SECRET_REF, WebFetchBackend,

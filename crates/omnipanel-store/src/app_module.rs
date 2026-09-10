@@ -114,11 +114,7 @@ impl Storage {
     }
 
     /// 启用 module 插件时打开侧栏入口：缺行则种 `open`，已有非 disabled 行提升为 `open`。
-    pub fn open_plugin_module(
-        &self,
-        module_key: &str,
-        sort_order: i32,
-    ) -> OmniResult<AppModule> {
+    pub fn open_plugin_module(&self, module_key: &str, sort_order: i32) -> OmniResult<AppModule> {
         let key = module_key.trim();
         if key.is_empty() {
             return Err(OmniError::new(ErrorCode::InvalidInput, "模块 key 不能为空"));

@@ -23,7 +23,7 @@ vi.mock("../../stores/terminalStore", () => ({
   },
 }));
 
-vi.mock("../../hooks/useTerminal", () => ({
+vi.mock("./terminalSessionBackendBridge", () => ({
   clearPaneBackendPending: vi.fn(),
   disposeSessionBackend: disposeSessionBackendMock,
 }));

@@ -45,9 +45,8 @@ fn normalize_admin_url(raw: &str) -> Result<String, OmniError> {
         format!("http://{trimmed}")
     };
     let url = normalize_localhost_url(&with_scheme);
-    let parsed = url::Url::parse(&url).map_err(|_| {
-        OmniError::invalid_input("Spring Boot Admin 地址无效，需为 http(s) URL")
-    })?;
+    let parsed = url::Url::parse(&url)
+        .map_err(|_| OmniError::invalid_input("Spring Boot Admin 地址无效，需为 http(s) URL"))?;
     match parsed.scheme() {
         "http" | "https" => Ok(url.trim_end_matches('/').to_string()),
         _ => Err(OmniError::invalid_input(
@@ -274,8 +273,8 @@ pub async fn spring_boot_admin_list_instances(
 ) -> Result<Vec<SbaInstanceInfo>, OmniError> {
     let base = normalize_admin_url(&admin_url)?;
     let proxy = state.proxy_config.lock().await.clone();
-    let client = build_http_client_for_url(&base, &proxy, REQUEST_TIMEOUT)
-        .map_err(map_http_client_err)?;
+    let client =
+        build_http_client_for_url(&base, &proxy, REQUEST_TIMEOUT).map_err(map_http_client_err)?;
     let json = match get_json(&client, &format!("{base}/applications")).await {
         Ok(v) => v,
         Err(first) => match get_json(&client, &format!("{base}/api/applications")).await {
@@ -300,8 +299,8 @@ pub async fn spring_boot_admin_jvm_snapshot(
         return Err(OmniError::invalid_input("请选择 Java 服务实例"));
     }
     let proxy = state.proxy_config.lock().await.clone();
-    let client = build_http_client_for_url(&base, &proxy, REQUEST_TIMEOUT)
-        .map_err(map_http_client_err)?;
+    let client =
+        build_http_client_for_url(&base, &proxy, REQUEST_TIMEOUT).map_err(map_http_client_err)?;
 
     let memory_url = instance_actuator_url(
         &base,
@@ -371,7 +370,13 @@ pub async fn spring_boot_admin_jvm_snapshot(
         fetch_metric(&client, &base, instance_id, "jvm.threads.live", None),
         fetch_metric(&client, &base, instance_id, "jvm.threads.daemon", None),
         fetch_metric(&client, &base, instance_id, "jvm.threads.peak", None),
-        fetch_metric(&client, &base, instance_id, "jvm.memory.used", Some("area:heap")),
+        fetch_metric(
+            &client,
+            &base,
+            instance_id,
+            "jvm.memory.used",
+            Some("area:heap")
+        ),
         fetch_metric(
             &client,
             &base,
@@ -379,7 +384,13 @@ pub async fn spring_boot_admin_jvm_snapshot(
             "jvm.memory.committed",
             Some("area:heap")
         ),
-        fetch_metric(&client, &base, instance_id, "jvm.memory.max", Some("area:heap")),
+        fetch_metric(
+            &client,
+            &base,
+            instance_id,
+            "jvm.memory.max",
+            Some("area:heap")
+        ),
         fetch_metric(
             &client,
             &base,

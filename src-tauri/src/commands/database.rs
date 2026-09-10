@@ -16,8 +16,8 @@ pub use omnipanel_store::{
     SchemaCacheIndex, SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser,
     SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, ensure_creator_tag, load_schema_cache,
     load_schema_filters, load_schema_tree_expanded, patch_schema_cache_connection,
-    prune_connection_cache, prune_connection_expanded, prune_connection_filters,
-    save_schema_cache, save_schema_filters, save_schema_tree_expanded,
+    prune_connection_cache, prune_connection_expanded, prune_connection_filters, save_schema_cache,
+    save_schema_filters, save_schema_tree_expanded,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
@@ -685,7 +685,9 @@ pub async fn db_execute_query(
     state.running_db_queries.lock().await.remove(&run_id);
     if let Some((action, target)) = danger_grant {
         let status = if result.is_ok() { "success" } else { "failed" };
-        crate::commands::db_danger::append_danger_audit(&state, &action, &target, status, "verified");
+        crate::commands::db_danger::append_danger_audit(
+            &state, &action, &target, status, "verified",
+        );
     }
     result.map(to_db_query_result)
 }
@@ -797,7 +799,9 @@ pub async fn db_execute_query_in_session(
     state.running_db_queries.lock().await.remove(&run_id);
     if let Some((action, target)) = danger_grant {
         let status = if result.is_ok() { "success" } else { "failed" };
-        crate::commands::db_danger::append_danger_audit(&state, &action, &target, status, "verified");
+        crate::commands::db_danger::append_danger_audit(
+            &state, &action, &target, status, "verified",
+        );
     }
     result.map(to_db_query_result)
 }

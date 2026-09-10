@@ -1,6 +1,6 @@
 //! L2 宿主本地密码学：插件签厂商 API 用，不经网络、不需权限。
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use sha1::Sha1;
@@ -65,8 +65,10 @@ mod tests {
 
     #[test]
     fn hmac_sha1_hex_and_base64() {
-        let hex = hmac_digest(r#"{"alg":"sha1","key":"key","data":"The quick brown fox jumps over the lazy dog"}"#)
-            .expect("hmac");
+        let hex = hmac_digest(
+            r#"{"alg":"sha1","key":"key","data":"The quick brown fox jumps over the lazy dog"}"#,
+        )
+        .expect("hmac");
         assert_eq!(hex, "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9");
         let b64 = hmac_digest(
             r#"{"alg":"sha1","key":"key","data":"The quick brown fox jumps over the lazy dog","encoding":"base64"}"#,
@@ -77,8 +79,10 @@ mod tests {
 
     #[test]
     fn hmac_rejects_unknown_alg() {
-        assert!(hmac_digest(r#"{"alg":"md5","key":"k","data":"d"}"#)
-            .unwrap_err()
-            .contains("不支持"));
+        assert!(
+            hmac_digest(r#"{"alg":"md5","key":"k","data":"d"}"#)
+                .unwrap_err()
+                .contains("不支持")
+        );
     }
 }

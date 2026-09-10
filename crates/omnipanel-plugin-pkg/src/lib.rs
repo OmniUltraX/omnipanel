@@ -168,10 +168,7 @@ pub fn verify_file_with_keys(
     let mut archive = ZipArchive::new(BufReader::new(file))?;
     let signature = read_signature(&mut archive)?.ok_or(PkgError::UnsignedRejected)?;
     let message = canonical_bytes(&mut archive)?;
-    for key in keys
-        .iter()
-        .chain(extra_verifying_keys_from_env().iter())
-    {
+    for key in keys.iter().chain(extra_verifying_keys_from_env().iter()) {
         if key.verify_strict(&message, &signature).is_ok() {
             return parse_manifest(&mut archive);
         }

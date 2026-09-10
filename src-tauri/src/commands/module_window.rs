@@ -55,7 +55,7 @@ fn default_title(module_key: &str) -> String {
 fn force_win32_hide(window: &tauri::WebviewWindow) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
 
     let Ok(handle) = window.window_handle() else {
         return;

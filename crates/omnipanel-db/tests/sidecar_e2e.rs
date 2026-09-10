@@ -890,10 +890,7 @@ async fn test_mysql_inproc_desc_type() {
         .execute("CREATE TABLE IF NOT EXISTS sidecar_e2e (id INT PRIMARY KEY)")
         .await
         .expect("CREATE TABLE");
-    let q = driver
-        .execute("DESC `sidecar_e2e`")
-        .await
-        .expect("DESC");
+    let q = driver.execute("DESC `sidecar_e2e`").await.expect("DESC");
     assert!(!q.rows.is_empty(), "{q:?}");
     let type_idx = q
         .columns
@@ -903,7 +900,10 @@ async fn test_mysql_inproc_desc_type() {
     let ty = &q.rows[0][type_idx];
     assert!(ty.is_string(), "Type 应是文本而不是 blob：{ty}");
     assert!(
-        ty.as_str().unwrap_or("").to_ascii_lowercase().contains("int"),
+        ty.as_str()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .contains("int"),
         "{ty}"
     );
     let dec = driver

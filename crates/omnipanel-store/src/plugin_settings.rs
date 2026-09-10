@@ -1,7 +1,7 @@
 //! 第一方插件启用状态 — 持久化于 omnipanel.db 的 plugin_settings 表。
 
 use omnipanel_error::OmniResult;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use super::storage::{Storage, map_sqlite};
 
@@ -162,7 +162,10 @@ mod tests {
     #[test]
     fn plugin_state_roundtrip_and_default() {
         let storage = Storage::open_in_memory().unwrap();
-        assert_eq!(storage.plugin_state_get("omni.importer.warpgate").unwrap(), "{}");
+        assert_eq!(
+            storage.plugin_state_get("omni.importer.warpgate").unwrap(),
+            "{}"
+        );
         storage
             .plugin_state_set("omni.importer.warpgate", r#"{"sources":[]}"#)
             .unwrap();
@@ -170,7 +173,12 @@ mod tests {
             storage.plugin_state_get("omni.importer.warpgate").unwrap(),
             r#"{"sources":[]}"#
         );
-        storage.plugin_state_delete("omni.importer.warpgate").unwrap();
-        assert_eq!(storage.plugin_state_get("omni.importer.warpgate").unwrap(), "{}");
+        storage
+            .plugin_state_delete("omni.importer.warpgate")
+            .unwrap();
+        assert_eq!(
+            storage.plugin_state_get("omni.importer.warpgate").unwrap(),
+            "{}"
+        );
     }
 }

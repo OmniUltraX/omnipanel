@@ -40,9 +40,19 @@ pub struct PlanItem {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolveError {
     UnknownPlugin(String),
-    NoSatisfyingVersion { id: String, reqs: Vec<String> },
-    IncompatibleHostApi { id: String, best: Version },
-    Conflict { id: String, chosen: Version, req: String },
+    NoSatisfyingVersion {
+        id: String,
+        reqs: Vec<String>,
+    },
+    IncompatibleHostApi {
+        id: String,
+        best: Version,
+    },
+    Conflict {
+        id: String,
+        chosen: Version,
+        req: String,
+    },
     Cycle(Vec<String>),
     TooDeep(String),
 }
@@ -58,7 +68,10 @@ impl fmt::Display for ResolveError {
                 write!(f, "{id} 最高版本 {best} 需要更新宿主")
             }
             Self::Conflict { id, chosen, req } => {
-                write!(f, "版本冲突: {id} 已选 {chosen}，不满足新增约束 {req}（请手工指定版本）")
+                write!(
+                    f,
+                    "版本冲突: {id} 已选 {chosen}，不满足新增约束 {req}（请手工指定版本）"
+                )
             }
             Self::Cycle(path) => write!(f, "依赖成环: {}", path.join(" -> ")),
             Self::TooDeep(id) => write!(f, "依赖过深（>50），疑似超长链: {id}"),
@@ -71,11 +84,7 @@ impl std::error::Error for ResolveError {}
 /// 最大满足版本（不考虑 host_api；调用方另行过滤）。
 pub fn max_satisfying(versions: &[Version], req_str: &str) -> Option<Version> {
     let req = VersionReq::parse(req_str.trim()).ok()?;
-    versions
-        .iter()
-        .filter(|v| req.matches(v))
-        .max()
-        .cloned()
+    versions.iter().filter(|v| req.matches(v)).max().cloned()
 }
 
 /// registry 最新 compatible 版本高于已安装 → 返回新版本号。
@@ -131,11 +140,10 @@ fn parse_req(req: &str) -> Result<VersionReq, ResolveError> {
     if req.trim().is_empty() {
         return Ok(VersionReq::STAR);
     }
-    VersionReq::parse(req.trim())
-        .map_err(|_| ResolveError::NoSatisfyingVersion {
-            id: String::new(),
-            reqs: vec![req.to_string()],
-        })
+    VersionReq::parse(req.trim()).map_err(|_| ResolveError::NoSatisfyingVersion {
+        id: String::new(),
+        reqs: vec![req.to_string()],
+    })
 }
 
 fn visit(id: &str, req_str: &str, state: &mut State) -> Result<(), ResolveError> {
@@ -194,9 +202,7 @@ fn visit(id: &str, req_str: &str, state: &mut State) -> Result<(), ResolveError>
         });
     };
     // 若已安装版本满足但更低：升级到 picked（计划含该项）
-    state
-        .chosen
-        .insert(id.to_string(), picked.version.clone());
+    state.chosen.insert(id.to_string(), picked.version.clone());
     state.stack.push(id.to_string());
     let deps = picked.dependencies.clone();
     for dep in &deps {
@@ -266,18 +272,16 @@ mod tests {
     #[test]
     fn diamond_resolves_once_in_topo_order() {
         let idx = index(&[
-            ("a", vec![entry("1.0.0", &[("b", "^1.0.0"), ("c", "^1.0.0")])]),
+            (
+                "a",
+                vec![entry("1.0.0", &[("b", "^1.0.0"), ("c", "^1.0.0")])],
+            ),
             ("b", vec![entry("1.0.0", &[("d", "^1.0.0")])]),
             ("c", vec![entry("1.0.0", &[("d", "^1.0.0")])]),
             ("d", vec![entry("1.0.0", &[])]),
         ]);
-        let plan = resolve_install(
-            &[("a".into(), "^1.0.0".into())],
-            &idx,
-            1,
-            &HashMap::new(),
-        )
-        .unwrap();
+        let plan =
+            resolve_install(&[("a".into(), "^1.0.0".into())], &idx, 1, &HashMap::new()).unwrap();
         let ids: Vec<_> = plan.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(ids.first(), Some(&"d"));
         assert_eq!(ids.last(), Some(&"a"));
@@ -315,7 +319,10 @@ mod tests {
         )
         .err()
         .unwrap();
-        assert!(matches!(err, ResolveError::Conflict { .. }), "actual: {err}");
+        assert!(
+            matches!(err, ResolveError::Conflict { .. }),
+            "actual: {err}"
+        );
     }
 
     #[test]
@@ -332,13 +339,8 @@ mod tests {
         let mut new_entry = entry("2.0.0", &[]);
         new_entry.min_host_api = 99;
         let idx = index(&[("a", vec![entry("1.0.0", &[]), new_entry])]);
-        let plan = resolve_install(
-            &[("a".into(), ">=1.0.0".into())],
-            &idx,
-            1,
-            &HashMap::new(),
-        )
-        .unwrap();
+        let plan =
+            resolve_install(&[("a".into(), ">=1.0.0".into())], &idx, 1, &HashMap::new()).unwrap();
         assert_eq!(plan[0].version.to_string(), "1.0.0");
         assert_eq!(
             update_available(&Version::parse("1.0.0").unwrap(), &idx["a"], 1),

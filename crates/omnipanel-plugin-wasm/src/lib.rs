@@ -172,19 +172,20 @@ fn run_call(
         })?;
 
     // 真透传：method + args_json 经 omni_alloc 写入客体内存后再 call。
-    let write_str = |store: &mut Store<BridgeCtx<'_>>, s: &str| -> Result<(i32, i32), PluginError> {
-        if s.is_empty() {
-            return Ok((0, 0));
-        }
-        let bytes = s.as_bytes();
-        let ptr = alloc
-            .call(&mut *store, bytes.len() as i32)
-            .map_err(|e| PluginError::Invoke(format!("omni_alloc 失败: {e}")))?;
-        memory
-            .write(&mut *store, ptr.max(0) as usize, bytes)
-            .map_err(|e| PluginError::Invoke(format!("内存写入失败: {e}")))?;
-        Ok((ptr, bytes.len() as i32))
-    };
+    let write_str =
+        |store: &mut Store<BridgeCtx<'_>>, s: &str| -> Result<(i32, i32), PluginError> {
+            if s.is_empty() {
+                return Ok((0, 0));
+            }
+            let bytes = s.as_bytes();
+            let ptr = alloc
+                .call(&mut *store, bytes.len() as i32)
+                .map_err(|e| PluginError::Invoke(format!("omni_alloc 失败: {e}")))?;
+            memory
+                .write(&mut *store, ptr.max(0) as usize, bytes)
+                .map_err(|e| PluginError::Invoke(format!("内存写入失败: {e}")))?;
+            Ok((ptr, bytes.len() as i32))
+        };
     let (m_ptr, m_len) = write_str(&mut store, method)?;
     let (a_ptr, a_len) = write_str(&mut store, args_json)?;
 
@@ -307,11 +308,13 @@ fn wire_imports(linker: &mut Linker<BridgeCtx<'_>>) -> Result<(), PluginError> {
             "vault_has",
             |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
                 let key = read_guest_str(&mut caller, ptr, len);
-                let payload = caller
-                    .data()
-                    .bridge
-                    .vault_has(&key)
-                    .map(|has| if has { b"true".to_vec() } else { b"false".to_vec() });
+                let payload = caller.data().bridge.vault_has(&key).map(|has| {
+                    if has {
+                        b"true".to_vec()
+                    } else {
+                        b"false".to_vec()
+                    }
+                });
                 return_to_guest(caller, payload)
             },
         )
@@ -345,11 +348,7 @@ fn wire_imports(linker: &mut Linker<BridgeCtx<'_>>) -> Result<(), PluginError> {
             "vault_delete",
             |mut caller: Caller<'_, BridgeCtx<'_>>, ptr: i32, len: i32| -> i64 {
                 let key = read_guest_str(&mut caller, ptr, len);
-                let payload = caller
-                    .data()
-                    .bridge
-                    .vault_delete(&key)
-                    .map(|_| Vec::new());
+                let payload = caller.data().bridge.vault_delete(&key).map(|_| Vec::new());
                 return_to_guest(caller, payload)
             },
         )

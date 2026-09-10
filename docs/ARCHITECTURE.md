@@ -16,13 +16,15 @@
 
 ## 2. Crate 边界（后端）
 
+> 下表只列核心边界示例。完整 crate 清单以根 `Cargo.toml` 的 `members` 为准（当前 30 个）。
+
 | crate | 职责 | 不应包含 |
 |-------|------|----------|
 | `omnipanel-store` | rusqlite 本地库、keyring 凭据、`Connection` 统一连接模型、schema migration | UI、协议实现 |
 | `omnipanel-exec` | 执行引擎 `ExecutionEngine` + `Executor` trait，动作分发/回显/审计 | 具体驱动细节（通过 trait 解耦） |
 | `omnipanel-ssh` | russh / russh-sftp 会话封装 | 存储、UI |
 | `omnipanel-db` | `DbDriver` trait + MySQL/PostgreSQL/SQLite 实现 | 连接持久化（用 store） |
-| `omnipanel-core` | 终端（portable-pty + alacritty_terminal VT 状态） | 其他领域逻辑 |
+| `omnipanel-core` | 终端（portable-pty + 自研 VT 状态机，已不使用 `alacritty_terminal`） | 其他领域逻辑 |
 | `omnipanel-ai` | `AiProvider` trait + OpenAI/Anthropic/ACP | 其他领域逻辑 |
 
 规则：
@@ -42,7 +44,7 @@
 | `src/ipc` | 自动生成的后端 bindings（勿手改） |
 | `src/i18n` | 文案，所有用户可见字符串必须走 `useI18n`，禁止硬编码 |
 
-规则：模块之间不要互相 import，跨模块通信走 store 或事件。
+规则：模块之间不要互相 import，跨模块通信走 store 或事件。**尤其禁止 store 与模块双向依赖**——那会打乱 ESM 求值顺序，让模块体执行时 store 仍是 `undefined`。需要"反向通知"时用回调注册，见 `frontend/src/lib/assistantSnapshotSyncBridge.ts`（`modules/assistant` ↔ `stores/terminalStore` 已按此解开）。
 
 ## 4. IPC 契约（前后端类型一致性）
 
@@ -73,5 +75,8 @@
 ## 8. 提交与 CI
 
 - 提交信息遵循约定式提交（Conventional Commits），描述用中文，例：`feat(ssh): 新增密钥认证`。
-- PR 必须通过 [`ci.yml`](../.github/workflows/ci.yml)：`cargo fmt --check`、`cargo clippy -D warnings`、`cargo test`、`eslint`、`tsc`、`vitest`，覆盖 Linux/Windows/macOS。
-- 每个里程碑结束保证整工作区可编译、CI 绿、可运行。
+- **CI 分两层。** 发版链路 [`ci.yml`](../.github/workflows/ci.yml) 与 `build.yml` 只在 `push: tags: v*` 或手动 `workflow_dispatch` 时运行；日常门禁 [`pr-check.yml`](../.github/workflows/pr-check.yml) 在 **PR 与 push master** 时跑 `tsc -b`、`vitest run`、`check:ipc-registry`、`cargo check --workspace`。
+  - `ci.yml` 只跑 ubuntu-latest，内容是 IPC 注册表校验、插件清单与冒烟、部分 crate 测试、前端 build——**不含** `cargo fmt --check`、`cargo clippy`、`eslint`、`vitest`。
+  - 在补上 `pr-check.yml` 之前，第 7 节提到的前端测试（181 个文件 / 1024 个用例）在 CI 中**从未被执行过**。
+  - 本地把关仍然重要，提交前务必跑：`cd frontend && npx tsc -b`、`npx vitest run`、`cargo check --workspace`、`cargo test`。详见 `CLAUDE.md`「CI 现状」。
+- 每个里程碑结束保证整工作区可编译、可运行。

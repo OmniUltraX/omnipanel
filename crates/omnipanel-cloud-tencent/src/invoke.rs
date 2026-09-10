@@ -7,8 +7,8 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::driver::TencentCloudDriver;
 use crate::DEFAULT_REGION;
+use crate::driver::TencentCloudDriver;
 
 const INVOKE_METHODS: &[&str] = &[
     "testAccount",
@@ -44,9 +44,8 @@ fn parse_creds(args: &Value) -> Result<AliyunCredentials, OmniError> {
         .cloned()
         .or_else(|| args.get("creds").cloned())
         .unwrap_or(Value::Null);
-    let creds: InvokeCredentials = serde_json::from_value(raw).map_err(|_| {
-        OmniError::invalid_input("缺少云厂商凭据")
-    })?;
+    let creds: InvokeCredentials =
+        serde_json::from_value(raw).map_err(|_| OmniError::invalid_input("缺少云厂商凭据"))?;
     let secret_id = first_nonempty(&[&creds.access_key_id]);
     let secret_key = first_nonempty(&[&creds.access_key_secret]);
     if secret_id.is_empty() || secret_key.is_empty() {
@@ -153,10 +152,9 @@ pub async fn handle_invoke(method: &str, args: Value) -> Result<Value, OmniError
             serde_json::to_value(detail).map_err(|e| OmniError::internal(e.to_string()))
         }
         "invokeAction" => {
-            let action: CloudAction = serde_json::from_value(
-                args.get("action").cloned().unwrap_or_else(|| args.clone()),
-            )
-            .map_err(|e| OmniError::invalid_input(e.to_string()))?;
+            let action: CloudAction =
+                serde_json::from_value(args.get("action").cloned().unwrap_or_else(|| args.clone()))
+                    .map_err(|e| OmniError::invalid_input(e.to_string()))?;
             let result = driver.invoke_action(&creds, &http, &action).await?;
             serde_json::to_value(result).map_err(|e| OmniError::internal(e.to_string()))
         }

@@ -344,8 +344,8 @@ fn parse_mongo_shell(sql: &str) -> MongoShell {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_mongo_shell;
     use super::MongoShell;
+    use super::parse_mongo_shell;
 
     #[test]
     fn parses_show_and_find() {

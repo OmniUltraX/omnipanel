@@ -7,21 +7,21 @@ use tokio::sync::Semaphore;
 
 use crate::client::AliyunCredentials;
 use crate::mapping::{
-    attach_instance_disks, attach_instance_snapshots, cert_to_detail, disk_to_detail, ecs_to_detail,
-    eip_to_detail, kv_to_detail, lb_to_detail,
-    map_cert_row, map_disk_row, map_ecs_row, map_eip_row, map_kv_row, map_lb_row, map_oss_row,
-    map_rds_row, map_region, map_sg_row, map_swas_row, merge_domain_rows, merged_domain_detail,
-    oss_to_detail, rds_to_detail, sg_to_detail, swas_to_detail,
+    attach_instance_disks, attach_instance_snapshots, cert_to_detail, disk_to_detail,
+    ecs_to_detail, eip_to_detail, kv_to_detail, lb_to_detail, map_cert_row, map_disk_row,
+    map_ecs_row, map_eip_row, map_kv_row, map_lb_row, map_oss_row, map_rds_row, map_region,
+    map_sg_row, map_swas_row, merge_domain_rows, merged_domain_detail, oss_to_detail,
+    rds_to_detail, sg_to_detail, swas_to_detail,
 };
 use crate::types::{
-    is_global_capability, CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage,
-    CloudLogQuery, CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudRelatedRef,
-    CloudResourceDetail, CloudResourceFilter, CloudResourceRow, ACTION_ADD_RECORD, ACTION_ATTACH,
-    ACTION_AUTHORIZE_RULE,
-    ACTION_CREATE_SNAPSHOT, ACTION_DELETE_RECORD, ACTION_DETACH, ACTION_MODIFY_BANDWIDTH,
-    ACTION_REBOOT, ACTION_REVOKE_RULE, ACTION_START, ACTION_STOP, ACTION_UPDATE_RECORD, CAP_CERTS,
-    CAP_COMPUTE, CAP_COMPUTE_LITE, CAP_DATABASE, CAP_DATABASE_CACHE, CAP_DNS, CAP_DOMAINS,
-    CAP_LOAD_BALANCER, CAP_NETWORK_EIP, CAP_OBJECT_STORAGE, CAP_SECURITY_GROUP, CAP_STORAGE_DISK,
+    ACTION_ADD_RECORD, ACTION_ATTACH, ACTION_AUTHORIZE_RULE, ACTION_CREATE_SNAPSHOT,
+    ACTION_DELETE_RECORD, ACTION_DETACH, ACTION_MODIFY_BANDWIDTH, ACTION_REBOOT,
+    ACTION_REVOKE_RULE, ACTION_START, ACTION_STOP, ACTION_UPDATE_RECORD, CAP_CERTS, CAP_COMPUTE,
+    CAP_COMPUTE_LITE, CAP_DATABASE, CAP_DATABASE_CACHE, CAP_DNS, CAP_DOMAINS, CAP_LOAD_BALANCER,
+    CAP_NETWORK_EIP, CAP_OBJECT_STORAGE, CAP_SECURITY_GROUP, CAP_STORAGE_DISK,
+    CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
+    CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudRelatedRef, CloudResourceDetail,
+    CloudResourceFilter, CloudResourceRow, is_global_capability,
 };
 
 #[async_trait]
@@ -93,11 +93,24 @@ pub trait CloudProviderDriver: Send + Sync {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AliyunCloudDriver;
 
-fn apply_row_filter(mut rows: Vec<CloudResourceRow>, filter: &CloudResourceFilter) -> Vec<CloudResourceRow> {
-    if let Some(status) = filter.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+fn apply_row_filter(
+    mut rows: Vec<CloudResourceRow>,
+    filter: &CloudResourceFilter,
+) -> Vec<CloudResourceRow> {
+    if let Some(status) = filter
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         rows.retain(|row| row.status.eq_ignore_ascii_case(status));
     }
-    if let Some(query) = filter.query.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(query) = filter
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let q = query.to_ascii_lowercase();
         rows.retain(|row| {
             row.name.to_ascii_lowercase().contains(&q)
@@ -588,21 +601,35 @@ impl CloudProviderDriver for AliyunCloudDriver {
         let scoped = with_region(creds, region);
         let cap = action.capability.trim();
         match (cap, name.as_str()) {
-            (CAP_COMPUTE, ACTION_START) => scoped.ecs_instance_action(http, "StartInstance", id).await?,
-            (CAP_COMPUTE, ACTION_STOP) => scoped.ecs_instance_action(http, "StopInstance", id).await?,
+            (CAP_COMPUTE, ACTION_START) => {
+                scoped
+                    .ecs_instance_action(http, "StartInstance", id)
+                    .await?
+            }
+            (CAP_COMPUTE, ACTION_STOP) => {
+                scoped.ecs_instance_action(http, "StopInstance", id).await?
+            }
             (CAP_COMPUTE, ACTION_REBOOT) => {
-                scoped.ecs_instance_action(http, "RebootInstance", id).await?
+                scoped
+                    .ecs_instance_action(http, "RebootInstance", id)
+                    .await?
             }
             (CAP_COMPUTE, ACTION_ATTACH) => scoped.join_security_group(http, action).await?,
             (CAP_COMPUTE, ACTION_DETACH) => scoped.leave_security_group(http, action).await?,
             (CAP_COMPUTE_LITE, ACTION_START) => {
-                scoped.swas_instance_action(http, "StartInstance", id).await?
+                scoped
+                    .swas_instance_action(http, "StartInstance", id)
+                    .await?
             }
             (CAP_COMPUTE_LITE, ACTION_STOP) => {
-                scoped.swas_instance_action(http, "StopInstance", id).await?
+                scoped
+                    .swas_instance_action(http, "StopInstance", id)
+                    .await?
             }
             (CAP_COMPUTE_LITE, ACTION_REBOOT) => {
-                scoped.swas_instance_action(http, "RebootInstance", id).await?
+                scoped
+                    .swas_instance_action(http, "RebootInstance", id)
+                    .await?
             }
             (CAP_SECURITY_GROUP, ACTION_AUTHORIZE_RULE) => {
                 scoped.authorize_security_group_rule(http, action).await?
@@ -617,10 +644,14 @@ impl CloudProviderDriver for AliyunCloudDriver {
                 scoped.revoke_swas_firewall_rule(http, action).await?
             }
             (CAP_DATABASE, ACTION_START) => {
-                scoped.rds_instance_action(http, "StartDBInstance", id).await?
+                scoped
+                    .rds_instance_action(http, "StartDBInstance", id)
+                    .await?
             }
             (CAP_DATABASE, ACTION_STOP) => {
-                scoped.rds_instance_action(http, "StopDBInstance", id).await?
+                scoped
+                    .rds_instance_action(http, "StopDBInstance", id)
+                    .await?
             }
             (CAP_DATABASE, ACTION_REBOOT) => {
                 scoped
@@ -631,13 +662,17 @@ impl CloudProviderDriver for AliyunCloudDriver {
                 scoped.authorize_rds_whitelist(http, action).await?
             }
             (CAP_DATABASE, ACTION_REVOKE_RULE) => scoped.revoke_rds_whitelist(http, action).await?,
-            (CAP_DOMAINS | CAP_DNS, ACTION_ADD_RECORD) => scoped.add_dns_record(http, action).await?,
-            (CAP_DOMAINS | CAP_DNS, ACTION_UPDATE_RECORD) => scoped.update_dns_record(http, action).await?,
-            (CAP_DOMAINS | CAP_DNS, ACTION_DELETE_RECORD) => scoped.delete_dns_record(http, action).await?,
+            (CAP_DOMAINS | CAP_DNS, ACTION_ADD_RECORD) => {
+                scoped.add_dns_record(http, action).await?
+            }
+            (CAP_DOMAINS | CAP_DNS, ACTION_UPDATE_RECORD) => {
+                scoped.update_dns_record(http, action).await?
+            }
+            (CAP_DOMAINS | CAP_DNS, ACTION_DELETE_RECORD) => {
+                scoped.delete_dns_record(http, action).await?
+            }
             (CAP_DATABASE_CACHE, ACTION_START) => {
-                scoped
-                    .kv_instance_action(http, "StartInstance", id)
-                    .await?
+                scoped.kv_instance_action(http, "StartInstance", id).await?
             }
             (CAP_DATABASE_CACHE, ACTION_STOP) => {
                 scoped.kv_instance_action(http, "StopInstance", id).await?
@@ -667,7 +702,9 @@ impl CloudProviderDriver for AliyunCloudDriver {
             }
             (CAP_LOAD_BALANCER, ACTION_STOP) => {
                 if action.param("port").is_empty() {
-                    scoped.set_load_balancer_status(http, id, "inactive").await?
+                    scoped
+                        .set_load_balancer_status(http, id, "inactive")
+                        .await?
                 } else {
                     scoped.set_listener_status(http, action, false).await?
                 }

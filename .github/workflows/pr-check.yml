@@ -1,0 +1,83 @@
+name: PR Check
+
+# 现有 ci.yml / build.yml 只在 push tag `v*` 时触发，日常提交与 PR 没有任何门禁。
+# 本 workflow 补上这一层：PR 与 master 提交必跑类型检查、单元测试与 Rust 编译检查。
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: pr-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  frontend:
+    name: Frontend (tsc + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Type check
+        run: npx tsc -b
+        working-directory: frontend
+
+      - name: Unit tests
+        run: npx vitest run
+        working-directory: frontend
+
+      - name: IPC command registry
+        run: npm run check:ipc-registry
+
+  rust:
+    name: Rust (cargo check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglib2.0-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libudev-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      # workspace 根在仓库根，产物在 ./target（不是 src-tauri/target）
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+          shared-key: pr-check
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Cargo check
+        run: cargo check --workspace
+
+# 格式规则说明：仓库没有 rustfmt.toml，用的是 edition 2024 默认 style_edition
+# （import 排序为大写类型在前）。注意不要改设 style_edition = "2015" —— 那样会有
+# 786 处 diff（代码主体按 2024 规则写的），反而更糟。

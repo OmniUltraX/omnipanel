@@ -1,13 +1,12 @@
 //! 云厂商 Host 薄桥：解连接、Vault、prod 闸、audit；业务经 `omnipanel-cloud` 分发。
 
 use omnipanel_cloud::{
-    default_region, get_account, get_metrics, get_resource, http_probe_url, invoke_action,
-    is_first_party_cloud, is_write_action, list_regions, list_resources, query_logs, test_account,
     CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
     CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail, CloudResourceFilter,
-    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT,
+    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT, default_region, get_account,
+    get_metrics, get_resource, http_probe_url, invoke_action, is_first_party_cloud,
+    is_write_action, list_regions, list_resources, query_logs, test_account,
 };
-use serde_json::{json, Value};
 use omnipanel_cloud_aliyun::{
     AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
     CloudSwasInstance,
@@ -15,6 +14,7 @@ use omnipanel_cloud_aliyun::{
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{AuditEntry, Connection, ConnectionKind, Vault};
 use serde::Deserialize;
+use serde_json::{Value, json};
 use tauri::State;
 
 use crate::commands::proxy::build_http_client_for_url;
@@ -287,11 +287,8 @@ fn require_write_presence(
     if !is_write_action(&action.name) {
         return Ok(());
     }
-    let target = omnipanel_presence::pipe_target(&[
-        connection_id,
-        &action.resource_id,
-        &action.name,
-    ]);
+    let target =
+        omnipanel_presence::pipe_target(&[connection_id, &action.resource_id, &action.name]);
     omnipanel_presence::require_grant(
         &state.presence_tokens,
         action.presence_token.as_deref(),
@@ -474,8 +471,7 @@ pub async fn cloud_invoke_action(
         });
     }
     let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    match invoke_action(&plugin_id, &creds, &http, &action).await
-    {
+    match invoke_action(&plugin_id, &creds, &http, &action).await {
         Ok(result) => {
             audit_cloud_action(
                 &state,
@@ -678,6 +674,8 @@ mod tests {
         let target = pipe_target(&["c1", "i-1", "stop"]);
         assert!(require_grant(&store, None, ACTION_CLOUD_LIFECYCLE, &target).is_err());
         let issued = store.issue(ACTION_CLOUD_LIFECYCLE, &target).unwrap();
-        assert!(require_grant(&store, Some(&issued.token), ACTION_CLOUD_LIFECYCLE, &target).is_ok());
+        assert!(
+            require_grant(&store, Some(&issued.token), ACTION_CLOUD_LIFECYCLE, &target).is_ok()
+        );
     }
 }
