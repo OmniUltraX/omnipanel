@@ -1,5 +1,7 @@
 # Rust / Cargo
 target/
+# Tauri 构建期 codegen 产物（随 features/依赖树变化，每次构建自动重写；入库只会产生幻影 diff）
+src-tauri/gen/
 # 独立 CARGO_TARGET_DIR（如 gen:bindings 避开 app 占用）
 target-gen-bindings/
 target-bindings/
