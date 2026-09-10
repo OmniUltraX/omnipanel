@@ -18,7 +18,7 @@ import type { DiscoveryPreviewRow } from "@/components/ui/DiscoveryImportDialog"
 import { createPluginHost, KERNEL_DOCKER_PLUGIN_ID } from "@/lib/pluginHost";
 import { isProdEnvTag } from "@/lib/envTag";
 import { isPluginActivated } from "@/stores/pluginRuntimeStore";
-import { PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT } from "../server/panel/panelPlugin";
+import { findPanelProbeMapper } from "@/lib/panelProbeRegistry";
 
 export type ImportDockerFromSshProgress = {
   total: number;
@@ -478,14 +478,15 @@ export async function probeDockerCandidatesFromSsh(options: {
     try {
       const probe = await unwrapCommand(commands.sshPoolProbePanels(ssh.id));
       const panels = (Array.isArray(probe.panels) ? probe.panels : []).filter((p) => p?.installed);
-      const onePanel = panels.find((p) => p.kind === "1panel");
-      const btPanel = panels.find((p) => p.kind === "bt");
       const dockerProbe = await unwrapCommand(commands.dockerProbeSshDocker(ssh.id));
       if (!dockerProbe.available) {
         continue;
       }
+      // Docker 可绑定的面板 kind → Docker source（与 dockerConnectionSource 联合类型对齐；
+      // 后端 SSH 探测仅上报这些 kind）。pluginId 经探测 mapper 注册表解析，不按插件 ID 特判；
+      // mapper 随插件 deactivate 卸除，未激活时回退 ssh-engine。
       const tryPanel = (
-        panel: NonNullable<typeof onePanel>,
+        panel: PanelProbeItem,
         source: "onepanel" | "btpanel",
         pluginId: string,
       ) => {
@@ -511,11 +512,21 @@ export async function probeDockerCandidatesFromSsh(options: {
           }),
         );
       };
-      if (onePanel && isPluginActivated(PLUGIN_ID_PANEL_1PANEL)) {
-        tryPanel(onePanel, "onepanel", PLUGIN_ID_PANEL_1PANEL);
-      } else if (btPanel && isPluginActivated(PLUGIN_ID_PANEL_BT)) {
-        tryPanel(btPanel, "btpanel", PLUGIN_ID_PANEL_BT);
-      } else {
+      let bound = false;
+      for (const binding of [
+        { kind: "1panel", source: "onepanel" },
+        { kind: "bt", source: "btpanel" },
+      ] as const) {
+        const panel = panels.find((p) => p.kind === binding.kind);
+        const pluginId =
+          findPanelProbeMapper(binding.kind)?.pluginId ?? `omni.panel.${binding.kind}`;
+        if (panel && isPluginActivated(pluginId)) {
+          tryPanel(panel, binding.source, pluginId);
+          bound = true;
+          break;
+        }
+      }
+      if (!bound) {
         const draft = buildDockerDraft({
           id: `docker-bound-${ssh.id}`,
           name: `Docker - ${hostLabel}`,

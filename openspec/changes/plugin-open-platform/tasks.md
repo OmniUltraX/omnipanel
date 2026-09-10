@@ -9,12 +9,15 @@
 
 ## 2. 贡献点泛化消费（阶段 A）
 
-- [ ] 2.1 launcher：`quickLauncherMatch.ts` 的 ssh/db/es 硬编码 register 迁移——内核保留 ssh/db，es 由 addon-everything 的 activate 注册；前缀列表随 activated 状态增减。验证：禁用 Everything 后 `es` 前缀不可用，启用恢复
+- [x] 2.1 launcher：`quickLauncherMatch.ts` 的 ssh/db/es 硬编码 register 迁移——内核保留 ssh/db，es 由 addon-everything 的 activate 注册；前缀列表随 activated 状态增减。验证：禁用 Everything 后 `es` 前缀不可用，启用恢复
+  - 核销（2026-09-10）：`quickLauncherMatch.ts:163` 仅注册 ssh/db；`es` 登记已在 `plugins/addon-everything/src/index.ts` activate/deactivate 内；`quickLauncherMatch.test.ts` + `moduleLauncher.test.ts` 通过（9 tests）
   - 进度：内核 es 硬编码已删（`QUICK_LAUNCH_COMMAND_PREFIXES = ["ssh","db"]`）+ `unregisterLauncherProvider`；es 登记迁入 addon-everything activate；vitest 更新为「未激活→plain / 激活→es / 卸除→plain」
-- [ ] 2.2 importer：命令面板/导入入口从 manifest `contributes.importers[].entry` 读取 Warpgate 入口。验证：禁用插件后命令面板无 Warpgate 项
+- [x] 2.2 importer：命令面板/导入入口从 manifest `contributes.importers[].entry` 读取 Warpgate 入口。验证：禁用插件后命令面板无 Warpgate 项
+  - 核销（2026-09-10）：`importerCatalog.importerEntries/listActiveImporters` 已泛化，CommandPalette / PluginDetailPane 按 `entry` 含 `commandPalette`/`settings` 过滤并经 `isPluginActivated` 门控；`importerCatalog.test.ts` 通过
   - 进度：CommandPalette / 设置页入口已按 `isPluginActivated(PLUGIN_ID_WARPGATE)` 门控；entry 字段泛化渲染随阶段 B 第三方 importer 一并做
-- [ ] 2.3 discovery probe 注册表：`ssh-panel` probe 归属 panel-* 插件声明；prod 主机过滤与取消联动行为不变。验证：既有 cloudRegionDiscovery/discoveryBus 测试通过
+- [x] 2.3 discovery probe 注册表：`ssh-panel` probe 归属 panel-* 插件声明；prod 主机过滤与取消联动行为不变。验证：既有 cloudRegionDiscovery/discoveryBus 测试通过
   - 进度：`panelProbeRegistry` + panel-* activate 登记 mapper 已落地；probe 任务编排归阶段 B 泛化
+  - 核销（2026-09-10）：`discoveryBus.runDiscoveryProbe` 在 `discoveryRun` 之前先判归属（`resolveProbeOwnership` 纯函数，`discoveryScope.ts`）：声明存在但无激活拥有者 → `{ skipped: true, reason: "no-owner" }`（调用方原有 `isDiscoverySkip` 空态处理不变，prod 过滤与取消语义不变）；`importDockerFromSsh` 的 1panel/bt 特判改为经 `findPanelProbeMapper(kind)` 解析 pluginId（行为等价：1panel 优先、未激活回退 ssh-engine）；`discoveryBus.test.ts` 新增归属 4 用例（29 tests 通过）。已知边界：后端 SSH 探测仅上报 `bt`/`1panel` kind（`omnipanel-ssh/capabilities.rs:1989`），Hestia 暂无 SSH 层探测覆盖——其清单 `discovery` 声明与 mapper 待后端支持后补，不在本批虚假声明
 - [x] 2.4 menus：share addon 登记迁入内核 addon 的 activate；`menuContributions` 支持 `when` 已有能力不变。验证：右键分享仍在，可按选区显隐
   - 实现：`mergeContributedMenuItems` 泛化为合并全部可见贡献（不再只认 share id）+ `unregisterMenuContributions(pluginId)`
 
@@ -35,8 +38,10 @@
 
 ## 5. 包格式与安装（阶段 B）
 
-- [ ] 5.1 定义 `.omni-plugin` 打包规范文档（zip 结构、规范化字节流、signature.ed25519）+ 打包/验签 Rust 工具函数 crate（如 `omnipanel-plugin-pkg`）。验证：打包→篡改一字节→验签失败单测
-- [ ] 5.2 `plugin_install_from_file` / `plugin_uninstall` 命令：解压到 `app_data/plugins/<id>/`、验签、合并进 registry；first_party 拒绝卸载。验证：集成测试装载样例包；重复安装覆盖升级
+- [x] 5.1 定义 `.omni-plugin` 打包规范文档（zip 结构、规范化字节流、signature.ed25519）+ 打包/验签 Rust 工具函数 crate（如 `omnipanel-plugin-pkg`）。验证：打包→篡改一字节→验签失败单测
+  - 核销（2026-09-10）：`docs/plugins/packaging-and-install.md` + `omnipanel-plugin-pkg`（pack/verify/dev-release 分流/原子 swap/回滚）已落地；`cargo test -p omnipanel-plugin-pkg`（`l1_install_chain` 2 passed）覆盖打包→验签→解压→贡献点→内置 id 冲突全链路
+- [x] 5.2 `plugin_install_from_file` / `plugin_uninstall` 命令：解压到 `app_data/plugins/<id>/`、验签、合并进 registry；first_party 拒绝卸载。验证：集成测试装载样例包；重复安装覆盖升级
+  - 核销（2026-09-10）：`plugin.rs` 内 install/uninstall/peek-manifest/read-asset/secret/state 命令齐备，同 `l1_install_chain` 链路测试覆盖；`plugin_uninstall` 拒绝非磁盘来源
 - [x] 5.3 设置页：dialog 插件选 .omni-plugin 安装入口、「已安装」来源标签、卸载按钮（danger），i18n 中英 + 样式。验证：tsc -b 零 error；手动装/卸待验收
 [x] 5.4 dev 开关：erify_file_dev 内部 cfg!(debug_assertions) 分流——release 走严格 verify_file（未签名=UnsignedRejected），dev 放行未签名但错签名仍拒。验证：unsigned_rejected_on_release_path_but_allowed_in_dev 单测
 
@@ -47,13 +52,17 @@
 
 ## 7. L2 WASM 执行（阶段 B）
 
-- [x] 7.1 执行器抽象 + wasmtime 实现（骨架）：crates/omnipanel-plugin/src/executor.rs 定义 PluginLogicExecutor/PluginLogicInstance trait + DisabledExecutor 占位；新 crate omnipanel-plugin-wasm（feature plugin-wasm 门控，未启用时 instantiate 给可读错误）；WasmHostBridge trait 预留 net/fs/upsert/invoke 能力桥。验证：mock 回显/wat 客体 ABI 往返/非法 wasm 拒绝 共 4 单测；双 feature 配置 cargo check 通过- [x] 7.2 逻辑包装载：manifest 增补可选 entry.logic（Rust/SDK Zod/CI 三端校验：相对路径、禁 ..、仅 .wasm）；sync_plugin_logic 差量生命周期挂入 rebuild/set_enabled——activated 且声明 logic 的安装包自动实例化，失活 shutdown 移除；plugin_invoke 路由改为「原生网关优先 → L2 实例兜底」，权限闸在路由前已强制。验证：cargo check 双配置通过；端到端实例化待 7.4 样板联调- [ ] 7.3 prod 闸：env_tag=prod 时 net/ssh host functions 强制二次确认（复用 ExecutionEngine），不可配置绕过。验证：prod 主机扫描被拦截
-- [ ] 7.4 L2 样板：Warpgate 远程拉取（当前 mock 的真实化候选）迁为 wasm 逻辑包。验证：真实 token 拉取 targets→candidates 闭环
+- [x] 7.1 执行器抽象 + wasmtime 实现（骨架）：crates/omnipanel-plugin/src/executor.rs 定义 PluginLogicExecutor/PluginLogicInstance trait + DisabledExecutor 占位；新 crate omnipanel-plugin-wasm（feature plugin-wasm 门控，未启用时 instantiate 给可读错误）；WasmHostBridge trait 预留 net/fs/upsert/invoke 能力桥。验证：mock 回显/wat 客体 ABI 往返/非法 wasm 拒绝 共 4 单测；双 feature 配置 cargo check 通过- [x] 7.2 逻辑包装载：manifest 增补可选 entry.logic（Rust/SDK Zod/CI 三端校验：相对路径、禁 ..、仅 .wasm）；sync_plugin_logic 差量生命周期挂入 rebuild/set_enabled——activated 且声明 logic 的安装包自动实例化，失活 shutdown 移除；plugin_invoke 路由改为「原生网关优先 → L2 实例兜底」，权限闸在路由前已强制。验证：cargo check 双配置通过；端到端实例化待 7.4 样板联调- [x] 7.3 prod 闸：env_tag=prod 时 net/ssh host functions 强制二次确认（复用 ExecutionEngine），不可配置绕过。验证：prod 主机扫描被拦截
+  - 核销（2026-09-10，实施偏差）：确认器实现为 `plugin_bridge.rs` 内 `TauriProdConfirmer`（`plugin://confirm-request` + 60s 超时拒绝 + `plugin.prod-confirm` audit），未复用 ExecutionEngine——功能等价（不可绕过、超时拒绝、有审计），`plugin_bridge.rs` 单测覆盖超时/取消/拒绝语义；`plugin_confirm_resolve` 负责前端回传唤醒
+- [x] 7.4 L2 样板：Warpgate 远程拉取（当前 mock 的真实化候选）迁为 wasm 逻辑包。验证：真实 token 拉取 targets→candidates 闭环
+  - 核销（2026-09-10，实施偏差）：样板实现为 QuickJS `logic.js`（非 wasm——L2 执行器以 JS 先行，WASM 保持 feature 门控骨架）；`plugins/importer-warpgate/logic.js` 直打官方 Admin API（targets + listeners，bastion 夹具校验，密码只走 vault）；`cargo test -p omnipanel-plugin-js warpgate` 5 passed
 
 ## 8. L3 沙箱 UI（阶段 B）
 
-- [ ] 8.1 沙箱 iframe 方案落地（origin/CSP 默认拒外联）+ postMessage 桥（消息白名单=Host API 子集，逐条过权限闸，带 pluginId+nonce）。验证：桥消息越权被拒并有 audit
-- [ ] 8.2 overlay 支持插件自定义内容渲染路径（宿主壳不变）。验证：L3 样板在 Overlay 显示自身 UI
+- [x] 8.1 沙箱 iframe 方案落地（origin/CSP 默认拒外联）+ postMessage 桥（消息白名单=Host API 子集，逐条过权限闸，带 pluginId+nonce）。验证：桥消息越权被拒并有 audit
+  - 核销（2026-09-10）：`PluginSandboxFrame`（`sandbox=allow-scripts` 不透明 origin + `default-src 'none'` CSP + 来源/nonce 校验）已落地；拒绝经 `sandboxBridgeAuditPermission` 锚定权限调 `pluginRequirePermission` 触发后端 `plugin.permission/blocked` audit（白名单外方法锚定 `ui:selection`，结构拒绝恒在）；`PluginSandboxFrame.test.ts` 锁定拒绝文案与审计锚点映射（4 tests）
+- [x] 8.2 overlay 支持插件自定义内容渲染路径（宿主壳不变）。验证：L3 样板在 Overlay 显示自身 UI
+  - 核销（2026-09-10）：链路已通——清单 `overlays[].entry` → `openPluginOverlay` 经 `plugin_read_asset` 取 HTML → `pluginOverlayStore.sandboxHtml` → `PluginOverlayHost` 以 `PluginSandboxFrame` 沙箱渲染，invoke/netFetch 走 `pluginInvoke`/`pluginSandboxNetFetch` 同源权限闸；`translate-float` / `l3-translator` 样板就位，端到端翻译闭环见 8.3
 - [ ] 8.3 L3 样板：翻译 addon 最小可用（选区总线 → Overlay → net:connect）。验证：design 闭环 E 走通
 
 ## 9. SDK 交付与联调（阶段 B）

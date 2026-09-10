@@ -144,6 +144,18 @@ export function formatSandboxBridgeBlockLog(
   return `[plugin-bridge] blocked ${pluginId} ${String(method)}: ${message}`;
 }
 
+/**
+ * 拒绝走审计的权限锚点：deny() 经 `pluginRequirePermission(pluginId, anchor)`
+ * 触发后端 `plugin.permission/blocked` audit（缺权即记）。
+ * 白名单外方法无专属权限，锚定 `ui:selection`（结构拒绝 + 控制台日志恒在；
+ * 插件若恰好持有该权限则只记控制台，不重复落 audit）。
+ */
+export function sandboxBridgeAuditPermission(method: string | undefined): string {
+  if (method === "netFetch") return "net:connect";
+  if (method === "aiComplete") return "ai:tools";
+  return "ui:selection";
+}
+
 export function buildSandboxDoc(pluginHtml: string, theme: SandboxTheme = "dark"): string {
   // 在 <head> 或文档最前插入 CSP、主题基座与桥；无 head 标签时前置拼接。
   // light 主题多一段脚本把 data-theme 打到 <html> 上（dark 为缺省，无需设置）。
@@ -204,13 +216,7 @@ export function PluginSandboxFrame({ pluginId, title, html, theme, onInvoke, onH
         const granted = new Set(manifest?.permissions ?? []);
         const denyReason = sandboxBridgeDenyReason(data.method, granted);
         if (denyReason) {
-          const permission =
-            data.method === "netFetch"
-              ? "net:connect"
-              : data.method === "aiComplete"
-                ? "ai:tools"
-                : "ui:selection";
-          await deny(permission, denyReason);
+          await deny(sandboxBridgeAuditPermission(data.method), denyReason);
           return;
         }
         switch (data.method) {
