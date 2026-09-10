@@ -220,7 +220,9 @@ import {
   resolveSqlTabConnectionId,
   rowsToRecord,
   tabModeToEditorOpenMode,
+  normalizeSortStates,
   type SortState,
+  type SortStates,
   type SqlTabState,
   type TableDesignerTabState,
   type TablePreviewState,
@@ -1331,7 +1333,7 @@ export function DatabasePanel() {
         })
         .catch(() => {});
 
-      const sort = previewState?.sort ?? null;
+      const sort = normalizeSortStates(previewState?.sort);
       const filter = previewState?.filter ?? null;
       const columnRelations = previewState?.columnRelations ?? {};
       const hiddenColumns = previewState?.hiddenColumns ? [...previewState.hiddenColumns] : [];
@@ -2083,12 +2085,13 @@ export function DatabasePanel() {
   );
 
   const setTableSort = useCallback(
-    (tabId: string, sort: SortState | null) => {
+    (tabId: string, sort: SortState | SortStates | null) => {
       const preview = useDbWorkspaceTabStore.getState().tablePreviews[tabId];
       if (!preview?.connId || !preview?.dbName || !preview?.tableName) return;
       const connId = preview.connId;
       const connection = connections.find((c) => c.id === connId);
       if (!connection) return;
+      const sorts = normalizeSortStates(sort);
 
       setTablePreviews((prev) => {
         const existing = prev[tabId] ?? createDefaultTablePreviewState();
@@ -2104,7 +2107,7 @@ export function DatabasePanel() {
           dbName: preview.dbName!,
           page: 0,
           pageSize,
-          sort,
+          sort: sorts,
           filter: existing.filter,
           columnMeta: colMeta,
           columnRelations,
@@ -2124,7 +2127,7 @@ export function DatabasePanel() {
             setTablePreviews((p) => {
               const cur = p[tabId];
               if (!cur) return p;
-              return { ...p, [tabId]: { ...cur, sort } };
+              return { ...p, [tabId]: { ...cur, sort: sorts } };
             });
           })
           .catch((e) => {
@@ -2138,13 +2141,13 @@ export function DatabasePanel() {
                   ...cur,
                   loading: false,
                   error: typeof e === "string" ? e : String(e),
-                  sort,
+                  sort: sorts,
                 },
               };
             });
           });
 
-        return { ...prev, [tabId]: { ...existing, loading: true, sort } };
+        return { ...prev, [tabId]: { ...existing, loading: true, sort: sorts } };
       });
     },
     [connections, setTablePreviews],
@@ -2625,7 +2628,7 @@ export function DatabasePanel() {
       tabId: string;
       page?: number;
       pageSize?: number;
-      sort?: SortState | null;
+      sort?: SortState | SortStates | null;
       filter?: RuleGroupType | null;
     }) => {
       if (action.kind === "refresh") {
@@ -2651,7 +2654,7 @@ export function DatabasePanel() {
       tabId: string;
       page?: number;
       pageSize?: number;
-      sort?: SortState | null;
+      sort?: SortState | SortStates | null;
       filter?: RuleGroupType | null;
     }) => {
       void (async () => {

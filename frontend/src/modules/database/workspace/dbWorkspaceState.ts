@@ -22,6 +22,21 @@ export type SortState = {
   direction: SortDirection;
 };
 
+/** 多列排序：数组为空表示无排序，顺序即 ORDER BY 优先级 */
+export type SortStates = SortState[];
+
+export function normalizeSortStates(sort: SortState | SortStates | null | undefined): SortStates {
+  if (!sort) return [];
+  const list = Array.isArray(sort) ? sort : [sort];
+  return list.filter(
+    (entry): entry is SortState =>
+      Boolean(entry) &&
+      typeof entry.column === "string" &&
+      entry.column.length > 0 &&
+      (entry.direction === "asc" || entry.direction === "desc"),
+  );
+}
+
 /** 表预览列关联配置（持久化于工作区会话） */
 export type TableColumnRelationConfig = {
   tableName: string;
@@ -41,7 +56,8 @@ export type TablePreviewState = {
   connId?: string;
   dbName?: string;
   tableName?: string;
-  sort: SortState | null;
+  /** 多列排序；空数组表示无排序 */
+  sort: SortStates;
   filter: RuleGroupType | null;
   /** 隐藏的列名；空数组表示全部显示 */
   hiddenColumns: string[];
@@ -196,7 +212,7 @@ export function createDefaultTablePreviewState(): TablePreviewState {
     totalRows: 0,
     page: 0,
     pageSize: DEFAULT_PAGE_SIZE,
-    sort: null,
+    sort: [],
     filter: null,
     hiddenColumns: [],
     columnRelations: {},
@@ -206,17 +222,24 @@ export function createDefaultTablePreviewState(): TablePreviewState {
 
 /**
  * 按 db_type 转义列名引号，返回可直接拼入 `ORDER BY` 的子句（如 \`col\` ASC）。
+ * 支持多列（逗号连接，保持数组顺序）；空数组返回空串。
  * 仅用于本模块已通过 schema 反射拿到的列名；不接受外部输入以避免注入。
  */
 export function buildOrderByClause(
-  sort: SortState,
+  sort: SortState | SortStates | null | undefined,
   dbType: string,
 ): string {
+  const sorts = normalizeSortStates(sort);
+  if (sorts.length === 0) return "";
   const quote = dbType.toLowerCase() === "mysql" || dbType.toLowerCase() === "mariadb"
     ? "`"
     : '"';
-  const safe = sort.column.replace(quote, "");
-  return `${quote}${safe}${quote} ${sort.direction.toUpperCase()}`;
+  return sorts
+    .map((entry) => {
+      const safe = entry.column.replace(quote, "");
+      return `${quote}${safe}${quote} ${entry.direction.toUpperCase()}`;
+    })
+    .join(", ");
 }
 
 export function makeSqlResultSessionId(): string {

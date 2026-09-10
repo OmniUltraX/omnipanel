@@ -6,8 +6,8 @@ import {
   type RuleType,
 } from "react-querybuilder";
 import type { DbColumnMeta } from "../api";
-import type { SortState } from "../workspace/dbWorkspaceState";
-import { buildOrderByClause } from "../workspace/dbWorkspaceState";
+import type { SortStates } from "../workspace/dbWorkspaceState";
+import { buildOrderByClause, normalizeSortStates } from "../workspace/dbWorkspaceState";
 import type { TableSchema } from "../types";
 import type { TableColumnRelation } from "./tableColumnRelation";
 import {
@@ -151,15 +151,15 @@ export function filterUsesRelationColumns(
   return false;
 }
 
-export function sortUsesRelationColumn(sort: SortState | null | undefined): boolean {
-  return Boolean(sort && isRelationDisplayColumn(sort.column));
+export function sortUsesRelationColumn(sort: SortStates | null | undefined): boolean {
+  return normalizeSortStates(sort).some((entry) => isRelationDisplayColumn(entry.column));
 }
 
 /** 过滤或排序涉及关联显示列时，需走 JOIN 预览查询 */
 export function shouldUseRelationJoinPreview(
   columnRelations: Record<string, TableColumnRelation>,
   filter: RuleGroupType | null | undefined,
-  sort: SortState | null | undefined,
+  sort: SortStates | null | undefined,
 ): boolean {
   if (Object.keys(columnRelations).length === 0) return false;
   return filterUsesRelationColumns(filter, columnRelations) || sortUsesRelationColumn(sort);
@@ -225,6 +225,105 @@ export function appendFilterRuleForColumn(
     ...base,
     rules: [...base.rules, { field: column, operator: "=", value: "" }],
   });
+}
+
+/** 右键快捷筛选种类（图1子菜单） */
+export type QuickFilterKind =
+  | "equals"
+  | "notEquals"
+  | "contains"
+  | "notContains"
+  | "lt"
+  | "gt"
+  | "isNull"
+  | "isNotNull";
+
+function isNullishFilterValue(value: unknown): boolean {
+  return value === null || value === undefined;
+}
+
+function normalizeQuickFilterValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "object" && value !== null) {
+    try {
+      const json = JSON.stringify(value);
+      if (json !== undefined) return json;
+    } catch {
+      // fall through
+    }
+    return String(value);
+  }
+  return value ?? null;
+}
+
+/** 快捷筛选是否可用（NULL 时仅允许等于/排除/NULL 相关） */
+export function isQuickFilterKindEnabled(kind: QuickFilterKind, value: unknown): boolean {
+  if (isNullishFilterValue(value)) {
+    return kind === "equals" || kind === "notEquals" || kind === "isNull" || kind === "isNotNull";
+  }
+  return true;
+}
+
+/** 为指定列+单元格值构建单条快捷筛选规则；NULL 自动转为 IS NULL / IS NOT NULL */
+export function buildQuickFilterRule(
+  column: string,
+  kind: QuickFilterKind,
+  value: unknown,
+): RuleType | null {
+  if (!column) return null;
+  if (kind === "isNull") return { field: column, operator: "null", value: null };
+  if (kind === "isNotNull") return { field: column, operator: "notNull", value: null };
+  if (isNullishFilterValue(value)) {
+    if (kind === "equals") return { field: column, operator: "null", value: null };
+    if (kind === "notEquals") return { field: column, operator: "notNull", value: null };
+    return null;
+  }
+  const normalized = normalizeQuickFilterValue(value);
+  switch (kind) {
+    case "equals":
+      return { field: column, operator: "=", value: normalized };
+    case "notEquals":
+      return { field: column, operator: "!=", value: normalized };
+    case "contains":
+      return { field: column, operator: "contains", value: String(normalized ?? "") };
+    case "notContains":
+      return { field: column, operator: "doesNotContain", value: String(normalized ?? "") };
+    case "lt":
+      return { field: column, operator: "<", value: normalized };
+    case "gt":
+      return { field: column, operator: ">", value: normalized };
+    default:
+      return null;
+  }
+}
+
+/** AND 追加快捷筛选到全局过滤并立即生效；不可用时返回原过滤 */
+export function appendQuickFilterRule(
+  filter: RuleGroupType | null | undefined,
+  column: string,
+  kind: QuickFilterKind,
+  value: unknown,
+): RuleGroupType | null {
+  const rule = buildQuickFilterRule(column, kind, value);
+  if (!rule) return isTableFilterActive(filter) ? ensureTableFilterQuery(filter!) : filter ?? null;
+  const base = ensureTableFilterQuery(filter);
+  const merged = ensureTableFilterQuery({
+    ...base,
+    combinator: "and",
+    rules: [...base.rules, rule],
+  });
+  return isTableFilterActive(merged) ? merged : null;
+}
+
+/** 清除指定列的全部条件；无剩余时返回 null */
+export function clearColumnFilter(
+  filter: RuleGroupType | null | undefined,
+  column: string,
+): RuleGroupType | null {
+  if (!isTableFilterActive(filter)) return null;
+  const without = removeColumnRules(ensureTableFilterQuery(filter!), column);
+  return isTableFilterActive(without) ? without : null;
 }
 
 /** 从全局过滤中提取指定列的条件，供单列过滤弹层编辑 */
@@ -351,7 +450,7 @@ export interface TablePreviewSqlContext {
   tableName: string;
   dbName?: string;
   filter?: RuleGroupType | null;
-  sort?: SortState | null;
+  sort?: SortStates | null;
   page: number;
   pageSize: number;
   /** 指定 SELECT 列；省略或空则使用 * */
@@ -384,8 +483,9 @@ export function buildTablePreviewSql({
   }
   const tableRef = quoteSqlIdentifier(tableName, dbType);
   const whereSql = whereClause ? ` WHERE ${whereClause}` : "";
-  const hasOrder = Boolean(sort);
-  const orderSql = sort ? ` ORDER BY ${buildOrderByClause(sort, dbType)}` : "";
+  const sorts = normalizeSortStates(sort);
+  const hasOrder = sorts.length > 0;
+  const orderSql = hasOrder ? ` ORDER BY ${buildOrderByClause(sorts, dbType)}` : "";
   const selectSql =
     selectColumns && selectColumns.length > 0
       ? selectColumns.map((col) => quoteSqlIdentifier(col, dbType)).join(", ")
@@ -529,30 +629,39 @@ function qualifyFilterWhereForAlias(
 }
 
 function buildRelationOrderBySql(
-  sort: SortState | null | undefined,
+  sort: SortStates | null | undefined,
   dbType: string,
   mainAlias: string,
   plans: RelationJoinPlan[],
 ): string {
-  if (!sort) return "";
+  const sorts = normalizeSortStates(sort);
+  if (sorts.length === 0) return "";
   const mainAliasRef = quoteSqlIdentifier(mainAlias, dbType);
-  if (isRelationDisplayColumn(sort.column)) {
-    const sourceColumn = relationSourceColumn(sort.column);
-    const plan = sourceColumn ? plans.find((entry) => entry.sourceColumn === sourceColumn) : undefined;
-    if (!plan) return "";
-    const joinAliasRef = quoteSqlIdentifier(plan.joinAlias, dbType);
-    const displayFieldRef = quoteSqlIdentifier(plan.displayField, dbType);
-    return ` ORDER BY ${joinAliasRef}.${displayFieldRef} ${sort.direction.toUpperCase()}`;
+  const parts: string[] = [];
+  for (const entry of sorts) {
+    if (isRelationDisplayColumn(entry.column)) {
+      const sourceColumn = relationSourceColumn(entry.column);
+      const plan = sourceColumn
+        ? plans.find((item) => item.sourceColumn === sourceColumn)
+        : undefined;
+      if (!plan) continue;
+      const joinAliasRef = quoteSqlIdentifier(plan.joinAlias, dbType);
+      const displayFieldRef = quoteSqlIdentifier(plan.displayField, dbType);
+      parts.push(`${joinAliasRef}.${displayFieldRef} ${entry.direction.toUpperCase()}`);
+      continue;
+    }
+    const quoted = quoteSqlIdentifier(entry.column, dbType);
+    parts.push(`${mainAliasRef}.${quoted} ${entry.direction.toUpperCase()}`);
   }
-  const quoted = quoteSqlIdentifier(sort.column, dbType);
-  return ` ORDER BY ${mainAliasRef}.${quoted} ${sort.direction.toUpperCase()}`;
+  if (parts.length === 0) return "";
+  return ` ORDER BY ${parts.join(", ")}`;
 }
 
 export interface RelationPreviewSqlContext {
   dbType: string;
   tableName: string;
   filter?: RuleGroupType | null;
-  sort?: SortState | null;
+  sort?: SortStates | null;
   page: number;
   pageSize: number;
   columnRelations: Record<string, TableColumnRelation>;
@@ -696,15 +805,16 @@ export function buildTablePreviewSqlWithRelations({
         columnMeta,
       );
   const whereSql = qualifiedWhere ? ` WHERE ${qualifiedWhere}` : "";
-  const orderSql = sort
+  const sorts = normalizeSortStates(sort);
+  const orderSql = sorts.length > 0
     ? needsQualifiedAlias
       ? buildRelationOrderBySql(
-          sort,
+          sorts,
           dbType,
           mainAlias,
           joinPlansForFrom.length > 0 ? joinPlansForFrom : plans,
         )
-      : ` ORDER BY ${buildOrderByClause(sort, dbType)}`
+      : ` ORDER BY ${buildOrderByClause(sorts, dbType)}`
     : "";
   const limit = Math.max(0, pageSize);
   const offset = Math.max(0, page) * limit;
