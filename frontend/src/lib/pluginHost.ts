@@ -127,8 +127,8 @@ function sshAuthFromCandidate(cfg: Record<string, unknown>): Record<string, unkn
   return { type: "password", password };
 }
 
-async function saveConnection(draft: Connection): Promise<Connection> {
-  const saved = await useConnectionStore.getState().save(draft);
+async function saveConnection(draft: Connection, pluginId?: string): Promise<Connection> {
+  const saved = await useConnectionStore.getState().save(draft, pluginId ?? null);
   if (saved?.id) return saved;
   const detail = useConnectionStore.getState().error;
   throw new Error(detail ? formatIpcError(detail) : "保存连接失败");
@@ -237,7 +237,10 @@ async function upsertDbCandidate(
   await useDbConnectionListStore.getState().refresh();
 }
 
-async function upsertCandidateConnection(candidate: ImportCandidate): Promise<void> {
+async function upsertCandidateConnection(
+  candidate: ImportCandidate,
+  pluginId?: string,
+): Promise<void> {
   const cfg = asRecord(candidate.config);
   const existing = findExistingCandidate(useConnectionStore.getState().connections, candidate);
   const ts = nowSec();
@@ -263,7 +266,7 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       ),
       createdAt: existing?.createdAt ?? ts,
       updatedAt: ts,
-    });
+    }, pluginId);
     placeImportedSshConnection(saved.id, asString(cfg.importGroup));
     return;
   }
@@ -290,7 +293,7 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       credentialRef: existing?.id ? `panel-key-${existing.id}` : null,
       createdAt: existing?.createdAt ?? ts,
       updatedAt: ts,
-    });
+    }, pluginId);
     return;
   }
 
@@ -306,7 +309,7 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       config: JSON.stringify(withExternalSource({ ...dockerCfg }, candidate)),
       createdAt: existing?.createdAt ?? ts,
       updatedAt: ts,
-    });
+    }, pluginId);
     return;
   }
 
@@ -332,7 +335,7 @@ async function upsertCandidateConnection(candidate: ImportCandidate): Promise<vo
       ),
       createdAt: existing?.createdAt ?? ts,
       updatedAt: ts,
-    });
+    }, pluginId);
     return;
   }
 
@@ -363,7 +366,11 @@ export function createPluginHost(pluginId: string): PluginHost {
         if (candidate.pluginId !== pluginId && !isKernelHost(pluginId)) {
           throw new Error("候选 pluginId 与当前 Host 不一致");
         }
-        await upsertCandidateConnection(candidate);
+        // 内核 Host 不在插件注册表内，不透传身份；插件 Host 走后端强制闸。
+        await upsertCandidateConnection(
+          candidate,
+          isKernelHost(pluginId) ? undefined : pluginId,
+        );
       },
     },
     invoke: async (method, args) =>

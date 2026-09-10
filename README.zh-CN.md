@@ -52,7 +52,7 @@ AI Agent 服务巡检：基于真实容器与主机上下文生成结构化健�
 | **文件** | 本地 / 远程浏览、收藏、**跨连接传输** |
 | **数据库** | SQL 编辑器、虚拟滚动网格、NL2SQL；第一方引擎 + sidecar/DBX（Oracle、达梦、Hive 等） |
 | **Docker** | 本地 / 远程 Engine / SSH 宿主机 / 1Panel / **宝塔** — 容器、镜像、Compose、网络、卷 |
-| **服务器管理** | 主机监控；**宝塔 / 1Panel / HestiaCP**（网站、应用、证书、计划任务）；**云厂商**（阿里云 / 腾讯云；在账号上切换地区） |
+| **服务器管理** | 主机监控；**宝塔 / 1Panel / HestiaCP**（网站、应用、证书、计划任务）；**云厂商**（阿里云 / 腾讯云 / 华为云 / AWS / Azure / GCP / DigitalOcean / 搬瓦工；在账号上切换地区） |
 | **模块插件** | 可安装 `kind=module` 插件（先落地 Nacos）：连接树、当前连接上切换命名空间、配置 / 服务 / 集群工作台 |
 | **协议调试** | HTTP/API、WebSocket、MQTT、串口 —— 统一工作区 |
 | **AI 助手** | 上下文感知运维，Plan / Skills，`omni_ask_user`，敏感信息脱敏，多模型 |
@@ -77,7 +77,7 @@ OmniPanel 通过签名插件体系向第三方开放三级扩展能力：
 | 类别 | 说明 |
 |------|------|
 | **插件平台** | `.omni-plugin` 签名安装；插件中心 + 工作室校验/打包/安装；官方验签与投稿；L1 / L2 / L3 |
-| **云厂商** | 能力工作台（账户 → 能力 → 实例）；阿里云 + 腾讯云；阿里云另含安全组 / EIP / SLB / RDS / Redis / 磁盘 / DNS |
+| **云厂商** | 能力工作台（账户 → 能力 → 实例）；阿里云 / 腾讯云 / 华为云 / AWS / Azure / GCP / DigitalOcean / 搬瓦工；阿里云另含安全组 / EIP / SLB / RDS / Redis / 磁盘 / DNS |
 | **模块插件** | Nacos：命名空间切换、服务在线/离线与上线下线、可拖分栏、Ctrl+F 搜配置 |
 | **同步安全** | 团队 sync_key_v2 + 在线设备中继传钥；无 peer 时导入 `.omnipanel-sync.key`；助手绑定 v2 加密二维码 |
 | **在场验证** | 危险操作须先过 Windows Hello / Touch ID 或打字签发短命 token；按 action+target 一次性消费，覆盖数据库 / Docker / 云 / SSH |

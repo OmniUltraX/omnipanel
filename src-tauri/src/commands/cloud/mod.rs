@@ -35,6 +35,10 @@ struct CloudConfig {
     access_key_id: String,
     #[serde(default, alias = "access_key_secret")]
     access_key_secret: String,
+    #[serde(default)]
+    tenant_id: String,
+    #[serde(default)]
+    subscription_id: String,
 }
 
 fn default_provider() -> String {
@@ -49,6 +53,8 @@ fn empty_cloud_config() -> CloudConfig {
         regions: Vec::new(),
         access_key_id: String::new(),
         access_key_secret: String::new(),
+        tenant_id: String::new(),
+        subscription_id: String::new(),
     }
 }
 
@@ -136,6 +142,8 @@ pub(crate) fn normalize_cloud_connection(
         "regions": regions,
         "region": regions.first().map(String::as_str).unwrap_or(""),
         "accessKeyId": cfg.access_key_id.trim(),
+        "tenantId": cfg.tenant_id.trim(),
+        "subscriptionId": cfg.subscription_id.trim(),
     }))
     .unwrap_or(connection.config);
     Ok(connection)
@@ -153,8 +161,22 @@ fn resolve_credentials(
     })?;
     let plugin_id = plugin_id_of(&cfg)?;
     let access_key_id = cfg.access_key_id.trim().to_string();
-    if access_key_id.is_empty() {
+    if access_key_id.is_empty()
+        && plugin_id != "omni.cloud.digitalocean"
+        && plugin_id != "omni.cloud.gcp"
+    {
         return Err(OmniError::invalid_input("请填写 AccessKey ID"));
+    }
+    if plugin_id == "omni.cloud.bandwagon" && access_key_id.is_empty() {
+        return Err(OmniError::invalid_input("请填写 VEID"));
+    }
+    if plugin_id == "omni.cloud.azure" {
+        if cfg.tenant_id.trim().is_empty() {
+            return Err(OmniError::invalid_input("请填写 Azure 租户 ID"));
+        }
+        if cfg.subscription_id.trim().is_empty() {
+            return Err(OmniError::invalid_input("请填写 Azure 订阅 ID"));
+        }
     }
     let secret = secret_override
         .map(str::trim)
@@ -193,7 +215,12 @@ fn resolve_credentials(
     ))
 }
 
-fn cloud_plugin_args(connection_id: &str, creds: &AliyunCredentials, extra: Value) -> Value {
+fn cloud_plugin_args(
+    connection_id: &str,
+    creds: &AliyunCredentials,
+    cfg: &CloudConfig,
+    extra: Value,
+) -> Value {
     let mut map = extra.as_object().cloned().unwrap_or_default();
     map.entry("connectionId".to_string())
         .or_insert_with(|| json!(connection_id));
@@ -205,6 +232,14 @@ fn cloud_plugin_args(connection_id: &str, creds: &AliyunCredentials, extra: Valu
         .or_insert_with(|| json!(creds.region));
     map.entry("regions".to_string())
         .or_insert_with(|| json!(creds.regions));
+    if !cfg.tenant_id.trim().is_empty() {
+        map.entry("tenantId".to_string())
+            .or_insert_with(|| json!(cfg.tenant_id.trim()));
+    }
+    if !cfg.subscription_id.trim().is_empty() {
+        map.entry("subscriptionId".to_string())
+            .or_insert_with(|| json!(cfg.subscription_id.trim()));
+    }
     Value::Object(map)
 }
 
@@ -310,13 +345,13 @@ pub async fn cloud_test(
     connection: Connection,
     secret: Option<String>,
 ) -> Result<String, OmniError> {
-    let (plugin_id, creds, _) = resolve_credentials(&connection, secret.as_deref())?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&connection, secret.as_deref())?;
     if !is_first_party_cloud(&plugin_id) {
         let value = invoke_cloud_plugin(
             &state,
             &plugin_id,
             "testAccount",
-            cloud_plugin_args(&connection.id, &creds, json!({})),
+            cloud_plugin_args(&connection.id, &creds, &cfg, json!({})),
         )
         .await?;
         if let Some(msg) = value.as_str() {
@@ -345,7 +380,7 @@ pub async fn cloud_list_regions(
             &state,
             &plugin_id,
             "listRegions",
-            cloud_plugin_args(&connection_id, &creds, json!({ "configured": configured })),
+            cloud_plugin_args(&connection_id, &creds, &cfg, json!({ "configured": configured })),
         )
         .await?;
         return l2_items(value);
@@ -361,13 +396,13 @@ pub async fn cloud_get_account(
     connection_id: String,
 ) -> Result<CloudAccountSnapshot, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     if !is_first_party_cloud(&plugin_id) {
         let value = invoke_cloud_plugin(
             &state,
             &plugin_id,
             "getAccount",
-            cloud_plugin_args(&connection_id, &creds, json!({})),
+            cloud_plugin_args(&connection_id, &creds, &cfg, json!({})),
         )
         .await?;
         return serde_json::from_value(value).map_err(|e| {
@@ -387,7 +422,7 @@ pub async fn cloud_list_resources(
     filter: Option<CloudResourceFilter>,
 ) -> Result<Vec<CloudResourceRow>, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let filter = filter.unwrap_or_default();
     if !is_first_party_cloud(&plugin_id) {
         let value = invoke_cloud_plugin(
@@ -397,6 +432,7 @@ pub async fn cloud_list_resources(
             cloud_plugin_args(
                 &connection_id,
                 &creds,
+                &cfg,
                 json!({ "capability": capability, "filter": filter }),
             ),
         )
@@ -417,7 +453,7 @@ pub async fn cloud_get_resource(
     region_id: Option<String>,
 ) -> Result<CloudResourceDetail, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let region = region_id.as_deref().unwrap_or("");
     if !is_first_party_cloud(&plugin_id) {
         let value = invoke_cloud_plugin(
@@ -427,6 +463,7 @@ pub async fn cloud_get_resource(
             cloud_plugin_args(
                 &connection_id,
                 &creds,
+                &cfg,
                 json!({
                     "capability": capability,
                     "resourceId": resource_id,
@@ -451,7 +488,7 @@ pub async fn cloud_invoke_action(
     action: CloudAction,
 ) -> Result<CloudActionResult, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     if let Err(err) = require_write_presence(&state, &connection_id, &action) {
         audit_cloud_action(
             &state,
@@ -468,7 +505,7 @@ pub async fn cloud_invoke_action(
             &state,
             &plugin_id,
             "invokeAction",
-            cloud_plugin_args(&connection_id, &creds, json!({ "action": action })),
+            cloud_plugin_args(&connection_id, &creds, &cfg, json!({ "action": action })),
         )
         .await?;
         return serde_json::from_value(value).map_err(|e| {
@@ -514,7 +551,7 @@ pub async fn cloud_get_metrics(
     query: Option<CloudMetricQuery>,
 ) -> Result<Vec<CloudMetricSeries>, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let region = region_id.as_deref().unwrap_or("");
     let query = query.unwrap_or_default();
     if !is_first_party_cloud(&plugin_id) {
@@ -525,6 +562,7 @@ pub async fn cloud_get_metrics(
             cloud_plugin_args(
                 &connection_id,
                 &creds,
+                &cfg,
                 json!({
                     "capability": capability,
                     "resourceId": resource_id,
@@ -560,7 +598,7 @@ pub async fn cloud_query_logs(
     query: Option<CloudLogQuery>,
 ) -> Result<CloudLogPage, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
-    let (plugin_id, creds, _) = resolve_credentials(&conn, None)?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let region = region_id.as_deref().unwrap_or("");
     let query = query.unwrap_or_default();
     if !is_first_party_cloud(&plugin_id) {
@@ -571,6 +609,7 @@ pub async fn cloud_query_logs(
             cloud_plugin_args(
                 &connection_id,
                 &creds,
+                &cfg,
                 json!({
                     "capability": capability,
                     "resourceId": resource_id,

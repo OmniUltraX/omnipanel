@@ -134,6 +134,28 @@ impl JsInstanceInner {
                 }),
             )?;
             host.set(
+                "sign",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |spec: String| -> rquickjs::Result<String> {
+                        b.sign(&spec).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.sign", "string", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
+                "encode",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |spec: String| -> rquickjs::Result<String> {
+                        b.encode(&spec).map_err(|msg| {
+                            rquickjs::Error::new_from_js_message("host.encode", "string", msg)
+                        })
+                    }
+                }),
+            )?;
+            host.set(
                 "netFetch",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);

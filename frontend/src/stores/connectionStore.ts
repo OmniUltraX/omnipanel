@@ -40,7 +40,8 @@ interface ConnectionState {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  save: (connection: Connection) => Promise<Connection | null>;
+  /** `pluginId` 非空时表示插件发起的写入，后端强制校验 `connections:write`。 */
+  save: (connection: Connection, pluginId?: string | null) => Promise<Connection | null>;
   /** 批量更新 SSH 连接分组（单次状态提交，避免列表重复 key 抖动） */
   moveSshConnectionsToGroup: (connectionIds: string[], group: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
@@ -175,11 +176,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }
   },
 
-  save: async (connection) => {
+  save: async (connection, pluginId) => {
     // 名称不参与云端同步：保存前先记录旧值，用于判断是否纯改名
     const existing = get().connections.find((c) => c.id === connection.id);
     try {
-      const res = await commands.connSave(connection);
+      const res = await commands.connSave(connection, pluginId ?? null);
       if (res.status === "ok") {
         const saved = res.data;
         if (saved.kind === "ssh") clearSshAuthHold(saved.id);
@@ -214,7 +215,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     const saved: Connection[] = [];
     try {
       for (const conn of toMove) {
-        const res = await commands.connSave({ ...conn, group: targetGroup });
+        const res = await commands.connSave({ ...conn, group: targetGroup }, null);
         if (res.status === "ok") {
           saved.push(res.data);
         } else {
@@ -236,7 +237,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   remove: async (id) => {
     try {
       const conn = get().connections.find((c) => c.id === id);
-      const res = await commands.connDelete(id);
+      const res = await commands.connDelete(id, null);
       if (res.status === "ok") {
         set((state) => ({ connections: state.connections.filter((c) => c.id !== id) }));
         if (conn?.kind === "ssh") {

@@ -211,9 +211,9 @@ export const commands = {
 	/**  列出全部已保存连接�?*/
 	connList: () => typedError<Connection[], OmniError_Serialize>(__TAURI_INVOKE("conn_list")),
 	/**  保存（新建或更新）连接。id 为空时后端生成�?*/
-	connSave: (connection: Connection) => typedError<Connection, OmniError_Serialize>(__TAURI_INVOKE("conn_save", { connection })),
+	connSave: (connection: Connection, pluginId: string | null) => typedError<Connection, OmniError_Serialize>(__TAURI_INVOKE("conn_save", { connection, pluginId })),
 	/**  删除连接�?*/
-	connDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("conn_delete", { id })),
+	connDelete: (id: string, pluginId: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("conn_delete", { id, pluginId })),
 	/**
 	 *  测试连接连通性。当前支�?database（MySQL）；其余类型将在对应里程碑接入�?	 * 
 	 *  `secret`：可选明文凭据（文件连接对话框「测试连接」用）。为空时回退�?	 *  `connection.credential_ref` 指向�?Vault；保存前测试必须传入表单中的密钥�?	 */

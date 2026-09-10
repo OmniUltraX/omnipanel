@@ -9,6 +9,11 @@ export type SegmentTabIconKind =
   | "aliyun"
   | "tencent"
   | "huawei"
+  | "aws"
+  | "azure"
+  | "digitalocean"
+  | "gcp"
+  | "bandwagon"
   | "monitor"
   | "processes"
   | "apps"
@@ -28,6 +33,11 @@ const SEGMENT_TAB_ICON_KINDS = new Set<string>([
   "aliyun",
   "tencent",
   "huawei",
+  "aws",
+  "azure",
+  "digitalocean",
+  "gcp",
+  "bandwagon",
   "monitor",
   "processes",
   "apps",
@@ -48,7 +58,12 @@ function isBrandSegmentIcon(icon: SegmentTabIconKind): icon is SegmentBrandIconK
     icon === "hestia" ||
     icon === "aliyun" ||
     icon === "tencent" ||
-    icon === "huawei"
+    icon === "huawei" ||
+    icon === "aws" ||
+    icon === "azure" ||
+    icon === "digitalocean" ||
+    icon === "gcp" ||
+    icon === "bandwagon"
   );
 }
 

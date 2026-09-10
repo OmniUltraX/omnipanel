@@ -1,0 +1,51 @@
+name: Publish plugin-sdk
+
+on:
+  push:
+    tags:
+      - "plugin-sdk-v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "真正执行 npm publish（需 NPM_TOKEN）；否则只做 build + pack 校验"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build and publish @omnipanel/plugin-sdk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        working-directory: packages/plugin-sdk
+        run: npm ci
+
+      - name: Build
+        working-directory: packages/plugin-sdk
+        run: npm run build
+
+      - name: Pack check
+        working-directory: packages/plugin-sdk
+        run: npm pack --dry-run
+
+      - name: Publish
+        if: ${{ github.event_name == 'push' || inputs.publish }}
+        working-directory: packages/plugin-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::warning::NPM_TOKEN 未配置，跳过 npm publish（仅完成 build + pack 校验）"
+            exit 0
+          fi
+          npm publish --access public

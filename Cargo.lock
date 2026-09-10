@@ -5919,6 +5919,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "omnipanel-error",
+ "rsa",
  "semver",
  "serde",
  "serde_json",

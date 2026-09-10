@@ -668,4 +668,40 @@ mod tests {
         drop(tx);
         assert!(!wait_confirm(rx, Duration::from_secs(1)).await);
     }
+
+    #[test]
+    fn config_hosts_reads_host_and_address() {
+        use super::config_hosts;
+        assert_eq!(
+            config_hosts(r#"{"host":"https://db.example.com:3306","address":"10.0.0.8"}"#),
+            vec!["db.example.com".to_string(), "10.0.0.8".to_string()]
+        );
+        // 非法 JSON 与无主机字段都不产出主机，prod 闸不会误伤。
+        assert!(config_hosts("not-json").is_empty());
+        assert!(config_hosts(r#"{"port":3306}"#).is_empty());
+    }
+
+    #[test]
+    fn dedot_collapses_parent_dirs() {
+        use super::dedot;
+        use std::path::PathBuf;
+        assert_eq!(
+            dedot(&PathBuf::from("/root/plugin/../plugin/a.json")),
+            PathBuf::from("/root/plugin/a.json")
+        );
+        // 越过根后不再上溢，fsRead 禁锢交由 starts_with 拦截。
+        assert_eq!(
+            dedot(&PathBuf::from("/root/../../etc/passwd")),
+            PathBuf::from("/etc/passwd")
+        );
+    }
+
+    #[test]
+    fn args_digest_never_contains_plaintext() {
+        use super::args_digest;
+        let digest = args_digest(r#"{"token":"s3cr3t-value"}"#);
+        assert!(digest.starts_with("sha256:"));
+        assert!(!digest.contains("s3cr3t-value"));
+        assert!(digest.contains("len=24"));
+    }
 }

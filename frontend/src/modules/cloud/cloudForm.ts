@@ -7,12 +7,19 @@ export type CloudFormData = {
   regions: string[];
   accessKeyId: string;
   accessKeySecret: string;
+  tenantId: string;
+  subscriptionId: string;
   remark: string;
 };
 
 export const PLUGIN_ID_ALIYUN = "omni.cloud.aliyun";
 export const PLUGIN_ID_TENCENT = "omni.cloud.tencent";
 export const PLUGIN_ID_HUAWEI = "omni.cloud.huawei";
+export const PLUGIN_ID_AWS = "omni.cloud.aws";
+export const PLUGIN_ID_AZURE = "omni.cloud.azure";
+export const PLUGIN_ID_DIGITALOCEAN = "omni.cloud.digitalocean";
+export const PLUGIN_ID_GCP = "omni.cloud.gcp";
+export const PLUGIN_ID_BANDWAGON = "omni.cloud.bandwagon";
 
 export const EMPTY_CLOUD_FORM: CloudFormData = {
   name: "",
@@ -20,6 +27,8 @@ export const EMPTY_CLOUD_FORM: CloudFormData = {
   regions: [],
   accessKeyId: "",
   accessKeySecret: "",
+  tenantId: "",
+  subscriptionId: "",
   remark: "",
 };
 
@@ -38,12 +47,53 @@ export function isAliyunCloud(pluginId: string | null | undefined): boolean {
   return id === PLUGIN_ID_ALIYUN || id === "aliyun";
 }
 
+export function isAwsCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_AWS || id === "aws";
+}
+
+export function isAzureCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_AZURE || id === "azure";
+}
+
+export function isDigitalOceanCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_DIGITALOCEAN || id === "digitalocean" || id === "do";
+}
+
+export function isGcpCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_GCP || id === "gcp" || id === "google" || id === "googlecloud";
+}
+
+export function isBandwagonCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return (
+    id === PLUGIN_ID_BANDWAGON || id === "bandwagon" || id === "bwh" || id === "banwagong"
+  );
+}
+
 export function cloudBrandKind(
   pluginId: string | null | undefined,
-): "aliyun" | "tencent" | "huawei" | "server" {
+):
+  | "aliyun"
+  | "tencent"
+  | "huawei"
+  | "aws"
+  | "azure"
+  | "digitalocean"
+  | "gcp"
+  | "bandwagon"
+  | "server" {
   if (isTencentCloud(pluginId)) return "tencent";
   if (isHuaweiCloud(pluginId)) return "huawei";
   if (isAliyunCloud(pluginId)) return "aliyun";
+  if (isAwsCloud(pluginId)) return "aws";
+  if (isAzureCloud(pluginId)) return "azure";
+  if (isDigitalOceanCloud(pluginId)) return "digitalocean";
+  if (isGcpCloud(pluginId)) return "gcp";
+  if (isBandwagonCloud(pluginId)) return "bandwagon";
   return "server";
 }
 
@@ -165,6 +215,8 @@ export interface CloudConfigJson {
   regions?: string[];
   accessKeyId?: string;
   accessKeySecret?: string;
+  tenantId?: string;
+  subscriptionId?: string;
   remark?: string;
 }
 
@@ -201,6 +253,21 @@ export function cloudAccountConsoleUrl(pluginId: string): string | null {
   if (isHuaweiCloud(id)) {
     return "https://console.huaweicloud.com/";
   }
+  if (isAwsCloud(id)) {
+    return "https://console.aws.amazon.com/";
+  }
+  if (isAzureCloud(id)) {
+    return "https://portal.azure.com/";
+  }
+  if (isDigitalOceanCloud(id)) {
+    return "https://cloud.digitalocean.com/";
+  }
+  if (isGcpCloud(id)) {
+    return "https://console.cloud.google.com/";
+  }
+  if (isBandwagonCloud(id)) {
+    return "https://bandwagonhost.com/clientarea.php";
+  }
   return null;
 }
 
@@ -213,6 +280,8 @@ export function cloudConnectionToForm(connection: Connection): CloudFormData {
     regions,
     accessKeyId: cfg.accessKeyId?.trim() || "",
     accessKeySecret: "",
+    tenantId: cfg.tenantId?.trim() || "",
+    subscriptionId: cfg.subscriptionId?.trim() || "",
     remark: cfg.remark?.trim() || "",
   };
 }
@@ -234,10 +303,22 @@ export function buildCloudConnection(
         ? "huawei"
         : isAliyunCloud(pluginId)
           ? "aliyun"
-          : pluginId,
+          : isAwsCloud(pluginId)
+            ? "aws"
+            : isAzureCloud(pluginId)
+              ? "azure"
+              : isDigitalOceanCloud(pluginId)
+                ? "digitalocean"
+                : isGcpCloud(pluginId)
+                  ? "gcp"
+                  : isBandwagonCloud(pluginId)
+                    ? "bandwagon"
+                    : pluginId,
     regions,
     region: regions[0],
     accessKeyId: form.accessKeyId.trim(),
+    tenantId: form.tenantId.trim() || undefined,
+    subscriptionId: form.subscriptionId.trim() || undefined,
     remark: form.remark.trim() || undefined,
   };
   if (form.accessKeySecret.trim()) {

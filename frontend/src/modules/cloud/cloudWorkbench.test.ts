@@ -136,7 +136,11 @@ describe("cloud tree keys", () => {
   });
 
   it("第三方云品牌与能力文案不回落阿里云", () => {
-    expect(cloudBrandKind("omni.cloud.aws")).toBe("server");
+    expect(cloudBrandKind("omni.cloud.aws")).toBe("aws");
+    expect(cloudBrandKind("omni.cloud.azure")).toBe("azure");
+    expect(cloudBrandKind("omni.cloud.digitalocean")).toBe("digitalocean");
+    expect(cloudBrandKind("omni.cloud.gcp")).toBe("gcp");
+    expect(cloudBrandKind("omni.cloud.bandwagon")).toBe("bandwagon");
     expect(cloudBrandKind("omni.cloud.aliyun")).toBe("aliyun");
     expect(cloudBrandKind("omni.cloud.tencent")).toBe("tencent");
     expect(cloudBrandKind("omni.cloud.huawei")).toBe("huawei");

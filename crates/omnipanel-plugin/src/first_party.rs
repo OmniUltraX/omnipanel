@@ -5,6 +5,11 @@ pub const PLUGIN_ID_ADDON_EVERYTHING: &str = "omni.addon.everything";
 pub const PLUGIN_ID_CLOUD_ALIYUN: &str = "omni.cloud.aliyun";
 pub const PLUGIN_ID_CLOUD_TENCENT: &str = "omni.cloud.tencent";
 pub const PLUGIN_ID_CLOUD_HUAWEI: &str = "omni.cloud.huawei";
+pub const PLUGIN_ID_CLOUD_AWS: &str = "omni.cloud.aws";
+pub const PLUGIN_ID_CLOUD_AZURE: &str = "omni.cloud.azure";
+pub const PLUGIN_ID_CLOUD_DIGITALOCEAN: &str = "omni.cloud.digitalocean";
+pub const PLUGIN_ID_CLOUD_GCP: &str = "omni.cloud.gcp";
+pub const PLUGIN_ID_CLOUD_BANDWAGON: &str = "omni.cloud.bandwagon";
 pub const PLUGIN_ID_PANEL_1PANEL: &str = "omni.panel.1panel";
 pub const PLUGIN_ID_PANEL_BT: &str = "omni.panel.bt";
 pub const PLUGIN_ID_PANEL_HESTIA: &str = "omni.panel.hestia";
@@ -51,6 +56,26 @@ pub fn cloud_tencent() -> PluginManifest {
 
 pub fn cloud_huawei() -> PluginManifest {
     first_party_manifest!("cloud-huawei")
+}
+
+pub fn cloud_aws() -> PluginManifest {
+    first_party_manifest!("cloud-aws")
+}
+
+pub fn cloud_azure() -> PluginManifest {
+    first_party_manifest!("cloud-azure")
+}
+
+pub fn cloud_digitalocean() -> PluginManifest {
+    first_party_manifest!("cloud-digitalocean")
+}
+
+pub fn cloud_gcp() -> PluginManifest {
+    first_party_manifest!("cloud-gcp")
+}
+
+pub fn cloud_bandwagon() -> PluginManifest {
+    first_party_manifest!("cloud-bandwagon")
 }
 
 pub fn panel_1panel() -> PluginManifest {
@@ -145,6 +170,46 @@ pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u
             .as_bytes()
             .to_vec(),
         ),
+        (PLUGIN_ID_CLOUD_AWS, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-aws/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_AZURE, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-azure/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_DIGITALOCEAN, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-digitalocean/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_GCP, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-gcp/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_BANDWAGON, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-bandwagon/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
         (PLUGIN_ID_PANEL_HESTIA, "logic.js") => Some(
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -203,6 +268,11 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         cloud_aliyun(),
         cloud_tencent(),
         cloud_huawei(),
+        cloud_aws(),
+        cloud_azure(),
+        cloud_digitalocean(),
+        cloud_gcp(),
+        cloud_bandwagon(),
         panel_1panel(),
         panel_bt(),
         panel_hestia(),
@@ -233,6 +303,16 @@ mod tests {
         assert_eq!(cloud_tencent().logic_entry(), Some("logic.js"));
         assert_eq!(cloud_huawei().id, PLUGIN_ID_CLOUD_HUAWEI);
         assert_eq!(cloud_huawei().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_aws().id, PLUGIN_ID_CLOUD_AWS);
+        assert_eq!(cloud_aws().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_azure().id, PLUGIN_ID_CLOUD_AZURE);
+        assert_eq!(cloud_azure().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_digitalocean().id, PLUGIN_ID_CLOUD_DIGITALOCEAN);
+        assert_eq!(cloud_digitalocean().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_gcp().id, PLUGIN_ID_CLOUD_GCP);
+        assert_eq!(cloud_gcp().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_bandwagon().id, PLUGIN_ID_CLOUD_BANDWAGON);
+        assert_eq!(cloud_bandwagon().logic_entry(), Some("logic.js"));
         assert!(
             first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "logic.js")
                 .expect("应嵌入腾讯云 logic.js")

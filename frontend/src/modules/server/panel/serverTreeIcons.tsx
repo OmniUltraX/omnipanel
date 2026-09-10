@@ -22,6 +22,11 @@ export type ServerTreeIconKind =
   | "aliyun"
   | "tencent"
   | "huawei"
+  | "aws"
+  | "azure"
+  | "digitalocean"
+  | "gcp"
+  | "bandwagon"
   | "apps"
   | "websites"
   | "certificates"
@@ -38,7 +43,12 @@ function isBrandKind(kind: ServerTreeIconKind): kind is ServerTreeBrandIconKind 
     kind === "hestia" ||
     kind === "aliyun" ||
     kind === "tencent" ||
-    kind === "huawei"
+    kind === "huawei" ||
+    kind === "aws" ||
+    kind === "azure" ||
+    kind === "digitalocean" ||
+    kind === "gcp" ||
+    kind === "bandwagon"
   );
 }
 

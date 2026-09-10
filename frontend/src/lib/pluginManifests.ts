@@ -5,6 +5,11 @@ import {
 } from "@omnipanel/plugin-sdk";
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
 import cloudAliyunJson from "../../../plugins/cloud-aliyun/plugin.json";
+import cloudAwsJson from "../../../plugins/cloud-aws/plugin.json";
+import cloudAzureJson from "../../../plugins/cloud-azure/plugin.json";
+import cloudBandwagonJson from "../../../plugins/cloud-bandwagon/plugin.json";
+import cloudDigitaloceanJson from "../../../plugins/cloud-digitalocean/plugin.json";
+import cloudGcpJson from "../../../plugins/cloud-gcp/plugin.json";
 import cloudHuaweiJson from "../../../plugins/cloud-huawei/plugin.json";
 import cloudTencentJson from "../../../plugins/cloud-tencent/plugin.json";
 import dbClickhouseJson from "../../../plugins/db-clickhouse/plugin.json";
@@ -31,6 +36,11 @@ import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
   parsePluginManifest(cloudAliyunJson),
+  parsePluginManifest(cloudAwsJson),
+  parsePluginManifest(cloudAzureJson),
+  parsePluginManifest(cloudBandwagonJson),
+  parsePluginManifest(cloudDigitaloceanJson),
+  parsePluginManifest(cloudGcpJson),
   parsePluginManifest(cloudHuaweiJson),
   parsePluginManifest(cloudTencentJson),
   parsePluginManifest(dbClickhouseJson),
@@ -95,6 +105,16 @@ export const LEGACY_PLUGIN_ALIASES: Readonly<Record<string, string>> = {
   huawei: "omni.cloud.huawei",
   hwc: "omni.cloud.huawei",
   hwcloud: "omni.cloud.huawei",
+  aws: "omni.cloud.aws",
+  azure: "omni.cloud.azure",
+  digitalocean: "omni.cloud.digitalocean",
+  do: "omni.cloud.digitalocean",
+  gcp: "omni.cloud.gcp",
+  google: "omni.cloud.gcp",
+  googlecloud: "omni.cloud.gcp",
+  bandwagon: "omni.cloud.bandwagon",
+  bwh: "omni.cloud.bandwagon",
+  banwagong: "omni.cloud.bandwagon",
 };
 
 export function manifestCloudCapabilities(

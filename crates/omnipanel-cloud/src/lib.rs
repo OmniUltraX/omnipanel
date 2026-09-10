@@ -13,8 +13,18 @@ pub use omnipanel_cloud_aliyun::{
 
 pub const PLUGIN_ID_TENCENT: &str = "omni.cloud.tencent";
 pub const PLUGIN_ID_HUAWEI: &str = "omni.cloud.huawei";
+pub const PLUGIN_ID_AWS: &str = "omni.cloud.aws";
+pub const PLUGIN_ID_AZURE: &str = "omni.cloud.azure";
+pub const PLUGIN_ID_DIGITALOCEAN: &str = "omni.cloud.digitalocean";
+pub const PLUGIN_ID_GCP: &str = "omni.cloud.gcp";
+pub const PLUGIN_ID_BANDWAGON: &str = "omni.cloud.bandwagon";
 pub const TENCENT_DEFAULT_REGION: &str = "ap-guangzhou";
 pub const HUAWEI_DEFAULT_REGION: &str = "cn-north-4";
+pub const AWS_DEFAULT_REGION: &str = "us-east-1";
+pub const AZURE_DEFAULT_REGION: &str = "eastus";
+pub const DIGITALOCEAN_DEFAULT_REGION: &str = "nyc1";
+pub const GCP_DEFAULT_REGION: &str = "us-central1";
+pub const BANDWAGON_DEFAULT_REGION: &str = "losangeles";
 
 pub fn resolve_plugin_id(raw: &str) -> Result<String, OmniError> {
     let value = raw.trim();
@@ -37,6 +47,32 @@ pub fn resolve_plugin_id(raw: &str) -> Result<String, OmniError> {
     {
         return Ok(PLUGIN_ID_HUAWEI.to_string());
     }
+    if value.eq_ignore_ascii_case("aws") || value.eq_ignore_ascii_case(PLUGIN_ID_AWS) {
+        return Ok(PLUGIN_ID_AWS.to_string());
+    }
+    if value.eq_ignore_ascii_case("azure") || value.eq_ignore_ascii_case(PLUGIN_ID_AZURE) {
+        return Ok(PLUGIN_ID_AZURE.to_string());
+    }
+    if value.eq_ignore_ascii_case("digitalocean")
+        || value.eq_ignore_ascii_case("do")
+        || value.eq_ignore_ascii_case(PLUGIN_ID_DIGITALOCEAN)
+    {
+        return Ok(PLUGIN_ID_DIGITALOCEAN.to_string());
+    }
+    if value.eq_ignore_ascii_case("gcp")
+        || value.eq_ignore_ascii_case("google")
+        || value.eq_ignore_ascii_case("googlecloud")
+        || value.eq_ignore_ascii_case(PLUGIN_ID_GCP)
+    {
+        return Ok(PLUGIN_ID_GCP.to_string());
+    }
+    if value.eq_ignore_ascii_case("bandwagon")
+        || value.eq_ignore_ascii_case("bwh")
+        || value.eq_ignore_ascii_case("banwagong")
+        || value.eq_ignore_ascii_case(PLUGIN_ID_BANDWAGON)
+    {
+        return Ok(PLUGIN_ID_BANDWAGON.to_string());
+    }
     if value.contains('.') && !value.contains(char::is_whitespace) {
         return Ok(value.to_string());
     }
@@ -52,6 +88,16 @@ pub fn default_region(plugin_id: &str) -> &'static str {
         TENCENT_DEFAULT_REGION
     } else if plugin_id == PLUGIN_ID_HUAWEI {
         HUAWEI_DEFAULT_REGION
+    } else if plugin_id == PLUGIN_ID_AWS {
+        AWS_DEFAULT_REGION
+    } else if plugin_id == PLUGIN_ID_AZURE {
+        AZURE_DEFAULT_REGION
+    } else if plugin_id == PLUGIN_ID_DIGITALOCEAN {
+        DIGITALOCEAN_DEFAULT_REGION
+    } else if plugin_id == PLUGIN_ID_GCP {
+        GCP_DEFAULT_REGION
+    } else if plugin_id == PLUGIN_ID_BANDWAGON {
+        BANDWAGON_DEFAULT_REGION
     } else {
         "cn-hangzhou"
     }

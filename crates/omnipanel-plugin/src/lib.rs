@@ -18,7 +18,7 @@ mod resolve;
 mod source;
 
 pub use candidate::{ImportCandidate, upsert_candidates};
-pub use crypto::{hash_digest, hmac_digest};
+pub use crypto::{encode_data, hash_digest, hmac_digest, sign_digest};
 pub use contribution::{
     AiContributes, AiToolContribution, AiToolExecKind, CloudCapabilityDecl, CloudContributes,
     CloudRegionDecl,
@@ -36,7 +36,9 @@ pub use executor::{
     RouterExecutor,
 };
 pub use first_party::{
-    PLUGIN_ID_ADDON_EVERYTHING, PLUGIN_ID_CLOUD_ALIYUN, PLUGIN_ID_CLOUD_HUAWEI,
+    PLUGIN_ID_ADDON_EVERYTHING, PLUGIN_ID_CLOUD_ALIYUN, PLUGIN_ID_CLOUD_AWS,
+    PLUGIN_ID_CLOUD_AZURE, PLUGIN_ID_CLOUD_BANDWAGON, PLUGIN_ID_CLOUD_DIGITALOCEAN,
+    PLUGIN_ID_CLOUD_GCP, PLUGIN_ID_CLOUD_HUAWEI,
     PLUGIN_ID_CLOUD_TENCENT,
     PLUGIN_ID_ENGINE_CLICKHOUSE,
     PLUGIN_ID_ENGINE_MONGODB, PLUGIN_ID_ENGINE_MYSQL, PLUGIN_ID_ENGINE_POSTGRES,
@@ -44,7 +46,9 @@ pub use first_party::{
     PLUGIN_ID_ENGINE_SQLSERVER, PLUGIN_ID_IMPORTER_DOCKER_DB, PLUGIN_ID_IMPORTER_WARPGATE,
     PLUGIN_ID_MODULE_NACOS, PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT, PLUGIN_ID_PANEL_HESTIA,
     PLUGIN_ID_THEME_DEFAULT,
-    addon_everything, cloud_aliyun, cloud_huawei, cloud_tencent, engine_clickhouse, engine_mongodb, engine_mysql,
+    addon_everything, cloud_aliyun, cloud_aws, cloud_azure, cloud_bandwagon, cloud_digitalocean,
+    cloud_gcp, cloud_huawei,
+    cloud_tencent, engine_clickhouse, engine_mongodb, engine_mysql,
     engine_postgres, engine_qdrant, engine_redis, engine_sqlite, engine_sqlserver,
     first_party_asset_bytes, first_party_logic_bytes, first_party_manifests, importer_docker_db,
     importer_warpgate, module_nacos, panel_1panel, panel_bt, panel_hestia, theme_default,

@@ -52,7 +52,7 @@ AI Agent inspection report — structured health checks grounded in live contain
 | **Files** | Local / remote browsing, favorites, **cross-connection transfer** |
 | **Database** | SQL editor, virtual-scroll grid, NL2SQL, schema tools; first-party engines plus sidecar/DBX (Oracle, Dameng, Hive, and more) |
 | **Docker** | Local / remote Engine / SSH host / 1Panel / **BT Panel** — containers, images, Compose, networks, volumes |
-| **Server** | Host monitor; **BT Panel / 1Panel / HestiaCP** (sites, apps, certs, cron); **cloud vendors** (Aliyun / Tencent Cloud; switch region on the account) |
+| **Server** | Host monitor; **BT Panel / 1Panel / HestiaCP** (sites, apps, certs, cron); **cloud vendors** (Aliyun / Tencent Cloud / Huawei Cloud / AWS / Azure / GCP / DigitalOcean / BandwagonHost; switch region on the account) |
 | **Modules** | Installable `kind=module` plugins (Nacos first): connection tree, namespace switcher on the current connection, config / discovery / cluster workbench |
 | **Protocol Lab** | HTTP/API, WebSocket, MQTT, serial — one workspace |
 | **AI Assistant** | Context-aware ops, Plans, Skills, `omni_ask_user`, secret redaction, multi-model |
@@ -78,7 +78,7 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 | Area | Highlights |
 |------|------------|
 | **Plugin platform** | Signed `.omni-plugin` install; Plugin Center + studio pack/install; official verify & submissions; L1 / L2 / L3 |
-| **Cloud vendors** | Capability workbench (account → capability → instance); Aliyun + Tencent Cloud; Aliyun also covers SG / EIP / SLB / RDS / Redis / disk / DNS |
+| **Cloud vendors** | Capability workbench (account → capability → instance); Aliyun / Tencent Cloud / Huawei Cloud / AWS / Azure / GCP / DigitalOcean / BandwagonHost; Aliyun also covers SG / EIP / SLB / RDS / Redis / disk / DNS |
 | **Module plugins** | Nacos: namespace switch, service online/offline, resizable split, Ctrl+F config search |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
 | **Presence guard** | Dangerous ops require Windows Hello / Touch ID or short-lived type-issued token; consumed once per action across DB / Docker / cloud / SSH |

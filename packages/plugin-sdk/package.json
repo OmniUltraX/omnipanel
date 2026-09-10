@@ -12,7 +12,23 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "LICENSE"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OmniUltraX/omnipanel.git",
+    "directory": "packages/plugin-sdk"
+  },
+  "homepage": "https://github.com/OmniUltraX/omnipanel/tree/master/packages/plugin-sdk",
+  "bugs": {
+    "url": "https://github.com/OmniUltraX/omnipanel/issues"
+  },
+  "keywords": ["omnipanel", "plugin", "sdk", "manifest"],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "pack:check": "npm run build && npm pack --dry-run",

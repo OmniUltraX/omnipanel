@@ -57,6 +57,71 @@
       ]
     },
     {
+      "id": "omni.cloud.aws",
+      "kind": "cloud",
+      "name": "AWS",
+      "description": "Manage EC2, EBS, S3, RDS, ElastiCache, and other Amazon Web Services resources.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.cloud.azure",
+      "kind": "cloud",
+      "name": "Microsoft Azure",
+      "description": "Manage Azure VMs, disks, storage accounts, SQL, Redis, and other Microsoft Azure resources.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.cloud.digitalocean",
+      "kind": "cloud",
+      "name": "DigitalOcean",
+      "description": "Manage Droplets, volumes, load balancers, managed databases, and other DigitalOcean resources.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.cloud.gcp",
+      "kind": "cloud",
+      "name": "Google Cloud",
+      "description": "Manage Compute Engine, disks, GCS, Cloud SQL, firewalls, and other Google Cloud resources.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.cloud.bandwagon",
+      "kind": "cloud",
+      "name": "BandwagonHost",
+      "description": "Manage BandwagonHost (搬瓦工) KVM VPS via KiwiVM API.",
+      "version": "0.1.0",
+      "distribution": "bundled",
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
       "id": "omni.engine.clickhouse",
       "kind": "engine",
       "name": "ClickHouse",

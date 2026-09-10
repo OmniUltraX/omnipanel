@@ -11,8 +11,8 @@ import {
 describe("pluginManifests 单源目录", () => {
   it("解析全部第一方清单且 id 唯一", () => {
     const ids = FIRST_PARTY_PLUGIN_MANIFESTS.map((m) => m.id);
-    expect(ids).toHaveLength(19);
-    expect(new Set(ids).size).toBe(19);
+    expect(ids).toHaveLength(24);
+    expect(new Set(ids).size).toBe(24);
   });
 
   it("kind 分布与仓库样板一致", () => {
@@ -28,7 +28,7 @@ describe("pluginManifests 单源目录", () => {
     ]);
     expect(listPluginManifests("panel")).toHaveLength(3);
     expect(listPluginManifests("module")).toHaveLength(1);
-    expect(listPluginManifests("cloud")).toHaveLength(3);
+    expect(listPluginManifests("cloud")).toHaveLength(8);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(1);
     expect(listPluginManifests("importer")).toHaveLength(2);
@@ -243,6 +243,21 @@ describe("pluginManifests 单源目录", () => {
     ]);
   });
 
+  for (const id of [
+    "omni.cloud.aws",
+    "omni.cloud.azure",
+    "omni.cloud.digitalocean",
+    "omni.cloud.gcp",
+    "omni.cloud.bandwagon",
+  ] as const) {
+    it(`${id} 为 L2 云插件`, () => {
+      const manifest = getPluginManifest(id);
+      expect(manifest?.kind).toBe("cloud");
+      expect(manifest?.entry?.logic).toBe("logic.js");
+      expect(manifest?.contributes.cloud?.capabilities.length).toBeGreaterThan(0);
+    });
+  }
+
   it("Nacos module 声明 methods、logic 与四种 capability", () => {
     const manifest = getPluginManifest("omni.module.nacos");
     expect(manifest?.kind).toBe("module");
@@ -321,6 +336,13 @@ describe("pluginManifests 单源目录", () => {
     expect(resolveLegacyPluginId("qcloud")).toBe("omni.cloud.tencent");
     expect(resolveLegacyPluginId("huawei")).toBe("omni.cloud.huawei");
     expect(resolveLegacyPluginId("hwc")).toBe("omni.cloud.huawei");
+    expect(resolveLegacyPluginId("aws")).toBe("omni.cloud.aws");
+    expect(resolveLegacyPluginId("azure")).toBe("omni.cloud.azure");
+    expect(resolveLegacyPluginId("digitalocean")).toBe("omni.cloud.digitalocean");
+    expect(resolveLegacyPluginId("do")).toBe("omni.cloud.digitalocean");
+    expect(resolveLegacyPluginId("gcp")).toBe("omni.cloud.gcp");
+    expect(resolveLegacyPluginId("bandwagon")).toBe("omni.cloud.bandwagon");
+    expect(resolveLegacyPluginId("bwh")).toBe("omni.cloud.bandwagon");
     expect(resolveLegacyPluginId("unknown-provider")).toBeNull();
     expect(resolveLegacyPluginId("")).toBeNull();
   });

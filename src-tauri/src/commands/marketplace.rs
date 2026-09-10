@@ -1,15 +1,15 @@
 //! marketplace part 1/3: DTOs, internal model, fetch/merge/install helpers.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use omnipanel_error::OmniError;
 use omnipanel_plugin::{
-    HOST_API_VERSION, PluginDependencyDecl, PluginKind, PluginListItem, VersionEntry,
-    DependencyReq, resolve_install, update_available,
+    HOST_API_VERSION, PluginDependencyDecl, PluginKind, PluginListItem, PluginManifest,
+    VersionEntry, DependencyReq, first_party_manifests, resolve_install, update_available,
 };
 use omnipanel_plugin_pkg::{
-    OFFICIAL_VERIFY_PUBKEYS_HEX, PkgError, RegistryFile, hex_to_verifying_key, parse_registry,
-    verify_registry, verify_registry_allow_unsigned,
+    OFFICIAL_VERIFY_PUBKEYS_HEX, PkgError, RegistryFile, RegistryPlugin, RegistryVersion,
+    hex_to_verifying_key, parse_registry, verify_registry, verify_registry_allow_unsigned,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -80,7 +80,7 @@ pub struct ResolvePlan {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateInfo {
+pub struct PluginUpdateInfo {
     pub id: String,
     pub installed_version: String,
     pub latest_version: String,
@@ -291,6 +291,78 @@ fn trust_fetched_registry(
 
 fn bundled_official_registry() -> Option<RegistryFile> {
     parse_registry(crate::commands::official_catalog::BUNDLED_REGISTRY).ok()
+}
+
+fn registry_plugin_from_manifest(manifest: &PluginManifest) -> RegistryPlugin {
+    RegistryPlugin {
+        id: manifest.id.clone(),
+        kind: manifest.kind.as_str().to_string(),
+        name: manifest
+            .display_name
+            .clone()
+            .unwrap_or_else(|| manifest.id.clone()),
+        description: String::new(),
+        versions: vec![RegistryVersion {
+            version: manifest.version.clone(),
+            changelog: None,
+            min_host_api: manifest.min_host_api,
+            artifact: None,
+            dependencies: manifest.dependencies.clone(),
+        }],
+    }
+}
+
+/// 远程 `plugins-latest` 尚未收录的第一方 bundled 插件仍要出现在市场。
+/// 只在内存里补洞，不写回源缓存，避免把本地清单污染远程 cache。
+fn missing_bundled_official_plugins(files: &[(String, RegistryFile)]) -> Vec<RegistryPlugin> {
+    let present: HashSet<&str> = files
+        .iter()
+        .flat_map(|(_, file)| file.plugins.iter().map(|plugin| plugin.id.as_str()))
+        .collect();
+    let mut missing = Vec::new();
+    let mut missing_ids = HashSet::new();
+    if let Some(seed) = bundled_official_registry() {
+        for plugin in seed.plugins {
+            if present.contains(plugin.id.as_str()) || !missing_ids.insert(plugin.id.clone()) {
+                continue;
+            }
+            missing.push(plugin);
+        }
+    }
+    for manifest in first_party_manifests() {
+        if present.contains(manifest.id.as_str()) || missing_ids.contains(&manifest.id) {
+            continue;
+        }
+        missing_ids.insert(manifest.id.clone());
+        missing.push(registry_plugin_from_manifest(&manifest));
+    }
+    missing
+}
+
+fn fill_bundled_official_gaps(
+    mut files: Vec<(String, RegistryFile)>,
+) -> Vec<(String, RegistryFile)> {
+    let missing = missing_bundled_official_plugins(&files);
+    if missing.is_empty() {
+        return files;
+    }
+    if let Some((_, official)) = files
+        .iter_mut()
+        .find(|(id, _)| id == OFFICIAL_SOURCE_ID)
+    {
+        official.plugins.extend(missing);
+    } else {
+        files.push((
+            OFFICIAL_SOURCE_ID.to_string(),
+            RegistryFile {
+                schema_version: 2,
+                plugins: missing,
+                signature: None,
+                publisher_key: None,
+            },
+        ));
+    }
+    files
 }
 
 /// 全部源拉取失败时用内置官方目录垫底，避免市场空页报 `all sources unavailable`。
@@ -553,6 +625,7 @@ async fn merged_view(
     if files.is_empty() {
         files = seed_official_if_empty(files, &errors)?;
     }
+    files = fill_bundled_official_gaps(files);
     Ok((merge_registries(files), errors))
 }
 
@@ -942,13 +1015,13 @@ pub async fn plugin_install_version(
 #[specta::specta]
 pub async fn plugin_check_updates(
     state: State<'_, AppState>,
-) -> Result<Vec<UpdateInfo>, OmniError> {
+) -> Result<Vec<PluginUpdateInfo>, OmniError> {
     plugin_check_updates_inner(&state).await
 }
 
 async fn plugin_check_updates_inner(
     state: &State<'_, AppState>,
-) -> Result<Vec<UpdateInfo>, OmniError> {
+) -> Result<Vec<PluginUpdateInfo>, OmniError> {
     let (merged, _errors) = merged_view(state, false).await?;
     let registry = state.plugin_registry.lock().await;
     let (_raw, installed) = installed_map(&registry);
@@ -961,7 +1034,7 @@ async fn plugin_check_updates_inner(
             update_available(have, &to_resolver_entries(&plugin.versions), HOST_API_VERSION)
         {
             let entry = plugin.versions.iter().find(|v| v.version == latest);
-            out.push(UpdateInfo {
+            out.push(PluginUpdateInfo {
                 id: plugin.id.clone(),
                 installed_version: have.to_string(),
                 latest_version: latest.to_string(),
@@ -981,7 +1054,7 @@ pub async fn plugin_update_all(
     ids: Option<Vec<String>>,
 ) -> Result<Vec<UpdateResultItem>, OmniError> {
     let updates = plugin_check_updates_inner(&state).await?;
-    let wanted: Vec<UpdateInfo> = match ids {
+    let wanted: Vec<PluginUpdateInfo> = match ids {
         Some(list) => {
             let set: std::collections::HashSet<String> = list.into_iter().collect();
             updates.into_iter().filter(|u| set.contains(&u.id)).collect()
@@ -1046,7 +1119,8 @@ fn refuse_bundled_artifact(plugin_id: &str) -> OmniError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omnipanel_plugin_pkg::{RegistryArtifact, RegistryPlugin, RegistryVersion};
+    use omnipanel_plugin::{PLUGIN_ID_CLOUD_HUAWEI, PLUGIN_ID_PANEL_HESTIA};
+    use omnipanel_plugin_pkg::RegistryArtifact;
 
     fn mk_file(source: &str) -> RegistryFile {
         RegistryFile {
@@ -1210,5 +1284,59 @@ mod tests {
         let file = mk_file("official");
         let files = seed_official_if_empty(vec![("official".into(), file)], &[]).unwrap();
         assert_eq!(files.len(), 1);
+    }
+
+    fn stale_remote_official() -> RegistryFile {
+        let bundled = |id: &str, kind: &str, name: &str| RegistryPlugin {
+            id: id.into(),
+            kind: kind.into(),
+            name: name.into(),
+            description: String::new(),
+            versions: vec![RegistryVersion {
+                version: "0.1.0".into(),
+                changelog: None,
+                min_host_api: None,
+                artifact: None,
+                dependencies: vec![],
+            }],
+        };
+        RegistryFile {
+            schema_version: 2,
+            plugins: vec![
+                bundled("omni.panel.1panel", "panel", "1Panel"),
+                bundled("omni.panel.bt", "panel", "宝塔面板"),
+                bundled("omni.cloud.aliyun", "cloud", "阿里云"),
+                bundled("omni.cloud.tencent", "cloud", "腾讯云"),
+            ],
+            signature: None,
+            publisher_key: None,
+        }
+    }
+
+    #[test]
+    fn fill_gaps_adds_huawei_and_hestia_when_remote_stale() {
+        let files = fill_bundled_official_gaps(vec![(
+            OFFICIAL_SOURCE_ID.into(),
+            stale_remote_official(),
+        )]);
+        let merged = merge_registries(files);
+        assert!(merged.contains_key(PLUGIN_ID_CLOUD_HUAWEI));
+        assert!(merged.contains_key(PLUGIN_ID_PANEL_HESTIA));
+        assert!(merged.contains_key("omni.panel.1panel"));
+        assert_eq!(merged[PLUGIN_ID_CLOUD_HUAWEI].kind, PluginKind::Cloud);
+        assert_eq!(merged[PLUGIN_ID_PANEL_HESTIA].kind, PluginKind::Panel);
+    }
+
+    #[test]
+    fn fill_gaps_does_not_duplicate_seed_plugins() {
+        let seed = bundled_official_registry().expect("bundled registry");
+        let before = seed.plugins.len();
+        let files = fill_bundled_official_gaps(vec![(OFFICIAL_SOURCE_ID.into(), seed)]);
+        let official = &files[0].1;
+        let unique: HashSet<&str> = official.plugins.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(unique.len(), official.plugins.len());
+        assert!(official.plugins.len() >= before);
+        assert!(unique.contains(PLUGIN_ID_CLOUD_HUAWEI));
+        assert!(unique.contains(PLUGIN_ID_PANEL_HESTIA));
     }
 }
