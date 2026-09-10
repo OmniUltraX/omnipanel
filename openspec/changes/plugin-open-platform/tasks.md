@@ -63,7 +63,8 @@
   - 核销（2026-09-10）：`PluginSandboxFrame`（`sandbox=allow-scripts` 不透明 origin + `default-src 'none'` CSP + 来源/nonce 校验）已落地；拒绝经 `sandboxBridgeAuditPermission` 锚定权限调 `pluginRequirePermission` 触发后端 `plugin.permission/blocked` audit（白名单外方法锚定 `ui:selection`，结构拒绝恒在）；`PluginSandboxFrame.test.ts` 锁定拒绝文案与审计锚点映射（4 tests）
 - [x] 8.2 overlay 支持插件自定义内容渲染路径（宿主壳不变）。验证：L3 样板在 Overlay 显示自身 UI
   - 核销（2026-09-10）：链路已通——清单 `overlays[].entry` → `openPluginOverlay` 经 `plugin_read_asset` 取 HTML → `pluginOverlayStore.sandboxHtml` → `PluginOverlayHost` 以 `PluginSandboxFrame` 沙箱渲染，invoke/netFetch 走 `pluginInvoke`/`pluginSandboxNetFetch` 同源权限闸；`translate-float` / `l3-translator` 样板就位，端到端翻译闭环见 8.3
-- [ ] 8.3 L3 样板：翻译 addon 最小可用（选区总线 → Overlay → net:connect）。验证：design 闭环 E 走通
+- [x] 8.3 L3 样板：翻译 addon 最小可用（选区总线 → Overlay → net:connect）。验证：design 闭环 E 走通
+  - 核销（2026-09-10，实施偏差）：闭环走 `aiComplete`（`ai:tools` + 用户已配模型）而非直连 `net:connect`——符合“密钥不出插件沙箱、AI 经宿主”原则。链路：选区总线 `getHostSelection` → `menuContributions.visibleFloatContributions`（`float.icon` opt-in）/ `SelectionFloatLayer` → `overlay.open(id,{text})` 带参打开（选区收起前传参）→ `openPluginOverlay` 经 `plugin_read_asset` 取 HTML 进沙箱 → `overlayInitial()/selectionGet()/aiComplete()` 桥。交付物侧新增 `translate_float_install_chain`（真实样板目录 pack→verify→extract→registry 登记，断言 overlays/entry.ui/权限）；`plugin:validate plugins-samples` 12/12 通过
 
 ## 9. SDK 交付与联调（阶段 B）
 
