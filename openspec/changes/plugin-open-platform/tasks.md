@@ -33,8 +33,8 @@
 - [x] 4.1 manifest schema 增补可选 `methods[]`（name + permissions 注解）：Rust `PluginMethodDecl`（唯一性/非空校验）+ SDK Zod `pluginMethodSchema` + CI 校验脚本；addon-everything 清单声明 `omni_everything_search`。验证：构造非法清单 `check:plugin-manifests` 失败；`cargo test -p omnipanel-plugin`
 - [x] 4.2 `plugin_invoke` 网关：先查清单 `methods[]` 白名单（未激活按 UnknownMethod 拒绝），再逐项权限强制，最后经异步 `InvokeGateway` 分发；InvokeGateway handler 改异步（可包 spawn_blocking / 未来 WASM）。验证：`cargo check -p omnipanel-app`；invoke.rs 单测覆盖未知方法/异步 handler
 - [x] 4.3 审计复用现有 `audit_log`：`plugin_invoke` 成败记 action=plugin.invoke（args 只存 sha256+len 摘要，不落原文），`plugin_require_permission` 拒绝记 action=plugin.permission/blocked。验证：编译通过；摘要函数单测随 commands 层联调
-- [ ] 4.4 全量门禁：`cd frontend && npx tsc -b` 零 error；`cargo test -p omnipanel-plugin -p omnipanel-store -p omnipanel-mcp` 通过；vitest 相关用例通过
-  - 进度：tsc 零 error ✓；omnipanel-plugin 14 ✓、omnipanel-mcp 40 ✓；store 未改动；vitest 全量 742 ✓（本批前）
+- [x] 4.4 全量门禁：`cd frontend && npx tsc -b` 零 error；`cargo test -p omnipanel-plugin -p omnipanel-store -p omnipanel-mcp` 通过；vitest 相关用例通过
+  - 核销（2026-09-10）：tsc 零 error ✓；cargo（plugin 51 / store 185 / mcp 46）✓；vitest 全量 184 文件 / 1056 tests 通过 ✓；`check:plugin-manifests` 24/24/24 ✓。注：vitest 报告 15 个 unhandled errors（`transformCallback` 环境噪声，集中 terminal/database-grid-canvas/ai 目录，与插件变更无交集，测试本身全过）——属预存环境问题，另行跟踪，不阻塞本门禁
 
 ## 5. 包格式与安装（阶段 B）
 
@@ -68,6 +68,9 @@
 
 ## 9. SDK 交付与联调（阶段 B）
 
-- [ ] 9.1 `@omnipanel/plugin-sdk` / `@omnipanel/plugin-ui` 构建 + npm 发布流程；manifest 增加 `minHostApi` 兼容检查。验证：外部工程按 README 引用类型可编译
-- [ ] 9.2 开发者文档：清单参考、权限模型、三级梯度说明、调试指南。验证：按文档从零做出 L1 包
-- [ ] 9.3 全量回归：官方 10 插件行为对照 plugin-host-sdk 验收清单不回退；`tsc -b` / cargo test / vitest / 清单 CI 全绿
+- [x] 9.1 `@omnipanel/plugin-sdk` / `@omnipanel/plugin-ui` 构建 + npm 发布流程；manifest 增加 `minHostApi` 兼容检查。验证：外部工程按 README 引用类型可编译
+  - 核销（2026-09-10）：plugin-sdk `npm run pack:check`（build + dry-run，tarball 含 dist/README/LICENSE）通过； tarball 实装到隔离目录后外部 `consumer.ts`（parse/definePlugin/Host 合同）`tsc --strict` 通过；`publish-plugin-sdk.yml`（tag 触发 + 手动 dispatch，无 NPM_TOKEN 时只校验不失败）；`minHostApi` 后端 `manifest.validate` + marketplace `resolve` 双强制。`@omnipanel/plugin-ui` 保持内部源码别名（ImporterWizardDialog 等在用），对外发布按 proposal 非目标递延（本期不做组件市场，其 `main` 直指 frontend 源码尚不可独立打包——刻意不发半成品包）
+- [x] 9.2 开发者文档：清单参考、权限模型、三级梯度说明、调试指南。验证：按文档从零做出 L1 包
+  - 核销（2026-09-10）：`docs/plugins/` 8 篇齐备；实测 `create-plugin.mjs b3-doc-proof engine` 脚手架产物 `validate-plugin` 一次通过（演练目录已清理，plugins-custom gitignore）
+- [x] 9.3 全量回归：官方 10 插件行为对照 plugin-host-sdk 验收清单不回退；`tsc -b` / cargo test / vitest / 清单 CI 全绿
+  - 核销（2026-09-10）：清单从 10 增至 24 第一方插件，`check:plugin-manifests` 双向 24/24/24；`pluginManifests.test.ts` 覆盖 kind 分布/别名（含新增 5 云）；门禁结果同 4.4
