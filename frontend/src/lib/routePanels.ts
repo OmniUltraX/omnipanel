@@ -63,8 +63,8 @@ export function createInitialOverlayMounted(
 /**
  * @deprecated 勿在首帧调用。
  * 若需要「逻辑上全 false 的空表」请用 createInitialOverlayMounted("")；
- * chunk/shell 预热请用 moduleWarmup.scheduleIdleOverlayShellWarm
- *（retain-all 时代挂壳不再与保活冲突：挂上就不卸）。
+ * chunk 预热请用 moduleWarmup.scheduleIdleChunkWarm，
+ * 挂壳只走 hover/pointerdown 意图（scheduleNavHoverWarm）。
  */
 export function createOverlayMountedAll(): Record<OverlayModuleKey, boolean> {
   return createInitialOverlayMounted("");

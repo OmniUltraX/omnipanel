@@ -26,7 +26,7 @@ import { SkillEvolutionPrompt } from "./components/feedback/SkillEvolutionPrompt
 import { Button } from "./components/ui/primitives/Button";
 import { WorkspaceShell } from "./components/workspace/WorkspaceShell";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
-import { scheduleIdleOverlayShellWarm } from "./lib/moduleWarmup";
+import { scheduleIdleChunkWarm } from "./lib/moduleWarmup";
 import {
   ensureBuiltinModulesRegistered,
   ModuleRuntimeOutlet,
@@ -347,8 +347,8 @@ function AppShell() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  // 空闲错峰：全部叠层模块 Chunk → ShellReady（仍 suspended，Live 重活跟 moduleLive）
-  useEffect(() => scheduleIdleOverlayShellWarm(), []);
+  // 空闲错峰预拉 chunk（挂壳只走 hover/pointerdown 意图驱动，不参与闲扫）
+  useEffect(() => scheduleIdleChunkWarm(), []);
 
   // 数据静默预热：壳挂载之后，本地安全的 store 快照提前灌入（prod/网络拉取不进后台）
   useEffect(() => {
