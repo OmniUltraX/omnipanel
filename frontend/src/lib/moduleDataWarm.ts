@@ -54,15 +54,38 @@ export function shouldSilentDataWarm(): boolean {
   }
 }
 
+/**
+ * 真实延迟 + 空闲对齐（与 moduleWarmup 同语义）：先睡足 timeoutMs，
+ * 到点后再要空闲槽。禁止裸 requestIdleCallback——其 timeout 只是 deadline，
+ * 首屏空闲会立刻开火，多个预热调度同时 stampede 主线程。
+ */
 function scheduleIdleOrTimeout(run: () => void, timeoutMs: number): () => void {
-  if (typeof requestIdleCallback === "function") {
-    const id = requestIdleCallback(run, { timeout: timeoutMs });
-    return () => {
-      if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
-    };
-  }
-  const timer = window.setTimeout(run, Math.min(timeoutMs, 3000));
-  return () => window.clearTimeout(timer);
+  let settled = false;
+  let timer: number | null = null;
+  let cancelIdle: (() => void) | null = null;
+  const fire = () => {
+    if (settled) return;
+    settled = true;
+    run();
+  };
+  timer = window.setTimeout(() => {
+    timer = null;
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(fire, { timeout: 2000 });
+      cancelIdle = () => {
+        if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
+      };
+      return;
+    }
+    fire();
+  }, Math.max(0, timeoutMs));
+  return () => {
+    settled = true;
+    if (timer) window.clearTimeout(timer);
+    timer = null;
+    cancelIdle?.();
+    cancelIdle = null;
+  };
 }
 
 export interface IdleModuleDataWarmOptions {

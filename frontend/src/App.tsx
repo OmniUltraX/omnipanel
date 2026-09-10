@@ -341,13 +341,9 @@ function AppShell() {
   }, []);
 
   useEffect(() => {
-    const schedule = () => preloadModuleChunks();
-    if (typeof requestIdleCallback === "function") {
-      // 给首页交互留足空闲窗口，避免启动后立刻抢主线程
-      const id = requestIdleCallback(schedule, { timeout: 12000 });
-      return () => cancelIdleCallback(id);
-    }
-    const timer = window.setTimeout(schedule, 2500);
+    // 真实 12s 延迟：只补 Dashboard/UserWorkspace 两个非叠层 chunk，
+    // 叠层 chunk 由 shell 预热覆盖；延迟启动避免与首屏交互抢主线程。
+    const timer = window.setTimeout(() => preloadModuleChunks(), 12000);
     return () => window.clearTimeout(timer);
   }, []);
 

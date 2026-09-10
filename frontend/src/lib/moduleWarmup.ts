@@ -41,15 +41,39 @@ const shellWarmRequested = new Set<OverlayModuleKey>();
 type ShellWarmListener = (key: OverlayModuleKey) => void;
 const shellWarmListeners = new Set<ShellWarmListener>();
 
+/**
+ * 真实延迟 + 空闲对齐：先睡足 timeoutMs（ wall clock，意图即“多久以后再说”），
+ * 到点后再要一个空闲槽（2s 兜底）。直接用 requestIdleCallback 的 timeout 语义
+ * 会在首屏空闲时立刻开火——启动期三个预热调度会同时 stampede 主线程数秒，
+ * hover 都没反应。所有后台预热必须走这里，禁止裸 rIC。
+ */
 function scheduleIdleOrTimeout(run: () => void, timeoutMs: number): () => void {
-  if (typeof requestIdleCallback === "function") {
-    const id = requestIdleCallback(run, { timeout: timeoutMs });
-    return () => {
-      if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
-    };
-  }
-  const timer = window.setTimeout(run, Math.min(timeoutMs, 3000));
-  return () => window.clearTimeout(timer);
+  let settled = false;
+  let timer: number | null = null;
+  let cancelIdle: (() => void) | null = null;
+  const fire = () => {
+    if (settled) return;
+    settled = true;
+    run();
+  };
+  timer = window.setTimeout(() => {
+    timer = null;
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(fire, { timeout: 2000 });
+      cancelIdle = () => {
+        if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
+      };
+      return;
+    }
+    fire();
+  }, Math.max(0, timeoutMs));
+  return () => {
+    settled = true;
+    if (timer) window.clearTimeout(timer);
+    timer = null;
+    cancelIdle?.();
+    cancelIdle = null;
+  };
 }
 
 /** 订阅「预挂载模块壳」请求（不激活路由，仅让 Overlay 提前 mount） */
