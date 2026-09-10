@@ -354,6 +354,18 @@ function AppShell() {
   // 空闲错峰：全部叠层模块 Chunk → ShellReady（仍 suspended，Live 重活跟 moduleLive）
   useEffect(() => scheduleIdleOverlayShellWarm(), []);
 
+  // 数据静默预热：壳挂载之后，本地安全的 store 快照提前灌入（prod/网络拉取不进后台）
+  useEffect(() => {
+    let cancel: (() => void) | null = null;
+    void import("./modules/runtime/builtinDataWarms").then(({ ensureBuiltinDataWarmsRegistered }) => {
+      ensureBuiltinDataWarmsRegistered();
+      void import("./lib/moduleDataWarm").then(({ scheduleIdleModuleDataWarm }) => {
+        cancel = scheduleIdleModuleDataWarm();
+      });
+    });
+    return () => cancel?.();
+  }, []);
+
   // Harness/Loop：运维 Skill 种子 + Loop 规格与调度
   useEffect(() => {
     void import("./lib/ai/opsSkillSeeds").then(({ ensureOpsSkillSeeds }) => {
