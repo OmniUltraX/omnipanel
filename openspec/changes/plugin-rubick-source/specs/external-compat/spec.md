@@ -25,6 +25,29 @@
 - **WHEN** preload 调用的 `utools.*` 不在白名单
 - **THEN** verdict=external-only（默认拒绝），reasons 列出未知 API
 
+### Requirement: Node 通配与厂商 API 显式拒绝
+
+系统 SHALL 对任意非相对路径 `require(` 判 external-only（Node 内建/npm 包/垫片一律需 Node 运行时）；`rubick.*` 等厂商宿主 API SHALL 判 external-only 并点名。
+
+#### Scenario: require os 即拒绝
+
+- **WHEN** 某脚本含 `require("os")`
+- **THEN** verdict=external-only，reasons 含 `require(os)`
+
+#### Scenario: 相对引用不误伤
+
+- **WHEN** 脚本仅含 `require("./util.js")` 等相对引用
+- **THEN** 不因此判 external-only
+
+### Requirement: 页内直连网络转权限不断言
+
+页面脚本含 `fetch(`/`XMLHttpRequest` SHALL NOT 导致 external-only；analyzer SHALL 置 `needs_network`，converter SHALL 自动声明 `net:connect`，运行时 prelude SHALL 透明代理到受闸桥。
+
+#### Scenario: 联网页可转且带网权限
+
+- **WHEN** 页面直调 fetch 且其余检查通过
+- **THEN** verdict=runnable 且转出包 permissions 含 `net:connect`
+
 ### Requirement: converter 输出标准包
 
 converter SHALL 将 runnable 包转为标准 `.omni-plugin`：字符串 cmds → addon launcher/menus（L1），`overlays[].entry` → 主 HTML（L3 既有管线），preload 丢弃，按需生成最小 `ui/main.js`；包 SHALL 带 dev 签名与第三方未审核标记；转出包的启用/禁用/升级/审计 SHALL 与普通包一致。

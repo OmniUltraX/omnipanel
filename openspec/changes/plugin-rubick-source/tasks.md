@@ -33,3 +33,9 @@
 - [x] 6.2 Rubick 分类行（启发式 5 类 + 其他，种子与 npm 结果统一打标，来源筛选内生效）。验证：vitest 分类表用例 + `tsc -b`
 - [x] 6.3 gitcode 索引通道下线（文件 API 需鉴权、raw 为 SPA 壳，实测不可达；删命令保 npm+种子双通道）。验证：`cargo check` 无残留引用
 - [x] 6.4 `ExternalSearchItem.keywords` 透传（分类用）。验证：`tsc -b`
+
+## 7. 转换可用性（ip-config 反馈：误判 runnable 装后 0.0.0.0）
+
+- [x] 7.1 analyzer 收紧：任意非相对 `require(` 即需 Node；`rubick.*` 显式拒绝并点名。验证：`cargo test -p omnipanel-plugin-pkg external`（含 ip-config 形状回归）
+- [x] 7.2 页内 fetch 不判死：`needs_network` → converter 自动声明 `net:connect`。验证：同上单测
+- [x] 7.3 prelude fetch 透明代理到受闸桥（成功只给文本兼容壳，非 2xx 走 reject）。验证：`PluginSandboxFrame.test.ts` + `tsc -b`

@@ -80,6 +80,8 @@ pub struct ExternalVerdict {
     pub features: Vec<ExternalFeature>,
     /// 主 HTML 入口（相对路径），转换 overlays 用。
     pub main_entry: Option<String>,
+    /// 页面直调 fetch/XHR：转换需声明 `net:connect`，运行时走桥接代理。
+    pub needs_network: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,10 +153,42 @@ fn as_text(bytes: &[u8]) -> Option<&str> {
 
 /// 提取 `utools.xxx[.yyy]` 调用名（点链保留，如 `db.put`）。
 fn called_utools_apis(text: &str) -> Vec<String> {
+    called_host_api(text, "utools")
+}
+
+/// `require('x')` 通配：参数非 `./`/`../` 开头即需 Node 解析（内建或 npm 包），
+/// 打包产物字符串误伤方向为 external-only（安全侧）。
+fn required_node_dep(text: &str) -> Option<String> {
+    let mut rest = text;
+    while let Some(pos) = rest.find("require(") {
+        let mut after = rest[pos + "require(".len()..].trim_start();
+        // 只看字符串字面量调用，`require(x)` 变量形式跳过
+        let quote = after.chars().next();
+        if quote == Some('\'') || quote == Some('"') {
+            after = &after[1..];
+            if !(after.starts_with("./") || after.starts_with("../")) {
+                let end = after
+                    .find(|c| c == '\'' || c == '"')
+                    .unwrap_or(after.len().min(64));
+                return Some(after[..end].to_string());
+            }
+        }
+        rest = &rest[pos + "require(".len()..];
+        if rest.len() <= 1 {
+            break;
+        }
+        rest = &rest[1..];
+    }
+    None
+}
+
+/// `xxx.` 宿主全局调用提取（`rubick.` 等厂商 API；`utools.` 走白名单另判）。
+fn called_host_api(text: &str, namespace: &str) -> Vec<String> {
+    let prefix = format!("{namespace}.");
     let mut out = Vec::new();
     let mut rest = text;
-    while let Some(pos) = rest.find("utools.") {
-        let after = &rest[pos + "utools.".len()..];
+    while let Some(pos) = rest.find(&prefix) {
+        let after = &rest[pos + prefix.len()..];
         let end = after
             .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '$' && c != '.')
             .unwrap_or(after.len());
@@ -240,6 +274,11 @@ pub fn analyze_external_entries(
                 break;
             }
         }
+        // 通配：任意非相对 require 即需 Node 解析（内建/npm 包/厂商垫片）。
+        // preload 缺失文件同样判外部（形残包不转）。
+        if let Some(dep) = required_node_dep(text) {
+            reasons.push(format!("需 Node 运行时 ({path} 含 require({dep}))"));
+        }
     }
     // preload 声明缺失文件同样判外部（形残包不转）。
     if let Some(preload) = preload.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -258,9 +297,18 @@ pub fn analyze_external_entries(
                 reasons.push(format!("不支持的 utools.{api}（白名单外）"));
             }
         }
+        // 厂商宿主 API（rubick.* 等）：沙箱无对应桥，一律外部。
+        for api in called_host_api(text, "rubick") {
+            reasons.push(format!("不支持的宿主 API (rubick.{api})：需原客户端"));
+        }
     }
     reasons.sort();
     reasons.dedup();
+
+    // 页面直调网络：不判死，转而要求 net:connect（运行时走桥接代理）。
+    let needs_network = scripts.iter().any(|(_, text)| {
+        text.contains("fetch(") || text.contains("XMLHttpRequest")
+    });
 
     let main_entry = main.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     Ok(ExternalVerdict {
@@ -269,6 +317,7 @@ pub fn analyze_external_entries(
         plugin_name,
         features,
         main_entry,
+        needs_network,
     })
 }
 
@@ -422,7 +471,8 @@ pub fn convert_external_to_entries(
         "version": version,
         "displayName": verdict.plugin_name,
         "kind": "addon",
-        "permissions": [],
+        // 页面直调网络的包自动声明 net:connect（运行时走桥接代理，安装时用户确认）。
+        "permissions": if verdict.needs_network { vec!["net:connect"] } else { vec![] },
         "entry": { "ui": "ui/main.js" },
         "contributes": {
             "overlays": verdict.main_entry.as_ref().map(|entry| {
@@ -583,6 +633,78 @@ mod tests {
     fn missing_manifest_rejected() {
         let err = analyze_external_entries(&entries(&[("index.html", "<div/>")])).unwrap_err();
         assert!(matches!(err, PkgError::MissingEntry(_)));
+    }
+
+    #[test]
+    fn any_require_means_node_runtime() {
+        // 回归：ip-config 类包 require("os") 曾漏网判 runnable，装后全 0.0.0.0。
+        let pkg = r#"{"name":"demo-os","pluginName":"OS包","preload":"preload.js","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
+        let preload = r#"const os = require("os");"#;
+        let verdict =
+            analyze_external_entries(&entries(&[("package.json", pkg), ("preload.js", preload), ("index.html", "<div/>")]))
+                .unwrap();
+        assert!(!verdict.runnable);
+        assert!(verdict.reasons.iter().any(|r| r.contains("require(os)")));
+    }
+
+    #[test]
+    fn relative_require_is_not_node_dep() {
+        let pkg = r#"{"name":"demo-rel","pluginName":"相对引用","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
+        let html = r#"<script>var u = require("./util.js");</script>"#;
+        let verdict =
+            analyze_external_entries(&entries(&[("package.json", pkg), ("index.html", html)]))
+                .unwrap();
+        assert!(verdict.runnable, "reasons: {:?}", verdict.reasons);
+    }
+
+    #[test]
+    fn rubick_host_api_is_external_only() {
+        // 回归：ip-config 页调 rubick.copyText 在沙箱无桥，静默失败。
+        let pkg = r#"{"name":"demo-rb","pluginName":"厂商API","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
+        let html = r#"<script>rubick.copyText("0.0.0.0");</script>"#;
+        let verdict =
+            analyze_external_entries(&entries(&[("package.json", pkg), ("index.html", html)]))
+                .unwrap();
+        assert!(!verdict.runnable);
+        assert!(verdict.reasons.iter().any(|r| r.contains("rubick.copyText")));
+    }
+
+    #[test]
+    fn page_fetch_sets_needs_network_not_rejection() {
+        let pkg = r#"{"name":"demo-net","pluginName":"联网页","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
+        let html = r#"<script>fetch('https://api.example.com/ip').then(r=>r.json());</script>"#;
+        let verdict =
+            analyze_external_entries(&entries(&[("package.json", pkg), ("index.html", html)]))
+                .unwrap();
+        assert!(verdict.runnable, "reasons: {:?}", verdict.reasons);
+        assert!(verdict.needs_network);
+    }
+
+    #[test]
+    fn convert_grants_net_connect_when_needed() {
+        let pkg = r#"{"name":"demo-net","pluginName":"联网页","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
+        let html = r#"<script>fetch('https://api.example.com/ip').then(r=>r.json());</script>"#;
+        let input = entries(&[("package.json", pkg), ("index.html", html)]);
+        let verdict = analyze_external_entries(&input).unwrap();
+        assert!(verdict.needs_network);
+        let out = convert_external_to_entries(&verdict, &input, "demo-net", "1.0.0").unwrap();
+        let manifest_text = std::str::from_utf8(&out["plugin.json"]).unwrap();
+        let manifest = omnipanel_plugin::PluginManifest::from_json(manifest_text).unwrap();
+        assert!(manifest.permissions.iter().any(|p| p.as_str() == "net:connect"));
+    }
+
+    #[test]
+    fn ip_config_shape_is_external_only() {
+        // 真实 ip-config 包的最小复刻：preload 用 Node + rubick，页调 fetch。
+        // 旧判定曾误判 runnable（装后 0.0.0.0/定位中），现必须 external-only。
+        let pkg = r#"{"name":"ip-config-rubick-plugin","pluginName":"ip-config","version":"1.0.4","main":"index.html","preload":"preload.js","features":[{"code":"ip","explain":"查IP","cmds":["ip"]}]}"#;
+        let preload = r#"const os = require("os");window.lanIPv4 = async function(s){ s("1.2.3.4"); };"#;
+        let html = r#"<div><script>window.lanIPv4(function(ip){ document.title = ip; });rubick.copyText("x");fetch('https://forge.speedtest.cn/api/location/info');</script></div>"#;
+        let input = entries(&[("package.json", pkg), ("preload.js", preload), ("index.html", html)]);
+        let verdict = analyze_external_entries(&input).unwrap();
+        assert!(!verdict.runnable);
+        assert!(verdict.reasons.iter().any(|r| r.contains("require(os)")));
+        assert!(verdict.reasons.iter().any(|r| r.contains("rubick.copyText")));
     }
 
     #[test]

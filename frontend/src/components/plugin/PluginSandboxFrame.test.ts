@@ -29,6 +29,14 @@ describe("PluginSandboxFrame", () => {
     ).toBe("[plugin-bridge] blocked omni.sample.overlay netFetch: 缺权限 net:connect");
   });
 
+  it("prelude 透明代理页内 fetch（CSP 下原生必死）", () => {
+    const doc = buildSandboxDoc("<div>hi</div>");
+    expect(doc).toContain("window.fetch = function");
+    expect(doc).toContain("omniFetchResponse");
+    // 代理走受闸桥，不直连
+    expect(doc).toContain('this.request("netFetch"');
+  });
+
   it("拒绝锚定审计权限（deny 经 pluginRequirePermission 落 audit）", () => {
     // 权限闸方法锚定其专属权限：缺权即记 plugin.permission/blocked。
     expect(sandboxBridgeAuditPermission("netFetch")).toBe("net:connect");
