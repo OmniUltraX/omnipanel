@@ -40,8 +40,7 @@ describe("PluginSandboxFrame", () => {
     expect(doc).toContain("network.getLocalIPs");
   });
 
-  it("compat 垫片紧随 prelude、先于插件脚本", () => {
-    const compat = "window.lanIPv4 = function(s){ s('x'); };";
+  it("compat 垫片紧随 prelude、先于插件脚本", () => {    const compat = "window.lanIPv4 = function(s){ s('x'); };";
     const doc = buildSandboxDoc("<head></head><body><script>window.lanIPv4()</script></body>", "dark", compat);
     const preludeAt = doc.indexOf("window.host = {");
     const compatAt = doc.indexOf("window.lanIPv4");
@@ -68,5 +67,11 @@ describe("PluginSandboxFrame", () => {
         expect(sandboxBridgeAuditPermission(method)).toMatch(/:/);
       }
     }
+  });
+
+  it('fetch 代理拒绝宿主内部地址', () => {
+    const doc = buildSandboxDoc('<div/>');
+    expect(doc).toContain('ipc.localhost');
+    expect(doc).toContain('沙箱内禁止请求宿主内部地址');
   });
 });

@@ -50,3 +50,8 @@ OmniPanel 市场除官方源外，可展示 Rubick 系（npm 包形态，与 uTo
 - `node scripts/curate-rubick-seed.mjs "<query>" <max>`：拉取候选条目（含 tarball + integrity）。
 - `node scripts/curate-rubick-merge.mjs`：多查询合并去重，输出待人工精选的种子。
 - 种子精选原则：用户可理解的工具优先，剔除平台二进制/纯库/脚手架；`externalNpm` 必填且与转换 id 映射一致（`omni.ext.<sanitize(npm)>`）。
+
+## 沙箱联网与内部地址
+
+- 页内 fetch/代理走受闸桥；orge.speedtest.cn 已下线（404），垫片主用 ip-api.com（明文中文地址）+ ip.sb/ipinfo 回退。
+- fetch 代理拒绝 ipc/tauri/asset.localhost 与非 http(s)：Tauri 自身 invoke 传输（fetch 到 ipc.localhost）若落到代理会被后端当普通 HTTP 打出去，直接拒掉并给出可读错误。

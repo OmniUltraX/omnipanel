@@ -490,16 +490,34 @@ fn compat_shim_ip_tools_v1() -> String {
   }
 
   window.wan_no_proxy = function (success, fail) {
-    fetchJson("https://forge.speedtest.cn/api/location/info").then(function (data) {
-      success({
-        ip: data.ip,
-        addr: joinParts([data.country, data.province, data.distinct]),
-        isp: data.isp || "未知",
-        net_str: data.net_str || "未知"
+    // 主用 ip-api（http 明文，含中文地址；经受闸桥发出，无混合内容问题），
+    // 依次回退 ip.sb、ipinfo。
+    fetchJson("http://ip-api.com/json?lang=zh-CN").then(function (data) {
+      if (data && data.status === "success") {
+        success({
+          ip: data.query || data.ip,
+          addr: joinParts([data.country, data.regionName, data.city]),
+          isp: data.isp || "未知",
+          net_str: data.isp || "未知"
+        });
+        return;
+      }
+      return fetchJson("https://api.ip.sb/geoip").then(function (data2) {
+        success({
+          ip: data2.ip,
+          addr: joinParts([data2.country, data2.region, data2.city]),
+          isp: data2.organization || data2.isp || "未知",
+          net_str: data2.organization || data2.isp || "未知"
+        });
       });
     }).catch(function () {
-      fetchJson("https://api.ip.sb/geoip").then(function (data) {
-        success({ ip: data.ip, addr: "未知", isp: "未知", net_str: "未知" });
+      fetchJson("https://ipinfo.io/json").then(function (data) {
+        success({
+          ip: data.ip,
+          addr: joinParts([data.country, data.region, data.city]),
+          isp: data.org || "未知",
+          net_str: data.org || "未知"
+        });
       }).catch(function (e) {
         fail("网络出错：" + String((e && e.message) || e));
       });
@@ -507,24 +525,45 @@ fn compat_shim_ip_tools_v1() -> String {
   };
 
   window.wan_has_proxy = function (success, fail) {
-    fetchJson("https://ipinfo.io").then(function (data) {
+    fetchJson("https://ipinfo.io/json").then(function (data) {
       success({
         ip: data.ip,
         addr: joinParts([data.country, data.region, data.city]),
         isp: data.org || "未知",
         net_str: data.org || "未知"
       });
-    }).catch(function (e) {
-      fail("网络出错：" + String((e && e.message) || e));
+    }).catch(function () {
+      fetchJson("http://ip-api.com/json?lang=zh-CN").then(function (data) {
+        if (data && data.status === "success") {
+          success({
+            ip: data.query || data.ip,
+            addr: joinParts([data.country, data.regionName, data.city]),
+            isp: data.isp || "未知",
+            net_str: data.isp || "未知"
+          });
+          return;
+        }
+        throw new Error("geo lookup failed");
+      }).catch(function (e) {
+        fail("网络出错：" + String((e && e.message) || e));
+      });
     });
   };
 
   window.locationInfo = function (success, fail) {
-    fetchJson("https://forge.speedtest.cn/api/location/info").then(function (data) {
-      var addr = joinParts([data.country, data.province, data.city || data.distinct]);
+    fetchJson("http://ip-api.com/json?lang=zh-CN").then(function (data) {
+      var addr = data && data.status === "success"
+        ? joinParts([data.country, data.regionName, data.city])
+        : "";
       if (nonEmpty(addr)) success(addr);
       else fail("无法获取地址信息");
-    }).catch(function () { fail("无法获取地址信息"); });
+    }).catch(function () {
+      fetchJson("https://api.ip.sb/geoip").then(function (data) {
+        var addr = joinParts([data.country, data.region, data.city]);
+        if (nonEmpty(addr)) success(addr);
+        else fail("无法获取地址信息");
+      }).catch(function () { fail("无法获取地址信息"); });
+    });
   };
 
   window.confetti = function () {};
