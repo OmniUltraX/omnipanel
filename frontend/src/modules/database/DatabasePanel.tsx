@@ -243,7 +243,6 @@ import { useDbSidebarLinkageStore } from "../../stores/dbSidebarLinkageStore";
 import { buildSelectAllFromTableSql } from "./grid/tablePreviewFilter";
 import { resolveSqlQueryBindingContext } from "./sql/resolveSqlQueryBindingContext";
 import { fetchTablePreviewPage } from "./grid/tablePreviewQuery";
-import { readStoredGridRenderMode } from "./grid/canvas/gridRenderMode";
 import {
   probeSlowLogAvailability,
   resolveSlowLogAvailabilitySync,
@@ -1369,7 +1368,7 @@ export function DatabasePanel() {
             pageSize,
             setTablePreviews,
             generation: applyGeneration,
-            canvasMode: readStoredGridRenderMode() === "canvas",
+            canvasMode: true,
           });
           setTablePreviews((prev) => ({
             ...prev,
@@ -1742,7 +1741,7 @@ export function DatabasePanel() {
           pageSize,
           setTablePreviews,
           generation: applyGeneration,
-          canvasMode: readStoredGridRenderMode() === "canvas",
+          canvasMode: true,
         });
         if (connection.db_type === "redis") {
           setTableColumnMeta((prev) => ({
@@ -1833,7 +1832,7 @@ export function DatabasePanel() {
             pageSize,
             setTablePreviews,
             generation: applyGeneration,
-            canvasMode: readStoredGridRenderMode() === "canvas",
+            canvasMode: true,
           });
         })
         .catch((e) => {
@@ -1890,7 +1889,7 @@ export function DatabasePanel() {
               pageSize,
               setTablePreviews,
               generation: applyGeneration,
-              canvasMode: readStoredGridRenderMode() === "canvas",
+              canvasMode: true,
             });
           })
           .catch((e) => {
@@ -1953,7 +1952,7 @@ export function DatabasePanel() {
               pageSize,
               setTablePreviews,
               generation: applyGeneration,
-              canvasMode: readStoredGridRenderMode() === "canvas",
+              canvasMode: true,
             });
           })
           .catch((e) => {
@@ -2020,7 +2019,7 @@ export function DatabasePanel() {
             pageSize,
             setTablePreviews,
             generation: applyGeneration,
-            canvasMode: readStoredGridRenderMode() === "canvas",
+            canvasMode: true,
           });
           setTablePreviews((p) => {
             const cur = p[tabId];
@@ -2122,7 +2121,7 @@ export function DatabasePanel() {
               pageSize,
               setTablePreviews,
               generation: applyGeneration,
-              canvasMode: readStoredGridRenderMode() === "canvas",
+              canvasMode: true,
             });
             setTablePreviews((p) => {
               const cur = p[tabId];

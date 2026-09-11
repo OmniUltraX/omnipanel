@@ -7,6 +7,7 @@ import {
   isPinnedDrawColumn,
   valueBtnRect,
 } from "./geometry";
+import { snapToDevicePixel } from "./paintScale";
 
 function resolveCellBackground(
   theme: GridThemeTokens,
@@ -92,6 +93,7 @@ function drawTag(
   theme: GridThemeTokens,
   dirty: boolean,
   kind: "null" | "empty",
+  paintScale: number,
 ) {
   const fg = dirty
     ? theme.dirtyNullTagFg
@@ -131,7 +133,11 @@ function drawTag(
   ctx.fillStyle = fg;
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
-  ctx.fillText(text, x + paddingX, y + 0.5);
+  ctx.fillText(
+    text,
+    snapToDevicePixel(x + paddingX, paintScale),
+    snapToDevicePixel(y, paintScale),
+  );
   ctx.restore();
 }
 
@@ -225,6 +231,7 @@ export type DrawGridBodyOptions = {
   scrollTop: number;
   viewportWidth: number;
   viewportHeight: number;
+  /** 绘制倍率（含可选超采样），CSS 像素 → 缓冲像素。 */
   dpr: number;
   style?: DrawGridBodyStyle;
 };
@@ -244,7 +251,9 @@ export function drawGridBody({
   const width = Math.max(1, viewportWidth);
   const height = Math.max(1, viewportHeight);
   const isList = style === "list";
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const paintScale = dpr > 0 ? dpr : 1;
+  const snap = (cssPx: number) => snapToDevicePixel(cssPx, paintScale);
+  ctx.setTransform(paintScale, 0, 0, paintScale, 0, 0);
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, width, height);
@@ -360,8 +369,8 @@ export function drawGridBody({
       ctx.clip();
 
       const fg = resolveCellFg(theme, model);
-      const textX = screenX + theme.cellPaddingX;
-      const textY = screenY + rowHeight / 2;
+      const textX = snap(screenX + theme.cellPaddingX);
+      const textY = snap(screenY + rowHeight / 2);
       const reserveRight =
         (col.isFieldCol ? FIELD_ACTION_BTN_SIZE * 2 + 10 : 0) +
         (model.showValueBtn && hovered && snapshot.hoverCol === colIndex
@@ -370,9 +379,9 @@ export function drawGridBody({
       const maxTextWidth = Math.max(0, col.width - theme.cellPaddingX * 2 - reserveRight);
 
       if (model.kind === "null") {
-        drawTag(ctx, snapshot.nullLabel, textX, textY, theme, model.dirty, "null");
+        drawTag(ctx, snapshot.nullLabel, textX, textY, theme, model.dirty, "null", paintScale);
       } else if (model.kind === "empty") {
-        drawTag(ctx, snapshot.emptyLabel, textX, textY, theme, model.dirty, "empty");
+        drawTag(ctx, snapshot.emptyLabel, textX, textY, theme, model.dirty, "empty", paintScale);
       } else {
         ctx.fillStyle = fg;
         ctx.font =

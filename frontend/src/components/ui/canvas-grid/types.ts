@@ -1,6 +1,4 @@
-/** Canvas 数据网格渲染模式 */
-export type CanvasGridRenderMode = "dom" | "canvas";
-
+/** Canvas 数据网格绘制模型 */
 export type CanvasCellKind = "text" | "null" | "empty" | "placeholder" | "rownum" | "field";
 
 export type CanvasDirtyKind = "none" | "update" | "insert" | "delete";
@@ -127,7 +125,6 @@ export type CanvasCellViewportRect = {
 };
 
 /** 兼容旧命名 */
-export type GridRenderMode = CanvasGridRenderMode;
 export type GridCellKind = CanvasCellKind;
 export type GridColumnDrawInfo = CanvasGridColumnInfo;
 export type GridCellDrawModel = CanvasCellDrawModel;

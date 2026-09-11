@@ -13,12 +13,6 @@ export const LONG_TEXT_COLUMN_WIDTH = 280;
 /** 超过该列数启用列向虚拟化 */
 export const COLUMN_VIRTUALIZE_THRESHOLD = 24;
 export const COLUMN_VIRTUALIZE_OVERSCAN = 3;
-/**
- * 超过该行数才启用行虚拟化。
- * 默认分页常见 100 行：须低于 pageSize，否则整页全量 DOM 拖垮侧栏滚动。
- */
-export const ROW_VIRTUALIZE_THRESHOLD = 40;
-export const ROW_VIRTUALIZE_OVERSCAN = 8;
 export const ROW_NUM_COL_ID = "__row_num__";
 export const TRANSPOSE_FIELD_COL = "__field__";
 

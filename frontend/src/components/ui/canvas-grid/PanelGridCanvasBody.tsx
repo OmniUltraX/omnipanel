@@ -18,6 +18,11 @@ import {
   cellViewportRect,
   hitTestGrid,
 } from "./geometry";
+import {
+  readStoredCanvasGridSupersample,
+  resolveCanvasBufferSize,
+  resolveCanvasPaintScale,
+} from "./paintScale";
 import { invalidateCanvasGridThemeCache, measureHeaderHeight, readCanvasGridTheme } from "./theme";
 import type {
   CanvasCellDrawModel,
@@ -270,9 +275,12 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
     // 滚过内容底部时（sticky 表头占位与 headerHeight 微差导致 scrollHeight 偏大），
     // 缩短 canvas 高度使底部对齐内容底部，避免画出无行数据的空白区域。
     const cssHeight = Math.min(fullCssHeight, Math.max(1, snapshot.totalHeight - scrollTop));
-    const dpr = window.devicePixelRatio || 1;
-    const nextW = Math.floor(cssWidth * dpr);
-    const nextH = Math.floor(cssHeight * dpr);
+    const paintScale = resolveCanvasPaintScale(readStoredCanvasGridSupersample());
+    const { width: nextW, height: nextH } = resolveCanvasBufferSize(
+      cssWidth,
+      cssHeight,
+      paintScale,
+    );
 
     if (canvas.width !== nextW || canvas.height !== nextH) {
       canvas.width = nextW;
@@ -296,7 +304,7 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
       scrollTop,
       viewportWidth: cssWidth,
       viewportHeight: cssHeight,
-      dpr,
+      dpr: paintScale,
       style: drawStyle,
     });
   }, [drawStyle, headerHeightCssVar, rebuildSnapshot, scrollElementRef]);

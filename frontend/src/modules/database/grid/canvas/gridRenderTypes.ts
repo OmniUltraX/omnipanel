@@ -6,7 +6,6 @@ export type {
   GridColumnDrawInfo,
   GridHitRegion,
   GridHitResult,
-  GridRenderMode,
   GridRenderSnapshot,
   GridThemeTokens,
 } from "@/components/ui/canvas-grid";

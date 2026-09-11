@@ -26,9 +26,7 @@ import { type DbColumnMeta, type DbConnectionConfig } from "../api";
 import {
   PENDING_INSERT_ROW_KEY,
   normalizeSortStates,
-  resolvePreviewRowChangeKind,
   resolvePreviewRowKey,
-  type PreviewRowChangeKind,
   type SortState,
   type SortStates,
 } from "../workspace/dbWorkspaceState";
@@ -91,12 +89,8 @@ import {
   TableDataGridTransposeFieldCell,
 } from "./TableDataGridCellContent";
 import {
-  TableDataGridBody,
-  TableDataGridVirtualBody,
   type GridBodyCellInteractionContext,
-  type GridBodyStaticConfig,
   type TableDataGridBodyActions,
-  type TableDataGridVirtualBodyHandle,
 } from "./TableDataGridBody";
 import {
   TableDataGridCanvasBody,
@@ -107,10 +101,6 @@ import {
   getTablePreviewRowCache,
   subscribeTablePreviewRowCache,
 } from "../workspace/tablePreviewRowCache";
-import {
-  readStoredGridRenderMode,
-} from "./canvas/gridRenderMode";
-import type { GridRenderMode } from "./canvas/gridRenderTypes";
 import {
   readStoredColSidebarCollapsed,
   writeStoredColSidebarCollapsed,
@@ -137,7 +127,6 @@ import {
   DEFAULT_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
   ROW_NUM_COL_ID,
-  ROW_VIRTUALIZE_THRESHOLD,
   TRANSPOSE_FIELD_COL,
   defaultDataColumnWidth,
   GRID_EXTERNAL_INTERACTION_SELECTOR,
@@ -158,7 +147,6 @@ import {
   buildColumnCellStyle,
   resetStuckPointerHover,
   scrollColumnToCenter,
-  scrollElementToCenter,
 } from "./tableDataGridLayout";
 import {
   estimateGridContentHeight,
@@ -195,8 +183,6 @@ import {
 } from "./tableDataGridTranspose";
 import type { TableDataGridActiveCell } from "./tableDataGridTypes";
 export type { TableDataGridActiveCell } from "./tableDataGridTypes";
-
-const EMPTY_DELETED_ROW_KEYS = new Set<string>();
 
 export type TableDataGridProps = {
   columns: string[];
@@ -469,17 +455,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     lastHeight: number;
   } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const virtualBodyRef = useRef<TableDataGridVirtualBodyHandle | null>(null);
   const canvasBodyRef = useRef<TableDataGridCanvasBodyHandle | null>(null);
   const dragRowHeightRef = useRef<{ rowIndex: number; height: number } | null>(null);
   /** 列宽拖拽中的全列宽度快照（Canvas / 表头共用） */
   const dragColumnWidthsRef = useRef<Record<string, number> | null>(null);
-  const [gridRenderMode] = useState<GridRenderMode>(() =>
-    readStoredGridRenderMode(),
-  );
-  const gridRenderModeRef = useRef(gridRenderMode);
-  gridRenderModeRef.current = gridRenderMode;
-  const useCanvasBody = gridRenderMode === "canvas";
   const [containerWidth, setContainerWidth] = useState(0);
   const savedScrollRef = useRef({ left: 0, top: 0 });
   const restoreScrollAfterPageChangeRef = useRef(false);
@@ -1353,9 +1332,9 @@ export const TableDataGrid = memo(function TableDataGrid({
   );
 
   const table = useReactTable({
-    // Canvas 路径对齐 dbx：行数据不经 tanstack 建全量 Row 模型（O(n) 分配会卡主线程），
+    // Canvas：行数据不经 tanstack 建全量 Row 模型（O(n) 分配会卡主线程），
     // 仅用 columnDefs 驱动表头/列宽；body 用轻量 {index,original} + rowAt 式绘制。
-    data: useCanvasBody ? EMPTY_CANVAS_TABLE_DATA : displayRows,
+    data: EMPTY_CANVAS_TABLE_DATA,
     columns: columnDefs,
     state: { columnSizing },
     onColumnSizingChange: setColumnSizing,
@@ -1367,14 +1346,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   const beginRowResize = useCallback(
     (rowIndex: number, clientY: number) => {
       const wrap = wrapRef.current;
-      const measured =
-        rowHeights[rowIndex] ??
-        (useCanvasBody
-          ? DEFAULT_ROW_HEIGHT
-          : wrap
-              ?.querySelector<HTMLTableRowElement>(`tr[data-row-index="${rowIndex}"]`)
-              ?.getBoundingClientRect().height) ??
-        DEFAULT_ROW_HEIGHT;
+      const measured = rowHeights[rowIndex] ?? DEFAULT_ROW_HEIGHT;
       dragRef.current = {
         rowIndex,
         startY: clientY,
@@ -1383,14 +1355,9 @@ export const TableDataGrid = memo(function TableDataGrid({
       };
       dragRowHeightRef.current = { rowIndex, height: measured };
       wrap?.classList.add("db-data-table-wrap--resizing");
-      if (!useCanvasBody) {
-        wrap
-          ?.querySelector(`tr[data-row-index="${rowIndex}"]`)
-          ?.classList.add("db-data-table-row--resizing");
-      }
       canvasBodyRef.current?.invalidate();
     },
-    [rowHeights, useCanvasBody],
+    [rowHeights],
   );
 
   useEffect(() => {
@@ -1431,37 +1398,13 @@ export const TableDataGrid = memo(function TableDataGrid({
       cellRangeRef.current = pending;
       // 表头始终在 DOM，列拖选时需要同步高亮
       paintDragSelection(wrap, pending, tableRowCountRef.current);
-      if (gridRenderModeRef.current === "canvas") {
-        canvasBodyRef.current?.invalidate();
-      }
+      canvasBodyRef.current?.invalidate();
     };
 
     const resolveDragHit = (clientX: number, clientY: number) => {
-      if (gridRenderModeRef.current === "canvas") {
-        const hit = canvasBodyRef.current?.hitTestClientPoint(clientX, clientY);
-        if (!hit) return null;
-        return { rowIndex: hit.rowIndex, colIndex: hit.colIndex };
-      }
-      const el = document.elementFromPoint(clientX, clientY);
-      const td = el?.closest("td");
-      if (td) {
-        const tr = td.closest("tr");
-        if (tr) {
-          const rowIndex = Number((tr as HTMLElement).dataset.rowIndex);
-          const colIndex = Number((td as HTMLElement).dataset.colIndex);
-          if (!Number.isNaN(rowIndex) && !Number.isNaN(colIndex)) {
-            return { rowIndex, colIndex };
-          }
-        }
-      }
-      const tr = el?.closest("tr");
-      if (tr instanceof HTMLTableRowElement) {
-        const rowIndex = Number(tr.dataset.rowIndex);
-        if (!Number.isNaN(rowIndex)) {
-          return { rowIndex, colIndex: null as number | null };
-        }
-      }
-      return null;
+      const hit = canvasBodyRef.current?.hitTestClientPoint(clientX, clientY);
+      if (!hit) return null;
+      return { rowIndex: hit.rowIndex, colIndex: hit.colIndex };
     };
 
     const isSelectableDataColumn = (colIndex: number): boolean => {
@@ -1594,15 +1537,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         if (next === drag.lastHeight) return;
         drag.lastHeight = next;
         dragRowHeightRef.current = { rowIndex: drag.rowIndex, height: next };
-        if (gridRenderModeRef.current === "canvas") {
-          canvasBodyRef.current?.invalidate();
-          return;
-        }
-        const row = wrap.querySelector<HTMLElement>(`tr[data-row-index="${drag.rowIndex}"]`);
-        if (row) {
-          row.style.height = `${next}px`;
-          row.classList.add("db-data-table-row--custom-h");
-        }
+        canvasBodyRef.current?.invalidate();
         return;
       }
 
@@ -1617,9 +1552,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         dragColumnWidthsRef.current = nextWidths;
         const columnIds = leafColumnsRef.current.map((column) => column.id);
         applyAllColumnWidthsDom(wrap, nextWidths, columnIds);
-        if (gridRenderModeRef.current === "canvas") {
-          canvasBodyRef.current?.invalidate();
-        }
+        canvasBodyRef.current?.invalidate();
       }
     };
 
@@ -1809,19 +1742,17 @@ export const TableDataGrid = memo(function TableDataGrid({
   const allColumnsHidden = sidebarColumns.length > 0 && visibleColumns.length === 0;
   /**
    * Canvas：轻量行（仅 index/original），对齐 dbx `rowAt(i)`——不经 tanstack getRowModel。
-   * DOM 模式仍走 tanstack Row，以复用现有 cell renderer。
    */
-  const canvasTableRows = useMemo(() => {
-    if (!useCanvasBody) return null;
-    return displayRows.map((original, index) => ({
-      id: String(index),
-      index,
-      original,
-    }));
-  }, [useCanvasBody, displayRows]);
-  /** DOM 模式专用 tanstack Row；与 canvas 轻量行分离，避免联合类型无法赋给 Body。 */
-  const tanstackTableRows = table.getRowModel().rows;
-  const tableRows = (useCanvasBody ? canvasTableRows : tanstackTableRows) ?? [];
+  const canvasTableRows = useMemo(
+    () =>
+      displayRows.map((original, index) => ({
+        id: String(index),
+        index,
+        original,
+      })),
+    [displayRows],
+  );
+  const tableRows = canvasTableRows;
   tableRowCountRef.current = tableRows.length;
   const leafColumnCount = table.getAllLeafColumns().length;
   const tableRowsRef = useRef(tableRows);
@@ -1888,7 +1819,7 @@ export const TableDataGrid = memo(function TableDataGrid({
    * 把旧表行画到新表头下（#44）。换表或 rows 已重置为空时，在 layout 阶段强制清空并归零滚动。
    */
   useLayoutEffect(() => {
-    if (!useCanvasBody || !rowSourceTabId) return;
+    if (!rowSourceTabId) return;
     const tableChanged = prevPaintTableKeyRef.current !== tableName;
     prevPaintTableKeyRef.current = tableName;
     if (!tableChanged && rows.length > 0) return;
@@ -1911,7 +1842,6 @@ export const TableDataGrid = memo(function TableDataGrid({
     tableRowCountRef.current = mapped.length;
     canvasBodyRef.current?.invalidate();
   }, [
-    useCanvasBody,
     rowSourceTabId,
     tableName,
     rows.length,
@@ -1939,7 +1869,7 @@ export const TableDataGrid = memo(function TableDataGrid({
    * 横置例外：rowCache 仍是「原表行」，与转置列键不匹配，必须改走 displayRows。
    */
   useEffect(() => {
-    if (!useCanvasBody || !rowSourceTabId) return;
+    if (!rowSourceTabId) return;
     if (transposed) return;
 
     const syncFromCache = () => {
@@ -1962,17 +1892,17 @@ export const TableDataGrid = memo(function TableDataGrid({
     };
     syncFromCache();
     return subscribeTablePreviewRowCache(rowSourceTabId, syncFromCache);
-  }, [useCanvasBody, rowSourceTabId, mapRows, applyCanvasPaintRows, transposed]);
+  }, [rowSourceTabId, mapRows, applyCanvasPaintRows, transposed]);
 
   /** Canvas 表预览横置：跟随已转置的 displayRows（layout 阶段写入，避免先闪全 NULL） */
   useLayoutEffect(() => {
-    if (!useCanvasBody || !rowSourceTabId || !transposed) return;
+    if (!rowSourceTabId || !transposed) return;
     paintTransposedDisplayRows();
-  }, [useCanvasBody, rowSourceTabId, transposed, displayRows, paintTransposedDisplayRows]);
+  }, [rowSourceTabId, transposed, displayRows, paintTransposedDisplayRows]);
 
   /** Canvas 表预览：pending 新建行增删时合并进 paint（不订阅完整 displayRows） */
   useEffect(() => {
-    if (!useCanvasBody || !rowSourceTabId || transposed) return;
+    if (!rowSourceTabId || transposed) return;
     const cached = getTablePreviewRowCache(rowSourceTabId);
     const rowCount = cached
       ? applyCanvasPaintRows(cached.rows)
@@ -1998,7 +1928,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       });
     }
   }, [
-    useCanvasBody,
     rowSourceTabId,
     transposed,
     pendingInsertPaintKey,
@@ -2008,13 +1937,13 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   /** Canvas 无 rowSourceTabId（SQL 查询结果等）：行数据来自 displayRows */
   useEffect(() => {
-    if (!useCanvasBody || rowSourceTabId) return;
+    if (rowSourceTabId) return;
     const mapped = mapRows(displayRows);
     canvasPaintRowsRef.current = mapped;
     tableRowsRef.current = mapped;
     tableRowCountRef.current = mapped.length;
     canvasBodyRef.current?.invalidate();
-  }, [useCanvasBody, rowSourceTabId, displayRows, mapRows]);
+  }, [rowSourceTabId, displayRows, mapRows]);
 
   const leafColumnCountRef = useRef(leafColumnCount);
   leafColumnCountRef.current = leafColumnCount;
@@ -2310,17 +2239,6 @@ export const TableDataGrid = memo(function TableDataGrid({
     t,
   ]);
 
-  const getRowHeight = useCallback(
-    (index: number) => {
-      const row = tableRows[index];
-      if (!row) return DEFAULT_ROW_HEIGHT;
-      return rowHeights[row.index] ?? DEFAULT_ROW_HEIGHT;
-    },
-    [tableRows, rowHeights],
-  );
-
-  const useRowVirtualization = tableRows.length > ROW_VIRTUALIZE_THRESHOLD;
-
   const scrollAndHighlightColumn = useCallback(
     (columnName: string) => {
       const wrap = wrapRef.current;
@@ -2335,16 +2253,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         if (rowIdx < 0) {
           return;
         }
-        if (useCanvasBody) {
-          canvasBodyRef.current?.scrollToIndex(rowIdx, { align: "center", behavior: "smooth" });
-        } else if (useRowVirtualization) {
-          virtualBodyRef.current?.scrollToIndex(rowIdx, { align: "center", behavior: "smooth" });
-        } else {
-          const tr = wrap.querySelector<HTMLElement>(`tr[data-row-index="${rowIdx}"]`);
-          if (tr) {
-            scrollElementToCenter(wrap, tr);
-          }
-        }
+        canvasBodyRef.current?.scrollToIndex(rowIdx, { align: "center", behavior: "smooth" });
         const maxCol = leafColumnCount - 1;
         if (maxCol >= 0) {
           setSelectedRows(new Set());
@@ -2402,8 +2311,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       leafColumns,
       leafColumnCount,
       tableRows.length,
-      useRowVirtualization,
-      useCanvasBody,
       resolveColumnWidth,
     ],
   );
@@ -2626,11 +2533,6 @@ export const TableDataGrid = memo(function TableDataGrid({
     [leafColumnCount, onOpenRowDetail, onRowBandSelect],
   );
 
-  const columnSizedIds = useMemo(
-    () => new Set(Object.keys(columnSizing)),
-    [columnSizing],
-  );
-
   const virtualizableColumnIndices = useMemo(
     () => buildVirtualizableColumnIndices(leafColumns, transposed),
     [leafColumns, transposed],
@@ -2686,44 +2588,6 @@ export const TableDataGrid = memo(function TableDataGrid({
       columnVirtualizer,
     ],
   );
-
-  const gridBodyStaticConfig = useMemo((): GridBodyStaticConfig => {
-    return {
-      transposed,
-      columnMetaMap,
-      canFilter,
-      filterColumnNames,
-      enableSort,
-      sortColumn: primarySort?.column ?? null,
-      sortDirection: primarySort?.direction ?? null,
-      hasCellEdit: Boolean(onCellEdit || onCellCommit),
-      enableValuePanelAffordance: Boolean(onCellEditorFocusRequest),
-      valuePanelAffordanceTitle: t("database.cellEditor.openValuePanel"),
-      lastColumnId,
-      fillDelta,
-      leafColumnCount,
-      columnSizedIds,
-      columnLayout,
-      relationHighlightColumnIds,
-    };
-  }, [
-    transposed,
-    columnMetaMap,
-    canFilter,
-    filterColumnNames,
-    enableSort,
-    sort,
-    onCellEdit,
-    onCellCommit,
-    onCellEditorFocusRequest,
-    t,
-    lastColumnId,
-    fillDelta,
-    leafColumnCount,
-    columnSizedIds,
-    columnLayout,
-    relationHighlightColumnIds,
-  ]);
 
   const resolveBodyCellContext = useCallback(
     (rowIndex: number, colIndex: number): GridBodyCellInteractionContext | null => {
@@ -3278,53 +3142,9 @@ export const TableDataGrid = memo(function TableDataGrid({
       : undefined,
   };
 
-  const buildGridBodyRowProps = useCallback(
-    (rowIndex: number) => {
-      const row = tableRows[rowIndex];
-      if (!row) return null;
-      const rowKey = transposed
-        ? String(row.original[TRANSPOSE_FIELD_COL] ?? "")
-        : resolvePreviewRowKey(row.original, pkCols);
-      const rowChangeKind: PreviewRowChangeKind = transposed
-        ? rowKey && displayDirtyRowKeys?.has(rowKey)
-          ? "update"
-          : "none"
-        : resolvePreviewRowChangeKind(rowKey, deletedRowKeys ?? EMPTY_DELETED_ROW_KEYS, displayDirtyRowKeys);
-      return {
-        rowDirty: rowChangeKind !== "none",
-        rowChangeKind,
-        overrideForRow: rowKey ? displayCellOverrides?.[rowKey] : undefined,
-        rowHeight: rowHeights[row.index],
-        cellRange,
-        selectedRows,
-        staticConfig: gridBodyStaticConfig,
-      };
-    },
-    [
-      tableRows,
-      transposed,
-      pkCols,
-      displayDirtyRowKeys,
-      deletedRowKeys,
-      displayCellOverrides,
-      rowHeights,
-      cellRange,
-      selectedRows,
-      gridBodyStaticConfig,
-    ],
-  );
-
   const canvasSnapshotInput = useMemo((): BuildGridSnapshotInput => {
     // rowSourceTabId 时行数据走 paint ref，memo 不依赖 rows，避免加载分片触发 React 重算
-    const snapshotRows =
-      rowSourceTabId && useCanvasBody
-        ? []
-        : useCanvasBody && canvasTableRows
-          ? canvasTableRows
-          : tableRows.map((row) => ({
-              index: row.index,
-              original: row.original,
-            }));
+    const snapshotRows = rowSourceTabId ? [] : canvasTableRows;
     return {
       leafColumns: leafColumns.map((col) => ({
         id: col.id,
@@ -3361,10 +3181,8 @@ export const TableDataGrid = memo(function TableDataGrid({
     };
   }, [
     rowSourceTabId,
-    useCanvasBody,
     canvasTableRows,
     leafColumns,
-    tableRows,
     resolveColumnWidth,
     rowHeights,
     transposed,
@@ -3390,7 +3208,6 @@ export const TableDataGrid = memo(function TableDataGrid({
   ]);
 
   useEffect(() => {
-    if (!useCanvasBody) return;
     const wrap = wrapRef.current;
     if (!wrap) return;
 
@@ -3419,7 +3236,7 @@ export const TableDataGrid = memo(function TableDataGrid({
 
     wrap.addEventListener("scroll", syncOverlayAnchor, { passive: true });
     return () => wrap.removeEventListener("scroll", syncOverlayAnchor);
-  }, [useCanvasBody, leafColumns, cellOverlay]);
+  }, [leafColumns, cellOverlay]);
 
   if (effectiveColumns.length === 0) {
     return null;
@@ -3453,10 +3270,10 @@ export const TableDataGrid = memo(function TableDataGrid({
     ) : (
     <div
       ref={wrapRef}
-      className={`db-data-table-wrap${useCanvasBody ? " db-data-table-wrap--canvas" : ""}${!useCanvasBody && useRowVirtualization ? " db-data-table-wrap--virtual" : ""}${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}${isPaging ? " db-data-table-wrap--paging" : ""}`}
+      className={`db-data-table-wrap db-data-table-wrap--canvas${transposed ? " db-data-table-wrap--transposed" : ""}${loading ? " db-data-table-wrap--loading" : ""}${isPaging ? " db-data-table-wrap--paging" : ""}`}
     >
       <table
-        className={`db-data-table${useCanvasBody ? " db-data-table--canvas-chrome" : ""}`}
+        className="db-data-table db-data-table--canvas-chrome"
         style={
           containerWidth > 0
             ? {
@@ -3735,42 +3552,20 @@ export const TableDataGrid = memo(function TableDataGrid({
             </tr>
           ))}
         </thead>
-        {useCanvasBody ? null : useRowVirtualization ? (
-          <TableDataGridVirtualBody
-            ref={virtualBodyRef}
-            scrollElementRef={wrapRef}
-            tableRows={tanstackTableRows}
-            getRowHeight={getRowHeight}
-            rowHeights={rowHeights}
-            visibleCellCount={columnLayout.visibleCellCount}
-            buildRowProps={buildGridBodyRowProps}
-            bodyActionsRef={bodyActionsRef}
-            resolveCellContext={resolveBodyCellContext}
-          />
-        ) : (
-          <TableDataGridBody
-            tableRows={tanstackTableRows}
-            buildRowProps={buildGridBodyRowProps}
-            bodyActionsRef={bodyActionsRef}
-            resolveCellContext={resolveBodyCellContext}
-          />
-        )}
       </table>
-      {useCanvasBody ? (
-        <TableDataGridCanvasBody
-          ref={canvasBodyRef}
-          scrollElementRef={wrapRef}
-          snapshotInput={canvasSnapshotInput}
-          tableRowsRef={canvasPaintRowsRef}
-          dragRangeRef={pendingDragRangeRef}
-          dragRowHeightRef={dragRowHeightRef}
-          dragColumnWidthsRef={dragColumnWidthsRef}
-          bodyActionsRef={bodyActionsRef}
-          resolveCellContext={resolveBodyCellContext}
-          onFieldSortClick={handleColumnSortClick}
-          onFieldFilterOpen={openFilterPopover}
-        />
-      ) : null}
+      <TableDataGridCanvasBody
+        ref={canvasBodyRef}
+        scrollElementRef={wrapRef}
+        snapshotInput={canvasSnapshotInput}
+        tableRowsRef={canvasPaintRowsRef}
+        dragRangeRef={pendingDragRangeRef}
+        dragRowHeightRef={dragRowHeightRef}
+        dragColumnWidthsRef={dragColumnWidthsRef}
+        bodyActionsRef={bodyActionsRef}
+        resolveCellContext={resolveBodyCellContext}
+        onFieldSortClick={handleColumnSortClick}
+        onFieldFilterOpen={openFilterPopover}
+      />
       <TableDataGridCellOverlay
         overlay={cellOverlay}
         onEditChange={handleCellOverlayEditChange}

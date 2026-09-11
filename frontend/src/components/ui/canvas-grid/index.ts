@@ -6,7 +6,6 @@ export type {
   CanvasGridColumnInfo,
   CanvasGridHitRegion,
   CanvasGridHitResult,
-  CanvasGridRenderMode,
   CanvasGridSnapshot,
   CanvasGridThemeTokens,
   CellViewportRect,
@@ -15,7 +14,6 @@ export type {
   GridColumnDrawInfo,
   GridHitRegion,
   GridHitResult,
-  GridRenderMode,
   GridRenderSnapshot,
   GridThemeTokens,
 } from "./types";
@@ -42,29 +40,24 @@ export {
 export { drawGridBody, type DrawGridBodyOptions, type DrawGridBodyStyle } from "./drawBody";
 
 export {
+  CANVAS_GRID_SUPERSAMPLE_FACTOR,
+  CANVAS_GRID_SUPERSAMPLE_MAX,
+  CANVAS_GRID_SUPERSAMPLE_STORAGE_KEY,
+  readStoredCanvasGridSupersample,
+  resolveCanvasBufferSize,
+  resolveCanvasPaintScale,
+  resolveDevicePixelRatio,
+  snapToDevicePixel,
+  writeStoredCanvasGridSupersample,
+} from "./paintScale";
+
+export {
   invalidateCanvasGridThemeCache,
   measureHeaderHeight,
   readCanvasGridTheme,
   readGridTheme,
   type CanvasThemeProfile,
 } from "./theme";
-
-export {
-  CANVAS_GRID_RENDER_MODE_STORAGE_KEY,
-  DB_GRID_RENDER_MODE_STORAGE_KEY,
-  DEFAULT_CANVAS_GRID_RENDER_MODE,
-  DEFAULT_GRID_RENDER_MODE,
-  GRID_RENDER_MODE_STORAGE_KEY,
-  PANEL_GRID_RENDER_MODE_STORAGE_KEY,
-  readStoredCanvasGridRenderMode,
-  readStoredDbGridRenderMode,
-  readStoredGridRenderMode,
-  readStoredPanelGridRenderMode,
-  writeStoredCanvasGridRenderMode,
-  writeStoredDbGridRenderMode,
-  writeStoredGridRenderMode,
-  writeStoredPanelGridRenderMode,
-} from "./renderMode";
 
 export {
   PanelGridCanvasBody,

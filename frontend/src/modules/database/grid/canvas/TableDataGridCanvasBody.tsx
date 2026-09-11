@@ -18,6 +18,11 @@ import { buildGridSnapshotBundle, type BuildGridSnapshotInput } from "./buildGri
 import { drawGridBody } from "./drawGridBody";
 import { cellViewportRect, hitTestGrid, isPinnedDrawColumn } from "./gridGeometry";
 import { invalidateCanvasGridThemeCache, measureHeaderHeight, readGridTheme } from "./readGridTheme";
+import {
+  readStoredCanvasGridSupersample,
+  resolveCanvasBufferSize,
+  resolveCanvasPaintScale,
+} from "@/components/ui/canvas-grid/paintScale";
 import type {
   CellViewportRect,
   GridHitResult,
@@ -262,9 +267,12 @@ export const TableDataGridCanvasBody = forwardRef<
     // 滚过内容底部时（sticky table 占位与 headerHeight 微差导致 scrollHeight 偏大），
     // 缩短 canvas 高度使底部对齐内容底部，避免画出无行数据的空白区域。
     const cssHeight = Math.min(fullCssHeight, Math.max(1, snapshot.totalHeight - rawScrollTop));
-    const dpr = window.devicePixelRatio || 1;
-    const nextW = Math.floor(cssWidth * dpr);
-    const nextH = Math.floor(cssHeight * dpr);
+    const paintScale = resolveCanvasPaintScale(readStoredCanvasGridSupersample());
+    const { width: nextW, height: nextH } = resolveCanvasBufferSize(
+      cssWidth,
+      cssHeight,
+      paintScale,
+    );
 
     if (canvas.width !== nextW || canvas.height !== nextH) {
       canvas.width = nextW;
@@ -303,7 +311,7 @@ export const TableDataGridCanvasBody = forwardRef<
       scrollTop: scrollTopRef.current,
       viewportWidth: cssWidth,
       viewportHeight: cssHeight,
-      dpr,
+      dpr: paintScale,
     });
   }, [rebuildSnapshot, scrollElementRef]);
 
