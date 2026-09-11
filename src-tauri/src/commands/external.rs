@@ -55,6 +55,9 @@ pub struct ExternalVerdictDto {
     pub plugin_name: String,
     pub features: Vec<ExternalFeatureDto>,
     pub main_entry: Option<String>,
+    /// 建议的 compat 垫片 id（转换时生成 `entry.compat`，无则空）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compat_shim: Option<String>,
 }
 
 fn dto_from_verdict(
@@ -91,6 +94,7 @@ fn dto_from_verdict(
             })
             .collect(),
         main_entry: verdict.main_entry.clone(),
+        compat_shim: verdict.compat_shim.clone(),
     }
 }
 

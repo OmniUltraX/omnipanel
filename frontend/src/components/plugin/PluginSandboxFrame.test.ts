@@ -35,6 +35,22 @@ describe("PluginSandboxFrame", () => {
     expect(doc).toContain("omniFetchResponse");
     // 代理走受闸桥，不直连
     expect(doc).toContain('this.request("netFetch"');
+    // clipboard.write 与 network.getLocalIPs 同桥
+    expect(doc).toContain("clipboard.write");
+    expect(doc).toContain("network.getLocalIPs");
+  });
+
+  it("compat 垫片紧随 prelude、先于插件脚本", () => {
+    const compat = "window.lanIPv4 = function(s){ s('x'); };";
+    const doc = buildSandboxDoc("<head></head><body><script>window.lanIPv4()</script></body>", "dark", compat);
+    const preludeAt = doc.indexOf("window.host = {");
+    const compatAt = doc.indexOf("window.lanIPv4");
+    const pageAt = doc.indexOf("window.lanIPv4()");
+    expect(preludeAt).toBeGreaterThanOrEqual(0);
+    expect(compatAt).toBeGreaterThan(preludeAt);
+    expect(pageAt).toBeGreaterThan(compatAt);
+    // 无垫片时不注入空脚本
+    expect(buildSandboxDoc("<div/>")).not.toContain("compat shim");
   });
 
   it("拒绝锚定审计权限（deny 经 pluginRequirePermission 落 audit）", () => {

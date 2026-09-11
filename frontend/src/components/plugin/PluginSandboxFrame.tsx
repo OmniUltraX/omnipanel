@@ -19,7 +19,9 @@ export type SandboxRequestMethod =
   | "netFetch"
   | "overlay.hide"
   | "aiComplete"
-  | "overlayInitial";
+  | "overlayInitial"
+  | "clipboard.write"
+  | "network.getLocalIPs";
 
 export type SandboxRequest = {
   __omni: true;
@@ -99,7 +101,11 @@ const PRELUDE = `
     netFetch: function (spec) { return this.request("netFetch", spec); },
     overlayHide: function () { return this.request("overlay.hide"); },
     aiComplete: function (spec) { return this.request("aiComplete", spec); },
-    overlayInitial: function () { return this.request("overlayInitial"); }
+    overlayInitial: function () { return this.request("overlayInitial"); },
+    // 只写剪贴板（读剪贴永不开放，防外泄）；宿主侧写审计。
+    clipboardWrite: function (text) { return this.request("clipboard.write", { text: String(text) }); },
+    // 本机内网地址（UDP 技巧本地判定，不出网）；无敏感凭据，不审计。
+    networkGetLocalIps: function () { return this.request("network.getLocalIPs"); }
   };
   // 沙箱 CSP 默认拒外联：页内 fetch/XHR 原生必死。透明代理到宿主 netFetch
   // （逐次过 net:connect 权限闸 + prod 确认 + 审计），缺权即以可读错误拒绝。
@@ -181,6 +187,8 @@ export function sandboxBridgeDenyReason(
     case "invoke":
     case "overlay.hide":
     case "overlayInitial":
+    case "clipboard.write":
+    case "network.getLocalIPs":
       return null;
     default:
       return `白名单外的方法: ${String(method)}`;
@@ -207,14 +215,22 @@ export function sandboxBridgeAuditPermission(method: string | undefined): string
   return "ui:selection";
 }
 
-export function buildSandboxDoc(pluginHtml: string, theme: SandboxTheme = "dark"): string {
+export function buildSandboxDoc(
+  pluginHtml: string,
+  theme: SandboxTheme = "dark",
+  compatJs = "",
+): string {
   // 在 <head> 或文档最前插入 CSP、主题基座与桥；无 head 标签时前置拼接。
   // light 主题多一段脚本把 data-theme 打到 <html> 上（dark 为缺省，无需设置）。
+  // compat 垫片紧随 prelude（需 window.host 先就位，且先于插件 body 脚本执行）。
   const themeScript =
     theme === "light"
       ? '<script>document.documentElement.dataset.theme="light";</script>'
       : "";
-  const head = `${CSP_META}${THEME_STYLE}${PRELUDE}${themeScript}`;
+  const compatScript = compatJs.trim()
+    ? `<script>/* compat shim */\n${compatJs}\n</script>`
+    : "";
+  const head = `${CSP_META}${THEME_STYLE}${PRELUDE}${compatScript}${themeScript}`;
   if (/<head[\s>]/i.test(pluginHtml)) {
     return pluginHtml.replace(/<head([^>]*)>/i, `<head$1>${head}`);
   }
@@ -225,14 +241,19 @@ type Props = {
   pluginId: string;
   title: string;
   html: string;
+  /** compat 垫片 JS（转换插件）：紧随 prelude 注入；缺省不注。 */
+  compatJs?: string;
   theme: SandboxTheme;
-  onInvoke: (method: "invoke" | "netFetch", args: unknown) => Promise<unknown>;
+  onInvoke: (
+    method: "invoke" | "netFetch" | "clipboard.write" | "network.getLocalIPs",
+    args: unknown,
+  ) => Promise<unknown>;
   onHide: () => void;
 };
 
-export function PluginSandboxFrame({ pluginId, title, html, theme, onInvoke, onHide }: Props) {
+export function PluginSandboxFrame({ pluginId, title, html, compatJs, theme, onInvoke, onHide }: Props) {
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const doc = useMemo(() => buildSandboxDoc(html, theme), [html, theme]);
+  const doc = useMemo(() => buildSandboxDoc(html, theme, compatJs ?? ""), [html, theme, compatJs]);
 
   useEffect(() => {
     async function handleMessage(ev: MessageEvent) {
@@ -284,6 +305,14 @@ export function PluginSandboxFrame({ pluginId, title, html, theme, onInvoke, onH
           }
           case "netFetch": {
             respond(await onInvoke("netFetch", data.args));
+            break;
+          }
+          case "clipboard.write": {
+            respond(await onInvoke("clipboard.write", data.args));
+            break;
+          }
+          case "network.getLocalIPs": {
+            respond(await onInvoke("network.getLocalIPs", data.args));
             break;
           }
           case "overlay.hide": {

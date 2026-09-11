@@ -39,3 +39,10 @@
 - [x] 7.1 analyzer 收紧：任意非相对 `require(` 即需 Node；`rubick.*` 显式拒绝并点名。验证：`cargo test -p omnipanel-plugin-pkg external`（含 ip-config 形状回归）
 - [x] 7.2 页内 fetch 不判死：`needs_network` → converter 自动声明 `net:connect`。验证：同上单测
 - [x] 7.3 prelude fetch 透明代理到受闸桥（成功只给文本兼容壳，非 2xx 走 reject）。验证：`PluginSandboxFrame.test.ts` + `tsc -b`
+
+## 8. 适配安装（“为什么不该装”反馈：需求可映射，不应判死）
+
+- [x] 8.1 桥：`plugin_sandbox_local_ips`（UDP 技巧本地判定，仅要求插件已注册）+ `clipboard.write`（主窗剪贴板，只写+审计）。验证：`cargo check`，真机经桥验证待 dev 重启
+- [x] 8.2 prelude 暴露 `clipboardWrite` / `networkGetLocalIps`（白名单免权限，读剪贴永不开放）。验证：`PluginSandboxFrame.test.ts` + `tsc -b`
+- [x] 8.3 compat 垫片机制：`entry.compat`（SDK/Rust/CI 三端校验）+ overlay 紧随 prelude 注入 + ip-tools-v1 参考垫片。验证：单测 + `tsc -b`
+- [x] 8.4 analyzer 垫片识别 + converter 合成（含 preload 丢弃、net 权限、清单校验）。验证：`cargo test -p omnipanel-plugin-pkg`（ip-config 可转+垫片+权限）

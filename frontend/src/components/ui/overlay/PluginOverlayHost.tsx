@@ -15,12 +15,37 @@ export function PluginOverlayHost() {
   const pluginId = top?.pluginId;
 
   const handleInvoke = useCallback(
-    async (kind: "invoke" | "netFetch", args: unknown) => {
+    async (
+      kind: "invoke" | "netFetch" | "clipboard.write" | "network.getLocalIPs",
+      args: unknown,
+    ) => {
       if (!pluginId) throw new Error("overlay closed");
       if (kind === "netFetch") {
         return unwrapCommand(
           commands.pluginSandboxNetFetch(pluginId, JSON.stringify(args ?? {})),
         );
+      }
+      if (kind === "network.getLocalIPs") {
+        return unwrapCommand(commands.pluginSandboxLocalIps(pluginId));
+      }
+      if (kind === "clipboard.write") {
+        const text = String(
+          ((args ?? {}) as { text?: unknown }).text ?? "",
+        );
+        await navigator.clipboard.writeText(text);
+        // 只写不读：低风险但留痕（读剪贴永不开放）
+        await unwrapCommand(
+          commands.auditLogAppend({
+            ts: Date.now(),
+            action: "plugin.clipboard",
+            target: pluginId,
+            env_tag: "-",
+            risk: "low",
+            status: "success",
+            detail: `write len=${text.length}`,
+          }),
+        ).catch(() => undefined);
+        return { ok: true };
       }
       const payload = (args ?? {}) as { method?: string; args?: unknown };
       if (typeof payload.method !== "string") throw new Error("invoke 需要 method");
@@ -59,6 +84,7 @@ export function PluginOverlayHost() {
             pluginId={top.pluginId}
             title={top.title}
             html={top.sandboxHtml}
+            compatJs={top.compatJs}
             theme={theme}
             onInvoke={handleInvoke}
             onHide={() => hide(top.id)}

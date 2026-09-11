@@ -48,6 +48,11 @@ export function ExternalConvertDialog({
           <p className="text-xs text-muted">
             {verdict.runnable ? t("plugins.external.runnableHint") : t("plugins.external.blockedHint")}
           </p>
+          {verdict.compatShim ? (
+            <p className="text-xs text-muted">
+              {t("plugins.external.compatShim", { shim: verdict.compatShim })}
+            </p>
+          ) : null}
           {verdict.features.length > 0 ? (
             <div>
               <p className="text-xs text-muted">{t("plugins.external.features")}</p>

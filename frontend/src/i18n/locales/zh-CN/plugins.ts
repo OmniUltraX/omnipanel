@@ -397,6 +397,7 @@ export default {
       openExternalHint: "请在 Rubick 客户端或 npm 页面获取：{npm}",
       copyNpm: "复制包名",
       copied: "已复制",
+      compatShim: "将使用兼容垫片 {shim} 替代原 preload",
     },
     sources: {
       title: "插件源",

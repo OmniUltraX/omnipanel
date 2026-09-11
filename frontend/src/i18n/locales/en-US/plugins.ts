@@ -397,6 +397,7 @@ export default {
       openExternalHint: "Get it from the Rubick client or the npm page: {npm}",
       copyNpm: "Copy package name",
       copied: "Copied",
+      compatShim: "Will use compat shim {shim} instead of the original preload",
     },
     sources: {
       title: "Plugin sources",

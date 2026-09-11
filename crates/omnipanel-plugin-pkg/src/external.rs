@@ -80,8 +80,44 @@ pub struct ExternalVerdict {
     pub features: Vec<ExternalFeature>,
     /// 主 HTML 入口（相对路径），转换 overlays 用。
     pub main_entry: Option<String>,
+    /// 声明的 preload 路径（转换时丢弃，由垫片替代）。
+    pub preload_entry: Option<String>,
     /// 页面直调 fetch/XHR：转换需声明 `net:connect`，运行时走桥接代理。
     pub needs_network: bool,
+    /// 建议的 compat 垫片（preload 全局适配），converter 据此生成 `entry.compat`。
+    pub compat_shim: Option<String>,
+}
+
+/// compat 垫片表：preload 定义的 `window.*` 全集 ⊆ 已知集时可用垫片转译。
+/// ip-tools-v1 覆盖 lanIPv4/wan_no_proxy/wan_has_proxy/locationInfo/confetti
+///（以宿主桥实现；原 preload 含 Node 部分不执行）。
+pub const IP_TOOLS_SHIM: &str = "ip-tools-v1";
+const IP_TOOLS_GLOBALS: &[&str] = &[
+    "lanIPv4",
+    "wan_no_proxy",
+    "wan_has_proxy",
+    "locationInfo",
+    "confetti",
+];
+
+/// 提取 `window.NAME =` 定义的全局名。
+fn defined_window_globals(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(pos) = rest.find("window.") {
+        let after = &rest[pos + "window.".len()..];
+        let end = after
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '$')
+            .unwrap_or(after.len());
+        let name = &after[..end];
+        let assigned = after[end..].trim_start().starts_with('=')
+            && !after[end..].trim_start().starts_with("==");
+        if !name.is_empty() && assigned && !out.iter().any(|n| n == name) {
+            out.push(name.to_string());
+        }
+        rest = after;
+    }
+    out
 }
 
 #[derive(Debug, Deserialize)]
@@ -261,35 +297,79 @@ pub fn analyze_external_entries(
         .filter(|(path, _)| is_script_entry(path))
         .filter_map(|(path, bytes)| as_text(bytes).map(|text| (path, text)))
         .collect();
+    // preload 文本先行解析：垫片覆盖时，其 Node require 豁免（preload 被丢弃，
+    // 垫片替代其定义的已知全局）。
+    let preload_norm: Option<String> = preload
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            s.trim_start_matches("./")
+                .trim_start_matches('/')
+                .to_string()
+        });
+    let preload_text: Option<&str> = preload_norm.as_deref().and_then(|norm| {
+        entries
+            .iter()
+            .find(|(p, _)| {
+                let p = p.trim_start_matches("./").trim_start_matches('/');
+                p == norm || p.ends_with(&format!("/{norm}"))
+            })
+            .and_then(|(_, bytes)| as_text(bytes))
+    });
+    // preload 定义的 window.* 全局：已知集走 compat 垫片转译，未知即外部。
+    let mut compat_shim: Option<String> = None;
+    if let Some(preload_text) = preload_text {
+        let defined = defined_window_globals(preload_text);
+        let unknown: Vec<&String> = defined
+            .iter()
+            .filter(|name| !IP_TOOLS_GLOBALS.contains(&name.as_str()))
+            .collect();
+        for name in unknown {
+            reasons.push(format!("preload 定义未知全局，需原运行时: window.{name}"));
+        }
+        if !defined.is_empty()
+            && defined
+                .iter()
+                .all(|name| IP_TOOLS_GLOBALS.contains(&name.as_str()))
+        {
+            compat_shim = Some(IP_TOOLS_SHIM.to_string());
+        }
+    }
+    let preload_is_shimmed = compat_shim.is_some();
+    let is_preload_file = |path: &String| {
+        preload_norm.as_deref().map(|norm| {
+            let p = path.trim_start_matches("./").trim_start_matches('/');
+            p == norm || p.ends_with(&format!("/{norm}"))
+        }).unwrap_or(false)
+    };
     for (path, text) in &scripts {
-        for pattern in NODE_DENY_PATTERNS {
-            if text.contains(pattern) {
-                reasons.push(format!("需 Node 运行时 ({path} 含 {pattern})"));
-                break;
+        // 垫片覆盖的 preload：其 require 豁免（文件被丢弃，垫片替代）。
+        if !(preload_is_shimmed && is_preload_file(path)) {
+            for pattern in NODE_DENY_PATTERNS {
+                if text.contains(pattern) {
+                    reasons.push(format!("需 Node 运行时 ({path} 含 {pattern})"));
+                    break;
+                }
             }
-        }
-        for pattern in NODE_PREFIX_PATTERNS {
-            if text.contains(pattern) {
-                reasons.push(format!("需 Node 内建模块 ({path} 含 {pattern})"));
-                break;
+            for pattern in NODE_PREFIX_PATTERNS {
+                if text.contains(pattern) {
+                    reasons.push(format!("需 Node 内建模块 ({path} 含 {pattern})"));
+                    break;
+                }
             }
-        }
-        // 通配：任意非相对 require 即需 Node 解析（内建/npm 包/厂商垫片）。
-        // preload 缺失文件同样判外部（形残包不转）。
-        if let Some(dep) = required_node_dep(text) {
-            reasons.push(format!("需 Node 运行时 ({path} 含 require({dep}))"));
+            // 通配：任意非相对 require 即需 Node 解析（内建/npm 包/厂商垫片）。
+            if let Some(dep) = required_node_dep(text) {
+                reasons.push(format!("需 Node 运行时 ({path} 含 require({dep}))"));
+            }
         }
     }
     // preload 声明缺失文件同样判外部（形残包不转）。
-    if let Some(preload) = preload.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        let norm = preload.trim_start_matches("./").trim_start_matches('/');
-        let found = entries.keys().any(|p| {
-            let p = p.trim_start_matches("./").trim_start_matches('/');
-            p == norm || p.ends_with(&format!("/{norm}"))
-        });
-        if !found {
-            reasons.push(format!("preload 声明缺失文件: {preload}"));
-        }
+    if preload_norm.is_some() && preload_text.is_none() {
+        reasons.push(format!(
+            "preload 声明缺失文件: {}",
+            preload.as_deref().unwrap_or("").trim()
+        ));
     }
     for (_, text) in &scripts {
         for api in called_utools_apis(text) {
@@ -297,8 +377,11 @@ pub fn analyze_external_entries(
                 reasons.push(format!("不支持的 utools.{api}（白名单外）"));
             }
         }
-        // 厂商宿主 API（rubick.* 等）：沙箱无对应桥，一律外部。
+        // 厂商宿主 API：垫片提供的（rubick.copyText）豁免，其余一律外部。
         for api in called_host_api(text, "rubick") {
+            if preload_is_shimmed && api == "copyText" {
+                continue;
+            }
             reasons.push(format!("不支持的宿主 API (rubick.{api})：需原客户端"));
         }
     }
@@ -306,18 +389,27 @@ pub fn analyze_external_entries(
     reasons.dedup();
 
     // 页面直调网络：不判死，转而要求 net:connect（运行时走桥接代理）。
-    let needs_network = scripts.iter().any(|(_, text)| {
-        text.contains("fetch(") || text.contains("XMLHttpRequest")
-    });
+    // compat 垫片自身亦走 fetch，置位同样触发权限声明。
+    let needs_network = compat_shim.is_some()
+        || scripts.iter().any(|(_, text)| {
+            text.contains("fetch(") || text.contains("XMLHttpRequest")
+        });
 
     let main_entry = main.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let preload_entry = preload
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     Ok(ExternalVerdict {
         runnable: reasons.is_empty(),
         reasons,
         plugin_name,
         features,
         main_entry,
+        preload_entry,
         needs_network,
+        compat_shim,
     })
 }
 
@@ -358,6 +450,89 @@ fn sanitize_external_id(name: &str) -> String {
 
 fn js_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+/// compat 垫片 ip-tools-v1：preload 风格全局转宿主桥实现。
+/// 原 preload（含 Node 依赖）不执行；定位用 IP 归属回退（市级精度，与语义差异见文档）。
+fn compat_shim_ip_tools_v1() -> String {
+    r#"// compat: ip-tools-v1（converter 生成，Reviewed）。
+// 将 preload 风格全局映射到宿主桥：lanIPv4→network.getLocalIPs，
+// wan_*/locationInfo→fetch 直调（走 netFetch 受闸桥），copyText→clipboard.write，
+// confetti（纯视觉糖，原依赖缺失）→ noop。
+(function () {
+  function nonEmpty(v) { return v != null && String(v).trim() !== ""; }
+  function joinParts(parts) { return parts.filter(nonEmpty).join(" "); }
+
+  window.lanIPv4 = function (success, fail) {
+    window.host.request("network.getLocalIPs").then(function (ips) {
+      var ip = (ips && ips[0]) || "";
+      if (nonEmpty(ip)) { success(ip); return; }
+      if (typeof fail === "function") fail("无可用内网地址");
+    }).catch(function (e) {
+      if (typeof fail === "function") fail(String((e && e.message) || e));
+    });
+  };
+
+  function fetchJson(url) {
+    return window.fetch(url, { headers: { Accept: "application/json" } }).then(function (r) {
+      return r.json();
+    });
+  }
+
+  window.wan_no_proxy = function (success, fail) {
+    fetchJson("https://forge.speedtest.cn/api/location/info").then(function (data) {
+      success({
+        ip: data.ip,
+        addr: joinParts([data.country, data.province, data.distinct]),
+        isp: data.isp || "未知",
+        net_str: data.net_str || "未知"
+      });
+    }).catch(function () {
+      fetchJson("https://api.ip.sb/geoip").then(function (data) {
+        success({ ip: data.ip, addr: "未知", isp: "未知", net_str: "未知" });
+      }).catch(function (e) {
+        fail("网络出错：" + String((e && e.message) || e));
+      });
+    });
+  };
+
+  window.wan_has_proxy = function (success, fail) {
+    fetchJson("https://ipinfo.io").then(function (data) {
+      success({
+        ip: data.ip,
+        addr: joinParts([data.country, data.region, data.city]),
+        isp: data.org || "未知",
+        net_str: data.org || "未知"
+      });
+    }).catch(function (e) {
+      fail("网络出错：" + String((e && e.message) || e));
+    });
+  };
+
+  window.locationInfo = function (success, fail) {
+    fetchJson("https://forge.speedtest.cn/api/location/info").then(function (data) {
+      var addr = joinParts([data.country, data.province, data.city || data.distinct]);
+      if (nonEmpty(addr)) success(addr);
+      else fail("无法获取地址信息");
+    }).catch(function () { fail("无法获取地址信息"); });
+  };
+
+  window.confetti = function () {};
+
+  if (typeof window.rubick === "undefined") window.rubick = {};
+  window.rubick.copyText = function (text) {
+    return window.host.request("clipboard.write", { text: String(text) });
+  };
+})();
+"#
+    .to_string()
+}
+
+fn compat_shim_source(shim: &str) -> Option<String> {
+    match shim {
+        IP_TOOLS_SHIM => Some(compat_shim_ip_tools_v1()),
+        _ => None,
+    }
 }
 
 /// 生成的动态入口：关键字菜单 → 打开主 overlay。合同见前端
@@ -440,11 +615,24 @@ pub fn convert_external_to_entries(
         .collect();
 
     let mut out = BTreeMap::new();
-    // 静态资源：主 HTML 必含；其余放行（超限单项拒绝，不静默丢）。
+    // 静态资源：主 HTML 必含；preload 被垫片替代，一律丢弃；其余放行
+    //（超限单项拒绝，不静默丢）。
     let mut copied_main = false;
+    let preload_norm = verdict.preload_entry.as_deref().map(|s| {
+        s.trim()
+            .trim_start_matches("./")
+            .trim_start_matches('/')
+            .to_string()
+    });
     for (path, bytes) in entries {
         if convert_denied(path) {
             continue;
+        }
+        let path_norm = path.trim_start_matches("./").trim_start_matches('/');
+        if let Some(preload) = preload_norm.as_deref() {
+            if path_norm == preload || path_norm.ends_with(&format!("/{preload}")) {
+                continue;
+            }
         }
         if bytes.len() > CONVERT_ASSET_MAX_BYTES {
             return Err(PkgError::Malformed(format!(
@@ -465,7 +653,26 @@ pub fn convert_external_to_entries(
         "ui/main.js".to_string(),
         generated_ui_main(&plugin_id, overlay_id, &keywords).into_bytes(),
     );
+    // compat 垫片：verdict 建议时生成，overlay 渲染紧随 prelude 注入。
+    // 包内隔离，文件名固定为垫片 id。
+    let compat_entry: Option<String> = verdict
+        .compat_shim
+        .as_deref()
+        .and_then(|shim| {
+            compat_shim_source(shim).map(|source| {
+                let path = format!(
+                    "ui/compat/{}.js",
+                    shim.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+                );
+                out.insert(path.clone(), source.into_bytes());
+                path
+            })
+        });
 
+    let mut entry = serde_json::json!({ "ui": "ui/main.js" });
+    if let Some(compat) = compat_entry.as_deref() {
+        entry["compat"] = serde_json::json!(compat);
+    }
     let manifest = serde_json::json!({
         "id": plugin_id,
         "version": version,
@@ -473,7 +680,7 @@ pub fn convert_external_to_entries(
         "kind": "addon",
         // 页面直调网络的包自动声明 net:connect（运行时走桥接代理，安装时用户确认）。
         "permissions": if verdict.needs_network { vec!["net:connect"] } else { vec![] },
-        "entry": { "ui": "ui/main.js" },
+        "entry": entry,
         "contributes": {
             "overlays": verdict.main_entry.as_ref().map(|entry| {
                 serde_json::json!([{ "id": overlay_id, "title": verdict.plugin_name, "entry": entry }])
@@ -694,17 +901,39 @@ mod tests {
     }
 
     #[test]
-    fn ip_config_shape_is_external_only() {
-        // 真实 ip-config 包的最小复刻：preload 用 Node + rubick，页调 fetch。
-        // 旧判定曾误判 runnable（装后 0.0.0.0/定位中），现必须 external-only。
+    fn ip_config_shape_is_adapted_with_shim() {
+        // 真实 ip-config 包的最小复刻：preload 用 Node + 定义已知全局，
+        // 页调 rubick.copyText + fetch。
+        // 旧判定曾误判 runnable（无垫片，装后 0.0.0.0）；现应 runnable + 垫片 + 联网权限。
         let pkg = r#"{"name":"ip-config-rubick-plugin","pluginName":"ip-config","version":"1.0.4","main":"index.html","preload":"preload.js","features":[{"code":"ip","explain":"查IP","cmds":["ip"]}]}"#;
-        let preload = r#"const os = require("os");window.lanIPv4 = async function(s){ s("1.2.3.4"); };"#;
+        let preload = r#"const os = require("os");window.lanIPv4 = async function(s){ s("1.2.3.4"); };window.wan_no_proxy = function(s,f){};window.locationInfo = function(s,f){};window.confetti = function(){};"#;
         let html = r#"<div><script>window.lanIPv4(function(ip){ document.title = ip; });rubick.copyText("x");fetch('https://forge.speedtest.cn/api/location/info');</script></div>"#;
         let input = entries(&[("package.json", pkg), ("preload.js", preload), ("index.html", html)]);
         let verdict = analyze_external_entries(&input).unwrap();
+        assert!(verdict.runnable, "reasons: {:?}", verdict.reasons);
+        assert_eq!(verdict.compat_shim.as_deref(), Some("ip-tools-v1"));
+        assert!(verdict.needs_network);
+        let out =
+            convert_external_to_entries(&verdict, &input, "ip-config-rubick-plugin", "1.0.4")
+                .unwrap();
+        assert!(out.contains_key("ui/compat/ip-tools-v1.js"));
+        assert!(!out.contains_key("preload.js"));
+        let manifest_text = std::str::from_utf8(&out["plugin.json"]).unwrap();
+        let manifest = omnipanel_plugin::PluginManifest::from_json(manifest_text).unwrap();
+        manifest.validate().expect("转出清单须过校验");
+        assert_eq!(manifest.compat_entry(), Some("ui/compat/ip-tools-v1.js"));
+        assert!(manifest.permissions.iter().any(|p| p.as_str() == "net:connect"));
+    }
+
+    #[test]
+    fn preload_unknown_global_is_external_only() {
+        let pkg = r#"{"name":"demo-unk","pluginName":"未知全局","preload":"preload.js","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
+        let preload = r#"window.lanIPv4 = function(s){ s("x"); };window.customNative = function(){};"#;
+        let input = entries(&[("package.json", pkg), ("preload.js", preload), ("index.html", "<div/>")]);
+        let verdict = analyze_external_entries(&input).unwrap();
         assert!(!verdict.runnable);
-        assert!(verdict.reasons.iter().any(|r| r.contains("require(os)")));
-        assert!(verdict.reasons.iter().any(|r| r.contains("rubick.copyText")));
+        assert!(verdict.reasons.iter().any(|r| r.contains("window.customNative")));
+        assert_eq!(verdict.compat_shim, None);
     }
 
     #[test]
