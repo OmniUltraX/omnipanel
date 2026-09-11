@@ -1154,6 +1154,28 @@ pub async fn plugin_sandbox_net_fetch(
         .map_err(OmniError::invalid_input)
 }
 
+/// 沙箱 UI 专用的本机内网地址：UDP 技巧取默认路由源 IP（不发包），
+/// 另附主机名。纯本地信息，无需权限（不经 Vault/网络/远端），仅要求插件已注册。
+/// 供转换插件的 `window.lanIPv4` 类垫片使用。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_sandbox_local_ips(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<Vec<String>, OmniError> {
+    require_registered_plugin(&state, &plugin_id).await?;
+    let primary = tokio::task::spawn_blocking(|| {
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+        // UDP connect 不发包，仅确定默认路由源地址
+        socket.connect("8.8.8.8:80").ok()?;
+        socket.local_addr().ok().map(|addr| addr.ip().to_string())
+    })
+    .await
+    .map_err(|e| OmniError::internal(e.to_string()))?
+    .filter(|ip| !ip.is_empty());
+    Ok(primary.into_iter().collect())
+}
+
 async fn require_registered_plugin(
     state: &State<'_, AppState>,
     plugin_id: &str,

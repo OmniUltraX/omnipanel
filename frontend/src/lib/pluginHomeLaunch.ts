@@ -37,6 +37,18 @@ export async function openPluginOverlay(
     (overlayId ? overlays.find((item) => item.id === overlayId) : undefined) ?? overlays[0];
   const entry = overlay?.entry ?? "ui/index.html";
   const html = await unwrapCommand(commands.pluginReadAsset(pluginId, entry));
+  // compat 垫片（转换插件）：失败不阻断主流程（垫片缺失时页内调用方自行报错）。
+  let compatJs: string | undefined;
+  const compatEntry = (
+    manifest as unknown as { entry?: { compat?: unknown } }
+  ).entry?.compat;
+  if (typeof compatEntry === "string" && compatEntry.trim()) {
+    try {
+      compatJs = await unwrapCommand(commands.pluginReadAsset(pluginId, compatEntry.trim()));
+    } catch {
+      compatJs = undefined;
+    }
+  }
   const titleKey = overlay?.title?.trim();
   usePluginOverlayStore.getState().show({
     id: `${pluginId}:${overlay?.id ?? "overlay"}`,
@@ -44,6 +56,7 @@ export async function openPluginOverlay(
     title: titleKey ? t(titleKey) : pluginId,
     body: "",
     sandboxHtml: html,
+    compatJs,
     initialText,
   });
 }

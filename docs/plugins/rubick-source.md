@@ -26,6 +26,12 @@ OmniPanel 市场除官方源外，可展示 Rubick 系（npm 包形态，与 uTo
 - dev 签名 + `x-origin: rubick:<npm>@<version>` + 第三方未审核标；启用/禁用/升级/审计与普通包一致。
 - 权限：白名单 utools 能力均不需要清单权限；页内直调网络的自动声明 `net:connect`（安装确认页可见）；其余特权桥（如选区）按正常缺权拒绝并审计。
 
+## compat 垫片（preload 转译）
+
+- 原 preload（含 Node 依赖）一律不执行；analyzer 识别其定义的 `window.*`：全集 ⊆ 已知集时建议垫片（如 `ip-tools-v1`：lanIPv4/wan_no_proxy/wan_has_proxy/locationInfo/confetti），未知全局即 external-only 并点名。
+- 垫片随包（`entry.compat`，overlay 渲染紧随 prelude 注入），基于宿主桥实现：内网地址→`network.getLocalIPs`、公网/定位→直调 fetch（走受闸桥）、复制→`clipboard.write`（只写）、平台判断（isLinux/isMacOs/isWindows）→页内 UA 嗅探、进入回调（onPluginEnter）→overlay 带参、撒花→noop。
+- 定位语义差异：沙箱无 OS 定位，垫片用 IP 归属回退（市级精度），文档与对话框如实说明，不伪装精度。
+
 ## 信任链
 
 1. npm 取包验 `dist.integrity`（sha512，失败即拒不回退）；curated 文件 pin 版本。
@@ -44,3 +50,8 @@ OmniPanel 市场除官方源外，可展示 Rubick 系（npm 包形态，与 uTo
 - `node scripts/curate-rubick-seed.mjs "<query>" <max>`：拉取候选条目（含 tarball + integrity）。
 - `node scripts/curate-rubick-merge.mjs`：多查询合并去重，输出待人工精选的种子。
 - 种子精选原则：用户可理解的工具优先，剔除平台二进制/纯库/脚手架；`externalNpm` 必填且与转换 id 映射一致（`omni.ext.<sanitize(npm)>`）。
+
+## 沙箱联网与内部地址
+
+- 页内 fetch/代理走受闸桥；orge.speedtest.cn 已下线（404），垫片主用 ip-api.com（明文中文地址）+ ip.sb/ipinfo 回退。
+- fetch 代理拒绝 ipc/tauri/asset.localhost 与非 http(s)：Tauri 自身 invoke 传输（fetch 到 ipc.localhost）若落到代理会被后端当普通 HTTP 打出去，直接拒掉并给出可读错误。

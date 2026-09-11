@@ -958,6 +958,7 @@ export const commands = {
 	pluginReadAsset: (pluginId: string, relPath: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_read_asset", { pluginId, relPath })),
 	/**  沙箱 UI 专用的受限网络访问：�?L2 桥同源权限闸 + prod 确认�?*/
 	pluginSandboxNetFetch: (pluginId: string, specJson: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_sandbox_net_fetch", { pluginId, specJson })),
+	pluginSandboxLocalIps: (pluginId: string) => typedError<string[], OmniError_Serialize>(__TAURI_INVOKE("plugin_sandbox_local_ips", { pluginId })),
 	/**
 	 *  从本�?`.omni-plugin` 文件安装（覆盖升级同 id）。release 构建仅接受官方签名；
 	 *  dev 构建允许未签名包。安装目录：`app_data/plugins/<plugin_id>/`�?	 */
@@ -4589,6 +4590,7 @@ export type ExternalVerdictDto = {
   pluginName: string;
   features: ExternalFeatureDto[];
   mainEntry?: string | null;
+  compatShim?: string | null;
 };
 
 /**  前端 / IPC 列表项�?*/

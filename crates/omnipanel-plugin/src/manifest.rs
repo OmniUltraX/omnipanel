@@ -84,6 +84,10 @@ pub struct PluginEntryDecl {
     /// 动态前端入口（如 `ui/main.js`）；位于安装目录内，仅第三方磁盘包使用。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui: Option<String>,
+    /// 沙箱 compat 垫片（如 `ui/compat/ip-tools-v1.js`）：overlay 渲染时
+    /// 紧随宿主 prelude 注入，为转换插件补 preload 风格全局。包内相对路径，仅 `.js`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compat: Option<String>,
 }
 
 /// 引擎驱动运行时。缺省 = 宿主进程内（T0）。
@@ -146,6 +150,23 @@ impl PluginEntryDecl {
         {
             return Err(PluginError::InvalidManifest(format!(
                 "entry.ui 非法: {path}"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn validate_compat(&self) -> Result<(), PluginError> {
+        let Some(path) = self.compat.as_deref().map(str::trim) else {
+            return Ok(());
+        };
+        if !Self::relative_ok(path)
+            || !{
+                let p = path.to_ascii_lowercase();
+                p.ends_with(".js")
+            }
+        {
+            return Err(PluginError::InvalidManifest(format!(
+                "entry.compat 非法: {path}"
             )));
         }
         Ok(())
@@ -214,7 +235,10 @@ impl PluginManifest {
                     "theme 插件 permissions 必须为空".into(),
                 ));
             }
-            if self.logic_entry().is_some() || self.ui_entry().is_some() {
+            if self.logic_entry().is_some()
+                || self.ui_entry().is_some()
+                || self.compat_entry().is_some()
+            {
                 return Err(PluginError::InvalidManifest(
                     "theme 插件不得包含 JS 入口".into(),
                 ));
@@ -248,6 +272,7 @@ impl PluginManifest {
             entry.validate_logic()?;
             entry.validate_driver()?;
             entry.validate_ui()?;
+            entry.validate_compat()?;
         }
         if self.runtime == Some(PluginRuntime::Sidecar) {
             let driver = self.driver_entry();
@@ -312,6 +337,15 @@ impl PluginManifest {
         self.entry
             .as_ref()
             .and_then(|e| e.ui.as_deref())
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+    }
+
+    /// 沙箱 compat 垫片相对路径（未声明则 None）。
+    pub fn compat_entry(&self) -> Option<&str> {
+        self.entry
+            .as_ref()
+            .and_then(|e| e.compat.as_deref())
             .map(str::trim)
             .filter(|p| !p.is_empty())
     }

@@ -91,6 +91,12 @@ export const pluginEntrySchema = z
       .regex(/^[^/\\][^:]*\.js$/i)
       .refine((p) => !p.split(/[\\/]/).includes(".."))
       .optional(),
+    /** 沙箱 compat 垫片：overlay 渲染时紧随宿主 prelude 注入（仅 .js，禁 ..）。 */
+    compat: z
+      .string()
+      .regex(/^[^/\\][^:]*\.js$/i)
+      .refine((p) => !p.split(/[\\/]/).includes(".."))
+      .optional(),
   })
   .optional();
 
@@ -463,7 +469,7 @@ export const pluginManifestSchema = z.object({
       });
     }
   });
-  if (val.kind === "theme" && (val.entry?.logic || val.entry?.ui)) {
+  if (val.kind === "theme" && (val.entry?.logic || val.entry?.ui || val.entry?.compat)) {
     ctx.addIssue({
       code: "custom",
       message: "theme 插件不得包含 JS 入口",
