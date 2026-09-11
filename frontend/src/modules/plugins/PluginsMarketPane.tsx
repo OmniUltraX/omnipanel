@@ -96,6 +96,7 @@ type Props = {
   kindFilter: KindFilter;
   marketFilter: MarketFilter;
   onMarketFilter: (filter: MarketFilter) => void;
+  sourceFilters: { id: string; label: string }[];
   market: MarketItem[];
   installed: PluginListItem[];
   selectedId: string | null;
@@ -109,12 +110,17 @@ type Props = {
   onOpenSources: () => void;
   onUpdateAll: () => void;
   onUpdateOne: (id: string) => void;
+  npmSearching: boolean;
+  npmActive: boolean;
+  onSearchNpm: () => void;
+  onClearNpmSearch: () => void;
 };
 
 export function PluginsMarketPane({
   kindFilter,
   marketFilter,
   onMarketFilter,
+  sourceFilters,
   market,
   installed,
   selectedId,
@@ -128,6 +134,10 @@ export function PluginsMarketPane({
   onOpenSources,
   onUpdateAll,
   onUpdateOne,
+  npmSearching,
+  npmActive,
+  onSearchNpm,
+  onClearNpmSearch,
 }: Props) {
   const { t, locale } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
@@ -187,14 +197,28 @@ export function PluginsMarketPane({
       <div className="plugin-center-col__head">
         <h2>{t("plugins.center.marketCount", { count: market.length })}</h2>
         <div className="plugin-center-filters" role="group" aria-label={t("plugins.center.market")}>
-          {(["all", "official", "thirdParty"] as const).map((filter) => (
+          <button
+            type="button"
+            className={`plugin-center-chip${marketFilter === "all" ? " is-active" : ""}`}
+            onClick={() => onMarketFilter("all")}
+          >
+            {t("plugins.center.filter.all")}
+          </button>
+          <button
+            type="button"
+            className={`plugin-center-chip${marketFilter === "official" ? " is-active" : ""}`}
+            onClick={() => onMarketFilter("official")}
+          >
+            {t("plugins.center.filter.official")}
+          </button>
+          {sourceFilters.map((source) => (
             <button
-              key={filter}
+              key={source.id}
               type="button"
-              className={`plugin-center-chip${marketFilter === filter ? " is-active" : ""}`}
-              onClick={() => onMarketFilter(filter)}
+              className={`plugin-center-chip${marketFilter === source.id ? " is-active" : ""}`}
+              onClick={() => onMarketFilter(source.id)}
             >
-              {t(`plugins.center.filter.${filter}`)}
+              {source.label}
             </button>
           ))}
         </div>
@@ -245,6 +269,15 @@ export function PluginsMarketPane({
         <WorkbenchActionButton disabled={catalogRefreshing} onClick={onRefreshMarket}>
           {t("plugins.center.refresh")}
         </WorkbenchActionButton>
+        {npmActive ? (
+          <WorkbenchActionButton onClick={onClearNpmSearch}>
+            {t("plugins.center.clearNpmSearch")}
+          </WorkbenchActionButton>
+        ) : (
+          <WorkbenchActionButton disabled={npmSearching} onClick={onSearchNpm}>
+            {npmSearching ? t("plugins.center.searching") : t("plugins.center.searchNpm")}
+          </WorkbenchActionButton>
+        )}
       </div>
       {updates.length > 0 ? (
         <div className="plugin-center-updates">

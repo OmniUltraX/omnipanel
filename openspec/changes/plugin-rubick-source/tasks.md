@@ -19,3 +19,10 @@
 - [x] 4.1 新增 `docs/plugins/rubick-source.md`（源协议、verdict 规则、白名单清单）。验证：与实现一致
 - [x] 4.2 全量门禁：`tsc -b` / `cargo test -p omnipanel-plugin -p omnipanel-plugin-pkg` / 相关 vitest / `check:plugin-manifests` 全绿
   - 注：`check:ipc-registry` 在干净树即失败（generate_handler 多 61 个预存命令），非本变更引入；本变更 3 个新命令双清单一致。真机端到端（real npm analyze/convert）待 dev 重启后经 dev-mcp 桥验证。
+
+## 5. 市场反馈迭代（用户验收反馈）
+
+- [x] 5.1 analyzer 放宽：无 features 但有主入口可转 overlay-only（`crates/omnipanel-plugin-pkg/src/external.rs`）。验证：新增单测通过
+- [x] 5.2 第三方过滤按来源直列（`MarketFilter` 开放来源 id，chips 由 `sourceFilters` 驱动）。验证：vitest + `tsc -b`
+- [x] 5.3 市场 npm 搜索全量展示（`pluginExternalSearchNpm` 接入市场列表，id 与后端 sanitize 对齐）。验证：vitest（`sanitizeExternalId` 同构用例）+ `tsc -b`
+- [x] 5.4 external-only 对话框可操作（复制包名按钮）。验证：`tsc -b`

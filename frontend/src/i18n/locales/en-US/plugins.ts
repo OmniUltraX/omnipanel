@@ -346,6 +346,9 @@ export default {
       sourceRubick: "Source: Rubick third-party marketplace (npm)",
       sourceRubickHint: "Community plugins. They are converted after a compat check; Node-dependent ones can only be installed externally.",
       convertInstall: "Convert & install",
+      searchNpm: "Search npm",
+      searching: "Searching…",
+      clearNpmSearch: "Clear npm results",
       filter: {
         all: "All",
         official: "Official",
@@ -383,6 +386,8 @@ export default {
       reasons: "Reasons",
       npmPackage: "npm package",
       openExternalHint: "Get it from the Rubick client or the npm page: {npm}",
+      copyNpm: "Copy package name",
+      copied: "Copied",
     },
     sources: {
       title: "Plugin sources",

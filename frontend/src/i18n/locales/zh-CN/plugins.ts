@@ -344,6 +344,9 @@ export default {
       sourceRubick: "来源：Rubick 第三方市场（npm）",
       sourceRubickHint: "社区插件，需经兼容判定后转换安装；Node 强依赖的只能外跳，不直接运行。",
       convertInstall: "转换安装",
+      searchNpm: "搜 npm",
+      searching: "搜索中…",
+      clearNpmSearch: "清除 npm 结果",
       sourceDbx: "来源：DBX 官方 Agent 目录",
       sourceDbxHint: "由 DBX 提供的第三方数据库引擎（native 或 JDBC），不是 OmniPanel 第一方捆绑插件。安装后可在数据库连接对话框中使用。",
       filter: {
@@ -383,6 +386,8 @@ export default {
       reasons: "判定原因",
       npmPackage: "npm 包",
       openExternalHint: "请在 Rubick 客户端或 npm 页面获取：{npm}",
+      copyNpm: "复制包名",
+      copied: "已复制",
     },
     sources: {
       title: "插件源",

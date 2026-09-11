@@ -4,6 +4,7 @@ import {
   effectiveDownloads,
   formatPluginCount,
   marketplaceToMarketItem,
+  sanitizeExternalId,
   shouldConfirmInstallPlan,
   sortMarketItems,
 } from "./pluginCenterTypes";
@@ -206,5 +207,14 @@ describe("marketplaceToMarketItem external", () => {
     );
     expect(converted.origin).toBe("official");
     expect(converted.externalNpm).toBeNull();
+  });
+});
+
+describe("sanitizeExternalId", () => {
+  it("与后端 sanitize_external_id 同构", () => {
+    expect(sanitizeExternalId("ip-config-rubick-plugin")).toBe("ip-config-rubick-plugin");
+    expect(sanitizeExternalId("@scope/Name.X")).toBe("scope-name.x");
+    expect(sanitizeExternalId("@rubickos/rubick-core")).toBe("rubickos-rubick-core");
+    expect(sanitizeExternalId("!!!")).toBe("external");
   });
 });

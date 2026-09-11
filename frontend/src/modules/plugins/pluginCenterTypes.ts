@@ -2,7 +2,8 @@ import type { DbxCatalogDriver, MarketplaceItem, OfficialCatalogPlugin, PluginKi
 import type { PluginOrigin } from "./pluginOrigin";
 
 export type KindFilter = PluginKind | "all";
-export type MarketFilter = "all" | "official" | "thirdParty";
+/** 市场来源过滤：全部 / 官方 / 各来源 id 直列（dbx、rubick、自定义源…）。 */
+export type MarketFilter = "all" | "official" | "thirdParty" | (string & {});
 export type MarketView = "list" | "grid";
 export type MarketSortKey =
   | "name"
@@ -352,4 +353,18 @@ export function formatPluginSize(bytes: number): string {
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   if (bytes > 0) return `${bytes} B`;
   return "";
+}
+
+/**
+ * npm 包名 → 外部插件 id 后缀（与后端 sanitize_external_id 同构，
+ * 已安装判定依赖两者一致；不一致最多导致重复条目，不会导致误装）。
+ */
+export function sanitizeExternalId(name: string): string {
+  let out = "";
+  for (const c of name.toLowerCase()) {
+    if (/[a-z0-9._-]/.test(c)) out += c;
+    else if (!out.endsWith("-")) out += "-";
+  }
+  out = out.replace(/^[-.]+|[-.]+$/g, "");
+  return out || "external";
 }

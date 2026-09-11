@@ -14,7 +14,7 @@ OmniPanel 市场除官方源外，可展示 Rubick 系（npm 包形态，与 uTo
 
 ## verdict 规则
 
-- 形状：`package.json`（`pluginName` + `features`）或 `plugin.json` 同源文法；无 features 即不可转。
+- 形状：`package.json`（`pluginName` + `features`）或 `plugin.json` 同源文法；无 features 且无主入口即不可转（有主入口可转 overlay-only）。
 - Node 黑名单（命中即 external-only）：`electron` / `child_process` / `fs` / `vm` 的 require/import 字面、`node:` 前缀、缺失的 preload 声明文件。
 - `utools.*` 白名单（14 项）：`db.get/put/remove/allDocs`、`showNotification`、`copyText`、`shellOpenExternal`、`getPath`、`hideMainWindow/showMainWindow`、`setSubInput/removeSubInput`、`onPluginEnter/onPluginOut`。白名单外一律 external-only（默认拒绝方向）。
 - 误判只会导致外跳，不会导致越权运行（沙箱 + 权限闸是第二道网）。

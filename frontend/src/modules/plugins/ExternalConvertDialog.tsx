@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ExternalVerdictDto } from "../../ipc/bindings";
 import { Modal } from "../../components/ui/overlay/Modal";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
@@ -22,6 +23,16 @@ export function ExternalConvertDialog({
   onCancel,
 }: Props) {
   const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const copyNpm = async () => {
+    try {
+      await navigator.clipboard.writeText(npm);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* WebView 无剪贴板权限时保持文本可选，手动复制 */
+    }
+  };
   return (
     <Modal open onClose={onCancel}>
       <div className="bg-bg-deeper border border-border rounded-lg shadow-2xl w-[520px] max-w-[92vw]">
@@ -69,9 +80,14 @@ export function ExternalConvertDialog({
             </div>
           ) : null}
           {!verdict.runnable ? (
-            <p className="text-xs text-muted">
-              {t("plugins.external.openExternalHint", { npm })}
-            </p>
+            <>
+              <p className="text-xs text-muted">
+                {t("plugins.external.openExternalHint", { npm })}
+              </p>
+              <WorkbenchActionButton onClick={() => void copyNpm()}>
+                {copied ? t("plugins.external.copied") : t("plugins.external.copyNpm")}
+              </WorkbenchActionButton>
+            </>
           ) : null}
         </div>
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">

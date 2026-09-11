@@ -18,6 +18,7 @@ import {
   dbxToMarketItem,
   marketplaceToMarketItem,
   pluginMatchesQuery,
+  sanitizeExternalId,
   shouldConfirmInstallPlan,
   withLocalStats,
   type KindFilter,
@@ -55,6 +56,8 @@ export function usePluginCenter() {
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("all");
   const [search, setSearch] = useState("");
+  const [npmSearch, setNpmSearch] = useState<{ query: string; items: MarketItem[] } | null>(null);
+  const [npmSearching, setNpmSearching] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const catalog = useDbxCatalogStore((s) => s.drivers);
   const catalogRefreshing = useDbxCatalogStore((s) => s.refreshing);
@@ -158,12 +161,19 @@ export function usePluginCenter() {
     const dbxItems = catalog
       .filter((driver) => !seen.has(driver.pluginId))
       .map((driver) => dbxToMarketItem(driver, pluginDisplayName(driver.pluginId, t, driver.label)));
-    return [...fromRegistry, ...dbxItems].map((item) =>
+    for (const item of dbxItems) seen.add(item.id);
+    // npm 搜索结果：来源 rubick，id 与后端 sanitize 对齐用于已安装判定
+    const npmItems = (npmSearch?.items ?? []).filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+    return [...fromRegistry, ...dbxItems, ...npmItems].map((item) =>
       withLocalStats(item, {
         installs: statsById[item.id]?.installs ?? 0,
       }),
     );
-  }, [marketCatalog, catalog, t, statsById]);
+  }, [marketCatalog, catalog, npmSearch, t, statsById]);
 
   const query = search.trim().toLowerCase();
   const matchesKind = useCallback(
@@ -183,9 +193,81 @@ export function usePluginCenter() {
       if (!matchesKind(item.kind)) return false;
       if (marketFilter === "official" && item.origin !== "official") return false;
       if (marketFilter === "thirdParty" && item.origin !== "thirdParty") return false;
+      if (
+        marketFilter !== "all" &&
+        marketFilter !== "official" &&
+        marketFilter !== "thirdParty" &&
+        item.sourceId !== marketFilter
+      ) {
+        return false;
+      }
       return pluginMatchesQuery(item.id, item.name, item.kind, query);
     });
   }, [marketItems, matchesKind, marketFilter, query]);
+
+  /** 来源直列：官方 + 各来源 id（dbx / rubick / 自定义源…），不再用统一第三方。 */
+  const sourceFilters = useMemo(() => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const item of marketItems) {
+      const sid = item.sourceId ?? "";
+      if (!sid || sid === "official" || seen.has(sid)) continue;
+      seen.add(sid);
+      ids.push(sid);
+    }
+    ids.sort();
+    return ids.map((id) => ({
+      id,
+      label:
+        id === "dbx"
+          ? t("plugins.center.origin.dbx")
+          : id === "rubick"
+            ? t("plugins.center.origin.rubick")
+            : id,
+    }));
+  }, [marketItems, t]);
+
+  const searchNpmMarket = async () => {
+    const q = search.trim();
+    if (!q || npmSearching) return;
+    setNpmSearching(true);
+    try {
+      const hits = await unwrapCommand(commands.pluginExternalSearchNpm(q, 25));
+      const mapped: MarketItem[] = hits.map((hit) => ({
+        id: `omni.ext.${sanitizeExternalId(hit.npm)}`,
+        name: hit.npm,
+        kind: "addon" as const,
+        version: hit.version,
+        origin: "thirdParty" as const,
+        distribution: "download" as const,
+        installed: false,
+        installedVersion: null,
+        size: 0,
+        artifactKind: null,
+        dbxKey: null,
+        description: hit.description,
+        permissions: [],
+        needsUpdate: false,
+        createdAt: null,
+        updatedAt: null,
+        downloads: null,
+        localInstalls: 0,
+        changelog: null,
+        sourceId: "rubick",
+        externalNpm: hit.npm,
+      }));
+      setNpmSearch({ query: q, items: mapped });
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setNpmSearching(false);
+    }
+  };
+
+  const clearNpmSearch = useCallback(() => {
+    setNpmSearch(null);
+  }, []);
 
   const kindCounts = useMemo(() => {
     const counts: Record<KindFilter, number> = {
@@ -534,8 +616,13 @@ export function usePluginCenter() {
     kindCounts,
     marketFilter,
     setMarketFilter,
+    sourceFilters,
     search,
     setSearch,
+    npmSearch,
+    npmSearching,
+    searchNpmMarket,
+    clearNpmSearch,
     selectedId,
     setSelectedId,
     selectedInstalled,

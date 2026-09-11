@@ -232,6 +232,7 @@ export function PluginsPanel() {
               kindFilter={center.kindFilter}
               marketFilter={center.marketFilter}
               onMarketFilter={center.setMarketFilter}
+              sourceFilters={center.sourceFilters}
               market={center.filteredMarket}
               installed={center.items}
               selectedId={center.selectedId}
@@ -242,6 +243,10 @@ export function PluginsPanel() {
               onInstallMarket={(item) => void center.installMarket(item)}
               onOpenOverlay={(id) => void center.openOverlay(id)}
               onRefreshMarket={() => void center.reloadMarket(true)}
+              npmSearching={center.npmSearching}
+              npmActive={center.npmSearch != null}
+              onSearchNpm={() => void center.searchNpmMarket()}
+              onClearNpmSearch={center.clearNpmSearch}
               onOpenSources={() => center.setSourcesOpen(true)}
               onUpdateAll={() => void center.updatePlugins(null)}
               onUpdateOne={(id) => void center.updatePlugins([id])}

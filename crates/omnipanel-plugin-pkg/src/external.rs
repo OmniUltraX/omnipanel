@@ -202,8 +202,15 @@ pub fn analyze_external_entries(
     };
 
     let mut reasons = Vec::new();
-    if features_raw.is_empty() {
-        reasons.push("features 为空：无可映射的指令".into());
+    let main_present = main
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some();
+    // 无 features 且无主入口：无可映射、无处展示，不可转；
+    // 有主入口即使无 features，仍可转 overlay-only 安装。
+    if features_raw.is_empty() && !main_present {
+        reasons.push("features 为空且无主入口：无可映射的指令".into());
     }
     let features: Vec<ExternalFeature> = features_raw
         .into_iter()
@@ -576,6 +583,15 @@ mod tests {
     fn missing_manifest_rejected() {
         let err = analyze_external_entries(&entries(&[("index.html", "<div/>")])).unwrap_err();
         assert!(matches!(err, PkgError::MissingEntry(_)));
+    }
+
+    #[test]
+    fn main_without_features_is_runnable_overlay_only() {
+        let pkg = r#"{"name":"demo-page","pluginName":"单页","main":"index.html","features":[]}"#;
+        let verdict =
+            analyze_external_entries(&entries(&[("package.json", pkg), ("index.html", "<div/>")]))
+                .unwrap();
+        assert!(verdict.runnable, "reasons: {:?}", verdict.reasons);
     }
 
     fn make_tgz(files: &[(&str, &[u8])]) -> Vec<u8> {

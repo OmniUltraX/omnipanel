@@ -248,6 +248,7 @@ mod tests {
                 kind: "addon".into(),
                 name: "Demo".into(),
                 description: "demo".into(),
+                external_npm: None,
                 versions: vec![
                     RegistryVersion {
                         version: "1.0.0".into(),
