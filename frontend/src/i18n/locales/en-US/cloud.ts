@@ -205,11 +205,7 @@ export default {
       },
     },
     alerts: {
-      title: "Account alerts",
-      lowBalance: "Available balance is low: {amount}",
-      certExpiring: "{count} certificate(s) expire within 30 days",
-      domainExpiring: "{count} domain(s) expire within 30 days",
-      stoppedInstances: "{count} ECS instance(s) are stopped",
+      lowBalance: "Low balance",
     },
     metrics: {
       empty: "No metric data. Confirm the AccessKey has CloudMonitor permission.",

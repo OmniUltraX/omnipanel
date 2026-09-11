@@ -297,7 +297,11 @@ export const commands = {
 	panelBtAppIcon: (host: string, apiSk: string, appName: string, iconFile: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_app_icon", { host, apiSk, appName, iconFile })),
 	/**  宝塔面板连通性测试�?*/
 	panelBtTestConnection: (host: string, apiSk: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("panel_bt_test_connection", { host, apiSk })),
-	/**  测试云账户连通性。`secret` 可传表单明文；为空时�?Vault�?*/
+	/**
+	 * 编辑云账户表单：从 Vault 回显 AccessKey Secret（config 永不存明文）。
+	 */
+	cloudResolveSecret: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_resolve_secret", { connectionId })),
+	/** 测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。 */
 	cloudTest: (connection: Connection, secret: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_test", { connection, secret })),
 	/**  过渡：产品级列表，内部仍走同一客户端。前端主路径请用 `cloud_list_resources`�?*/
 	cloudListOss: (connectionId: string, region: string | null) => typedError<CloudOssBucket[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_oss", { connectionId, region })),

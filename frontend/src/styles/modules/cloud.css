@@ -73,6 +73,14 @@
     color: var(--muted);
 }
 
+.cloud-overview__fact-value-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
 .cloud-overview__fact-value {
     font-size: 14px;
     font-weight: 600;
@@ -1325,29 +1333,4 @@ line.cloud-metrics__grid {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
-}
-
-.cloud-overview__alerts {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.cloud-overview__alert {
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 13px;
-    border: 1px solid var(--border);
-}
-
-.cloud-overview__alert--warn {
-    border-color: color-mix(in oklch, var(--warn, #d97706) 40%, var(--border));
-    background: color-mix(in oklch, var(--warn, #d97706) 10%, transparent);
-}
-
-.cloud-overview__alert--info {
-    background: var(--bg-elevated, var(--bg));
 }

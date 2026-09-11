@@ -20,7 +20,7 @@ import { cloudRegionLabel } from "./cloudForm";
 import { filterCloudResourceRows, matchesCloudListQuery, resolveCloudQueryRegions } from "./cloudResourceApi";
 import { cloudPolicyTone, cloudStatusTone } from "./cloudDetailUi";
 import { paginateCloudItems } from "./cloudPaging";
-import { cloudListSlotKey, cloudRegionFingerprint, isCloudInventoryFresh } from "./cloudInventory";
+import { cloudListSlotKey, cloudRegionFingerprint, isCloudInventoryFresh, cloudAccountStatusDot, cloudAccountStatusError } from "./cloudInventory";
 import { collectExpiringCloudRows, expiryTone, formatCloudExpiryDate } from "./cloudExpiry";
 import {
   CLOUD_LOG_MAX_SPAN_MS,
@@ -291,6 +291,51 @@ describe("cloud inventory cache keys", () => {
     expect(isCloudInventoryFresh(Date.now() - 1_000)).toBe(true);
     expect(isCloudInventoryFresh(Date.now() - 20_000)).toBe(false);
     expect(isCloudInventoryFresh(undefined)).toBe(false);
+  });
+});
+
+describe("cloud account status dot", () => {
+  it("账户快照连通后即使部分清单失败仍为 online", () => {
+    expect(
+      cloudAccountStatusDot({
+        lists: {
+          "oss::*": { rows: [], fetchedAt: Date.now(), error: "NoPermission" },
+        },
+        details: {},
+        snapshot: {
+          snapshot: { callerId: "123" },
+          fetchedAt: Date.now(),
+          error: null,
+        },
+      }),
+    ).toBe("online");
+  });
+
+  it("仅清单局部失败且无快照时，有成功项仍 online", () => {
+    expect(
+      cloudAccountStatusDot({
+        lists: {
+          "compute::*": { rows: [], fetchedAt: Date.now(), error: null },
+          "oss::*": { rows: [], fetchedAt: Date.now(), error: "NoPermission" },
+        },
+        details: {},
+      }),
+    ).toBe("online");
+  });
+
+  it("全部清单失败且无身份快照为 offline", () => {
+    const inventory = {
+      lists: {
+        "compute::*": { rows: [], fetchedAt: Date.now(), error: "Denied" },
+      },
+      details: {},
+    };
+    expect(cloudAccountStatusDot(inventory)).toBe("offline");
+    expect(cloudAccountStatusError(inventory)).toBe("Denied");
+  });
+
+  it("刷新中为 connecting", () => {
+    expect(cloudAccountStatusDot(undefined, true)).toBe("connecting");
   });
 });
 

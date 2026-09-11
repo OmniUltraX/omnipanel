@@ -4,7 +4,7 @@ import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 import { Button } from "@/components/ui/Button";
 import { IconPlus } from "@/components/ui/Icons";
 import { MultiSelect } from "@/components/ui/form/MultiSelect";
-import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
+import { StatusDot } from "@/components/ui/primitives/StatusDot";
 import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
@@ -34,8 +34,8 @@ import {
   type CloudSidebarNavTarget,
 } from "./cloudWorkspaceTabs";
 import { cloudRowField, filterCloudResourceRows, resolveCloudQueryRegions } from "./cloudResourceApi";
-import { cloudListSlotKey } from "./cloudInventory";
-import { cloudListRefreshKey, useCloudInventoryStore } from "../../stores/cloudInventoryStore";
+import { cloudListSlotKey, cloudAccountStatusDot, cloudAccountStatusError } from "./cloudInventory";
+import { cloudAccountRefreshKey, cloudListRefreshKey, useCloudInventoryStore } from "../../stores/cloudInventoryStore";
 import { cloudRegionLabel } from "./cloudForm";
 import { copyCloudText } from "./cloudDetailUi";
 import { addCloudInstanceToSsh } from "./cloudResourceLinks";
@@ -50,15 +50,6 @@ type CloudTreeCtxTarget =
 type CloudTreeContextHandler = (event: TreeRowMouseEvent, target: CloudTreeCtxTarget) => void;
 
 export type CloudSidebarNavigate = (target: CloudSidebarNavTarget, mode?: CloudDockOpenMode) => void;
-
-/** 账户任意资源清单拉取失败 → offline（红）；存在成功记录 → online；否则 idle。 */
-function accountStatusDotStatus(
-  listEntries: Array<{ error?: string | null; fetchedAt?: number }>,
-): StatusDotStatus {
-  if (listEntries.some((entry) => entry.error)) return "offline";
-  if (listEntries.some((entry) => entry.fetchedAt)) return "online";
-  return "idle";
-}
 
 type CloudAccountBranchProps = {
   account: CloudAccount;
@@ -95,6 +86,14 @@ function CloudAccountBranch({
     !hasSidebarTreeSearch(searchQuery) ||
     sidebarTreeSearchMatches(searchQuery, account.name) ||
     sidebarTreeSearchMatches(searchQuery, pluginDisplayName(account.pluginId, t));
+
+  useEffect(() => {
+    if (!accountExpanded) return;
+    void useCloudInventoryStore
+      .getState()
+      .ensureAccount(account.id, { quiet: true })
+      .catch(() => undefined);
+  }, [account.id, accountExpanded]);
 
   const visibleCaps = useMemo(() => {
     if (!hasSidebarTreeSearch(searchQuery) || nameMatch) return capabilities;
@@ -175,25 +174,31 @@ function CloudCapabilityBranch({
   const refreshing = useCloudInventoryStore((s) => Boolean(s.refreshingKeys[listRefreshKey]));
   const rows = listEntry?.rows ?? null;
 
+  // 账户展开即挂载本节点：预拉清单，供分组旁数量与展开后实例列表共用
   useEffect(() => {
-    if (!expanded) return;
     void useCloudInventoryStore
       .getState()
       .ensureList(account.id, capabilityId, queryRegions, { quiet: true })
       .catch(() => undefined);
-  }, [account.id, capabilityId, expanded, queryRegions]);
+  }, [account.id, capabilityId, queryRegions]);
+
+  const regionRows = useMemo(
+    () => filterCloudResourceRows(rows ?? [], selectedRegions, global),
+    [global, rows, selectedRegions],
+  );
 
   const instances = useMemo(() => {
-    const list = filterCloudResourceRows(rows ?? [], selectedRegions, global);
-    if (!hasSidebarTreeSearch(searchQuery)) return list;
-    return list.filter(
+    if (!hasSidebarTreeSearch(searchQuery)) return regionRows;
+    return regionRows.filter(
       (row) =>
         sidebarTreeSearchMatches(searchQuery, row.name) ||
         sidebarTreeSearchMatches(searchQuery, row.id),
     );
-  }, [global, rows, searchQuery, selectedRegions]);
+  }, [regionRows, searchQuery]);
 
   const label = cloudCapabilityLabel(t, capabilityId, account.pluginId);
+  const countBadge =
+    rows == null ? (refreshing ? "…" : null) : String(regionRows.length);
 
   return (
     <>
@@ -203,6 +208,9 @@ function CloudCapabilityBranch({
         nodeType="cloud-capability"
         treeKey={capKey}
         label={label}
+        afterLabel={
+          countBadge != null ? <span className="badge badge-muted">{countBadge}</span> : null
+        }
         icon={<ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />}
         className={serverTreeNodeClassName(cloudBrandKind(account.pluginId))}
         hasChildren
@@ -332,6 +340,7 @@ export function CloudTreeSidebar({
   usePluginRuntimeStore((s) => s.items);
   usePluginRuntimeStore((s) => s.hydrated);
   const inventoryByAccount = useCloudInventoryStore((s) => s.byAccount);
+  const refreshingKeys = useCloudInventoryStore((s) => s.refreshingKeys);
   const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxTarget, setCtxTarget] = useState<CloudTreeCtxTarget | null>(null);
@@ -497,14 +506,19 @@ export function CloudTreeSidebar({
           {visibleAccounts.map((account) => {
             const accountKey = makeCloudTreeKey({ kind: "account", accountId: account.id });
             const expanded = isExpanded(accountKey);
-            const listEntries = Object.values(inventoryByAccount[account.id]?.lists ?? {});
-            const accountStatus = accountStatusDotStatus(listEntries);
-            const failedEntry = listEntries.find((entry) => entry.error);
-            const accountStatusTitle = failedEntry
-              ? `${t("common.statusOffline")}：${failedEntry.error}`
-              : accountStatus === "online"
-                ? t("common.statusOnline")
-                : t("common.statusIdle");
+            const inventory = inventoryByAccount[account.id];
+            const accountRefreshing = Boolean(
+              refreshingKeys[cloudAccountRefreshKey(account.id)],
+            );
+            const accountStatus = cloudAccountStatusDot(inventory, accountRefreshing);
+            const failedMessage = cloudAccountStatusError(inventory);
+            const accountStatusTitle = accountRefreshing
+              ? t("common.statusConnecting")
+              : failedMessage
+                ? `${t("common.statusOffline")}：${failedMessage}`
+                : accountStatus === "online"
+                  ? t("common.statusOnline")
+                  : t("common.statusIdle");
             return (
               <div key={account.id}>
                 <SidebarTreeNode

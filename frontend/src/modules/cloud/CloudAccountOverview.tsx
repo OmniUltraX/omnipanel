@@ -16,7 +16,7 @@ import {
 } from "./cloudForm";
 import { cloudCapabilitiesForPlugin, isGlobalCloudCapability } from "./cloudCapabilities";
 import { listLinkedCloudFiles, listLinkedCloudSsh } from "./cloudResourceLinks";
-import { cloudListSlotKey, type CloudAccountInventory } from "./cloudInventory";
+import { cloudListSlotKey } from "./cloudInventory";
 import { cloudAccountRefreshKey, cloudListRefreshKey, useCloudInventoryStore } from "../../stores/cloudInventoryStore";
 import type { CloudDockOpenMode } from "./cloudWorkspaceTabs";
 import { copyCloudText } from "./cloudDetailUi";
@@ -29,24 +29,6 @@ function parseAmount(raw: string | undefined): number | null {
   if (!value) return null;
   const n = Number.parseFloat(value);
   return Number.isFinite(n) ? n : null;
-}
-
-function accountAlerts(
-  inventory: CloudAccountInventory | undefined,
-  selectedRegions: string[],
-): { kind: "warn" | "info"; key: string; count?: number; amount?: string }[] {
-  const out: { kind: "warn" | "info"; key: string; count?: number; amount?: string }[] = [];
-  const amount = parseAmount(inventory?.snapshot?.snapshot?.availableAmount);
-  if (amount != null && amount < 100 && !inventory?.snapshot?.snapshot?.balanceError) {
-    out.push({ kind: "warn", key: "lowBalance", amount: String(amount) });
-  }
-  const computeRows = [
-    ...(inventory?.lists[cloudListSlotKey("compute", selectedRegions)]?.rows ?? []),
-    ...(inventory?.lists[cloudListSlotKey("compute.lite", selectedRegions)]?.rows ?? []),
-  ];
-  const stopped = computeRows.filter((row) => /stop/i.test(row.status ?? "")).length;
-  if (stopped > 0) out.push({ kind: "info", key: "stoppedInstances", count: stopped });
-  return out;
 }
 
 function envLabel(tag: string): string {
@@ -122,7 +104,11 @@ export function CloudAccountOverview({
     return next;
   }, [capabilities, inventory, selectedRegions]);
 
-  const alerts = useMemo(() => accountAlerts(inventory, selectedRegions), [inventory, selectedRegions]);
+  const lowBalance = useMemo(() => {
+    if (snapshot?.balanceError) return false;
+    const amount = parseAmount(snapshot?.availableAmount);
+    return amount != null && amount < 100;
+  }, [snapshot?.availableAmount, snapshot?.balanceError]);
   const expiring = useMemo(
     () => collectExpiringCloudRows(inventory, selectedRegions, capabilities),
     [capabilities, inventory, selectedRegions],
@@ -220,13 +206,18 @@ export function CloudAccountOverview({
             </div>
             <div className="cloud-overview__fact">
               <span className="cloud-overview__fact-label">{t("cloud.account.available")}</span>
-              <strong className="cloud-overview__fact-value">
-                {snapshot?.balanceError
-                  ? "—"
-                  : snapshot
-                    ? `${snapshot.availableAmount || "—"} ${snapshot.currency ?? ""}`.trim()
-                    : "…"}
-              </strong>
+              <div className="cloud-overview__fact-value-row">
+                <strong className="cloud-overview__fact-value">
+                  {snapshot?.balanceError
+                    ? "—"
+                    : snapshot
+                      ? `${snapshot.availableAmount || "—"} ${snapshot.currency ?? ""}`.trim()
+                      : "…"}
+                </strong>
+                {lowBalance ? (
+                  <span className="cloud-pill cloud-pill--warn">{t("cloud.alerts.lowBalance")}</span>
+                ) : null}
+              </div>
               {snapshot?.balanceError ? (
                 <span className="cloud-overview__fact-hint" title={snapshot.balanceError}>
                   {t("cloud.account.noBalance")}
@@ -242,21 +233,6 @@ export function CloudAccountOverview({
           </div>
         )}
       </section>
-
-      {alerts.length > 0 ? (
-        <section className="cloud-overview__section">
-          <h3 className="cloud-overview__title">{t("cloud.alerts.title")}</h3>
-          <ul className="cloud-overview__alerts">
-            {alerts.map((item) => (
-              <li key={item.key} className={`cloud-overview__alert cloud-overview__alert--${item.kind}`}>
-                {item.key === "lowBalance"
-                  ? t("cloud.alerts.lowBalance", { amount: item.amount ?? "—" })
-                  : t("cloud.alerts.stoppedInstances", { count: item.count ?? 0 })}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       <section className="cloud-overview__section">
         <h3 className="cloud-overview__title">

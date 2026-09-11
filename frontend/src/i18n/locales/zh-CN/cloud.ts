@@ -205,11 +205,7 @@ export default {
       },
     },
     alerts: {
-      title: "账户告警",
-      lowBalance: "可用额度偏低：{amount}",
-      certExpiring: "{count} 张证书将在 30 天内到期",
-      domainExpiring: "{count} 个域名将在 30 天内到期",
-      stoppedInstances: "{count} 台云服务器已关机",
+      lowBalance: "余额不足",
     },
     metrics: {
       empty: "暂无监控数据。请确认 AccessKey 有云监控权限。",

@@ -92,3 +92,42 @@ export function isCloudInventoryFresh(fetchedAt: number | undefined, now = Date.
   if (fetchedAt == null || fetchedAt <= 0) return false;
   return now - fetchedAt < CLOUD_INVENTORY_FRESH_MS;
 }
+
+/**
+ * 侧栏账户状态点：以账户快照连通性为准。
+ * 单个能力清单失败（权限不足等）不得把整户打成 offline。
+ */
+export function cloudAccountStatusDot(
+  inventory: CloudAccountInventory | undefined,
+  refreshing = false,
+): "online" | "connecting" | "offline" | "idle" {
+  if (refreshing) return "connecting";
+  const snapshot = inventory?.snapshot;
+  if (snapshot) {
+    const hasIdentity = Boolean(snapshot.snapshot?.callerId?.trim());
+    if (hasIdentity || (!snapshot.error && Boolean(snapshot.fetchedAt))) {
+      return "online";
+    }
+    if (snapshot.error) return "offline";
+  }
+  const listEntries = Object.values(inventory?.lists ?? {});
+  if (listEntries.some((entry) => entry.fetchedAt && !entry.error)) return "online";
+  if (listEntries.length > 0 && listEntries.every((entry) => Boolean(entry.error))) {
+    return "offline";
+  }
+  return "idle";
+}
+
+/** 离线悬停文案：优先账户快照错误，否则取首个清单错误。 */
+export function cloudAccountStatusError(
+  inventory: CloudAccountInventory | undefined,
+): string | null {
+  if (cloudAccountStatusDot(inventory) !== "offline") return null;
+  const snapshotError = inventory?.snapshot?.error?.trim();
+  if (snapshotError) return snapshotError;
+  for (const entry of Object.values(inventory?.lists ?? {})) {
+    const message = entry.error?.trim();
+    if (message) return message;
+  }
+  return null;
+}
