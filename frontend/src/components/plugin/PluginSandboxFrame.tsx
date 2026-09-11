@@ -147,8 +147,24 @@ const PRELUDE = `
   }
   window.fetch = function (url, opts) {
     opts = opts || {};
+    var raw = String(url && url.url !== undefined ? url.url : url);
+    // 宿主内部地址永不外发：Tauri 自身 invoke 传输（fetch 到 ipc.localhost 等）
+    // 若落到此代理，会被后端当普通 HTTP 打出去。直接拒绝并给出可读错误。
+    try {
+      var parsed = new URL(raw, "http://localhost");
+      var scheme = (parsed.protocol || "").toLowerCase();
+      var host = (parsed.hostname || "").toLowerCase();
+      if (scheme !== "http:" && scheme !== "https:") {
+        return Promise.reject(new Error("沙箱内仅允许 http(s) 请求: " + raw));
+      }
+      if (host === "ipc.localhost" || host === "tauri.localhost" || host === "asset.localhost") {
+        return Promise.reject(new Error("沙箱内禁止请求宿主内部地址"));
+      }
+    } catch (e) {
+      return Promise.reject(new Error("非法请求地址: " + raw));
+    }
     var spec = {
-      url: String(url && url.url !== undefined ? url.url : url),
+      url: raw,
       method: opts.method || "GET",
       headers: omniHeadersToObject(opts.headers),
       body: omniBodyToText(opts.body)

@@ -192,6 +192,16 @@ fn called_utools_apis(text: &str) -> Vec<String> {
     called_host_api(text, "utools")
 }
 
+/// 垫片提供的 `rubick.*`（判定豁免，其余仍拒绝）。
+/// 覆盖平台判断/进入回调/复制；其它厂商 API 无对应桥。
+const SHIM_RUBICK_APIS: &[&str] = &[
+    "copyText",
+    "isLinux",
+    "isMacOs",
+    "isWindows",
+    "onPluginEnter",
+];
+
 /// `require('x')` 通配：参数非 `./`/`../` 开头即需 Node 解析（内建或 npm 包），
 /// 打包产物字符串误伤方向为 external-only（安全侧）。
 fn required_node_dep(text: &str) -> Option<String> {
@@ -377,9 +387,9 @@ pub fn analyze_external_entries(
                 reasons.push(format!("不支持的 utools.{api}（白名单外）"));
             }
         }
-        // 厂商宿主 API：垫片提供的（rubick.copyText）豁免，其余一律外部。
+        // 厂商宿主 API：垫片提供的豁免，其余一律外部。
         for api in called_host_api(text, "rubick") {
-            if preload_is_shimmed && api == "copyText" {
+            if preload_is_shimmed && SHIM_RUBICK_APIS.contains(&api.as_str()) {
                 continue;
             }
             reasons.push(format!("不支持的宿主 API (rubick.{api})：需原客户端"));
@@ -480,16 +490,34 @@ fn compat_shim_ip_tools_v1() -> String {
   }
 
   window.wan_no_proxy = function (success, fail) {
-    fetchJson("https://forge.speedtest.cn/api/location/info").then(function (data) {
-      success({
-        ip: data.ip,
-        addr: joinParts([data.country, data.province, data.distinct]),
-        isp: data.isp || "未知",
-        net_str: data.net_str || "未知"
+    // 主用 ip-api（http 明文，含中文地址；经受闸桥发出，无混合内容问题），
+    // 依次回退 ip.sb、ipinfo。
+    fetchJson("http://ip-api.com/json?lang=zh-CN").then(function (data) {
+      if (data && data.status === "success") {
+        success({
+          ip: data.query || data.ip,
+          addr: joinParts([data.country, data.regionName, data.city]),
+          isp: data.isp || "未知",
+          net_str: data.isp || "未知"
+        });
+        return;
+      }
+      return fetchJson("https://api.ip.sb/geoip").then(function (data2) {
+        success({
+          ip: data2.ip,
+          addr: joinParts([data2.country, data2.region, data2.city]),
+          isp: data2.organization || data2.isp || "未知",
+          net_str: data2.organization || data2.isp || "未知"
+        });
       });
     }).catch(function () {
-      fetchJson("https://api.ip.sb/geoip").then(function (data) {
-        success({ ip: data.ip, addr: "未知", isp: "未知", net_str: "未知" });
+      fetchJson("https://ipinfo.io/json").then(function (data) {
+        success({
+          ip: data.ip,
+          addr: joinParts([data.country, data.region, data.city]),
+          isp: data.org || "未知",
+          net_str: data.org || "未知"
+        });
       }).catch(function (e) {
         fail("网络出错：" + String((e && e.message) || e));
       });
@@ -497,24 +525,45 @@ fn compat_shim_ip_tools_v1() -> String {
   };
 
   window.wan_has_proxy = function (success, fail) {
-    fetchJson("https://ipinfo.io").then(function (data) {
+    fetchJson("https://ipinfo.io/json").then(function (data) {
       success({
         ip: data.ip,
         addr: joinParts([data.country, data.region, data.city]),
         isp: data.org || "未知",
         net_str: data.org || "未知"
       });
-    }).catch(function (e) {
-      fail("网络出错：" + String((e && e.message) || e));
+    }).catch(function () {
+      fetchJson("http://ip-api.com/json?lang=zh-CN").then(function (data) {
+        if (data && data.status === "success") {
+          success({
+            ip: data.query || data.ip,
+            addr: joinParts([data.country, data.regionName, data.city]),
+            isp: data.isp || "未知",
+            net_str: data.isp || "未知"
+          });
+          return;
+        }
+        throw new Error("geo lookup failed");
+      }).catch(function (e) {
+        fail("网络出错：" + String((e && e.message) || e));
+      });
     });
   };
 
   window.locationInfo = function (success, fail) {
-    fetchJson("https://forge.speedtest.cn/api/location/info").then(function (data) {
-      var addr = joinParts([data.country, data.province, data.city || data.distinct]);
+    fetchJson("http://ip-api.com/json?lang=zh-CN").then(function (data) {
+      var addr = data && data.status === "success"
+        ? joinParts([data.country, data.regionName, data.city])
+        : "";
       if (nonEmpty(addr)) success(addr);
       else fail("无法获取地址信息");
-    }).catch(function () { fail("无法获取地址信息"); });
+    }).catch(function () {
+      fetchJson("https://api.ip.sb/geoip").then(function (data) {
+        var addr = joinParts([data.country, data.region, data.city]);
+        if (nonEmpty(addr)) success(addr);
+        else fail("无法获取地址信息");
+      }).catch(function () { fail("无法获取地址信息"); });
+    });
   };
 
   window.confetti = function () {};
@@ -522,6 +571,18 @@ fn compat_shim_ip_tools_v1() -> String {
   if (typeof window.rubick === "undefined") window.rubick = {};
   window.rubick.copyText = function (text) {
     return window.host.request("clipboard.write", { text: String(text) });
+  };
+  // 平台判断：页内 navigator 即可，无需桥。
+  window.rubick.isWindows = function () { return /win/i.test(navigator.platform || ""); };
+  window.rubick.isMacOs = function () { return /mac/i.test(navigator.platform || ""); };
+  window.rubick.isLinux = function () { return /linux/i.test(navigator.platform || ""); };
+  // 进入回调：overlay 带参打开的 initialText 即 payload（type 统一 over）。
+  window.rubick.onPluginEnter = function (cb) {
+    window.host.request("overlayInitial").then(function (text) {
+      cb({ code: "", type: "over", payload: text == null ? "" : String(text) });
+    }).catch(function () {
+      cb({ code: "", type: "over", payload: "" });
+    });
   };
 })();
 "#
@@ -903,11 +964,11 @@ mod tests {
     #[test]
     fn ip_config_shape_is_adapted_with_shim() {
         // 真实 ip-config 包的最小复刻：preload 用 Node + 定义已知全局，
-        // 页调 rubick.copyText + fetch。
+        // 页调 rubick.copyText/is*/onPluginEnter + fetch。
         // 旧判定曾误判 runnable（无垫片，装后 0.0.0.0）；现应 runnable + 垫片 + 联网权限。
         let pkg = r#"{"name":"ip-config-rubick-plugin","pluginName":"ip-config","version":"1.0.4","main":"index.html","preload":"preload.js","features":[{"code":"ip","explain":"查IP","cmds":["ip"]}]}"#;
-        let preload = r#"const os = require("os");window.lanIPv4 = async function(s){ s("1.2.3.4"); };window.wan_no_proxy = function(s,f){};window.locationInfo = function(s,f){};window.confetti = function(){};"#;
-        let html = r#"<div><script>window.lanIPv4(function(ip){ document.title = ip; });rubick.copyText("x");fetch('https://forge.speedtest.cn/api/location/info');</script></div>"#;
+        let preload = r#"const os = require("os");window.lanIPv4 = async function(s){ s("1.2.3.4"); };window.wan_no_proxy = function(s,f){};window.locationInfo = function(s,f){};window.confetti = function(){};if (rubick.isMacOs() || rubick.isLinux()) {}"#;
+        let html = r#"<div><script>window.lanIPv4(function(ip){ document.title = ip; });rubick.copyText("x");rubick.onPluginEnter(function(){});fetch('https://forge.speedtest.cn/api/location/info');</script></div>"#;
         let input = entries(&[("package.json", pkg), ("preload.js", preload), ("index.html", html)]);
         let verdict = analyze_external_entries(&input).unwrap();
         assert!(verdict.runnable, "reasons: {:?}", verdict.reasons);
@@ -923,6 +984,17 @@ mod tests {
         manifest.validate().expect("转出清单须过校验");
         assert_eq!(manifest.compat_entry(), Some("ui/compat/ip-tools-v1.js"));
         assert!(manifest.permissions.iter().any(|p| p.as_str() == "net:connect"));
+    }
+
+    #[test]
+    fn rubick_api_outside_shim_is_external_only() {
+        let pkg = r#"{"name":"demo-rb2","pluginName":"其它API","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
+        let html = r#"<script>rubick.shellOpenItem("/tmp");</script>"#;
+        let verdict =
+            analyze_external_entries(&entries(&[("package.json", pkg), ("index.html", html)]))
+                .unwrap();
+        assert!(!verdict.runnable);
+        assert!(verdict.reasons.iter().any(|r| r.contains("rubick.shellOpenItem")));
     }
 
     #[test]

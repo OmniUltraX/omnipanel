@@ -46,3 +46,8 @@
 - [x] 8.2 prelude 暴露 `clipboardWrite` / `networkGetLocalIps`（白名单免权限，读剪贴永不开放）。验证：`PluginSandboxFrame.test.ts` + `tsc -b`
 - [x] 8.3 compat 垫片机制：`entry.compat`（SDK/Rust/CI 三端校验）+ overlay 紧随 prelude 注入 + ip-tools-v1 参考垫片。验证：单测 + `tsc -b`
 - [x] 8.4 analyzer 垫片识别 + converter 合成（含 preload 丢弃、net 权限、清单校验）。验证：`cargo test -p omnipanel-plugin-pkg`（ip-config 可转+垫片+权限）
+
+## 9. 转换插件联网与内部地址防护（ip-config 真机报错）
+
+- [x] 9.1 垫片 provider 链修正（forge 404 下线，主用 ip-api 明文 + 中文地址，ip.sb/ipinfo 回退；locationInfo 加回退）。验证：节点直测三端点 200
+- [x] 9.2 fetch 代理拒绝宿主内部地址（ipc/tauri/asset.localhost）与非 http(s)，防 Tauri 自身传输被转发。验证：PluginSandboxFrame.test.ts + 	sc -b

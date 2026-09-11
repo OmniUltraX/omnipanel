@@ -2233,13 +2233,19 @@ export function DatabasePanel() {
         }
       } else {
         const pkNames = pkCols.map((c) => c.name);
-        const escape = escapeSqlLiteral;
+        const columnTypeByName = new Map(colMeta.map((c) => [c.name, c.type]));
+        // BIT / BOOLEAN 列必须按列类型生成字面量，否则 MySQL 会把 '1' 当字节串报 1406
+        const escape = (value: unknown, columnName?: string) =>
+          escapeSqlLiteral(value, {
+            dbType: connection.db_type,
+            columnType: columnName ? columnTypeByName.get(columnName) ?? null : null,
+          });
         for (const [rowKey, changes] of Object.entries(dirty)) {
           if (rowKey.startsWith(DELETED_ROW_KEY_PREFIX)) {
             const originalKey = rowKey.slice(DELETED_ROW_KEY_PREFIX.length);
             const pkValues = pkNames.map((n) => {
               const v = readRowKeyValue(originalKey, n);
-              return v === "" ? `\`${n}\` IS NULL` : `\`${n}\` = ${escape(v)}`;
+              return v === "" ? `\`${n}\` IS NULL` : `\`${n}\` = ${escape(v, n)}`;
             });
             sqls.push(`DELETE FROM \`${tableName}\` WHERE ${pkValues.join(" AND ")} LIMIT 1`);
             continue;
@@ -2248,18 +2254,18 @@ export function DatabasePanel() {
             const entries = Object.entries(changes);
             if (entries.length === 0) continue;
             const cols = entries.map(([col]) => `\`${col}\``);
-            const vals = entries.map(([, val]) => escape(val));
+            const vals = entries.map(([col, val]) => escape(val, col));
             sqls.push(
               `INSERT INTO \`${tableName}\` (${cols.join(", ")}) VALUES (${vals.join(", ")})`,
             );
             continue;
           }
           const setClause = Object.entries(changes)
-            .map(([col, val]) => `\`${col}\` = ${escape(val)}`)
+            .map(([col, val]) => `\`${col}\` = ${escape(val, col)}`)
             .join(", ");
           const pkValues = pkNames.map((n) => {
             const v = readRowKeyValue(rowKey, n);
-            return v === "" ? `${n} IS NULL` : `${n} = ${escape(v)}`;
+            return v === "" ? `${n} IS NULL` : `${n} = ${escape(v, n)}`;
           });
           sqls.push(`UPDATE \`${tableName}\` SET ${setClause} WHERE ${pkValues.join(" AND ")} LIMIT 1`);
         }
