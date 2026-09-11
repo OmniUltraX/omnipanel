@@ -28,7 +28,7 @@ export default {
       bt: "宝塔面板",
       hestia: "HestiaCP",
       themeDefault: "默认主题",
-      translator: "翻译样板（L3）",
+      translator: "选中翻译",
     },
     moduleShell: {
       hint: "添加一条服务连接后即可管理配置、命名空间与发现。",

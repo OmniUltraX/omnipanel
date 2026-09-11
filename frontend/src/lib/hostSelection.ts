@@ -17,7 +17,29 @@ export function setTerminalSelection(text: string): void {
 function readDomSelection(): string {
   const dom = typeof window !== "undefined" ? window.getSelection()?.toString().trim() ?? "" : "";
   if (dom) domAt = Date.now();
-  return dom;
+  if (dom) return dom;
+  // 输入框/文本域内的选中不在 window.getSelection 里（如表格单元格编辑器）：
+  // 读焦点元素的 selectionStart/selectionEnd。
+  const active = typeof document !== "undefined" ? document.activeElement : null;
+  if (
+    active &&
+    (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)
+  ) {
+    try {
+      const start = active.selectionStart ?? 0;
+      const end = active.selectionEnd ?? 0;
+      if (end > start) {
+        const text = active.value.slice(start, end).trim();
+        if (text) {
+          domAt = Date.now();
+          return text;
+        }
+      }
+    } catch {
+      // number/range 等不支持选区的 input 类型取 selectionStart 会抛错：忽略
+    }
+  }
+  return "";
 }
 
 export function getHostSelection(): HostSelection | null {

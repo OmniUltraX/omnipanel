@@ -16,6 +16,23 @@
       "updatedAt": "2026-08-24T08:08:19+08:00"
     },
     {
+      "id": "omni.addon.translator",
+      "kind": "addon",
+      "name": "Selection translator",
+      "description": "Translate selected text via host AI (floating button, context menu, home entry).",
+      "version": "0.1.0",
+      "distribution": "download",
+      "artifact": {
+        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-addon-translator-0.1.0.omni-plugin",
+        "sha256": "",
+        "size": 4138
+      },
+      "permissions": [
+        "ui:selection",
+        "ai:tools"
+      ]
+    },
+    {
       "id": "omni.cloud.aliyun",
       "kind": "cloud",
       "name": "Alibaba Cloud",

@@ -69,6 +69,15 @@ struct RegistryFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RegistryVersionEntry {
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    artifact: Option<RegistryArtifact>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RegistryPlugin {
     id: String,
     kind: PluginKind,
@@ -76,7 +85,11 @@ struct RegistryPlugin {
     name: String,
     #[serde(default)]
     description: String,
+    /// v1 形状。v2 条目只有 `versions[]`，由 [`normalize_registry`] 折叠。
+    #[serde(default)]
     version: String,
+    #[serde(default)]
+    versions: Vec<RegistryVersionEntry>,
     #[serde(default)]
     distribution: PluginDistribution,
     #[serde(default)]
@@ -108,10 +121,38 @@ struct RegistryArtifact {
 }
 
 fn bundled_registry() -> RegistryFile {
-    serde_json::from_str(BUNDLED_REGISTRY).unwrap_or_else(|_| RegistryFile {
-        schema_version: 1,
-        plugins: Vec::new(),
-    })
+    let mut registry: RegistryFile =
+        serde_json::from_str(BUNDLED_REGISTRY).unwrap_or_else(|_| RegistryFile {
+            schema_version: 1,
+            plugins: Vec::new(),
+        });
+    normalize_registry(&mut registry);
+    registry
+}
+
+/// v1/v2 归一化：v2 条目取 `versions[0]` 的 version/artifact；
+/// 有 artifact 的条目视为可下载（发布管线只写 v2，不写 distribution）。
+fn normalize_registry(registry: &mut RegistryFile) {
+    for plugin in &mut registry.plugins {
+        if plugin.version.trim().is_empty() {
+            if let Some(first) = plugin.versions.first() {
+                plugin.version = first.version.clone();
+                if plugin.artifact.is_none() {
+                    plugin.artifact = first.artifact.clone();
+                }
+            }
+        } else if plugin.artifact.is_none() {
+            if let Some(first) = plugin.versions.first() {
+                if plugin.version.trim() == first.version.trim() {
+                    plugin.artifact = first.artifact.clone();
+                }
+            }
+        }
+        plugin.versions = Vec::new();
+        if plugin.artifact.is_some() && plugin.distribution == PluginDistribution::Bundled {
+            plugin.distribution = PluginDistribution::Download;
+        }
+    }
 }
 
 fn fill_first_party_gaps(registry: &mut RegistryFile) {
@@ -148,6 +189,7 @@ fn fill_first_party_gaps(registry: &mut RegistryFile) {
             name: manifest.id.clone(),
             description: String::new(),
             version: manifest.version.clone(),
+            versions: Vec::new(),
             distribution: PluginDistribution::Bundled,
             artifact: None,
             permissions: manifest
@@ -221,7 +263,9 @@ fn registry_cache_path(plugins_root: Option<&Path>) -> Option<PathBuf> {
 
 fn read_registry_disk(path: &Path) -> Option<RegistryFile> {
     let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+    let mut registry: RegistryFile = serde_json::from_str(&text).ok()?;
+    normalize_registry(&mut registry);
+    Some(registry)
 }
 
 fn write_registry_disk(path: &Path, registry: &RegistryFile) {
@@ -274,6 +318,7 @@ async fn fetch_registry(client: &reqwest::Client) -> Result<RegistryFile, OmniEr
         .json()
         .await
         .map_err(|e| OmniError::connection(format!("官方插件目录 JSON 非法: {e}")))?;
+    normalize_registry(&mut registry);
     fill_first_party_gaps(&mut registry);
     Ok(registry)
 }
@@ -542,5 +587,62 @@ mod tests {
         assert!(seed.plugins.iter().any(|p| {
             p.id == "omni.addon.everything" && p.distribution == PluginDistribution::Bundled
         }));
+    }
+
+    #[test]
+    fn translator_is_market_download_not_bundled() {
+        let seed = seed_registry();
+        let translator = seed
+            .plugins
+            .iter()
+            .find(|p| p.id == "omni.addon.translator")
+            .expect("种子目录应含翻译插件");
+        assert_eq!(translator.distribution, PluginDistribution::Download);
+        let artifact = translator.artifact.as_ref().expect("翻译插件应有下载地址");
+        assert!(artifact.url.ends_with(".omni-plugin"));
+        // 市场按 downloadSize > 0 判定可下载：size 必须为正（CI 发布时回填精确值），
+        // 否则前端会把它当成 bundled 占位（无获取按钮、无启用项）。
+        assert!(artifact.size > 0);
+        assert!(!translator.permissions.is_empty());
+        // 非第一方：不会随客户端预装
+        assert!(
+            !omnipanel_plugin::first_party_manifests()
+                .iter()
+                .any(|m| m.id == "omni.addon.translator")
+        );
+    }
+
+    #[test]
+    fn v2_registry_with_versions_parses_to_download() {
+        let text = r#"{"schemaVersion":2,"plugins":[
+            {"id":"omni.addon.everything","kind":"addon","name":"Everything local search",
+             "description":"d","versions":[{"version":"0.1.0"}],
+             "permissions":["ai:tools","fs:read"]},
+            {"id":"omni.addon.translator","kind":"addon","name":"Selection translator",
+             "description":"d","versions":[{"version":"0.1.0",
+               "artifact":{"url":"https://example.com/t.omni-plugin","sha256":"","size":0}}],
+             "permissions":["ui:selection","ai:tools"]}
+        ]}"#;
+        let mut registry: RegistryFile = serde_json::from_str(text).expect("v2 应可解析");
+        normalize_registry(&mut registry);
+        let everything = registry
+            .plugins
+            .iter()
+            .find(|p| p.id == "omni.addon.everything")
+            .expect("everything");
+        assert_eq!(everything.version, "0.1.0");
+        assert_eq!(everything.distribution, PluginDistribution::Bundled);
+        let translator = registry
+            .plugins
+            .iter()
+            .find(|p| p.id == "omni.addon.translator")
+            .expect("translator");
+        assert_eq!(translator.version, "0.1.0");
+        assert_eq!(translator.distribution, PluginDistribution::Download);
+        assert_eq!(
+            translator.artifact.as_ref().map(|a| a.url.as_str()),
+            Some("https://example.com/t.omni-plugin")
+        );
+        assert!(translator.versions.is_empty());
     }
 }

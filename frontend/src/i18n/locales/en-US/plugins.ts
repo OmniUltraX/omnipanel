@@ -28,7 +28,7 @@ export default {
       bt: "BT Panel",
       hestia: "HestiaCP",
       themeDefault: "Default theme",
-      translator: "Translator sample (L3)",
+      translator: "Selection translator",
     },
     moduleShell: {
       hint: "Add a service connection to manage configs, namespaces, and discovery.",

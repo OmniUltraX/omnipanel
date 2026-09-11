@@ -6,6 +6,8 @@ on:
     paths:
       - "plugins/registry.json"
       - "plugins/*/plugin.json"
+      - "plugins-market/*/plugin.json"
+      - "plugins-market/*/ui/**"
       - "scripts/generate-plugin-registry.mjs"
       - ".github/workflows/publish-plugin-registry.yml"
   workflow_dispatch:
@@ -27,15 +29,55 @@ jobs:
       - name: Generate registry
         run: node scripts/generate-plugin-registry.mjs
 
-      - name: Stage release asset
-        run: cp plugins/registry.json plugin-registry.json
+      - name: Pack market plugins
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          . "$HOME/.cargo/env"
+          mkdir -p dist
+          cargo run -q -p omnipanel-plugin-pkg --bin pack -- plugins-market/addon-translator "dist/omni-addon-translator-$(node -p "require('./plugins-market/addon-translator/plugin.json').version").omni-plugin"
+          ls -la dist
+
+      - name: Fill market artifact hash/size into staged registry
+        run: |
+          node -e '
+            const fs = require("fs");
+            const crypto = require("crypto");
+            const manifest = JSON.parse(fs.readFileSync("plugins-market/addon-translator/plugin.json", "utf8"));
+            const file = `dist/omni-addon-translator-${manifest.version}.omni-plugin`;
+            const bytes = fs.readFileSync(file);
+            const registry = JSON.parse(fs.readFileSync("plugins/registry.json", "utf8"));
+            const entry = registry.plugins.find((p) => p.id === manifest.id);
+            if (!entry) throw new Error("registry 缺少 " + manifest.id);
+            const url = `https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-addon-translator-${manifest.version}.omni-plugin`;
+            if (Array.isArray(entry.versions) && entry.versions.length) {
+              entry.versions[0].version = manifest.version;
+              entry.versions[0].artifact = {
+                url,
+                sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+                size: bytes.length,
+              };
+            } else {
+              entry.version = manifest.version;
+              entry.distribution = "download";
+              entry.artifact = {
+                url,
+                sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
+                size: bytes.length,
+              };
+            }
+            fs.writeFileSync("plugin-registry.json", JSON.stringify(registry, null, 2) + "\n");
+            console.log(`[market-artifact] ${manifest.id} v${manifest.version} sha256/size 回填完成`);
+          '
+          ls -la plugin-registry.json dist
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: plugins-latest
           name: Plugin registry
           body: Official OmniPanel plugin catalog (bundled first-party + downloadable extras).
-          files: plugin-registry.json
+          files: |
+            plugin-registry.json
+            dist/*.omni-plugin
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
