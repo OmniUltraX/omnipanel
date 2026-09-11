@@ -34,6 +34,11 @@
 - [x] 6.3 gitcode 索引通道下线（文件 API 需鉴权、raw 为 SPA 壳，实测不可达；删命令保 npm+种子双通道）。验证：`cargo check` 无残留引用
 - [x] 6.4 `ExternalSearchItem.keywords` 透传（分类用）。验证：`tsc -b`
 
+## 10. 默认关闭（体验反馈：种子质量差）
+
+- [x] 10.1 rubick 做成内置默认禁用源（`registry_source_ensure_builtin_disabled`，尊重用户开关；种子合并与拉取门控；源测连走种子计数）。验证：`cargo test` store + marketplace
+- [x] 10.2 前端自动拉全量与 npm 按钮跟随源开关（插件源设置中手动开启）。验证：`tsc -b`
+
 ## 7. 转换可用性（ip-config 反馈：误判 runnable 装后 0.0.0.0）
 
 - [x] 7.1 analyzer 收紧：任意非相对 `require(` 即需 Node；`rubick.*` 显式拒绝并点名。验证：`cargo test -p omnipanel-plugin-pkg external`（含 ip-config 形状回归）

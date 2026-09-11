@@ -111,14 +111,20 @@ export function usePluginCenter() {
     void reloadMarket(false);
   }, [reloadInstalled, reloadMarket]);
 
-  // 市场打开即自动拉全量（npm 默认查询，静默失败仅留种子；单次挂载一次）
+  // Rubick 源开关：种子合并、自动拉全量、npm 按钮一律跟随（默认关）
+  const rubickEnabled = useMemo(
+    () => sources.some((s) => s.id === "rubick" && s.enabled),
+    [sources],
+  );
+
+  // 市场打开即自动拉全量（rubick 启用时；默认 `rubick` 查询 50 条静默合并）
   const autoNpmLoaded = useRef(false);
   useEffect(() => {
-    if (autoNpmLoaded.current) return;
+    if (autoNpmLoaded.current || !rubickEnabled) return;
     autoNpmLoaded.current = true;
     void searchNpmMarket("rubick", { quiet: true, size: 50 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [rubickEnabled]);
 
   useEffect(() => {
     let disposed = false;
@@ -648,6 +654,7 @@ export function usePluginCenter() {
     npmSearching,
     searchNpmMarket,
     clearNpmSearch,
+    rubickEnabled,
     extCategory,
     setExtCategory,
     selectedId,

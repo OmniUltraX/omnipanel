@@ -247,6 +247,7 @@ export function PluginsPanel() {
               npmActive={center.npmSearch != null}
               onSearchNpm={() => void center.searchNpmMarket()}
               onClearNpmSearch={center.clearNpmSearch}
+              rubickEnabled={center.rubickEnabled}
               extCategory={center.extCategory}
               onExtCategory={center.setExtCategory}
               onOpenSources={() => center.setSourcesOpen(true)}

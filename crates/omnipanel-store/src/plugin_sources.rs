@@ -111,6 +111,21 @@ impl Storage {
         Ok(())
     }
 
+    /// 确保内置但默认禁用的源存在（如 Rubick 第三方种子）：首次插入
+    /// enabled=0，已存在则不动（尊重用户此前的开关选择）。
+    pub fn registry_source_ensure_builtin_disabled(&self, id: &str, url: &str) -> OmniResult<()> {
+        self.conn()
+            .execute(
+                "INSERT INTO plugin_registry_sources
+                     (id, url, enabled, pinned_keys, key_pending, auth_ref, builtin, updated_at)
+                 VALUES (?1, ?2, 0, '[]', '', '', 1, ?3)
+                 ON CONFLICT(id) DO NOTHING",
+                params![id, url, now_secs()],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+
     pub fn registry_source_set_enabled(&self, id: &str, enabled: bool) -> OmniResult<()> {
         let n = self
             .conn()
@@ -311,5 +326,24 @@ mod tests {
         let row = storage.registry_sources_list().unwrap()[0].clone();
         assert!(row.builtin);
         assert!(storage.registry_source_delete("official").is_err());
+    }
+
+    #[test]
+    fn builtin_disabled_starts_off_and_respects_user_choice() {
+        let storage = Storage::open_in_memory().unwrap();
+        storage
+            .registry_source_ensure_builtin_disabled("rubick", "")
+            .unwrap();
+        let row = storage.registry_sources_list().unwrap()[0].clone();
+        assert!(row.builtin);
+        assert!(!row.enabled);
+        // 用户手动开启后，再次 ensure 不覆盖
+        storage.registry_source_set_enabled("rubick", true).unwrap();
+        storage
+            .registry_source_ensure_builtin_disabled("rubick", "")
+            .unwrap();
+        assert!(storage.registry_sources_list().unwrap()[0].enabled);
+        // 内置仍不可删
+        assert!(storage.registry_source_delete("rubick").is_err());
     }
 }

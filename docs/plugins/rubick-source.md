@@ -6,7 +6,7 @@ OmniPanel 市场除官方源外，可展示 Rubick 系（npm 包形态，与 uTo
 
 | 环节 | 说明 |
 |---|---|
-| 来源 | `rubick`（curated `plugins/rubick-registry.json` 种子 + 市场打开自动 npm 全量，手动搜索框保留） |
+| 来源 | `rubick`（**内置默认禁用**，插件源设置中手动开启；curated `plugins/rubick-registry.json` 种子 + 市场打开自动 npm 全量，手动搜索框保留） |
 | 展示 | 市场合并展示，来源按 id 直列 chips（官方 / DBX / Rubick / 自定义源），Rubick 条目带分类行（翻译文本 / 开发工具 / 效率工具 / 系统网络 / 其他，启发式） |
 | 安装 | 先判定后分级：runnable 一键转换安装；external-only 外跳（对话框可复制包名） |
 
