@@ -12,9 +12,31 @@ describe("escapeSqlLiteral", () => {
     expect(escapeSqlLiteral(3.14)).toBe("3.14");
   });
 
-  it("booleans quote as true/false (legacy String behavior)", () => {
-    expect(escapeSqlLiteral(true)).toBe("'true'");
-    expect(escapeSqlLiteral(false)).toBe("'false'");
+  it("booleans render as numeric literals (PG uses TRUE/FALSE)", () => {
+    expect(escapeSqlLiteral(true)).toBe("1");
+    expect(escapeSqlLiteral(false)).toBe("0");
+    expect(escapeSqlLiteral(true, { dbType: "postgres" })).toBe("TRUE");
+    expect(escapeSqlLiteral(false, { dbType: "postgres" })).toBe("FALSE");
+  });
+
+  it("BIT columns stay numeric on MySQL（带引号的 '1' 会触发 1406）", () => {
+    expect(escapeSqlLiteral("1", { dbType: "mysql", columnType: "bit(1)" })).toBe("1");
+    expect(escapeSqlLiteral("0", { dbType: "mysql", columnType: "bit(1)" })).toBe("0");
+    expect(escapeSqlLiteral(true, { dbType: "mysql", columnType: "bit(1)" })).toBe("1");
+  });
+
+  it("BIT columns use B'..' on PostgreSQL", () => {
+    expect(escapeSqlLiteral("1", { dbType: "postgres", columnType: "bit(1)" })).toBe("B'1'");
+    expect(escapeSqlLiteral(0, { dbType: "postgres", columnType: "bit(1)" })).toBe("B'0'");
+  });
+
+  it("BOOLEAN columns render engine-specific literals", () => {
+    expect(escapeSqlLiteral("true", { dbType: "mysql", columnType: "boolean" })).toBe("1");
+    expect(escapeSqlLiteral("false", { dbType: "postgres", columnType: "bool" })).toBe("FALSE");
+  });
+
+  it("keeps numeric-looking strings quoted for plain columns", () => {
+    expect(escapeSqlLiteral("007", { dbType: "mysql", columnType: "varchar(10)" })).toBe("'007'");
   });
 
   it("strings escape quotes and backslashes", () => {
