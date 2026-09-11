@@ -337,6 +337,43 @@ fn require_write_presence(
     )
 }
 
+/// 编辑云账户表单：从 Vault 回显 AccessKey Secret（config 永不存明文）。
+#[tauri::command]
+#[specta::specta]
+pub async fn cloud_resolve_secret(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<String, OmniError> {
+    let connection_id = connection_id.trim();
+    if connection_id.is_empty() {
+        return Err(OmniError::invalid_input("连接 ID 不能为空"));
+    }
+
+    let conn = {
+        let storage = state.storage.lock().await;
+        storage.get_connection(connection_id)?
+    }
+    .ok_or_else(|| OmniError::invalid_input(format!("云账户不存在：{connection_id}")))?;
+
+    if conn.kind != ConnectionKind::Cloud {
+        return Err(OmniError::invalid_input("目标连接不是云厂商类型"));
+    }
+
+    let secret = conn
+        .credential_ref
+        .as_deref()
+        .filter(|r| r.starts_with("cloud-secret-"))
+        .and_then(|r| Vault::get(r).ok())
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| Vault::get(&cloud_secret_ref(connection_id)).ok())
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| {
+            OmniError::invalid_input("未找到 AccessKey Secret，请重新填写并保存连接")
+        })?;
+
+    Ok(secret.trim().to_string())
+}
+
 /// 测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。
 #[tauri::command]
 #[specta::specta]

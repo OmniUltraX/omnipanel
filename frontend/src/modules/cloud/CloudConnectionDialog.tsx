@@ -84,6 +84,8 @@ export function CloudConnectionDialog({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
+
     const next = editConnection ? cloudConnectionToForm(editConnection) : { ...EMPTY_CLOUD_FORM };
     if (!editConnection && activatedPlugins[0] && !activatedPlugins.some((p) => p.id === next.pluginId)) {
       next.pluginId = activatedPlugins[0].id;
@@ -94,6 +96,28 @@ export function CloudConnectionDialog({
     setStatus(null);
     setSaving(false);
     setTesting(false);
+
+    // config 不存明文 Secret；编辑时从 Vault 回显（与面板 / Docker 一致）
+    if (editConnection?.id) {
+      void unwrapCommand(commands.cloudResolveSecret(editConnection.id), {
+        quiet: true,
+      })
+        .then((secret) => {
+          if (cancelled || !secret.trim()) return;
+          setForm((prev) =>
+            prev.accessKeySecret.trim()
+              ? prev
+              : { ...prev, accessKeySecret: secret.trim() },
+          );
+        })
+        .catch(() => {
+          /* Vault 无密钥：保持空，由用户填写；留空保存仍保留原密钥 */
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [open, editConnection, activatedPlugins]);
 
   const update = <K extends keyof CloudFormData>(key: K, value: CloudFormData[K]) => {

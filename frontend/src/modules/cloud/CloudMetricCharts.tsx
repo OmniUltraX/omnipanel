@@ -2,6 +2,12 @@ import { useMemo, useState, type MouseEvent } from "react";
 import type { CloudMetricSeries } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
 import { FormDialog } from "../../components/ui/form/FormDialog";
+import { MultiSelect } from "../../components/ui/form/MultiSelect";
+import {
+  cloudMetricChartsScope,
+  resolveVisibleMetricIds,
+  useCloudMetricChartsPrefsStore,
+} from "../../stores/cloudMetricChartsPrefsStore";
 import {
   CLOUD_METRIC_CHART_PAD,
   CLOUD_METRIC_RANGE_PRESETS,
@@ -71,7 +77,9 @@ function MetricSparkline({
         onClick={onOpen}
       >
         {[0, 0.5, 1].map((p) => {
-          const y = CLOUD_METRIC_CHART_PAD.t + (height - CLOUD_METRIC_CHART_PAD.t - CLOUD_METRIC_CHART_PAD.b) * (1 - p);
+          const y =
+            CLOUD_METRIC_CHART_PAD.t +
+            (height - CLOUD_METRIC_CHART_PAD.t - CLOUD_METRIC_CHART_PAD.b) * (1 - p);
           return (
             <g key={p}>
               <line
@@ -92,7 +100,11 @@ function MetricSparkline({
             <text x={CLOUD_METRIC_CHART_PAD.l} y={height - 6} className="cloud-metrics__axis">
               {formatMetricTime(plotted.points[0]!.ts)}
             </text>
-            <text x={width - CLOUD_METRIC_CHART_PAD.r} y={height - 6} className="cloud-metrics__axis cloud-metrics__axis--end">
+            <text
+              x={width - CLOUD_METRIC_CHART_PAD.r}
+              y={height - 6}
+              className="cloud-metrics__axis cloud-metrics__axis--end"
+            >
               {formatMetricTime(plotted.points[plotted.points.length - 1]!.ts)}
             </text>
           </>
@@ -139,6 +151,8 @@ export function CloudMetricCharts({
   rangeId,
   loading,
   error,
+  pluginId,
+  capability,
   onRangeChange,
   onRefresh,
 }: {
@@ -146,12 +160,38 @@ export function CloudMetricCharts({
   rangeId: CloudMetricRangeId;
   loading?: boolean;
   error?: string | null;
+  pluginId: string;
+  capability: string;
   onRangeChange: (id: CloudMetricRangeId) => void;
   onRefresh: () => void;
 }) {
   const { t } = useI18n();
   const [detailId, setDetailId] = useState<string | null>(null);
-  const detail = series.find((item) => item.id === detailId) ?? null;
+  const scope = cloudMetricChartsScope(pluginId, capability);
+  const savedIds = useCloudMetricChartsPrefsStore((s) => s.byScope[scope]);
+  const setVisibleIds = useCloudMetricChartsPrefsStore((s) => s.setVisibleIds);
+
+  const availableIds = useMemo(() => series.map((item) => item.id), [series]);
+  const visibleIds = useMemo(
+    () => resolveVisibleMetricIds(availableIds, savedIds),
+    [availableIds, savedIds],
+  );
+  const visibleSet = useMemo(() => new Set(visibleIds), [visibleIds]);
+  const visibleSeries = useMemo(
+    () => series.filter((item) => visibleSet.has(item.id)),
+    [series, visibleSet],
+  );
+
+  const metricOptions = useMemo(
+    () =>
+      series.map((item) => ({
+        value: item.id,
+        label: metricTitle(t, item),
+      })),
+    [series, t],
+  );
+
+  const detail = visibleSeries.find((item) => item.id === detailId) ?? null;
   const stats = metricSeriesStats(detail?.points);
 
   return (
@@ -170,7 +210,28 @@ export function CloudMetricCharts({
           ))}
         </div>
         <div className="cloud-metrics__toolbar-end">
-          <span className="cloud-metrics__hint">{t("cloud.metrics.hint")}</span>
+          {series.length > 0 ? (
+            <div className="cloud-metrics__picker">
+              <MultiSelect
+                size="sm"
+                values={visibleIds}
+                options={metricOptions}
+                emptyMeansAll={false}
+                searchable
+                panelMinWidth={240}
+                aria-label={t("cloud.metrics.selectCharts")}
+                placeholder={t("cloud.metrics.selectChartsPlaceholder")}
+                formatDisplayLabel={(labels) =>
+                  labels.length === 0
+                    ? t("cloud.metrics.selectChartsPlaceholder")
+                    : labels.length === metricOptions.length
+                      ? t("cloud.metrics.allCharts")
+                      : t("cloud.metrics.selectedCount", { count: String(labels.length) })
+                }
+                onChange={(ids) => setVisibleIds(scope, ids)}
+              />
+            </div>
+          ) : null}
           <button type="button" className="cloud-metrics__refresh" onClick={onRefresh} disabled={loading}>
             {loading ? t("server.refreshing") : t("server.refresh")}
           </button>
@@ -180,11 +241,14 @@ export function CloudMetricCharts({
       {!error && series.length === 0 && !loading ? (
         <p className="form-hint">{t("cloud.metrics.empty")}</p>
       ) : null}
+      {!error && series.length > 0 && visibleSeries.length === 0 ? (
+        <p className="form-hint">{t("cloud.metrics.noneSelected")}</p>
+      ) : null}
       <div className="cloud-metrics__cards">
-        {series.map((item) => {
+        {visibleSeries.map((item) => {
           const size = metricCardSize(item.id);
           const width = 480;
-          const height = size === "hero" ? 200 : 160;
+          const height = size === "hero" ? 240 : 200;
           const last = item.points?.[item.points.length - 1]?.value;
           return (
             <article

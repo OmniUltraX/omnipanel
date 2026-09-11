@@ -3765,6 +3765,10 @@ pub async fn dispatch(
                 crate::panel_cmds::panel_bt_app_icon(host, api_sk, app_name, icon_file).await,
             )
         }
+        "cloud_resolve_secret" => {
+            let connection_id = get_str(&args, "connectionId").unwrap_or_default();
+            respond_omni(crate::cloud_cmds::cloud_resolve_secret(state, connection_id).await)
+        }
         "cloud_test" => {
             let connection: omnipanel_store::Connection =
                 match serde_json::from_value(args.get("connection").cloned().unwrap_or_default()) {

@@ -73,6 +73,14 @@
     color: var(--muted);
 }
 
+.cloud-overview__fact-value-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
 .cloud-overview__fact-value {
     font-size: 14px;
     font-weight: 600;
@@ -342,56 +350,132 @@ button.cloud-overview__fact-value:disabled {
 }
 
 .cloud-detail--list .cloud-detail__body {
-    overflow: hidden;
+    /* 内层面板应自滚动；若链断裂仍允许 body 兜底滚动，避免监控图被裁切 */
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .cloud-detail__header {
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 14px 16px 10px;
-    border-bottom: 1px solid var(--border-soft, var(--border));
-    background: var(--surface, var(--bg-elevated, var(--bg)));
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
     flex-shrink: 0;
+    min-width: 0;
+}
+
+.cloud-detail__header-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    min-width: 0;
+}
+
+.cloud-detail__header-row--primary {
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.cloud-detail__header-row--secondary {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: var(--sp-2) var(--sp-3);
 }
 
 .cloud-detail__identity {
     display: flex;
     align-items: flex-start;
-    gap: 10px;
+    gap: var(--sp-2);
     min-width: 0;
+    flex: 1 1 12rem;
 }
 
-.cloud-detail__brand {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: var(--bg-deeper, var(--bg));
-    border: 1px solid var(--border-soft, var(--border));
-    color: var(--fg);
+.cloud-detail__status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-top: 6px;
     flex-shrink: 0;
+    background: var(--muted);
 }
 
-.cloud-detail__titles {
+.cloud-detail__status-dot--ok {
+    background: var(--success);
+}
+
+.cloud-detail__status-dot--warn {
+    background: var(--warn);
+}
+
+.cloud-detail__status-dot--err {
+    background: var(--danger);
+}
+
+.cloud-detail__status-dot--muted {
+    background: var(--muted);
+}
+
+.cloud-detail__identity-text {
     min-width: 0;
+}
+
+.cloud-detail__title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
 }
 
 .cloud-detail__name {
-    margin: 0 0 6px;
-    font-size: 16px;
-    font-weight: 650;
-    line-height: 1.25;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.3;
     color: var(--fg);
     word-break: break-all;
 }
 
-.cloud-detail__chips {
+.cloud-detail__meta {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.35;
+    min-width: 0;
+}
+
+.cloud-detail__meta-primary {
+    color: var(--fg-muted, var(--muted));
+    word-break: break-all;
+}
+
+.cloud-detail__meta-secondary {
+    color: var(--muted);
+    opacity: 0.92;
+}
+
+.cloud-detail__meta-id {
+    align-self: flex-start;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font: inherit;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--fg-muted, var(--muted));
+    cursor: pointer;
+    text-align: left;
+    word-break: break-all;
+}
+
+.cloud-detail__meta-id:hover {
+    color: var(--accent);
 }
 
 .cloud-chip,
@@ -450,11 +534,17 @@ button.cloud-overview__fact-value:disabled {
 
 .cloud-detail__tabs {
     display: flex;
-    gap: 0;
-    padding: 0 12px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-deeper, var(--bg));
-    flex-shrink: 0;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+    background: var(--bg-deeper);
+    border: 1px solid var(--border);
+    flex: 0 0 auto;
+    width: fit-content;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .cloud-detail__tab {
@@ -462,15 +552,15 @@ button.cloud-overview__fact-value:disabled {
     background: transparent;
     font: inherit;
     font-size: 12px;
-    font-weight: 500;
     color: var(--muted);
-    padding: 10px 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
     cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
 }
 
 .cloud-detail__tab:hover {
@@ -479,7 +569,8 @@ button.cloud-overview__fact-value:disabled {
 
 .cloud-detail__tab.is-active {
     color: var(--fg);
-    border-bottom-color: var(--accent);
+    background: var(--surface);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .cloud-detail__tab-count {
@@ -493,7 +584,39 @@ button.cloud-overview__fact-value:disabled {
     color: var(--accent);
 }
 
-.cloud-detail__toolbar,
+.cloud-detail__actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+    flex: 0 1 auto;
+    margin-left: auto;
+}
+
+.cloud-detail__action {
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.cloud-detail__action:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    background: var(--surface);
+}
+
+.cloud-detail__action:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
 .cloud-detail__body > .cloud-stat-grid,
 .cloud-detail__body > .cloud-prop-grid,
 .cloud-detail__body > .cloud-panel-card,
@@ -512,12 +635,6 @@ button.cloud-overview__fact-value:disabled {
     margin-bottom: 16px;
 }
 
-.cloud-detail__toolbar {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: center;
-}
 
 .cloud-stat-grid,
 .cloud-prop-grid {
@@ -725,6 +842,13 @@ button.cloud-overview__fact-value:disabled {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.cloud-metrics__picker {
+    min-width: 160px;
+    max-width: 240px;
 }
 
 .cloud-metrics__hint {
@@ -745,7 +869,6 @@ button.cloud-overview__fact-value:disabled {
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
 }
 
 .cloud-metrics__toolbar,
@@ -757,33 +880,32 @@ button.cloud-overview__fact-value:disabled {
 .cloud-metrics__cards {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: auto;
+    align-content: start;
+    align-items: start;
     gap: 12px;
     min-width: 0;
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-}
-
-.cloud-metrics__card,
-.cloud-metrics__chart,
-.cloud-metrics__chart-wrap {
-    min-width: 0;
+    /* 按内容撑开，由详情 body 滚动，避免网格行被压矮裁切折线 */
+    flex: 0 0 auto;
 }
 
 .cloud-metrics__card {
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    align-self: start;
     width: 100%;
     max-width: 100%;
+    min-width: 0;
+    height: auto;
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 12px 14px 10px;
+    padding: 12px 14px 12px;
     background: var(--bg-elevated, var(--bg));
     color: inherit;
     text-align: left;
     cursor: pointer;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .cloud-metrics__card:hover,
@@ -805,6 +927,7 @@ button.cloud-overview__fact-value:disabled {
     gap: 8px;
     font-size: 13px;
     margin-bottom: 10px;
+    flex-shrink: 0;
 }
 
 .cloud-metrics__card-head strong {
@@ -824,7 +947,9 @@ button.cloud-overview__fact-value:disabled {
 .cloud-metrics__chart,
 .cloud-metrics__chart-wrap {
     position: relative;
-    min-height: 0;
+    flex: 0 0 auto;
+    min-width: 0;
+    min-height: 200px;
 }
 
 .cloud-metrics__empty {
@@ -848,12 +973,16 @@ button.cloud-overview__fact-value:disabled {
     display: block;
     width: 100%;
     max-width: 100%;
-    height: 168px;
+    height: 200px;
     color: var(--accent, #2563eb);
 }
 
+.cloud-metrics__card--hero .cloud-metrics__chart-wrap {
+    min-height: 240px;
+}
+
 .cloud-metrics__card--hero .cloud-metrics__svg {
-    height: 220px;
+    height: 240px;
 }
 
 .cloud-metrics__grid {
@@ -963,9 +1092,17 @@ line.cloud-metrics__grid {
         grid-template-columns: minmax(0, 1fr);
     }
 
+    .cloud-metrics__chart-wrap {
+        min-height: 180px;
+    }
+
     .cloud-metrics__svg,
     .cloud-metrics__card--hero .cloud-metrics__svg {
-        height: 160px;
+        height: 180px;
+    }
+
+    .cloud-metrics__card--hero .cloud-metrics__chart-wrap {
+        min-height: 180px;
     }
 
     .cloud-metrics__hint {
@@ -985,10 +1122,18 @@ line.cloud-metrics__grid {
 
 .cloud-detail--list .cloud-detail__body > .cloud-logs,
 .cloud-detail--list .cloud-detail__body > .cloud-rules,
-.cloud-detail--list .cloud-detail__body > .cloud-children,
-.cloud-detail--list .cloud-detail__body > .cloud-metrics {
-    flex: 1 1 auto;
+.cloud-detail--list .cloud-detail__body > .cloud-children {
+    flex: 1 1 0;
     min-height: 0;
+    margin-bottom: 12px;
+}
+
+/* 监控图按内容高度展开，避免被 list 布局压矮后裁切折线 */
+.cloud-detail--list .cloud-detail__body > .cloud-metrics {
+    flex: 0 0 auto;
+    min-height: auto;
+    height: auto;
+    overflow: visible;
     margin-bottom: 12px;
 }
 
@@ -1325,29 +1470,4 @@ line.cloud-metrics__grid {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
-}
-
-.cloud-overview__alerts {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.cloud-overview__alert {
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 13px;
-    border: 1px solid var(--border);
-}
-
-.cloud-overview__alert--warn {
-    border-color: color-mix(in oklch, var(--warn, #d97706) 40%, var(--border));
-    background: color-mix(in oklch, var(--warn, #d97706) 10%, transparent);
-}
-
-.cloud-overview__alert--info {
-    background: var(--bg-elevated, var(--bg));
 }
