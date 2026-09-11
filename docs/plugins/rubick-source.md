@@ -29,7 +29,7 @@ OmniPanel 市场除官方源外，可展示 Rubick 系（npm 包形态，与 uTo
 ## compat 垫片（preload 转译）
 
 - 原 preload（含 Node 依赖）一律不执行；analyzer 识别其定义的 `window.*`：全集 ⊆ 已知集时建议垫片（如 `ip-tools-v1`：lanIPv4/wan_no_proxy/wan_has_proxy/locationInfo/confetti），未知全局即 external-only 并点名。
-- 垫片随包（`entry.compat`，overlay 渲染紧随 prelude 注入），基于宿主桥实现：内网地址→`network.getLocalIPs`、公网/定位→直调 fetch（走受闸桥）、复制→`clipboard.write`（只写）、撒花→noop。
+- 垫片随包（`entry.compat`，overlay 渲染紧随 prelude 注入），基于宿主桥实现：内网地址→`network.getLocalIPs`、公网/定位→直调 fetch（走受闸桥）、复制→`clipboard.write`（只写）、平台判断（isLinux/isMacOs/isWindows）→页内 UA 嗅探、进入回调（onPluginEnter）→overlay 带参、撒花→noop。
 - 定位语义差异：沙箱无 OS 定位，垫片用 IP 归属回退（市级精度），文档与对话框如实说明，不伪装精度。
 
 ## 信任链
