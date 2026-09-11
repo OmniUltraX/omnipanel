@@ -186,6 +186,11 @@ fn load_source_cfgs(
     if ensure_official {
         storage.registry_source_ensure_builtin(OFFICIAL_SOURCE_ID, OFFICIAL_REGISTRY_URL)?;
     }
+    // Rubick 第三方种子源：内置但默认禁用，用户在插件源设置中手动开启。
+    storage.registry_source_ensure_builtin_disabled(
+        crate::commands::external::RUBICK_SOURCE_ID,
+        "",
+    )?;
     let mut out = Vec::new();
     for row in storage.registry_sources_list()? {
         let token = if row.auth_ref.trim().is_empty() {
@@ -382,6 +387,13 @@ pub(crate) const RUBICK_SEED_JSON: &str = include_str!(concat!(
 
 fn bundled_rubick_registry() -> Option<RegistryFile> {
     parse_registry(RUBICK_SEED_JSON).ok().filter(|f| !f.plugins.is_empty())
+}
+
+/// Rubick 种子是否参与合并：源存在且启用（默认禁用，用户在插件源设置中手动开启）。
+fn rubick_seed_wanted(cfgs: &[SourceCfg]) -> bool {
+    cfgs
+        .iter()
+        .any(|c| c.id == crate::commands::external::RUBICK_SOURCE_ID && c.enabled)
 }
 
 /// 无 rubick 来源时补内置种子（与 official 缺洞回填同模式；种子本身即信任根，不走签名流）。
@@ -681,6 +693,10 @@ async fn merged_view(
     let mut files: Vec<(String, RegistryFile)> = Vec::new();
     let mut errors = Vec::new();
     for cfg in cfgs.iter().filter(|c| c.enabled) {
+        // rubick 为内置种子源（无远程 URL），不走通用拉取，由种子回填提供数据
+        if cfg.id == crate::commands::external::RUBICK_SOURCE_ID {
+            continue;
+        }
         let cached = read_source_cache(plugins_root.as_deref(), &cfg.id);
         if !refresh {
             if let Some(file) = cached {
@@ -708,7 +724,9 @@ async fn merged_view(
         files = seed_official_if_empty(files, &errors)?;
     }
     files = fill_bundled_official_gaps(files);
-    files = fill_bundled_rubick_seed(files);
+    if rubick_seed_wanted(&cfgs) {
+        files = fill_bundled_rubick_seed(files);
+    }
     Ok((merge_registries(files), errors))
 }
 
@@ -899,6 +917,13 @@ pub async fn plugin_registry_source_test(
             state.plugin_packages_dir.clone(),
         )
     };
+    if let Some(count) = seed_source_test_count(&cfg.id) {
+        return Ok(SourceTestResult {
+            ok: true,
+            plugin_count: count,
+            error: None,
+        });
+    }
     match fetch_source(&state.plugin_http, &cfg, plugins_root.as_deref()).await {
         Ok((file, tofued)) => {
             if let Some(key) = tofued {
@@ -917,6 +942,14 @@ pub async fn plugin_registry_source_test(
             error: Some(err.to_string()),
         }),
     }
+}
+
+/// 内置种子源（URL 为空）无需测连：直接返回种子条目数。
+pub(crate) fn seed_source_test_count(source_id: &str) -> Option<u32> {
+    if source_id == crate::commands::external::RUBICK_SOURCE_ID {
+        return bundled_rubick_registry().map(|f| f.plugins.len() as u32);
+    }
+    None
 }
 
 #[tauri::command]
@@ -1474,6 +1507,21 @@ mod tests {
         assert!(official.plugins.len() >= before);
         assert!(unique.contains(PLUGIN_ID_CLOUD_HUAWEI));
         assert!(unique.contains(PLUGIN_ID_PANEL_HESTIA));
+    }
+
+    #[test]
+    fn rubick_seed_gated_by_source_enabled() {
+        let cfg = |enabled: bool| SourceCfg {
+            id: crate::commands::external::RUBICK_SOURCE_ID.into(),
+            url: String::new(),
+            enabled,
+            pinned: vec![],
+            token: None,
+            builtin: true,
+        };
+        assert!(rubick_seed_wanted(std::slice::from_ref(&cfg(true))));
+        assert!(!rubick_seed_wanted(std::slice::from_ref(&cfg(false))));
+        assert!(!rubick_seed_wanted(&[]));
     }
 
     #[test]

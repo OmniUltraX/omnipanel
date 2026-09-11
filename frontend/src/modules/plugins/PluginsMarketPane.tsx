@@ -116,6 +116,7 @@ type Props = {
   npmActive: boolean;
   onSearchNpm: () => void;
   onClearNpmSearch: () => void;
+  rubickEnabled: boolean;
   extCategory: ExternalCategory | "all";
   onExtCategory: (category: ExternalCategory | "all") => void;
 };
@@ -142,6 +143,7 @@ export function PluginsMarketPane({
   npmActive,
   onSearchNpm,
   onClearNpmSearch,
+  rubickEnabled,
   extCategory,
   onExtCategory,
 }: Props) {
@@ -289,15 +291,17 @@ export function PluginsMarketPane({
         <WorkbenchActionButton disabled={catalogRefreshing} onClick={onRefreshMarket}>
           {t("plugins.center.refresh")}
         </WorkbenchActionButton>
-        {npmActive ? (
-          <WorkbenchActionButton onClick={onClearNpmSearch}>
-            {t("plugins.center.clearNpmSearch")}
-          </WorkbenchActionButton>
-        ) : (
-          <WorkbenchActionButton disabled={npmSearching} onClick={onSearchNpm}>
-            {npmSearching ? t("plugins.center.searching") : t("plugins.center.searchNpm")}
-          </WorkbenchActionButton>
-        )}
+        {rubickEnabled ? (
+          npmActive ? (
+            <WorkbenchActionButton onClick={onClearNpmSearch}>
+              {t("plugins.center.clearNpmSearch")}
+            </WorkbenchActionButton>
+          ) : (
+            <WorkbenchActionButton disabled={npmSearching} onClick={onSearchNpm}>
+              {npmSearching ? t("plugins.center.searching") : t("plugins.center.searchNpm")}
+            </WorkbenchActionButton>
+          )
+        ) : null}
       </div>
       {updates.length > 0 ? (
         <div className="plugin-center-updates">
