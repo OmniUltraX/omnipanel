@@ -90,6 +90,8 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
   deferActiveTabNotify?: boolean;
   /** pointerdown 乐观高亮后立刻回调（早于 onActiveTabChange） */
   onActiveTabPreview?: (tabId: string) => void;
+  /** 所有 group 的 active panel（分屏时每个 group 各一个）；用于判断面板是否「可见」 */
+  onGroupsActiveTabIdsChange?: (ids: string[]) => void;
   /**
    * 模块非 live / 首页预热：挂起重活（chrome/layout 可保留）。
    * 配合 stickyVisit：预热从未 live 时不挂内容；曾 live 后切走保留已访问 Tab。
@@ -136,6 +138,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
   defaultRenderer = "onlyWhenVisible",
   deferActiveTabNotify,
   onActiveTabPreview,
+  onGroupsActiveTabIdsChange,
   contentSuspended = false,
   stickyVisit = false,
 }: ModuleSegmentDockProps) {
@@ -265,6 +268,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
       defaultRenderer={resolvedRenderer}
       deferActiveTabNotify={deferActiveTabNotify}
       onActiveTabPreview={onActiveTabPreview}
+      onGroupsActiveTabIdsChange={onGroupsActiveTabIdsChange}
     />
   );
 });

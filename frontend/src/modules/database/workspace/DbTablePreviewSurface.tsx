@@ -13,7 +13,7 @@ import {
   useDbWorkspace,
   useDbTabWorkspaceSliceOrMirror,
 } from "../../../contexts/DbWorkspaceContext";
-import { useDbDockTabActive } from "../useDbDockTabActive";
+import { useDbDockTabActive, useDbDockTabVisible } from "../useDbDockTabActive";
 import type { TablePreviewWorkspaceTab } from "./workspaceTabs";
 import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
 import {
@@ -119,7 +119,11 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const { t } = useI18n();
   const ws = useDbWorkspace();
   const storeActive = useDbDockTabActive(tab.id);
+  const storeVisible = useDbDockTabVisible(tab.id);
+  /** 聚焦态：快捷键 / 单元格编辑器 / 详情面板同步等只属于聚焦面板 */
   const active = activeProp ?? storeActive;
+  /** 可见态：display:none / canvas 位图清理；分屏后非聚焦 group 的 active 也算可见 */
+  const visible = activeProp ?? storeVisible;
   const cellEditorRef = useRef<CellEditorPanelHandle>(null);
   const detailPanelRef = useRef<PanelImperativeHandle | null>(null);
   /** 用户拖拽后的尺寸（按右/底分别记 px），避免 expand() 回落到 minSize */
@@ -921,9 +925,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   // 勿用 active 卸载网格/详情：Dock keep-alive 下卸载再挂载会明显「闪加载」
   // 但 macOS WKWebView 下 dockview 的 visibility:hidden 压不住绝对定位 canvas 合成层，
   // 切到库列表/其他 Tab 时会透出旧表数据残影——与 SQL 结果区同因，用 display:none 切断。
+  // 判定用 visible（分屏时非聚焦 group 的面板同样可见），否则分屏另一侧会被清成空白。
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
-    if (!active) {
+    if (!visible) {
       const root = surfaceRef.current;
       if (!root) return;
       for (const canvas of root.querySelectorAll("canvas")) {
@@ -940,7 +945,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
         wrap.dispatchEvent(new Event("scroll", { bubbles: true }));
       });
     }
-  }, [active]);
+  }, [visible]);
 
   const detailPanel = (
     <TableDetailPanel
@@ -1070,16 +1075,17 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   ) : null;
 
   /**
-   * 非激活时 display:none 切断 Canvas 合成穿透（Mac WKWebView）。
+   * 非可见时 display:none 切断 Canvas 合成穿透（Mac WKWebView）。
    * dockview 仅 visibility:hidden 时，绝对定位 canvas 仍会盖住当前 Tab（总览「卡住」/#44）。
-   * 不卸载 React 树，切回不闪；active 由 onActiveTabPreview 在 pointerdown 同步写入。
+   * 不卸载 React 树，切回不闪；visible 由 onActiveTabPreview / 分屏 group active 上报同步写入。
+   * 注意用 visible 而非 active：分屏后非聚焦 group 的面板也是可见的。
    */
   return (
     <div
       ref={surfaceRef}
       className="db-workspace-pane db-workspace-pane--data"
-      style={active ? undefined : { display: "none" }}
-      aria-hidden={!active}
+      style={visible ? undefined : { display: "none" }}
+      aria-hidden={!visible}
     >
       {preview?.error ? (
         <div

@@ -8,6 +8,7 @@ import {
   findTopmostWindowHitSync,
   findWindowLabelAtScreenPoint,
   getSoleOtherWindowLabelSync,
+  hasOtherVisibleWindowSync,
   isPointerOutsideCurrentWindow,
   isWindowChromePointerTarget,
   primeWindowBoundsCache,
@@ -118,7 +119,12 @@ function emitSourceCleanup(
   }).catch(() => {});
 }
 const REMOTE_DRAG_TTL_MS = 30_000;
-const DRAG_THRESHOLD_PX = 4;
+/**
+ * 判定「真实拖拽」的位移阈值（逻辑像素）。
+ * 与 dockview `dndStrategy="pointer"` 的默认启动阈值（5px）保持一致：
+ * 低于该阈值只可能是单击 tab，绝不能当成拖拽落点。
+ */
+const DRAG_THRESHOLD_PX = 5;
 const DRAG_COMPLETION_LOCK_TIMEOUT_MS = 800;
 const WORKSPACE_DOCK_SELECTOR = ".workspace-panel-dock";
 const WORKSPACE_DOCK_SCOPE_PREFIX = "workspace-bottom-";
@@ -135,6 +141,14 @@ let pointerSeed: PointerDragSeed | null = null;
 let localDrag: CrossWindowDockDragPayload | null = null;
 let remoteDrag: (CrossWindowDockDragPayload & { expiresAt: number }) | null = null;
 let activeBroadcast = false;
+/**
+ * 本次 pointerdown 之后指针是否已真实移动超过拖拽阈值。
+ *
+ * 单击 tab 时 `onTabGrab` 也会埋下 pointerSeed，但指针并没有移动；
+ * 若 pointerup 仅凭 pointerSeed 存在就进入落点解析，mac 上
+ * （缺 z-order 命中能力）会把单击误判成跨窗拖出 → 标签被移走/消失。
+ */
+let pointerMovedEnough = false;
 let dragCompletionLock = false;
 let dragCompletionLockTimer: ReturnType<typeof setTimeout> | null = null;
 let dragFinishToken = 0;
@@ -273,18 +287,22 @@ function clearLocalWorkspaceDockDragArtifacts(): void {
     });
 }
 
-function dragMovedEnoughAt(_screenX: number, _screenY: number): boolean {
+function dragMovedEnoughAt(screenX: number, screenY: number): boolean {
   if (remoteDrag && remoteDrag.expiresAt > Date.now()) return true;
   if (localDrag) return true;
   if (!pointerSeed) {
     return isWorkspaceDockDragActive() && Boolean(panelIdFromActiveDrag());
   }
-  // pointerSeed 存在意味着 onTabGrab 成功触发拖拽，直接返回 true。
-  // 不依赖 isWorkspaceDockDragActive()（dragging class 可能被 resetDragSession 移除），
-  // 否则会在 onPointerUp 时误判为"未移动足够距离"，走 quietAbortDrag →
-  // cancelDockviewPointerDrag → 派发 pointercancel → dockview _teardown →
-  // _upListener 被 dispose，pointerup 不触发 handleDrop（分屏失效）。
-  return true;
+  // pointerSeed 存在只说明 onTabGrab 收到过 pointerdown，**不代表发生了拖拽**：
+  // 单击 tab 同样会埋 seed。这里必须再确认指针真实位移超过阈值
+  // （或 dockview 已进入拖拽态），否则 mac 上单击 tab 会被落点解析
+  // 误判为跨窗拖出 → 标签被移走。
+  if (pointerMovedEnough || isWorkspaceDockDragActive()) return true;
+  if (pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0) return true;
+  return (
+    Math.hypot(screenX - pointerSeed.startScreenX, screenY - pointerSeed.startScreenY) >=
+    DRAG_THRESHOLD_PX
+  );
 }
 
 function buildDragSessionFromSeed(seed: PointerDragSeed): CrossWindowDockDragPayload {
@@ -308,6 +326,7 @@ function resolveDragSession(): CrossWindowDockDragPayload | null {
 function resetPointerSeed(): void {
   pointerSeed = null;
   activeBroadcast = false;
+  pointerMovedEnough = false;
 }
 
 function clearRemoteDrag(): void {
@@ -332,6 +351,7 @@ function seedPointerFromPanelId(
     startScreenY: screenY,
   };
   activeBroadcast = false;
+  pointerMovedEnough = false;
   crossDockLog(`seed panelId=${panelId} ws=${found.workspaceId}`);
   return true;
 }
@@ -1089,17 +1109,22 @@ export function initCrossWindowDockTransfer(): () => void {
       }
     }
 
-    const movedEnough =
-      !pointerSeed ||
-      pointerSeed.startScreenX === 0 ||
-      Math.hypot(
-        event.screenX - pointerSeed.startScreenX,
-        event.screenY - pointerSeed.startScreenY,
-      ) >= DRAG_THRESHOLD_PX ||
-      isWorkspaceDockDragActive() ||
-      isPointerOutsideCurrentWindow(event.screenX, event.screenY);
+    // 拖拽判定只看「指针位移」+「dockview 拖拽态」：
+    // 不再用 isPointerOutsideCurrentWindow —— mac 上窗口几何/DPI 命中不可靠，
+    // 单击 tab 时也会被判成「已出窗」，从而误触发跨窗转移。
+    const draggedByDistance = pointerSeed
+      ? pointerSeed.startScreenX === 0 && pointerSeed.startScreenY === 0
+        ? true
+        : Math.hypot(
+            event.screenX - pointerSeed.startScreenX,
+            event.screenY - pointerSeed.startScreenY,
+          ) >= DRAG_THRESHOLD_PX
+      : true;
+
+    const movedEnough = draggedByDistance || isWorkspaceDockDragActive();
 
     if (!movedEnough) return;
+    pointerMovedEnough = true;
 
     const session =
       localDrag ??
@@ -1124,6 +1149,22 @@ export function initCrossWindowDockTransfer(): () => void {
     }
 
     if (!remote && !dragMovedEnoughAt(event.screenX, event.screenY)) {
+      if (pointerSeed) {
+        // 单击 tab（指针未达拖拽阈值）：只丢弃本次指针种子，绝不走落点解析。
+        // 不能走 quietAbortDrag —— 它会派发合成 pointercancel：
+        // 既打断 dockview 的 tab 点击激活 / 同窗分屏 drop，又会重入本回调。
+        const wasBroadcasting = activeBroadcast;
+        resetPointerSeed();
+        localDrag = null;
+        clearRemoteDrag();
+        releaseDragCompletionLock();
+        if (wasBroadcasting) {
+          void import("./crossWindowDragVisual").then(({ broadcastCrossWindowDragEndLite }) =>
+            broadcastCrossWindowDragEndLite()
+          );
+        }
+        return;
+      }
       quietAbortDrag();
       return;
     }
@@ -1136,7 +1177,11 @@ export function initCrossWindowDockTransfer(): () => void {
       const topmost = findTopmostWindowHitSync(event.screenX, event.screenY);
       overlapHit = topmost && topmost !== currentLabel ? topmost : null;
     }
-    const isCrossWindow = remote || outside || overlapHit !== null;
+    // 没有任何其他可见窗口时绝不走跨窗路径：
+    // 交给 dockview 自己完成同窗分屏，避免边界误差把分屏判成跨窗拖出。
+    const otherVisibleWindow = hasOtherVisibleWindowSync(currentLabel);
+    const isCrossWindow =
+      Boolean(remote) || (otherVisibleWindow && (outside || overlapHit !== null));
     crossDockLog(
       `pointerup on=${currentLabel} screen=(${event.screenX},${event.screenY}) outside=${outside} overlapHit=${overlapHit} remote=${remote ? remote.sourceWindowLabel : "null"} isCrossWindow=${isCrossWindow}`,
     );

@@ -8345,6 +8345,13 @@
         min-height: 26px;
     }
 
+    /* WebKit（macOS）空 datetime-local 会渲染当前时间占位文本，弱化为灰色提示 */
+    .db-qf-value[type="date"][data-empty="true"],
+    .db-qf-value[type="time"][data-empty="true"],
+    .db-qf-value[type="datetime-local"][data-empty="true"] {
+        color: var(--text-muted, #8e8e93);
+    }
+
     .db-qf-value--check {
         width: 14px;
         height: 14px;

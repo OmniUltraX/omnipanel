@@ -41,9 +41,58 @@ function isRuleGroup(rule: RuleType | RuleGroupType): rule is RuleGroupType {
   return "rules" in rule;
 }
 
+/** 过滤值是否为空（空串/空白串/空数组/null 均视为未填写） */
+export function isEmptyFilterValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) {
+    return value.length === 0 || value.every((item) => isEmptyFilterValue(item));
+  }
+  return false;
+}
+
+/** 操作符是否需要填写值（NULL / NOT NULL 类操作符不需要） */
+export function filterOperatorNeedsValue(operator: unknown): boolean {
+  const op = typeof operator === "string" ? operator.toLowerCase() : "";
+  return op !== "null" && op !== "notnull" && op !== "isnull" && op !== "isnotnull";
+}
+
+/**
+ * 移除「需要值但值为空」的叶子条件，递归处理嵌套组。
+ * 用于避免空值被格式化成 `col = ''`（例如 MySQL DATETIME 直接报 1525）。
+ * 清空后无剩余条件时返回 null。
+ */
+export function pruneEmptyFilterRules(
+  filter: RuleGroupType | null | undefined,
+): RuleGroupType | null {
+  if (!filter) return null;
+  const prune = (group: RuleGroupType): RuleGroupType => {
+    const rules: (RuleType | RuleGroupType | string)[] = [];
+    for (const rule of group.rules) {
+      if (typeof rule === "string") {
+        rules.push(rule);
+        continue;
+      }
+      if (isRuleGroup(rule)) {
+        const nested = prune(rule);
+        if (nested.rules.length > 0) rules.push(nested);
+        continue;
+      }
+      if (filterOperatorNeedsValue(rule.operator) && isEmptyFilterValue(rule.value)) {
+        continue;
+      }
+      rules.push(rule);
+    }
+    return { ...group, rules: rules as RuleGroupType["rules"] };
+  };
+  const pruned = prune(filter);
+  return isTableFilterActive(pruned) ? pruned : null;
+}
+
 export function getFilterColumnNames(filter: RuleGroupType | null | undefined): Set<string> {
   const names = new Set<string>();
-  if (!filter) return names;
+  const effective = pruneEmptyFilterRules(filter);
+  if (!effective) return names;
 
   const walk = (group: RuleGroupType) => {
     for (const rule of group.rules) {
@@ -54,7 +103,7 @@ export function getFilterColumnNames(filter: RuleGroupType | null | undefined): 
       }
     }
   };
-  walk(filter);
+  walk(effective);
   return names;
 }
 
@@ -162,7 +211,10 @@ export function shouldUseRelationJoinPreview(
   sort: SortStates | null | undefined,
 ): boolean {
   if (Object.keys(columnRelations).length === 0) return false;
-  return filterUsesRelationColumns(filter, columnRelations) || sortUsesRelationColumn(sort);
+  return (
+    filterUsesRelationColumns(pruneEmptyFilterRules(filter), columnRelations) ||
+    sortUsesRelationColumn(sort)
+  );
 }
 
 export function formatFilterWhere(
@@ -170,9 +222,10 @@ export function formatFilterWhere(
   dbType: string,
   columnMeta?: DbColumnMeta[],
 ): string | undefined {
-  if (!isTableFilterActive(filter)) return undefined;
+  const effective = pruneEmptyFilterRules(filter);
+  if (!effective) return undefined;
   const fields = columnMeta?.length ? buildFilterFields(columnMeta) : undefined;
-  const sql = formatQuery(filter!, {
+  const sql = formatQuery(effective, {
     format: "sql",
     preset: sqlPresetForDbType(dbType),
     ...(fields
@@ -562,12 +615,13 @@ function formatFilterWhereWithRelations(
   columnRelations: Record<string, TableColumnRelation>,
   relationTables?: TableSchema[],
 ): string | undefined {
-  if (!isTableFilterActive(filter)) return undefined;
+  const effective = pruneEmptyFilterRules(filter);
+  if (!effective) return undefined;
   const fields =
     columnMeta?.length || Object.keys(columnRelations).length > 0
       ? buildPreviewFilterFields(columnMeta ?? [], columnRelations, relationTables)
       : undefined;
-  const sql = formatQuery(filter!, {
+  const sql = formatQuery(effective, {
     format: "sql",
     preset: sqlPresetForDbType(dbType),
     ...(fields

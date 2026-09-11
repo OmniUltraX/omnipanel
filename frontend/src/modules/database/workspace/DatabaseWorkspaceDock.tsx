@@ -77,6 +77,11 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
         // pointerdown 同步写入，避免 dock 先露出面板时内容仍按旧 active 藏起来
         useDbWorkspaceActiveTabStore.getState().setActiveTabId(tabId);
       }}
+      onGroupsActiveTabIdsChange={(ids) => {
+        // 分屏后每个 group 各有一个 active panel：都要算「可见」，
+        // 否则非聚焦那一侧会被 display:none 成空白，聚焦后才恢复
+        useDbWorkspaceActiveTabStore.getState().setGroupActiveTabIds(ids);
+      }}
       onCloseTab={onCloseTab}
       savedLayout={dockLayout}
       onSavedLayoutChange={setDockLayout}

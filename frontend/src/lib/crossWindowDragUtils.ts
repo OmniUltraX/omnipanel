@@ -1,9 +1,39 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { cursorPosition } from "@tauri-apps/api/window";
-import { getAllWebviewWindows } from "@tauri-apps/api/webviewWindow";
+import { getAllWebviewWindows, type WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { workspaceIdFromLabel } from "./workspaceWindow";
+
+/** 非 dock 宿主的窗口：不能作为跨窗 tab 落点（快捷启动窗只是输入框）。 */
+const NON_DROP_TARGET_LABELS = new Set(["quick-launcher"]);
+
+/**
+ * 可作为跨窗 tab drop 目标的窗口。
+ *
+ * **必须过滤隐藏窗口**：模块独立窗预热时是 `.center()` + `visible(false)` 的
+ * 1200×800 / 800×560 窗口，快捷启动窗 hide 后被 park 到屏外。
+ * 若把它们算进几何命中（`findTopmostWindowHitSync`）或「唯一其他窗口」
+ * （`getSoleOtherWindowLabelSync`），同窗拖拽分屏时落点会命中隐藏窗，
+ * 被判成跨窗拖出 → 源窗 tab 被 removePanel 移除（表现为「拖一下就没了」）。
+ *
+ * `isVisible()` 调用异常时保守保留该窗口，避免因 API 差异误伤真实目标窗。
+ */
+async function collectDropTargetWindows(): Promise<WebviewWindow[]> {
+  const wins = await getAllWebviewWindows();
+  const resolved = await Promise.all(
+    wins.map(async (win) => {
+      if (NON_DROP_TARGET_LABELS.has(win.label)) return null;
+      try {
+        if (!(await win.isVisible())) return null;
+      } catch {
+        // ignore：保留该窗口
+      }
+      return win;
+    }),
+  );
+  return resolved.filter((win): win is WebviewWindow => win !== null);
+}
 
 /** 优先用事件坐标换算物理像素，避免每次松手都打 cursorPosition IPC（可达 1s+） */
 export async function resolvePhysicalScreenPoint(
@@ -89,6 +119,13 @@ type WindowBounds = {
 let cachedWindowBounds: WindowBounds[] | null = null;
 let cachedWindowBoundsAt = 0;
 const WINDOW_BOUNDS_CACHE_MS = 1_000;
+/**
+ * z-order 是否可用（`window_z_order` 仅有 Win32 实现，macOS 返回空数组）。
+ *
+ * 不可用时 `cachedWindowBounds` 的顺序就是 `getAllWebviewWindows()` 的任意顺序，
+ * 「第一个几何命中」≠ 视觉最顶层窗口，因此禁用 topmost 命中判定。
+ */
+let cachedWindowZOrderAvailable = false;
 
 /**
  * 同步命中测试：用已缓存的窗口几何（物理像素）判断屏幕坐标（CSS 逻辑像素）
@@ -136,6 +173,19 @@ export function getSoleOtherWindowLabelSync(currentLabel?: string): string | nul
 }
 
 /**
+ * 是否存在其他「可见」窗口（同步读缓存）。
+ *
+ * 没有任何其他可见窗口时，跨窗路径必须完全不介入：
+ * 否则 `isPointerOutsideCurrentWindow` 的边界误差（含 4px margin，
+ * 无边框窗 tab 栏贴顶时很容易命中）会把同窗拖拽分屏判成跨窗，
+ * 抢走 dockview 的 drop → 分屏失效 / tab 被移走。
+ */
+export function hasOtherVisibleWindowSync(currentLabel?: string): boolean {
+  if (!cachedWindowBounds || cachedWindowBounds.length === 0) return false;
+  return cachedWindowBounds.some((b) => b.label !== currentLabel);
+}
+
+/**
  * 找 z-order 最顶层命中窗口（不排除源窗）。
  *
  * `cachedWindowBounds` 已按 z-order（顶→底）排序，
@@ -149,6 +199,10 @@ export function findTopmostWindowHitSync(
   screenX: number,
   screenY: number,
 ): string | null {
+  // 没有真实 z-order（macOS）时 bounds 顺序不可信，返回 null：
+  // 否则同窗分屏拖拽的落点会「命中」另一个几何重叠的窗口，
+  // 被判成跨窗拖出，tab 直接从当前 dock 被移走。
+  if (!cachedWindowZOrderAvailable) return null;
   if (!cachedWindowBounds || cachedWindowBounds.length === 0) return null;
   const dpr = window.devicePixelRatio || 1;
   const x = screenX * dpr;
@@ -167,7 +221,7 @@ export async function getCachedWebviewWindowLabels(
 ): Promise<string[]> {
   const now = Date.now();
   if (!cachedWebviewWindowLabels || now - cachedWebviewWindowsAt > WEBVIEW_WINDOW_CACHE_MS) {
-    const wins = await getAllWebviewWindows();
+    const wins = await collectDropTargetWindows();
     cachedWebviewWindowLabels = wins.map((w) => w.label);
     cachedWebviewWindowsAt = now;
   }
@@ -208,7 +262,8 @@ async function getCachedWindowBounds(): Promise<WindowBounds[]> {
   if (cachedWindowBounds && now - cachedWindowBoundsAt <= WINDOW_BOUNDS_CACHE_MS) {
     return cachedWindowBounds;
   }
-  const wins = await getAllWebviewWindows();
+  // 只统计可见窗口（隐藏的模块窗/快捷启动窗不是落点目标）
+  const wins = await collectDropTargetWindows();
   const bounds: WindowBounds[] = [];
   await Promise.all(
     wins.map(async (w) => {
@@ -230,9 +285,11 @@ async function getCachedWindowBounds(): Promise<WindowBounds[]> {
   // 获取 Win32 z-order（顶→底），按 z-order 排序 bounds。
   // 多窗口重叠时 findOtherWindowHitSync 必须返回最顶层命中窗口，
   // 而非 HashMap 迭代顺序的第一个（可能是底层窗口）。
+  cachedWindowZOrderAvailable = false;
   try {
     const zOrder = await invoke<string[]>("window_z_order");
     if (zOrder.length > 0) {
+      cachedWindowZOrderAvailable = true;
       const orderIndex = new Map(zOrder.map((label, i) => [label, i]));
       bounds.sort((a, b) => {
         const ai = orderIndex.get(a.label) ?? Number.MAX_SAFE_INTEGER;
@@ -241,7 +298,7 @@ async function getCachedWindowBounds(): Promise<WindowBounds[]> {
       });
     }
   } catch {
-    // z-order 不可用时退回原始顺序（HashMap 顺序）
+    // z-order 不可用时退回原始顺序（HashMap 顺序），并禁用 topmost 命中判定
   }
 
   cachedWindowBounds = bounds;
@@ -256,6 +313,7 @@ export function clearWebviewWindowLabelCache(): void {
   cachedWebviewWindowsAt = 0;
   cachedWindowBounds = null;
   cachedWindowBoundsAt = 0;
+  cachedWindowZOrderAvailable = false;
 }
 
 /** 窗口标题栏控件（最小化/最大化/关闭），跨窗 pointerup 时仅静默清理、不拦截 click */

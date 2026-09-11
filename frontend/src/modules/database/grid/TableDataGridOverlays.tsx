@@ -18,6 +18,8 @@ import {
   buildPreviewFilterFields,
   ensureTableFilterQuery,
   extractColumnFilter,
+  filterOperatorNeedsValue,
+  isEmptyFilterValue,
   isTableFilterActive,
   mergeColumnFilter,
   TABLE_FILTER_ALL_COLUMNS,
@@ -52,10 +54,6 @@ const OPERATORS = [
   "null",
   "notNull",
 ] as const;
-
-function operatorNeedsValue(operator: string): boolean {
-  return operator !== "null" && operator !== "notNull";
-}
 
 function flattenLeafRules(group: RuleGroupType | null | undefined): RuleType[] {
   const out: RuleType[] = [];
@@ -132,6 +130,8 @@ function FilterValueInput({
       className="db-qf-value"
       type={resolvedType}
       value={typeof value === "boolean" ? String(value) : (value ?? "")}
+      // 标记空值：WebKit 空 datetime-local 会显示当前时间的浅色文本，需与真实值区分
+      data-empty={isEmptyFilterValue(value) ? "true" : undefined}
       disabled={disabled}
       placeholder={t("database.results.filterValuePlaceholder")}
       aria-label={t("database.results.filterValue")}
@@ -328,14 +328,20 @@ export function TableDataGridFilterPopover({
 
   const buildGroupFromDraft = useCallback(
     (rules: DraftRule[]): RuleGroupType | null => {
-      const active = rules.filter((rule) => !rule.disabled && rule.field);
+      // 未填写值的条件（如时间列默认空值）不参与过滤，避免生成 `col = ''`
+      const active = rules.filter(
+        (rule) =>
+          !rule.disabled &&
+          rule.field &&
+          (!filterOperatorNeedsValue(rule.operator) || !isEmptyFilterValue(rule.value)),
+      );
       if (active.length === 0) return null;
       return ensureTableFilterQuery({
         combinator: "and",
         rules: active.map((rule) => ({
           field: isTableWide ? rule.field : lockedField,
           operator: rule.operator,
-          value: operatorNeedsValue(rule.operator) ? rule.value : null,
+          value: filterOperatorNeedsValue(rule.operator) ? rule.value : null,
         })),
       });
     },
@@ -437,7 +443,7 @@ export function TableDataGridFilterPopover({
                     </option>
                   ))}
                 </select>
-                {operatorNeedsValue(rule.operator) ? (
+                {filterOperatorNeedsValue(rule.operator) ? (
                   <FilterValueInput
                     inputType={
                       inputTypeByField.get(rule.field) ??

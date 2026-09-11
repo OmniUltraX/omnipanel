@@ -236,7 +236,7 @@ import {
 } from "./workspace/databasePanelTabKeys";
 import { DbPanelSurface } from "./workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "./workspace/DbTablePreviewSurface";
-import { DbDockTabActive } from "./workspace/DbDockTabActive";
+import { DbDockTabActive, DbDockTabVisible } from "./workspace/DbDockTabActive";
 import { DbSidebarLinkageProvider } from "./schema/DbSidebarLinkageContext";
 import { collectOpenTabNodeIds, resolveDbSidebarLinkageFromTab } from "./schema/resolveDbSidebarLinkage";
 import { useDbSidebarLinkageStore } from "../../stores/dbSidebarLinkageStore";
@@ -5918,12 +5918,13 @@ export function DatabasePanel() {
                 connection,
               };
               return (
-                <DbDockTabActive tabId={tab.id}>
-                  {(active) => (
+                // 库列表按「可见」隐藏：分屏后非聚焦 group 的面板也要显示
+                <DbDockTabVisible tabId={tab.id}>
+                  {(visible) => (
                     <div
                       className="db-workspace-pane db-dock-pane"
-                      style={active ? undefined : { display: "none" }}
-                      aria-hidden={!active}
+                      style={visible ? undefined : { display: "none" }}
+                      aria-hidden={!visible}
                     >
                       <DatabaseTablesPanel
                         selection={selection}
@@ -5954,7 +5955,7 @@ export function DatabasePanel() {
                       />
                     </div>
                   )}
-                </DbDockTabActive>
+                </DbDockTabVisible>
               );
             }}
           </ConnectionResolvedDockPane>

@@ -11,8 +11,12 @@ import {
   buildTablePreviewDataSqlWithRelations,
   buildTablePreviewSql,
   clearColumnFilter,
+  filterOperatorNeedsValue,
   formatFilterWhere,
+  getFilterColumnNames,
+  isEmptyFilterValue,
   isQuickFilterKindEnabled,
+  pruneEmptyFilterRules,
   shouldUseRelationJoinPreview,
 } from "./tablePreviewFilter";
 import { relationDisplayColumnId } from "./tableColumnRelation";
@@ -163,6 +167,78 @@ describe("tablePreviewFilter quick filter", () => {
       "mysql",
     );
     expect(notContainsSql?.toLowerCase()).toContain("not like");
+  });
+});
+
+describe("tablePreviewFilter empty values", () => {
+  const columnMeta: DbColumnMeta[] = [
+    { name: "created_at", type: "DATETIME", isPk: false, isFk: false },
+  ];
+
+  it("treats blank strings / null / empty arrays as empty", () => {
+    expect(isEmptyFilterValue("")).toBe(true);
+    expect(isEmptyFilterValue("   ")).toBe(true);
+    expect(isEmptyFilterValue(null)).toBe(true);
+    expect(isEmptyFilterValue(undefined)).toBe(true);
+    expect(isEmptyFilterValue([])).toBe(true);
+    expect(isEmptyFilterValue("2026-09-11 12:30:00")).toBe(false);
+    expect(isEmptyFilterValue(0)).toBe(false);
+    expect(isEmptyFilterValue(false)).toBe(false);
+  });
+
+  it("knows which operators do not need a value", () => {
+    expect(filterOperatorNeedsValue("=")).toBe(true);
+    expect(filterOperatorNeedsValue(">")).toBe(true);
+    expect(filterOperatorNeedsValue("null")).toBe(false);
+    expect(filterOperatorNeedsValue("notNull")).toBe(false);
+  });
+
+  it("drops rules whose value is empty", () => {
+    const pruned = pruneEmptyFilterRules({
+      combinator: "and",
+      rules: [
+        { field: "created_at", operator: "=", value: "" },
+        { field: "created_at", operator: "notNull", value: null },
+      ],
+    });
+    expect(pruned?.rules).toHaveLength(1);
+    expect(pruned?.rules[0]).toMatchObject({ operator: "notNull" });
+    expect(
+      pruneEmptyFilterRules({
+        combinator: "and",
+        rules: [{ field: "created_at", operator: "=", value: "" }],
+      }),
+    ).toBeNull();
+  });
+
+  it("never formats blank datetime values into SQL", () => {
+    expect(
+      formatFilterWhere(
+        { combinator: "and", rules: [{ field: "created_at", operator: "=", value: "" }] },
+        "mysql",
+        columnMeta,
+      ),
+    ).toBeUndefined();
+    expect(getFilterColumnNames({
+      combinator: "and",
+      rules: [{ field: "created_at", operator: "=", value: "" }],
+    }).size).toBe(0);
+  });
+
+  it("keeps the filled rule when mixing blank and real values", () => {
+    const sql = formatFilterWhere(
+      {
+        combinator: "and",
+        rules: [
+          { field: "created_at", operator: "=", value: "" },
+          { field: "created_at", operator: ">=", value: "2026-09-01 00:00:00" },
+        ],
+      },
+      "mysql",
+      columnMeta,
+    );
+    expect(sql).toContain("2026-09-01 00:00:00");
+    expect(sql).not.toContain("''");
   });
 });
 

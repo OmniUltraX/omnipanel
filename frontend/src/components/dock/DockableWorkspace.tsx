@@ -304,6 +304,14 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
    * 用于同步轻量激活态（如按 tab 布尔订阅），避免内容区等 React 状态时闪空。
    */
   onActiveTabPreview?: (tabId: string) => void;
+  /**
+   * 所有 group 的 active panel id（分屏时每个 group 各有一个）。
+   *
+   * 业务侧 activeTabId 只有单值，分屏后非聚焦 group 的面板会被业务层误判为
+   * 「非激活」而 display:none（分屏另一侧全空白）。业务侧应把这些 id 一并
+   * 视为「可见面板」，只把真正的 activeTabId 视为「聚焦」。
+   */
+  onGroupsActiveTabIdsChange?: (ids: string[]) => void;
   /** 布局变化时在 tab 栏右侧嵌入窗口拖拽区与控制按钮 */
   windowControl?: boolean;
   /** 当前 dock 内 panel 被跨 dockview 拖出后，通知业务 store 做迁出清理 */
@@ -403,6 +411,7 @@ export function DockableWorkspace({
   tabs,
   activeTabId,
   onActiveTabChange,
+  onGroupsActiveTabIdsChange,
   onCloseTab,
   savedLayout,
   onSavedLayoutChange,
@@ -495,6 +504,28 @@ export function DockableWorkspace({
   onCloseTabRef.current = onCloseTab;
   const onActiveTabChangeRef = useRef(onActiveTabChange);
   onActiveTabChangeRef.current = onActiveTabChange;
+  const onGroupsActiveTabIdsChangeRef = useRef(onGroupsActiveTabIdsChange);
+  onGroupsActiveTabIdsChangeRef.current = onGroupsActiveTabIdsChange;
+
+  /**
+   * 上报「所有 group 的 active panel」。
+   *
+   * dockview 分屏后每个 group 各有一个 active panel，而业务侧 activeTabId 是单值：
+   * 非聚焦 group 的面板会被业务层当成「非激活」而 display:none（表现为分屏另一侧空白），
+   * 因此把每个 group 的 active 一并交给业务侧，用于判断「面板是否可见」。
+   */
+  const reportGroupsActiveTabIds = useCallback((api: DockviewApi) => {
+    const cb = onGroupsActiveTabIdsChangeRef.current;
+    if (!cb) return;
+    const ids: string[] = [];
+    for (const group of api.groups) {
+      const panelId = group.activePanel?.id;
+      if (panelId) ids.push(panelId);
+    }
+    cb(ids);
+  }, []);
+  const reportGroupsActiveTabIdsRef = useRef(reportGroupsActiveTabIds);
+  reportGroupsActiveTabIdsRef.current = reportGroupsActiveTabIds;
 
   /**
    * 乐观高亮之后再通知业务：setTimeout(0) 让出首帧 paint，
@@ -2051,6 +2082,7 @@ export function DockableWorkspace({
       const layoutDisposable = api.onDidLayoutChange(() => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
         scheduleSyncTabDragAttributes();
+        reportGroupsActiveTabIdsRef.current(apiRef.current ?? api);
         if (isSyncingRef.current || !layoutLoadedRef.current) return;
         if (lastWrittenFromActiveRef.current) {
           // 切 Tab：toJSON 较重，延后到 paint 之后再抓布局，避免挡住高亮
@@ -2084,6 +2116,7 @@ export function DockableWorkspace({
       const addGroupDisposable = api.onDidAddGroup(() => {
         // 左右分栏松手后 dockview 按全宽 50/50；AI 打开时按剩余宽度重新均分
         scheduleRebalanceHorizontalSplitsForAiDock({ forceEqual: true });
+        reportGroupsActiveTabIdsRef.current(apiRef.current ?? api);
       });
       const removeDisposable = api.onDidRemovePanel((panel: IDockviewPanel) => {
         syncWindowChromeHostRef.current(apiRef.current ?? api);
@@ -2161,6 +2194,9 @@ export function DockableWorkspace({
             scheduleAfterPaintActiveTabNotifyRef.current(notifyActiveId);
           }
         }
+
+        // 分屏下 group 内切换 active 不一定改变全局 activePanel，需在此补一次上报
+        reportGroupsActiveTabIdsRef.current(apiRef.current ?? api);
 
         // 用户切换 tab 后，强制 dockview 重新布局，确保 overlay 位置正确。
         // defaultRenderer="always" 下，overlay 的 resize 通过 rAF 异步执行，
