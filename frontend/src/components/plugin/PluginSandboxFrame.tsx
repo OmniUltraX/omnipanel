@@ -8,6 +8,9 @@ import { useEffect, useMemo, useRef } from "react";
  * - 消息协议：guest→host `{ __omni: true, nonce, type: "request", method, args }`；
  *   host→guest `{ __omni: true, nonce, type: "response" | "error", result?|error? }`。
  *   白名单方法在宿主侧逐条过权限闸。
+ * - 页内 `fetch` 被透明代理到 `netFetch` 桥（CSP 拒外联，原生必死）：
+ *   需清单 `net:connect`，走 prod 确认与审计；成功只给文本 body 的
+ *   `{ok:true,status:200}` 兼容壳，非 2xx 走 reject（页内 `.catch` 即故障分支）。
  */
 
 export type SandboxRequestMethod =
@@ -97,6 +100,54 @@ const PRELUDE = `
     overlayHide: function () { return this.request("overlay.hide"); },
     aiComplete: function (spec) { return this.request("aiComplete", spec); },
     overlayInitial: function () { return this.request("overlayInitial"); }
+  };
+  // 沙箱 CSP 默认拒外联：页内 fetch/XHR 原生必死。透明代理到宿主 netFetch
+  // （逐次过 net:connect 权限闸 + prod 确认 + 审计），缺权即以可读错误拒绝。
+  // 语义差：成功只给 {ok:true,status:200}（后端 error_for_status，非 2xx 走 reject，
+  // 页内 .catch 即故障分支）；body 仅文本。
+  function omniHeadersToObject(headers) {
+    if (!headers) return {};
+    if (typeof headers === "object" && !Array.isArray(headers) && typeof headers.forEach !== "function") return headers;
+    var out = {};
+    try {
+      if (typeof headers.forEach === "function") {
+        headers.forEach(function (v, k) { out[String(k)] = String(v); });
+      } else if (Array.isArray(headers)) {
+        headers.forEach(function (pair) { out[String(pair[0])] = String(pair[1]); });
+      }
+    } catch (e) {}
+    return out;
+  }
+  function omniBodyToText(body) {
+    if (body == null) return undefined;
+    if (typeof body === "string") return body;
+    return String(body);
+  }
+  function omniFetchResponse(bodyText) {
+    return {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      url: "",
+      text: function () { return Promise.resolve(bodyText); },
+      json: function () {
+        try {
+          return Promise.resolve(JSON.parse(bodyText));
+        } catch (e) {
+          return Promise.reject(e);
+        }
+      }
+    };
+  }
+  window.fetch = function (url, opts) {
+    opts = opts || {};
+    var spec = {
+      url: String(url && url.url !== undefined ? url.url : url),
+      method: opts.method || "GET",
+      headers: omniHeadersToObject(opts.headers),
+      body: omniBodyToText(opts.body)
+    };
+    return window.host.netFetch(spec).then(omniFetchResponse);
   };
   window.addEventListener("message", function (ev) {
     var data = ev.data;

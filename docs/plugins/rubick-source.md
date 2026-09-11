@@ -15,15 +15,16 @@ OmniPanel 市场除官方源外，可展示 Rubick 系（npm 包形态，与 uTo
 ## verdict 规则
 
 - 形状：`package.json`（`pluginName` + `features`）或 `plugin.json` 同源文法；无 features 且无主入口即不可转（有主入口可转 overlay-only）。
-- Node 黑名单（命中即 external-only）：`electron` / `child_process` / `fs` / `vm` 的 require/import 字面、`node:` 前缀、缺失的 preload 声明文件。
-- `utools.*` 白名单（14 项）：`db.get/put/remove/allDocs`、`showNotification`、`copyText`、`shellOpenExternal`、`getPath`、`hideMainWindow/showMainWindow`、`setSubInput/removeSubInput`、`onPluginEnter/onPluginOut`。白名单外一律 external-only（默认拒绝方向）。
+- Node 黑名单（命中即 external-only）：`electron` / `child_process` / `fs` / `vm` 的 require/import 字面、`node:` 前缀、**任意非相对 `require(`**、缺失的 preload 声明文件。
+- `utools.*` 白名单（14 项）+ `rubick.*` 一律 external-only（沙箱无对应桥）。
+- 页面直调 `fetch`/XHR 不判死：转换自动声明 `net:connect`（安装时用户确认），运行时 prelude 透明代理到受闸桥（成功只给 `{ok:true,status:200}` + 文本 body，非 2xx 走 reject）。
 - 误判只会导致外跳，不会导致越权运行（沙箱 + 权限闸是第二道网）。
 
 ## 转换产物
 
 - 输出标准 `.omni-plugin`：关键字 cmds → 动态入口菜单（`ui/main.js` 模板），主 HTML → overlay，静态资源拷贝（preload/`package.json`/`node_modules` 排除，单项 ≤512KB）。
 - dev 签名 + `x-origin: rubick:<npm>@<version>` + 第三方未审核标；启用/禁用/升级/审计与普通包一致。
-- 权限：白名单 utools 能力均不需要清单权限；页面若调宿主特权桥（如选区），按正常缺权拒绝并审计。
+- 权限：白名单 utools 能力均不需要清单权限；页内直调网络的自动声明 `net:connect`（安装确认页可见）；其余特权桥（如选区）按正常缺权拒绝并审计。
 
 ## 信任链
 
