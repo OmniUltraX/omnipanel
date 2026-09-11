@@ -120,6 +120,7 @@ import {
   resolveCopyColumns,
 } from "./tableDataGridCopySql";
 import { buildTableDataGridContextMenuItems } from "./tableDataGridContextMenu";
+import { cancelPendingBlurCommits } from "../tableDetail/tablePreviewQueryBlur";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   COLUMN_MIN_WIDTH,
@@ -695,6 +696,8 @@ export const TableDataGrid = memo(function TableDataGrid({
 
   const openFilterPopover = useCallback(
     (anchor: HTMLElement | CellOverlayAnchor, lockedField: string) => {
+      // 本次交互导致顶栏输入框失焦，其 120ms 提交会与面板应用互相覆盖，先取消
+      cancelPendingBlurCommits();
       if (anchor instanceof HTMLElement) {
         setFilterAnchorRect(anchor.getBoundingClientRect());
       } else {
@@ -986,6 +989,7 @@ export const TableDataGrid = memo(function TableDataGrid({
   const handleColumnSortClick = useCallback(
     (columnId: string) => {
       if (!enableSort || !onSortChange) return;
+      cancelPendingBlurCommits();
       setPageSort(null);
       const primary = normalizeSortStates(sort)[0];
       let next: SortStates;
@@ -2883,10 +2887,12 @@ export const TableDataGrid = memo(function TableDataGrid({
           selectedRowCount: rowCount,
           rowActionsEnabled: menu.rowActionsEnabled !== false && !transposed,
           onSortDbAsc: () => {
+            cancelPendingBlurCommits();
             setPageSort(null);
             onSortChange?.([{ column: menu.column, direction: "asc" }]);
           },
           onSortDbDesc: () => {
+            cancelPendingBlurCommits();
             setPageSort(null);
             onSortChange?.([{ column: menu.column, direction: "desc" }]);
           },
@@ -2900,12 +2906,14 @@ export const TableDataGrid = memo(function TableDataGrid({
           },
           quickFilterEnabled: (kind) => isQuickFilterKindEnabled(kind, menu.value),
           onQuickFilter: (kind: QuickFilterKind) => {
+            cancelPendingBlurCommits();
             const next = appendQuickFilterRule(filter, menu.column, kind, menu.value);
             // AND 追加并立即查询；同时回到第一页避免空页
             if (page !== 0) handlePageChange(0);
             onFilterChange?.(next);
           },
           onFilterClear: () => {
+            cancelPendingBlurCommits();
             const next = clearColumnFilter(filter, menu.column);
             onFilterChange?.(next);
           },

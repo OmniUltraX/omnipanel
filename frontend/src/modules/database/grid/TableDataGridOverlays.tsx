@@ -4,6 +4,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch as ReactDispatch,
+  type DragEvent as ReactDragEvent,
+  type SetStateAction as ReactSetStateAction,
 } from "react";
 import { createPortal } from "react-dom";
 import type { RuleGroupType, RuleType } from "react-querybuilder";
@@ -19,9 +22,10 @@ import {
   ensureTableFilterQuery,
   extractColumnFilter,
   filterOperatorNeedsValue,
+  hasTableFilterRules,
   isEmptyFilterValue,
-  isTableFilterActive,
   mergeColumnFilter,
+  reorderIds,
   TABLE_FILTER_ALL_COLUMNS,
 } from "./tablePreviewFilter";
 import type { SortState, SortStates } from "../workspace/dbWorkspaceState";
@@ -33,7 +37,11 @@ type DraftRule = {
   operator: string;
   value: string | boolean;
   disabled: boolean;
+  /** 与上一行的连接符；首行无意义 */
+  lead: RowLead;
 };
+
+type RowLead = "and" | "or";
 
 type FilterFieldOption = {
   name: string;
@@ -55,23 +63,73 @@ const OPERATORS = [
   "notNull",
 ] as const;
 
-function flattenLeafRules(group: RuleGroupType | null | undefined): RuleType[] {
-  const out: RuleType[] = [];
-  const walk = (node: RuleGroupType) => {
-    for (const rule of node.rules) {
-      if (typeof rule === "string") continue;
-      if ("rules" in rule) {
-        walk(rule);
+/**
+ * 中序拍平过滤树，每片叶子带上与上一片之间的连接符（取其最低公共祖先组的 combinator）。
+ * 面板是线性行模型，嵌套组只能近似还原；重建时按左深嵌套加括号，语义与拍平时一致。
+ */
+function flattenFilterLeaves(
+  group: RuleGroupType | null | undefined,
+): Array<{ rule: RuleType; lead: RowLead }> {
+  const out: Array<{ rule: RuleType; lead: RowLead }> = [];
+  const walk = (node: RuleGroupType, inheritedLead: RowLead) => {
+    const kids = node.rules.filter(
+      (rule): rule is RuleType | RuleGroupType => typeof rule !== "string",
+    );
+    kids.forEach((kid, index) => {
+      const lead: RowLead =
+        index === 0 ? inheritedLead : node.combinator === "or" ? "or" : "and";
+      if ("rules" in kid) {
+        walk(kid, lead);
       } else {
-        out.push({ ...rule });
+        out.push({ rule: { ...kid }, lead });
       }
-    }
+    });
   };
-  walk(ensureTableFilterQuery(group));
+  walk(ensureTableFilterQuery(group), "and");
+  if (out.length > 0) out[0]!.lead = "and";
   return out;
 }
 
-function toDraftRule(rule: RuleType, fallbackField: string, id: string): DraftRule {
+/** 线性行 + 每行前导连接符 → 左深嵌套规则组（显式括号，语义精确） */
+function buildNestedFilterGroup(
+  leaves: Array<{
+    field: string;
+    operator: string;
+    value: unknown;
+    lead: RowLead;
+    muted: boolean;
+  }>,
+): RuleGroupType | null {
+  if (leaves.length === 0) return null;
+  const toLeaf = (leaf: (typeof leaves)[number]): RuleType =>
+    ({
+      field: leaf.field,
+      operator: leaf.operator,
+      value: leaf.value,
+      ...(leaf.muted ? { muted: true } : null),
+    }) as RuleType;
+  if (leaves.length === 1) {
+    return ensureTableFilterQuery({ combinator: "and", rules: [toLeaf(leaves[0]!)] });
+  }
+  let node: RuleGroupType = ensureTableFilterQuery({
+    combinator: leaves[1]!.lead,
+    rules: [toLeaf(leaves[0]!), toLeaf(leaves[1]!)],
+  });
+  for (let i = 2; i < leaves.length; i++) {
+    node = ensureTableFilterQuery({
+      combinator: leaves[i]!.lead,
+      rules: [node, toLeaf(leaves[i]!)],
+    });
+  }
+  return node;
+}
+
+function toDraftRule(
+  rule: RuleType,
+  fallbackField: string,
+  id: string,
+  lead: RowLead = "and",
+): DraftRule {
   const field = rule.field != null ? String(rule.field) : fallbackField;
   const operator = typeof rule.operator === "string" && rule.operator ? rule.operator : "=";
   const raw = (rule as { value?: unknown }).value;
@@ -85,8 +143,79 @@ function toDraftRule(rule: RuleType, fallbackField: string, id: string): DraftRu
         : raw === null || raw === undefined
           ? ""
           : String(raw),
-    disabled: Boolean((rule as { disabled?: boolean }).disabled),
+    // 眼睛开关 ↔ RQB muted（SQL 导出自动排除，对象保留以便恢复）
+    disabled: (rule as { muted?: boolean }).muted === true,
+    lead,
   };
+}
+
+type DropPos = "before" | "after";
+
+/** 行拖拽排序：拖拽源为行内手柄，整行包装为放置目标 */
+function useRowDragReorder<T extends { id: string }>(
+  setItems: ReactDispatch<ReactSetStateAction<T[]>>,
+) {
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [over, setOver] = useState<{ id: string; pos: DropPos } | null>(null);
+
+  const dropPosOf = (event: ReactDragEvent) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return (event.clientY < rect.top + rect.height / 2 ? "before" : "after") as DropPos;
+  };
+
+  const onDragStart = useCallback(
+    (id: string) => (event: ReactDragEvent) => {
+      event.dataTransfer.setData("text/plain", id);
+      event.dataTransfer.effectAllowed = "move";
+      setDragId(id);
+    },
+    [],
+  );
+
+  const onDragEnd = useCallback(() => {
+    setDragId(null);
+    setOver(null);
+  }, []);
+
+  const onDragOver = useCallback(
+    (id: string) => (event: ReactDragEvent) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      const pos = dropPosOf(event);
+      setOver((prev) => (prev && prev.id === id && prev.pos === pos ? prev : { id, pos }));
+    },
+    [],
+  );
+
+  const onDragLeave = useCallback((event: ReactDragEvent) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setOver(null);
+    }
+  }, []);
+
+  const onDrop = useCallback(
+    (id: string) => (event: ReactDragEvent) => {
+      event.preventDefault();
+      const fromId = event.dataTransfer.getData("text/plain") || dragId;
+      if (!fromId) return;
+      const pos = dropPosOf(event);
+      setItems((prev) => {
+        const order = reorderIds(
+          prev.map((row) => row.id),
+          fromId,
+          id,
+          pos,
+        );
+        const byId = new Map(prev.map((row) => [row.id, row] as const));
+        return order.map((key) => byId.get(key)!) as T[];
+      });
+      setDragId(null);
+      setOver(null);
+    },
+    [dragId, setItems],
+  );
+
+  return { dragId, over, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop };
 }
 
 /** 值输入控件：随列类型变化（数字/日期/布尔复选框等），包含类操作符固定文本 */
@@ -233,12 +362,17 @@ export function TableDataGridFilterPopover({
     const source = isTableWide
       ? ensureTableFilterQuery(initialQuery)
       : extractColumnFilter(initialQuery, lockedField);
-    const leaves = flattenLeafRules(source).filter((rule) =>
+    const leaves = flattenFilterLeaves(source).filter(({ rule }) =>
       isTableWide ? true : String(rule.field) === lockedField,
     );
-    const drafts = leaves.map((rule) => {
+    const drafts = leaves.map(({ rule, lead }) => {
       idSeq.current += 1;
-      return toDraftRule(rule, isTableWide ? defaultField : lockedField, `qf-${idSeq.current}`);
+      return toDraftRule(
+        rule,
+        isTableWide ? defaultField : lockedField,
+        `qf-${idSeq.current}`,
+        lead,
+      );
     });
     if (drafts.length === 0 && !isTableWide) {
       idSeq.current += 1;
@@ -248,6 +382,7 @@ export function TableDataGridFilterPopover({
         operator: "=",
         value: "",
         disabled: false,
+        lead: "and",
       });
     }
     return drafts;
@@ -255,6 +390,7 @@ export function TableDataGridFilterPopover({
   }, [initialQuery, isTableWide, lockedField, defaultField]);
 
   const [draft, setDraft] = useState<DraftRule[]>(buildInitialDraft);
+  const drag = useRowDragReorder(setDraft);
 
   useEffect(() => {
     setDraft(buildInitialDraft());
@@ -322,28 +458,31 @@ export function TableDataGridFilterPopover({
         operator: "=",
         value: "",
         disabled: false,
+        lead: "and",
       },
     ]);
   }, [isTableWide, defaultField, lockedField]);
 
   const buildGroupFromDraft = useCallback(
     (rules: DraftRule[]): RuleGroupType | null => {
-      // 未填写值的条件（如时间列默认空值）不参与过滤，避免生成 `col = ''`
-      const active = rules.filter(
+      // 未填写值的启用条件不参与过滤，避免生成 `col = ''`；
+      // 停用行以 muted 写入并保留，再次打开可恢复
+      const kept = rules.filter(
         (rule) =>
-          !rule.disabled &&
           rule.field &&
-          (!filterOperatorNeedsValue(rule.operator) || !isEmptyFilterValue(rule.value)),
+          (rule.disabled ||
+            !filterOperatorNeedsValue(rule.operator) ||
+            !isEmptyFilterValue(rule.value)),
       );
-      if (active.length === 0) return null;
-      return ensureTableFilterQuery({
-        combinator: "and",
-        rules: active.map((rule) => ({
+      return buildNestedFilterGroup(
+        kept.map((rule) => ({
           field: isTableWide ? rule.field : lockedField,
           operator: rule.operator,
           value: filterOperatorNeedsValue(rule.operator) ? rule.value : null,
+          lead: rule.lead,
+          muted: rule.disabled,
         })),
-      });
+      );
     },
     [isTableWide, lockedField],
   );
@@ -351,7 +490,7 @@ export function TableDataGridFilterPopover({
   const handleApply = useCallback(() => {
     const group = buildGroupFromDraft(draft);
     if (isTableWide) {
-      onApply(isTableFilterActive(group) ? group : null);
+      onApply(hasTableFilterRules(group) ? group : null);
     } else {
       onApply(mergeColumnFilter(initialQuery, lockedField, group));
     }
@@ -394,10 +533,10 @@ export function TableDataGridFilterPopover({
           type="button"
           className="db-qf-clear"
           onClick={handleClear}
-          title={t("database.results.filterClear")}
+          title={t(isTableWide ? "database.results.filterClear" : "database.results.filterClearColumn")}
         >
           <TrashIcon />
-          {t("database.results.filterClear")}
+          {t(isTableWide ? "database.results.filterClear" : "database.results.filterClearColumn")}
         </button>
       </div>
       <div className="db-qf-body">
@@ -405,10 +544,36 @@ export function TableDataGridFilterPopover({
           <div className="db-qf-empty">{t("database.results.filterNoConditions")}</div>
         ) : (
           draft.map((rule, index) => (
-            <div key={rule.id}>
-              {index > 0 ? <div className="db-qf-and">AND</div> : null}
-              <div className={`db-qf-row${rule.disabled ? " is-disabled" : ""}`}>
-                <span className="db-qf-drag" aria-hidden>
+            <div
+              key={rule.id}
+              className={`db-qf-drop${drag.over?.id === rule.id ? ` drop-${drag.over.pos}` : ""}`}
+              onDragOver={draft.length > 1 ? drag.onDragOver(rule.id) : undefined}
+              onDragLeave={drag.onDragLeave}
+              onDrop={draft.length > 1 ? drag.onDrop(rule.id) : undefined}
+            >
+              {index > 0 ? (
+                <button
+                  type="button"
+                  className={`db-qf-and is-clickable${rule.lead === "or" ? " is-or" : ""}`}
+                  title={t("database.results.filterCombinator")}
+                  aria-label={t("database.results.filterCombinator")}
+                  onClick={() =>
+                    patchRule(rule.id, { lead: rule.lead === "or" ? "and" : "or" })
+                  }
+                >
+                  {rule.lead === "or" ? "OR" : "AND"}
+                </button>
+              ) : null}
+              <div
+                className={`db-qf-row${rule.disabled ? " is-disabled" : ""}${drag.dragId === rule.id ? " is-dragging" : ""}`}
+              >
+                <span
+                  className="db-qf-drag"
+                  draggable={draft.length > 1}
+                  onDragStart={drag.onDragStart(rule.id)}
+                  onDragEnd={drag.onDragEnd}
+                  title={t("database.results.filterDragRow")}
+                >
                   ⋮⋮
                 </span>
                 {isTableWide ? (
@@ -557,6 +722,7 @@ export function TableDataGridSortPopover({
   }, [initialSort, defaultField]);
 
   const [rows, setRows] = useState<DraftSortRow[]>(buildInitialRows);
+  const drag = useRowDragReorder(setRows);
 
   useEffect(() => {
     setRows(buildInitialRows());
@@ -646,10 +812,22 @@ export function TableDataGridSortPopover({
           <div className="db-qf-empty">{t("database.results.filterNoConditions")}</div>
         ) : (
           rows.map((row, index) => (
-            <div key={row.id}>
+            <div
+              key={row.id}
+              className={`db-qf-drop${drag.over?.id === row.id ? ` drop-${drag.over.pos}` : ""}`}
+              onDragOver={rows.length > 1 ? drag.onDragOver(row.id) : undefined}
+              onDragLeave={drag.onDragLeave}
+              onDrop={rows.length > 1 ? drag.onDrop(row.id) : undefined}
+            >
               {index > 0 ? <div className="db-qf-and">{index + 1}</div> : null}
-              <div className="db-qf-row db-qf-row--sort">
-                <span className="db-qf-drag" aria-hidden>
+              <div className={`db-qf-row db-qf-row--sort${drag.dragId === row.id ? " is-dragging" : ""}`}>
+                <span
+                  className="db-qf-drag"
+                  draggable={rows.length > 1}
+                  onDragStart={drag.onDragStart(row.id)}
+                  onDragEnd={drag.onDragEnd}
+                  title={t("database.results.filterDragRow")}
+                >
                   ⋮⋮
                 </span>
                 <select

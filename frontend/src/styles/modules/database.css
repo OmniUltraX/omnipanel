@@ -8271,11 +8271,41 @@
     }
 
     .db-qf-and {
+        display: block;
         padding: 2px 0 2px 22px;
+        border: none;
+        background: transparent;
         color: var(--meta);
         font-size: 10px;
         font-weight: 600;
         letter-spacing: 0.04em;
+        text-align: left;
+    }
+
+    .db-qf-and.is-clickable {
+        cursor: pointer;
+        border-radius: var(--radius, 4px);
+    }
+
+    .db-qf-and.is-clickable:hover {
+        background: var(--bg-hover, var(--bg-input));
+        color: var(--text);
+    }
+
+    .db-qf-and.is-or {
+        color: var(--accent);
+    }
+
+    .db-qf-drop {
+        border-radius: var(--radius, 4px);
+    }
+
+    .db-qf-drop.drop-before .db-qf-row {
+        box-shadow: 0 -2px 0 var(--accent);
+    }
+
+    .db-qf-drop.drop-after .db-qf-row {
+        box-shadow: 0 2px 0 var(--accent);
     }
 
     .db-qf-row {
@@ -8289,6 +8319,10 @@
         opacity: 0.55;
     }
 
+    .db-qf-row.is-dragging {
+        opacity: 0.45;
+    }
+
     .db-qf-row--sort {
         grid-template-columns: 14px minmax(120px, 1.4fr) minmax(100px, 1fr) 24px;
     }
@@ -8298,6 +8332,11 @@
         font-size: 10px;
         letter-spacing: -1px;
         user-select: none;
+        cursor: grab;
+    }
+
+    .db-qf-drag:active {
+        cursor: grabbing;
     }
 
     .db-qf-field-label {

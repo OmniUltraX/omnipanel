@@ -29,6 +29,7 @@ import {
   createTablePreviewQueryCompletionSource,
   type TablePreviewQueryMode,
 } from "./tablePreviewQueryCompletion";
+import { registerBlurCommitCanceler } from "./tablePreviewQueryBlur";
 
 export interface TablePreviewQuerySqlInputProps {
   value: string;
@@ -293,6 +294,9 @@ export function TablePreviewQuerySqlInput({
 
     viewRef.current = view;
 
+    // 允许筛选/排序面板入口取消待处理的失焦提交，避免与面板应用互相覆盖
+    const unregisterBlurCanceler = registerBlurCommitCanceler(clearBlurTimer);
+
     const onThemeAttr = () => {
       const current = viewRef.current;
       if (!current) return;
@@ -310,6 +314,7 @@ export function TablePreviewQuerySqlInput({
 
     return () => {
       clearBlurTimer();
+      unregisterBlurCanceler();
       themeObserver.disconnect();
       view.destroy();
       viewRef.current = null;
