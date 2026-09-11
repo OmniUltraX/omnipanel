@@ -36,9 +36,11 @@ import {
   isNewRowDirtyKey,
   matchesPreviewChangeRowFilter,
   resolvePreviewRowChangeKind,
+  normalizeSortStates,
   resolvePreviewRowKey,
   type PreviewChangeRowFilter,
   type SortState,
+  type SortStates,
   type TableColumnRelationConfig,
 } from "./dbWorkspaceState";
 import type { RuleGroupType } from "react-querybuilder";
@@ -497,8 +499,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
     [ws.requestTabAction, tab.id],
   );
   const handlePreviewSortChange = useCallback(
-    (sort: SortState | null) => {
-      ws.requestTabAction({ kind: "sort", tabId: tab.id, sort });
+    (sort: SortState | SortStates | null) => {
+      ws.requestTabAction({ kind: "sort", tabId: tab.id, sort: normalizeSortStates(sort) });
     },
     [ws.requestTabAction, tab.id],
   );
@@ -994,7 +996,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       onSelectedRowCountChange={setSelectedRowCount}
       enableTranspose
       enableSort={hasPreviewColumns}
-      sort={preview.sort ?? null}
+      sort={preview.sort}
       onSortChange={handlePreviewSortChange}
       enableFilter={enableFilter}
       filter={preview.filter ?? null}
@@ -1147,6 +1149,8 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             historyKey={previewTableKey}
             dbType={previewConnection?.db_type ?? "mysql"}
             columnMeta={colMeta}
+            columnRelations={preview.columnRelations}
+            relationTables={relationTables}
             filter={preview.filter}
             sort={preview.sort}
             onFilterChange={handlePreviewFilterChange}

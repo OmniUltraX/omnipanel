@@ -126,7 +126,7 @@ async function clearUnifiedConnections(): Promise<void> {
   );
 
   for (const conn of toDelete) {
-    await commands.connDelete(conn.id).catch(() => undefined);
+    await commands.connDelete(conn.id, null).catch(() => undefined);
     if (conn.kind === "ssh") {
       forgetSshMonitoring(conn.id);
       useSshHostStore.getState().clearHost(conn.id);

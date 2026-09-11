@@ -4,7 +4,9 @@ import type { TablePreviewResult } from "../api";
 import type { RuleGroupType } from "react-querybuilder";
 import {
   createDefaultTablePreviewState,
+  normalizeSortStates,
   type SortState,
+  type SortStates,
   type TablePreviewState,
 } from "./dbWorkspaceState";
 import {
@@ -53,7 +55,7 @@ export type BeginTablePreviewFetchPatch = {
   tableName?: string;
   pageSize?: number;
   page?: number;
-  sort?: SortState | null;
+  sort?: SortState | SortStates | null;
   filter?: RuleGroupType | null;
   loading?: boolean;
 };
@@ -76,7 +78,7 @@ export function beginTablePreviewFetch(
         ...createDefaultTablePreviewState(),
         pageSize: patch.pageSize ?? existing.pageSize,
         page: patch.page ?? existing.page,
-        sort: patch.sort !== undefined ? patch.sort : existing.sort,
+        sort: patch.sort !== undefined ? normalizeSortStates(patch.sort) : existing.sort,
         filter: patch.filter !== undefined ? patch.filter : existing.filter,
         connId: patch.connId ?? existing.connId,
         dbName: patch.dbName ?? existing.dbName,

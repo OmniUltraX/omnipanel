@@ -110,6 +110,15 @@ function isPackageIconPath(path: string): boolean {
   return /\.(svg|png)$/i.test(trimmed);
 }
 
+function isPackageJsonPath(path: string): boolean {
+  const trimmed = path.trim();
+  if (!trimmed || trimmed.startsWith("/") || trimmed.startsWith("\\") || trimmed.includes("://")) {
+    return false;
+  }
+  if (trimmed.split(/[\\/]/).includes("..")) return false;
+  return /\.json$/i.test(trimmed);
+}
+
 export const pluginHomeOpenSchema = z.object({
   kind: pluginHomeOpenKindSchema,
   id: z.string().min(1),
@@ -347,6 +356,8 @@ export const panelTabActionDeclSchema = z.object({
  */
 export const panelTabDeclSchema = z.object({
   id: z.string().min(1),
+  /** 未知 id 的通用壳页签标题；缺省回退 id。 */
+  label: z.string().min(1).optional(),
   listMethod: z.string().min(1).optional(),
   formFields: z.array(cloudColumnSchema).optional(),
   actions: z.array(panelTabActionDeclSchema).optional(),
@@ -412,7 +423,16 @@ export const pluginManifestSchema = z.object({
       launcher: z.object({ prefix: z.string().min(1) }).nullable().optional(),
       discovery: z.array(z.object({ probeId: z.string() })).optional(),
       importers: z.array(importerContributionSchema).optional(),
-      themes: z.object({ tokens: z.unknown().optional() }).nullable().optional(),
+      themes: z
+        .object({
+          tokens: z
+            .string()
+            .min(1)
+            .refine(isPackageJsonPath, { message: "themes.tokens 必须是包内相对 .json 路径" })
+            .optional(),
+        })
+        .nullable()
+        .optional(),
       ai: z.object({ tools: z.array(aiToolContributionSchema).optional() }).nullable().optional(),
       workspace: z.unknown().nullable().optional(),
       cloud: z
@@ -443,6 +463,13 @@ export const pluginManifestSchema = z.object({
       });
     }
   });
+  if (val.kind === "theme" && (val.entry?.logic || val.entry?.ui)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "theme 插件不得包含 JS 入口",
+      path: ["entry"],
+    });
+  }
 });
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;

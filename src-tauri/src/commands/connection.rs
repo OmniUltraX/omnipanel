@@ -301,12 +301,21 @@ pub async fn conn_list(state: State<'_, AppState>) -> Result<Vec<Connection>, Om
 }
 
 /// 保存（新建或更新）连接。id 为空时后端生成。
+///
+/// `plugin_id` 非空时视为插件发起的写入：宿主强制校验该插件已激活且声明
+/// `connections:write`，缺权即失败。第三方插件前端不能绕过 `plugin_invoke`
+/// 直写连接；第一方/宿主路径不传该参数，行为不变。
 #[tauri::command]
 #[specta::specta]
 pub async fn conn_save(
     state: State<'_, AppState>,
     mut connection: Connection,
+    plugin_id: Option<String>,
 ) -> Result<Connection, OmniError> {
+    if let Some(pid) = plugin_id.as_deref() {
+        let registry = state.plugin_registry.lock().await;
+        registry.authorize_connection_write(pid)?;
+    }
     let now = now_secs();
     if connection.id.is_empty() {
         connection.id = gen_id();
@@ -351,9 +360,19 @@ pub async fn conn_save(
 }
 
 /// 删除连接。
+///
+/// `plugin_id` 非空时同样强制 `connections:write` 权限闸（与 [`conn_save`] 对称）。
 #[tauri::command]
 #[specta::specta]
-pub async fn conn_delete(state: State<'_, AppState>, id: String) -> Result<(), OmniError> {
+pub async fn conn_delete(
+    state: State<'_, AppState>,
+    id: String,
+    plugin_id: Option<String>,
+) -> Result<(), OmniError> {
+    if let Some(pid) = plugin_id.as_deref() {
+        let registry = state.plugin_registry.lock().await;
+        registry.authorize_connection_write(pid)?;
+    }
     let storage = state.storage.lock().await;
     let existing = storage.get_connection(&id)?;
     let is_ssh = existing

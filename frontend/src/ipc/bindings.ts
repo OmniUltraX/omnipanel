@@ -211,9 +211,9 @@ export const commands = {
 	/**  列出全部已保存连接�?*/
 	connList: () => typedError<Connection[], OmniError_Serialize>(__TAURI_INVOKE("conn_list")),
 	/**  保存（新建或更新）连接。id 为空时后端生成�?*/
-	connSave: (connection: Connection) => typedError<Connection, OmniError_Serialize>(__TAURI_INVOKE("conn_save", { connection })),
+	connSave: (connection: Connection, pluginId: string | null) => typedError<Connection, OmniError_Serialize>(__TAURI_INVOKE("conn_save", { connection, pluginId })),
 	/**  删除连接�?*/
-	connDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("conn_delete", { id })),
+	connDelete: (id: string, pluginId: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("conn_delete", { id, pluginId })),
 	/**
 	 *  测试连接连通性。当前支�?database（MySQL）；其余类型将在对应里程碑接入�?	 * 
 	 *  `secret`：可选明文凭据（文件连接对话框「测试连接」用）。为空时回退�?	 *  `connection.credential_ref` 指向�?Vault；保存前测试必须传入表单中的密钥�?	 */
@@ -964,10 +964,12 @@ export const commands = {
 	pluginInstallFromFile: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_file", { path })),
 	/**  预读本地包清单（安装前权限确认用）：只验�?+ 解析，不解压不安装�?*/
 	pluginPeekManifest: (path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_peek_manifest", { path })),
-	/**  列出 plugins-custom 下的工程（有�?plugin.json 都列）�?*/
+	/** 列出用户目录与开发态仓库下的插件工程 */
 	pluginStudioListProjects: () => typedError<StudioProject[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
-	/**  脚手架：node create-plugin.mjs 建新工程，返回刷新后的工程�?*/
+	/** 在用户工程目录新建脚手架 */
 	pluginStudioScaffold: (name: string, kind: string, starter: string | null) => typedError<StudioProject, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind, starter })),
+	/** 记录 AI 脚手架意图（后端只存 sha256+len） */
+	pluginStudioAuditScaffold: (project: string, prompt: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_audit_scaffold", { project, prompt })),
 	pluginStudioRemoveProject: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_remove_project", { name })),
 	/**  读工程文件（文本，≤512KB）�?*/
 	pluginStudioReadFile: (project: string, path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_read_file", { project, path })),
@@ -1010,6 +1012,9 @@ export const commands = {
 	pluginCheckUpdates: () => typedError<PluginUpdateInfo[], OmniError_Serialize>(__TAURI_INVOKE("plugin_check_updates")),
 	/**  一键全更（ids 缺省全部可更新；单包失败记错继续）�?*/
 	pluginUpdateAll: (ids: string[] | null) => typedError<UpdateResultItem[], OmniError_Serialize>(__TAURI_INVOKE("plugin_update_all", { ids })),
+	pluginExternalAnalyzeNpm: (npm: string, version: string) => typedError<ExternalVerdictDto, OmniError_Serialize>(__TAURI_INVOKE("plugin_external_analyze_npm", { npm, version })),
+	pluginExternalConvertNpm: (npm: string, version: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_external_convert_npm", { npm, version })),
+	pluginExternalSearchNpm: (query: string, max: number | null) => typedError<ExternalSearchItem[], OmniError_Serialize>(__TAURI_INVOKE("plugin_external_search_npm", { query, max })),
 	/**  卸载磁盘安装的插件：删除安装目录与启用记录；内置插件拒绝卸载�?*/
 	pluginUninstall: (pluginId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_uninstall", { pluginId })),
 	/**  插件非敏感状态（JSON）。Token / 密码禁止写入，走 `plugin_secret_*`�?*/
@@ -4455,6 +4460,7 @@ export type StudioProject = {
   name: string;
   files: string[];
   hasManifest: boolean;
+  location: string;
   kind?: string | null;
   version?: string | null;
   displayName?: string | null;
@@ -4522,6 +4528,7 @@ export type MarketplaceItem = {
   sourceId: string;
   downloadSize: number;
   permissions: string[];
+  externalNpm?: string | null;
 };
 
 export type ResolvePlanItem = {
@@ -4554,6 +4561,33 @@ export type SourceTestResult = {
   ok: boolean;
   pluginCount: number;
   error?: string | null;
+};
+
+export type ExternalCmdDto = {
+  kind: string;
+  label: string;
+};
+
+export type ExternalFeatureDto = {
+  code: string;
+  explain: string;
+  cmds: ExternalCmdDto[];
+};
+
+export type ExternalSearchItem = {
+  npm: string;
+  version: string;
+  description: string;
+};
+
+export type ExternalVerdictDto = {
+  npm: string;
+  version: string;
+  runnable: boolean;
+  reasons: string[];
+  pluginName: string;
+  features: ExternalFeatureDto[];
+  mainEntry?: string | null;
 };
 
 /**  前端 / IPC 列表项�?*/

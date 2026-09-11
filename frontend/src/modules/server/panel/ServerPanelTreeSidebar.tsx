@@ -25,9 +25,11 @@ import { importPanelPreviewRows } from "./syncPanelsFromSsh";
 import type { ServerEntry } from "./serverConnection";
 import {
   isBtPanelService,
+  isHestiaPanelService,
   isOnePanelService,
   panelHasCapability,
   panelServiceTypeLabel,
+  panelTypeTagModifier,
 } from "./panelPlugin";
 import { listPanelSidebarTabs } from "./panelTabIds";
 import { usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
@@ -448,13 +450,17 @@ export function ServerPanelTreeSidebar({
                     iconKind,
                     isBtPanelService(server.serviceType)
                       ? "server-tree-node--bt"
-                      : "server-tree-node--onepanel",
+                      : isOnePanelService(server.serviceType)
+                        ? "server-tree-node--onepanel"
+                        : isHestiaPanelService(server.serviceType)
+                          ? "server-tree-node--hestia"
+                          : undefined,
                   )}
                   label={
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{server.name}</span>
                       <span
-                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${isBtPanelService(server.serviceType) ? "bt" : isOnePanelService(server.serviceType) ? "onepanel" : "other"}`}
+                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${panelTypeTagModifier(server.serviceType)}`}
                       >
                         {panelServiceTypeLabel(server.serviceType, t)}
                       </span>

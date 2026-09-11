@@ -152,6 +152,30 @@ async fn host_hmac_sha256() {
     );
 }
 
+const HASH_JS: &[u8] = br#"
+globalThis.call = function () {
+  var hex = host.hash(JSON.stringify({ alg: "sha256", data: "" }));
+  return JSON.stringify({ hex: hex });
+};
+"#;
+
+#[tokio::test]
+async fn host_sha256_empty() {
+    let executor = JsExecutor::new();
+    let mut inst = executor
+        .instantiate(
+            "omni.addon.demo",
+            &LogicPackage::Js(HASH_JS.to_vec()),
+            Arc::new(NullHost),
+        )
+        .expect("实例化失败");
+    let out = inst.call("x", "{}").await.expect("call 失败");
+    assert!(
+        out.contains("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+        "actual: {out}"
+    );
+}
+
 #[tokio::test]
 async fn missing_call_contract_fails_cleanly() {
     let executor = JsExecutor::new();

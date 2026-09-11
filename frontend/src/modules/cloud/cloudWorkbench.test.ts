@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getPluginManifest, manifestCloudCapabilities, resolveLegacyPluginId } from "../../lib/pluginManifests";
-import { capabilityI18nKey, cloudAccountConsoleUrl, cloudBrandKind, cloudCapabilityLabel, formatCloudFieldValue, maskCloudAccessKey, parseCloudDateMs, resolveCloudPluginId } from "./cloudForm";
+import { getPluginManifest, manifestCloudCapabilities, resolveLegacyPluginId, setInstalledPluginManifests } from "../../lib/pluginManifests";
+import { capabilityI18nKey, cloudAccountConsoleUrl, cloudBrandKind, cloudCapabilityLabel, cloudRegionOptions, formatCloudFieldValue, maskCloudAccessKey, parseCloudDateMs, resolveCloudPluginId } from "./cloudForm";
 import {
   formatMetricValue,
   isGuestOsMetric,
@@ -9,6 +9,8 @@ import {
   nearestPlotPoint,
 } from "./cloudMetricChart";
 import type { CloudCapabilityDecl } from "@omnipanel/plugin-sdk";
+import { parsePluginManifest } from "@omnipanel/plugin-sdk";
+import type { PluginListItem } from "../../ipc/bindings";
 import { cloudCapabilitiesForPlugin, isGlobalCloudCapability, shouldShowCloudRegionFilter } from "./cloudCapabilities";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { cloudRemoteKindAliases, rdsEngineToDbType } from "./cloudResourceLinks";
@@ -76,6 +78,10 @@ describe("cloud capabilities contract", () => {
     expect(resolveLegacyPluginId("qcloud")).toBe("omni.cloud.tencent");
     expect(resolveCloudPluginId({ provider: "tencent" })).toBe("omni.cloud.tencent");
     expect(resolveCloudPluginId({ pluginId: "omni.cloud.tencent" })).toBe("omni.cloud.tencent");
+    expect(resolveLegacyPluginId("huawei")).toBe("omni.cloud.huawei");
+    expect(resolveLegacyPluginId("hwc")).toBe("omni.cloud.huawei");
+    expect(resolveCloudPluginId({ provider: "huawei" })).toBe("omni.cloud.huawei");
+    expect(resolveCloudPluginId({ pluginId: "omni.cloud.huawei" })).toBe("omni.cloud.huawei");
     expect(resolveCloudPluginId({ pluginId: "omni.cloud.aws" })).toBe("omni.cloud.aws");
   });
 
@@ -84,6 +90,8 @@ describe("cloud capabilities contract", () => {
     expect(cloudAccountConsoleUrl("aliyun")).toBe("https://home.console.aliyun.com/");
     expect(cloudAccountConsoleUrl("omni.cloud.tencent")).toBe("https://console.cloud.tencent.com/");
     expect(cloudAccountConsoleUrl("tencent")).toBe("https://console.cloud.tencent.com/");
+    expect(cloudAccountConsoleUrl("omni.cloud.huawei")).toBe("https://console.huaweicloud.com/");
+    expect(cloudAccountConsoleUrl("huawei")).toBe("https://console.huaweicloud.com/");
     expect(cloudAccountConsoleUrl("omni.cloud.unknown")).toBeNull();
   });
 });
@@ -128,10 +136,84 @@ describe("cloud tree keys", () => {
   });
 
   it("第三方云品牌与能力文案不回落阿里云", () => {
-    expect(cloudBrandKind("omni.cloud.aws")).toBe("server");
+    expect(cloudBrandKind("omni.cloud.aws")).toBe("aws");
+    expect(cloudBrandKind("omni.cloud.azure")).toBe("azure");
+    expect(cloudBrandKind("omni.cloud.digitalocean")).toBe("digitalocean");
+    expect(cloudBrandKind("omni.cloud.gcp")).toBe("gcp");
+    expect(cloudBrandKind("omni.cloud.bandwagon")).toBe("bandwagon");
     expect(cloudBrandKind("omni.cloud.aliyun")).toBe("aliyun");
     expect(cloudBrandKind("omni.cloud.tencent")).toBe("tencent");
+    expect(cloudBrandKind("omni.cloud.huawei")).toBe("huawei");
     expect(cloudCapabilityLabel((key) => key, "topic", "omni.cloud.unknown")).toBe("topic");
+  });
+});
+
+describe("third-party cloud L2 host", () => {
+  function item(id: string, enabled = true, activated = true): PluginListItem {
+    return {
+      id,
+      version: "0.1.0",
+      kind: "cloud",
+      enabled,
+      activated,
+      source: "installed",
+      unsupportedReason: null,
+    };
+  }
+
+  function sampleCloud(id: string) {
+    return parsePluginManifest({
+      id,
+      version: "0.1.0",
+      kind: "cloud",
+      methods: [{ name: "testAccount" }, { name: "listResources" }],
+      contributes: {
+        ui: { sidebar: true },
+        cloud: {
+          capabilities: [
+            {
+              id: "compute",
+              label: "弹性云服务器",
+              scope: "region",
+              columns: [{ key: "name" }],
+              actions: [],
+              detailSlots: ["overview"],
+            },
+          ],
+          regions: [{ id: "cn-north-4", label: "华北-北京四" }],
+        },
+      },
+    });
+  }
+
+  it("按清单登记能力，禁用后消失", () => {
+    const prev = usePluginRuntimeStore.getState();
+    setInstalledPluginManifests([sampleCloud("omni.cloud.acme")]);
+    usePluginRuntimeStore.setState({
+      hydrated: true,
+      items: [item("omni.cloud.acme")],
+    });
+    expect(cloudCapabilitiesForPlugin("omni.cloud.acme").map((c) => c.id)).toEqual(["compute"]);
+    expect(cloudRegionOptions("omni.cloud.acme")).toEqual([
+      { value: "cn-north-4", label: "华北-北京四" },
+    ]);
+    usePluginRuntimeStore.setState({ hydrated: true, items: [] });
+    expect(cloudCapabilitiesForPlugin("omni.cloud.acme")).toEqual([]);
+    usePluginRuntimeStore.setState({ hydrated: prev.hydrated, items: prev.items });
+    setInstalledPluginManifests([]);
+  });
+
+  it("换插件 id 仍按清单工作（无样板 id 特判）", () => {
+    const prev = usePluginRuntimeStore.getState();
+    setInstalledPluginManifests([sampleCloud("omni.cloud.other")]);
+    usePluginRuntimeStore.setState({
+      hydrated: true,
+      items: [item("omni.cloud.other")],
+    });
+    expect(cloudCapabilitiesForPlugin("omni.cloud.other")).toHaveLength(1);
+    expect(cloudBrandKind("omni.cloud.other")).toBe("server");
+    usePluginRuntimeStore.setState({ hydrated: prev.hydrated, items: prev.items });
+    setInstalledPluginManifests([]);
   });
 });
 

@@ -7,11 +7,19 @@ export type CloudFormData = {
   regions: string[];
   accessKeyId: string;
   accessKeySecret: string;
+  tenantId: string;
+  subscriptionId: string;
   remark: string;
 };
 
 export const PLUGIN_ID_ALIYUN = "omni.cloud.aliyun";
 export const PLUGIN_ID_TENCENT = "omni.cloud.tencent";
+export const PLUGIN_ID_HUAWEI = "omni.cloud.huawei";
+export const PLUGIN_ID_AWS = "omni.cloud.aws";
+export const PLUGIN_ID_AZURE = "omni.cloud.azure";
+export const PLUGIN_ID_DIGITALOCEAN = "omni.cloud.digitalocean";
+export const PLUGIN_ID_GCP = "omni.cloud.gcp";
+export const PLUGIN_ID_BANDWAGON = "omni.cloud.bandwagon";
 
 export const EMPTY_CLOUD_FORM: CloudFormData = {
   name: "",
@@ -19,6 +27,8 @@ export const EMPTY_CLOUD_FORM: CloudFormData = {
   regions: [],
   accessKeyId: "",
   accessKeySecret: "",
+  tenantId: "",
+  subscriptionId: "",
   remark: "",
 };
 
@@ -27,14 +37,63 @@ export function isTencentCloud(pluginId: string | null | undefined): boolean {
   return id === PLUGIN_ID_TENCENT || id === "tencent" || id === "qcloud";
 }
 
+export function isHuaweiCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_HUAWEI || id === "huawei" || id === "hwc" || id === "hwcloud";
+}
+
 export function isAliyunCloud(pluginId: string | null | undefined): boolean {
   const id = (pluginId ?? "").trim();
   return id === PLUGIN_ID_ALIYUN || id === "aliyun";
 }
 
-export function cloudBrandKind(pluginId: string | null | undefined): "aliyun" | "tencent" | "server" {
+export function isAwsCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_AWS || id === "aws";
+}
+
+export function isAzureCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_AZURE || id === "azure";
+}
+
+export function isDigitalOceanCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_DIGITALOCEAN || id === "digitalocean" || id === "do";
+}
+
+export function isGcpCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_GCP || id === "gcp" || id === "google" || id === "googlecloud";
+}
+
+export function isBandwagonCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return (
+    id === PLUGIN_ID_BANDWAGON || id === "bandwagon" || id === "bwh" || id === "banwagong"
+  );
+}
+
+export function cloudBrandKind(
+  pluginId: string | null | undefined,
+):
+  | "aliyun"
+  | "tencent"
+  | "huawei"
+  | "aws"
+  | "azure"
+  | "digitalocean"
+  | "gcp"
+  | "bandwagon"
+  | "server" {
   if (isTencentCloud(pluginId)) return "tencent";
+  if (isHuaweiCloud(pluginId)) return "huawei";
   if (isAliyunCloud(pluginId)) return "aliyun";
+  if (isAwsCloud(pluginId)) return "aws";
+  if (isAzureCloud(pluginId)) return "azure";
+  if (isDigitalOceanCloud(pluginId)) return "digitalocean";
+  if (isGcpCloud(pluginId)) return "gcp";
+  if (isBandwagonCloud(pluginId)) return "bandwagon";
   return "server";
 }
 
@@ -83,8 +142,23 @@ export const TENCENT_REGION_OPTIONS: { value: string; label: string }[] = [
   { value: "eu-moscow", label: "莫斯科" },
 ];
 
+/** 常用华为云 Region。 */
+export const HUAWEI_REGION_OPTIONS: { value: string; label: string }[] = [
+  { value: "cn-north-1", label: "华北-北京一" },
+  { value: "cn-north-4", label: "华北-北京四" },
+  { value: "cn-north-9", label: "华北-乌兰察布一" },
+  { value: "cn-east-2", label: "华东-上海二" },
+  { value: "cn-east-3", label: "华东-上海一" },
+  { value: "cn-south-1", label: "华南-广州" },
+  { value: "cn-south-2", label: "华南-深圳" },
+  { value: "cn-southwest-2", label: "西南-贵阳一" },
+  { value: "ap-southeast-1", label: "中国-香港" },
+  { value: "ap-southeast-3", label: "亚太-新加坡" },
+];
+
 export function cloudRegionOptions(pluginId: string | null | undefined): { value: string; label: string }[] {
   if (isTencentCloud(pluginId)) return TENCENT_REGION_OPTIONS;
+  if (isHuaweiCloud(pluginId)) return HUAWEI_REGION_OPTIONS;
   if (isAliyunCloud(pluginId) || !(pluginId ?? "").trim()) return ALIYUN_REGION_OPTIONS;
   const declared = getPluginManifest(pluginId ?? "")?.contributes.cloud?.regions ?? [];
   return declared
@@ -93,7 +167,7 @@ export function cloudRegionOptions(pluginId: string | null | undefined): { value
 }
 
 const REGION_LABEL_MAP = new Map(
-  [...ALIYUN_REGION_OPTIONS, ...TENCENT_REGION_OPTIONS].map((r) => [r.value, r.label]),
+  [...ALIYUN_REGION_OPTIONS, ...TENCENT_REGION_OPTIONS, ...HUAWEI_REGION_OPTIONS].map((r) => [r.value, r.label]),
 );
 
 export function cloudRegionLabel(regionId: string, localName?: string): string {
@@ -141,6 +215,8 @@ export interface CloudConfigJson {
   regions?: string[];
   accessKeyId?: string;
   accessKeySecret?: string;
+  tenantId?: string;
+  subscriptionId?: string;
   remark?: string;
 }
 
@@ -174,6 +250,24 @@ export function cloudAccountConsoleUrl(pluginId: string): string | null {
   if (isTencentCloud(id)) {
     return "https://console.cloud.tencent.com/";
   }
+  if (isHuaweiCloud(id)) {
+    return "https://console.huaweicloud.com/";
+  }
+  if (isAwsCloud(id)) {
+    return "https://console.aws.amazon.com/";
+  }
+  if (isAzureCloud(id)) {
+    return "https://portal.azure.com/";
+  }
+  if (isDigitalOceanCloud(id)) {
+    return "https://cloud.digitalocean.com/";
+  }
+  if (isGcpCloud(id)) {
+    return "https://console.cloud.google.com/";
+  }
+  if (isBandwagonCloud(id)) {
+    return "https://bandwagonhost.com/clientarea.php";
+  }
   return null;
 }
 
@@ -186,6 +280,8 @@ export function cloudConnectionToForm(connection: Connection): CloudFormData {
     regions,
     accessKeyId: cfg.accessKeyId?.trim() || "",
     accessKeySecret: "",
+    tenantId: cfg.tenantId?.trim() || "",
+    subscriptionId: cfg.subscriptionId?.trim() || "",
     remark: cfg.remark?.trim() || "",
   };
 }
@@ -203,12 +299,26 @@ export function buildCloudConnection(
     pluginId,
     provider: isTencentCloud(pluginId)
       ? "tencent"
-      : isAliyunCloud(pluginId)
-        ? "aliyun"
-        : pluginId,
+      : isHuaweiCloud(pluginId)
+        ? "huawei"
+        : isAliyunCloud(pluginId)
+          ? "aliyun"
+          : isAwsCloud(pluginId)
+            ? "aws"
+            : isAzureCloud(pluginId)
+              ? "azure"
+              : isDigitalOceanCloud(pluginId)
+                ? "digitalocean"
+                : isGcpCloud(pluginId)
+                  ? "gcp"
+                  : isBandwagonCloud(pluginId)
+                    ? "bandwagon"
+                    : pluginId,
     regions,
     region: regions[0],
     accessKeyId: form.accessKeyId.trim(),
+    tenantId: form.tenantId.trim() || undefined,
+    subscriptionId: form.subscriptionId.trim() || undefined,
     remark: form.remark.trim() || undefined,
   };
   if (form.accessKeySecret.trim()) {

@@ -166,7 +166,6 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
         const info = await unwrapCommand(commands.pluginStudioEnvCheck(), { quiet: true });
         if (cancelled) return;
         setEnv(info);
-        if (!info.repoRoot) appendLog(setLog, t("plugins.studio.repoMissing"));
       } catch (err) {
         if (!cancelled) appendLog(setLog, String(err));
       }
@@ -456,6 +455,14 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
           project: project || t("plugins.studio.noProject"),
           desc: extra,
         });
+        try {
+          await unwrapCommand(
+            commands.pluginStudioAuditScaffold(project || "_", extra),
+            { quiet: true },
+          );
+        } catch {
+          /* 审计失败不阻断生成 */
+        }
       } else if (kind === "explain") {
         prompt = extra
           ? `${t("plugins.studio.aiExplainPrompt")}\n\n${extra}`
@@ -619,6 +626,9 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
                     <span className="plugin-center-row__meta">
                       {item.kind ? t(`plugins.studio.kindLabels.${item.kind}`) : item.name}
                       {item.version ? ` · ${item.version}` : ""}
+                      {item.location === "repo"
+                        ? ` · ${t("plugins.studio.locationRepo")}`
+                        : ` · ${t("plugins.studio.locationUser")}`}
                     </span>
                   </button>
                 ))

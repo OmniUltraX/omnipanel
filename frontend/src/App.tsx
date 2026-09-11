@@ -26,7 +26,7 @@ import { SkillEvolutionPrompt } from "./components/feedback/SkillEvolutionPrompt
 import { Button } from "./components/ui/primitives/Button";
 import { WorkspaceShell } from "./components/workspace/WorkspaceShell";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
-import { scheduleIdleOverlayShellWarm } from "./lib/moduleWarmup";
+import { scheduleIdleChunkWarm } from "./lib/moduleWarmup";
 import {
   ensureBuiltinModulesRegistered,
   ModuleRuntimeOutlet,
@@ -341,18 +341,26 @@ function AppShell() {
   }, []);
 
   useEffect(() => {
-    const schedule = () => preloadModuleChunks();
-    if (typeof requestIdleCallback === "function") {
-      // 给首页交互留足空闲窗口，避免启动后立刻抢主线程
-      const id = requestIdleCallback(schedule, { timeout: 12000 });
-      return () => cancelIdleCallback(id);
-    }
-    const timer = window.setTimeout(schedule, 2500);
+    // 真实 12s 延迟：只补 Dashboard/UserWorkspace 两个非叠层 chunk，
+    // 叠层 chunk 由 shell 预热覆盖；延迟启动避免与首屏交互抢主线程。
+    const timer = window.setTimeout(() => preloadModuleChunks(), 12000);
     return () => window.clearTimeout(timer);
   }, []);
 
-  // 空闲错峰：全部叠层模块 Chunk → ShellReady（仍 suspended，Live 重活跟 moduleLive）
-  useEffect(() => scheduleIdleOverlayShellWarm(), []);
+  // 空闲错峰预拉 chunk（挂壳只走 hover/pointerdown 意图驱动，不参与闲扫）
+  useEffect(() => scheduleIdleChunkWarm(), []);
+
+  // 数据静默预热：壳挂载之后，本地安全的 store 快照提前灌入（prod/网络拉取不进后台）
+  useEffect(() => {
+    let cancel: (() => void) | null = null;
+    void import("./modules/runtime/builtinDataWarms").then(({ ensureBuiltinDataWarmsRegistered }) => {
+      ensureBuiltinDataWarmsRegistered();
+      void import("./lib/moduleDataWarm").then(({ scheduleIdleModuleDataWarm }) => {
+        cancel = scheduleIdleModuleDataWarm();
+      });
+    });
+    return () => cancel?.();
+  }, []);
 
   // Harness/Loop：运维 Skill 种子 + Loop 规格与调度
   useEffect(() => {

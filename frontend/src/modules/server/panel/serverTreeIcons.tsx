@@ -18,8 +18,15 @@ export type ServerTreeIconKind =
   | "server"
   | "bt"
   | "1panel"
+  | "hestia"
   | "aliyun"
   | "tencent"
+  | "huawei"
+  | "aws"
+  | "azure"
+  | "digitalocean"
+  | "gcp"
+  | "bandwagon"
   | "apps"
   | "websites"
   | "certificates"
@@ -30,7 +37,19 @@ export type ServerTreeIconKind =
 type ServerTreeBrandIconKind = Extract<BrandIconKind, ServerTreeIconKind>;
 
 function isBrandKind(kind: ServerTreeIconKind): kind is ServerTreeBrandIconKind {
-  return kind === "bt" || kind === "1panel" || kind === "aliyun" || kind === "tencent";
+  return (
+    kind === "bt" ||
+    kind === "1panel" ||
+    kind === "hestia" ||
+    kind === "aliyun" ||
+    kind === "tencent" ||
+    kind === "huawei" ||
+    kind === "aws" ||
+    kind === "azure" ||
+    kind === "digitalocean" ||
+    kind === "gcp" ||
+    kind === "bandwagon"
+  );
 }
 
 export function serverTreeIconKindForPanel(

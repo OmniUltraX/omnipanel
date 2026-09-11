@@ -42,11 +42,10 @@
     { "name": "listInstalledApps", "permissions": ["net:connect", "vault:read"] },
     { "name": "getDashboard", "permissions": ["net:connect", "vault:read"] },
     { "name": "installApp", "permissions": ["net:connect", "vault:read"] },
-    {
-      "name": "uninstallApp",
-      "permissions": ["net:connect", "vault:read"],
+    { "name": "uninstallApp", "permissions": ["net:connect", "vault:read"],
       "dangerAction": "panel.app.uninstall"
-    }
+    },
+    { "name": "echo", "permissions": [] }
   ],
   "contributes": {
     "ui": {
@@ -107,6 +106,12 @@
             { "id": "create", "method": "createDatabase", "target": "toolbar" },
             { "id": "delete", "method": "deleteDatabase", "target": "row" }
           ]
+        },
+        {
+          "id": "echo",
+          "label": "回显",
+          "formFields": [{ "key": "text", "label": "文本" }],
+          "actions": [{ "id": "create", "method": "echo", "target": "toolbar" }]
         }
       ]
     }

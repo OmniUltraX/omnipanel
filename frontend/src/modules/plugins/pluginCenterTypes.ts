@@ -105,6 +105,8 @@ export type MarketItem = {
   localInstalls: number;
   changelog: string | null;
   sourceId: string | null;
+  /** 外部来源包名（Rubick npm 名）；官方/内置为空，转换安装用。 */
+  externalNpm: string | null;
 };
 
 function optionalStamp(value: string | null | undefined): string | null {
@@ -142,6 +144,7 @@ export function officialToMarketItem(
     localInstalls: 0,
     changelog: null,
     sourceId: "official",
+    externalNpm: null,
   };
 }
 
@@ -171,6 +174,7 @@ export function dbxToMarketItem(driver: DbxCatalogDriver, name: string): MarketI
     localInstalls: 0,
     changelog: null,
     sourceId: "dbx",
+    externalNpm: null,
   };
 }
 
@@ -197,6 +201,7 @@ export function marketplaceToMarketItem(item: MarketplaceItem, name: string): Ma
     localInstalls: 0,
     changelog: item.changelog ?? null,
     sourceId: item.sourceId,
+    externalNpm: item.externalNpm ?? null,
   };
 }
 

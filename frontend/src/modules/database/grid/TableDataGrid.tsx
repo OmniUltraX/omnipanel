@@ -25,12 +25,22 @@ import { useI18n } from "../../../i18n";
 import { type DbColumnMeta, type DbConnectionConfig } from "../api";
 import {
   PENDING_INSERT_ROW_KEY,
+  normalizeSortStates,
   resolvePreviewRowChangeKind,
   resolvePreviewRowKey,
   type PreviewRowChangeKind,
   type SortState,
+  type SortStates,
 } from "../workspace/dbWorkspaceState";
-import { getFilterColumnNames, buildTablePreviewSql, buildTablePreviewSqlWithRelations } from "./tablePreviewFilter";
+import {
+  appendQuickFilterRule,
+  clearColumnFilter,
+  getFilterColumnNames,
+  buildTablePreviewSql,
+  buildTablePreviewSqlWithRelations,
+  isQuickFilterKindEnabled,
+  type QuickFilterKind,
+} from "./tablePreviewFilter";
 import { showToast } from "../../../stores/toastStore";
 import {
   detectCellEditorKind,
@@ -216,10 +226,10 @@ export type TableDataGridProps = {
   enableTranspose?: boolean;
   /** 底部分页栏左侧工具按钮（表预览操作等） */
   toolbar?: ReactNode;
-  /** 当前排序状态（表预览模式） */
-  sort?: SortState | null;
-  /** 排序变更回调（点击列头时触发） */
-  onSortChange?: (sort: SortState | null) => void;
+  /** 当前排序状态（表预览模式；多列，空数组表示无排序，兼容单对象） */
+  sort?: SortState | SortStates | null;
+  /** 排序变更回调（点击列头时触发；一律输出数组） */
+  onSortChange?: (sort: SortStates) => void;
   /** 是否启用列头排序（表预览模式） */
   enableSort?: boolean;
   /** 当前过滤规则（表预览模式） */
@@ -701,6 +711,8 @@ export const TableDataGrid = memo(function TableDataGrid({
   reserveSelectionOnEscapeRef.current = reserveSelectionOnEscape;
   const filterColumnNames = useMemo(() => getFilterColumnNames(filter), [filter]);
   const canFilter = enableFilter && Boolean(onFilterChange && columnMeta?.length);
+  /** 列头指示器只看首列排序（多列时首列为最高优先级） */
+  const primarySort = useMemo(() => normalizeSortStates(sort)[0] ?? null, [sort]);
 
   const openFilterPopover = useCallback(
     (anchor: HTMLElement | CellOverlayAnchor, lockedField: string) => {
@@ -931,7 +943,7 @@ export const TableDataGrid = memo(function TableDataGrid({
         dbType,
         tableName,
         filter,
-        sort,
+        sort: normalizeSortStates(sort),
         page,
         pageSize,
         columnRelations,
@@ -946,7 +958,7 @@ export const TableDataGrid = memo(function TableDataGrid({
       dbType,
       tableName,
       filter,
-      sort,
+      sort: normalizeSortStates(sort),
       page,
       pageSize,
       selectColumns: allColumnsVisible ? undefined : previewGridColumns,
@@ -996,13 +1008,14 @@ export const TableDataGrid = memo(function TableDataGrid({
     (columnId: string) => {
       if (!enableSort || !onSortChange) return;
       setPageSort(null);
-      let next: SortState | null;
-      if (!sort || sort.column !== columnId) {
-        next = { column: columnId, direction: "asc" };
-      } else if (sort.direction === "asc") {
-        next = { column: columnId, direction: "desc" };
+      const primary = normalizeSortStates(sort)[0];
+      let next: SortStates;
+      if (!primary || primary.column !== columnId) {
+        next = [{ column: columnId, direction: "asc" }];
+      } else if (primary.direction === "asc") {
+        next = [{ column: columnId, direction: "desc" }];
       } else {
-        next = null;
+        next = [];
       }
       onSortChange(next);
     },
@@ -1262,8 +1275,8 @@ export const TableDataGrid = memo(function TableDataGrid({
                   canFilter={canFilter}
                   filterColumnNames={filterColumnNames}
                   enableSort={enableSort}
-                  sortColumn={sort?.column ?? null}
-                  sortDirection={sort?.direction ?? null}
+                  sortColumn={primarySort?.column ?? null}
+                  sortDirection={primarySort?.direction ?? null}
                   onSortClick={handleColumnSortClick}
                   onOpenFilter={openFilterPopover}
                   t={t}
@@ -2681,8 +2694,8 @@ export const TableDataGrid = memo(function TableDataGrid({
       canFilter,
       filterColumnNames,
       enableSort,
-      sortColumn: sort?.column ?? null,
-      sortDirection: sort?.direction ?? null,
+      sortColumn: primarySort?.column ?? null,
+      sortDirection: primarySort?.direction ?? null,
       hasCellEdit: Boolean(onCellEdit || onCellCommit),
       enableValuePanelAffordance: Boolean(onCellEditorFocusRequest),
       valuePanelAffordanceTitle: t("database.cellEditor.openValuePanel"),
@@ -2953,6 +2966,14 @@ export const TableDataGrid = memo(function TableDataGrid({
           filter: t("database.results.contextMenu.filter"),
           filterColumn: t("database.results.contextMenu.filterColumn"),
           filterClear: t("database.results.contextMenu.filterClear"),
+          filterValue: t("database.results.contextMenu.filterValue"),
+          filterExcludeValue: t("database.results.contextMenu.filterExcludeValue"),
+          filterContainsValue: t("database.results.contextMenu.filterContainsValue"),
+          filterNotContainsValue: t("database.results.contextMenu.filterNotContainsValue"),
+          filterLtValue: t("database.results.contextMenu.filterLtValue"),
+          filterGtValue: t("database.results.contextMenu.filterGtValue"),
+          filterIsNull: t("database.results.contextMenu.filterIsNull"),
+          filterIsNotNull: t("database.results.contextMenu.filterIsNotNull"),
           cellDetail: t("database.results.contextMenu.cellDetail"),
           columnDetail: t("database.results.contextMenu.columnDetail"),
           rowDetail: t("database.results.contextMenu.rowDetail"),
@@ -2999,11 +3020,11 @@ export const TableDataGrid = memo(function TableDataGrid({
           rowActionsEnabled: menu.rowActionsEnabled !== false && !transposed,
           onSortDbAsc: () => {
             setPageSort(null);
-            onSortChange?.({ column: menu.column, direction: "asc" });
+            onSortChange?.([{ column: menu.column, direction: "asc" }]);
           },
           onSortDbDesc: () => {
             setPageSort(null);
-            onSortChange?.({ column: menu.column, direction: "desc" });
+            onSortChange?.([{ column: menu.column, direction: "desc" }]);
           },
           onSortPageAsc: () => setPageSort({ column: menu.column, desc: false }),
           onSortPageDesc: () => setPageSort({ column: menu.column, desc: true }),
@@ -3013,7 +3034,17 @@ export const TableDataGrid = memo(function TableDataGrid({
             );
             if (th) openFilterPopover(th, menu.column);
           },
-          onFilterClear: () => onFilterChange?.(null),
+          quickFilterEnabled: (kind) => isQuickFilterKindEnabled(kind, menu.value),
+          onQuickFilter: (kind: QuickFilterKind) => {
+            const next = appendQuickFilterRule(filter, menu.column, kind, menu.value);
+            // AND 追加并立即查询；同时回到第一页避免空页
+            if (page !== 0) handlePageChange(0);
+            onFilterChange?.(next);
+          },
+          onFilterClear: () => {
+            const next = clearColumnFilter(filter, menu.column);
+            onFilterChange?.(next);
+          },
           onCellDetail: () => {
             openCellPreview({
               column: menu.column,
@@ -3207,6 +3238,9 @@ export const TableDataGrid = memo(function TableDataGrid({
       canFilter,
       openFilterPopover,
       onFilterChange,
+      filter,
+      page,
+      handlePageChange,
       openCellPreview,
       onOpenRowDetail,
       onRowBandSelect,
@@ -3317,8 +3351,8 @@ export const TableDataGrid = memo(function TableDataGrid({
       enableValuePanelAffordance: Boolean(onCellEditorFocusRequest),
       relationHighlightColumnIds,
       enableSort,
-      sortColumn: sort?.column ?? null,
-      sortDirection: sort?.direction ?? null,
+      sortColumn: primarySort?.column ?? null,
+      sortDirection: primarySort?.direction ?? null,
       canFilter,
       filterColumnNames,
       autoIncrementPlaceholder,
@@ -3518,8 +3552,8 @@ export const TableDataGrid = memo(function TableDataGrid({
                 const isSelectAllHeader = colId === ROW_NUM_COL_ID || isFieldCol;
                 const canSort =
                   enableSort && !transposed && colId !== ROW_NUM_COL_ID;
-                const sortActive = canSort && sort?.column === colId;
-                const sortDirection = sortActive ? sort!.direction : null;
+                const sortActive = canSort && primarySort?.column === colId;
+                const sortDirection = sortActive ? primarySort!.direction : null;
                 const sortClass = sortActive
                   ? sortDirection === "asc"
                     ? " db-data-table-th--sort-asc"

@@ -4,6 +4,7 @@
   "displayName": "腾讯云",
   "kind": "cloud",
   "permissions": ["connections:write", "net:connect", "vault:read"],
+  "entry": { "logic": "logic.js" },
   "methods": [
     { "name": "testAccount", "permissions": ["net:connect", "vault:read"] },
     { "name": "listRegions", "permissions": ["net:connect", "vault:read"] },

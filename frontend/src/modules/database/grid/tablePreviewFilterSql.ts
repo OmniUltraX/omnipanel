@@ -1,6 +1,7 @@
 import type { RuleGroupType, RuleType } from "react-querybuilder";
 import type { DbColumnMeta } from "../api";
-import type { SortState } from "../workspace/dbWorkspaceState";
+import type { SortState, SortStates } from "../workspace/dbWorkspaceState";
+import { normalizeSortStates } from "../workspace/dbWorkspaceState";
 import { formatFilterWhere, ensureTableFilterQuery, isTableFilterActive } from "./tablePreviewFilter";
 
 /** 展示用 WHERE 子句（不含 WHERE 关键字） */
@@ -12,10 +13,13 @@ export function buildWhereClauseText(
   return formatFilterWhere(filter, dbType, columnMeta) ?? "";
 }
 
-/** 展示用 ORDER BY 子句（不含 ORDER BY 关键字；单列） */
-export function buildOrderByClauseText(sort: SortState | null | undefined): string {
-  if (!sort?.column) return "";
-  return `${sort.column} ${sort.direction.toUpperCase()}`;
+/** 展示用 ORDER BY 子句（不含 ORDER BY 关键字；多列逗号连接） */
+export function buildOrderByClauseText(
+  sort: SortState | SortStates | null | undefined,
+): string {
+  const sorts = normalizeSortStates(sort);
+  if (sorts.length === 0) return "";
+  return sorts.map((entry) => `${entry.column} ${entry.direction.toUpperCase()}`).join(", ");
 }
 
 function unquoteIdent(raw: string): string {
@@ -55,7 +59,7 @@ type ParseWhereResult =
   | { ok: false; error: string };
 
 type ParseOrderResult =
-  | { ok: true; sort: SortState | null }
+  | { ok: true; sort: SortStates }
   | { ok: false; error: string };
 
 function splitTopLevelAndOr(input: string): { combinator: "and" | "or"; parts: string[] } | null {
@@ -224,38 +228,65 @@ export function parseWhereClauseText(
   };
 }
 
-/** 受限 ORDER BY 解析（仅首列）；空串表示清除排序 */
+function splitTopLevelCommas(input: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inStr: "'" | '"' | null = null;
+  let start = 0;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (inStr) {
+      if (ch === inStr && input[i - 1] !== "\\") inStr = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      inStr = ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+      continue;
+    }
+    if (ch === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      parts.push(input.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(input.slice(start).trim());
+  return parts.filter((part) => part.length > 0);
+}
+
+/** 受限 ORDER BY 解析（多列逗号连接）；空串表示清除排序 */
 export function parseOrderByClauseText(text: string): ParseOrderResult {
   const trimmed = text.trim();
   if (!trimmed) {
-    return { ok: true, sort: null };
+    return { ok: true, sort: [] };
   }
-  const match = trimmed.match(
-    /^([`"]?[\w.\u4e00-\u9fff]+[`"]?|\[[^\]]+\])(?:\s+(ASC|DESC))?$/i,
-  );
-  if (!match) {
-    // 多列时只取第一段
-    const first = trimmed.split(",")[0]?.trim() ?? "";
-    const again = first.match(
+  const sorts: SortStates = [];
+  for (const part of splitTopLevelCommas(trimmed)) {
+    const match = part.match(
       /^([`"]?[\w.\u4e00-\u9fff]+[`"]?|\[[^\]]+\])(?:\s+(ASC|DESC))?$/i,
     );
-    if (!again) {
-      return { ok: false, error: `无法解析排序: ${trimmed}` };
+    if (!match) {
+      return { ok: false, error: `无法解析排序: ${part}` };
     }
-    const column = unquoteIdent(again[1]);
-    const direction = (again[2]?.toLowerCase() === "desc" ? "desc" : "asc") as
+    const column = unquoteIdent(match[1]);
+    if (!column) {
+      return { ok: false, error: `无法解析排序: ${part}` };
+    }
+    const direction = (match[2]?.toLowerCase() === "desc" ? "desc" : "asc") as
       | "asc"
       | "desc";
-    return { ok: true, sort: { column, direction } };
+    sorts.push({ column, direction });
   }
-  const column = unquoteIdent(match[1]);
-  const direction = (match[2]?.toLowerCase() === "desc" ? "desc" : "asc") as
-    | "asc"
-    | "desc";
-  if (!column) {
-    return { ok: false, error: `无法解析排序: ${trimmed}` };
+  if (sorts.length === 0) {
+    return { ok: true, sort: [] };
   }
-  return { ok: true, sort: { column, direction } };
+  return { ok: true, sort: sorts };
 }
 
 export function isFilterTextDirty(

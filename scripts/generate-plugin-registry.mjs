@@ -29,6 +29,10 @@ const META = {
     name: "Tencent Cloud",
     description: "Manage CVM, Lighthouse, security groups, TencentDB, COS, DNSPod, and other Tencent Cloud resources.",
   },
+  "omni.cloud.huawei": {
+    name: "Huawei Cloud",
+    description: "Manage ECS, Flexus L, VPC, RDS, DCS, OBS, DNS, and other Huawei Cloud resources.",
+  },
   "omni.panel.1panel": {
     name: "1Panel",
     description: "Connect to 1Panel hosts for sites, apps, and certificates.",
@@ -36,6 +40,10 @@ const META = {
   "omni.panel.bt": {
     name: "BT Panel",
     description: "Connect to BT (Baota) panel hosts.",
+  },
+  "omni.panel.hestia": {
+    name: "HestiaCP",
+    description: "Connect to HestiaCP hosts for sites, databases, certificates, and cron jobs.",
   },
   "omni.engine.qdrant": {
     name: "Qdrant",

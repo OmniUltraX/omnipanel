@@ -207,10 +207,10 @@ export async function injectPanelApiKey(
   }
 }
 
-/** 通过 plugin_invoke 调用第三方 panel L2 方法。 */
+/** 通过 plugin_invoke 调用第三方 panel 方法（含清单自定义 method）。 */
 export async function invokePanelMethod<T = unknown>(
   pluginId: string,
-  method: PanelL2Method,
+  method: string,
   args: Record<string, unknown>,
 ): Promise<T> {
   const payload = await injectPanelApiKey(args);

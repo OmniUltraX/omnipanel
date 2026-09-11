@@ -45,6 +45,7 @@ export default {
       providers: {
         aliyun: "阿里云",
         tencent: "腾讯云",
+        huawei: "华为云",
       },
       readonlyHint: "只读列表 · 不执行写操作",
       actions: {
@@ -167,12 +168,18 @@ export default {
       addressRequired: "请填写面板地址",
       onePanelAddressHint:
         "请把安全入口写进地址，例如 http://IP:端口/入口。官方鉴权会依次尝试 API Key（MD5 / HMAC-SHA256）和用户名密码 JWT 登录。API 白名单需放行本机出口 IP。",
+      hestiaAddressHint:
+        "默认 https://IP:8083。若前面有反向代理到 443，直接填 https://域名 即可。需在 Hestia 开启 API，并把本机 IP 加入白名单（或 allow-all）。",
       panelUser: "面板用户名",
       panelUserHint: "无 API 接口的老版本用面板登录用户名（默认 admin），密钥栏填登录密码。",
+      hestiaUserHint: "Hestia 系统用户（默认 admin）。列表/写操作会带这个 USER。",
       key: "API 密钥",
       keyRequired: "请填写 API 密钥",
       keyPlaceholderEdit: "已回显已保存的密钥；留空保存则保持不变",
       keyEditHint: "已从本机凭据库回显；可直接修改。留空保存则保留原密钥。",
+      hestiaKeyPlaceholder: "ACCESS_KEY:SECRET_KEY",
+      hestiaKeyHint:
+        "在 Hestia「访问密钥」里创建 Access Key，权限选 *。密钥栏填 ACCESS_KEY:SECRET_KEY。也可用登录密码（配合上方用户名）。默认自签证书会自动放行。",
       serviceType: "面板类型",
       pluginRequired: "请选择面板插件",
       noPlugin: "没有已启用的面板插件。请先在设置 → 插件中启用。",
@@ -344,6 +351,7 @@ export default {
     serviceType: {
       bt: "宝塔",
       "1panel": "1Panel",
+      hestia: "HestiaCP",
     },
     hostList: {
       panelConfigured: "已配置面板",
@@ -401,6 +409,11 @@ export default {
       certificates: "证书",
       cronjobs: "计划任务",
       logs: "日志",
+    },
+    pluginTab: {
+      label: "插件",
+      invoke: "调用",
+      noMethod: "清单未声明可调用方法",
     },
     appMarket: {
       search: "搜索",

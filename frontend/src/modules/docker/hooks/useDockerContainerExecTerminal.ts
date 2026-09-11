@@ -7,7 +7,7 @@ import { TERMINAL_EVENT, TERMINAL_OUTPUT } from "../../../ipc/events";
 import { unwrapCommand } from "../../../ipc/result";
 import { safeTauriUnlisten } from "../../../lib/safeTauriUnlisten";
 import { useSettingsStore } from "../../../stores/settingsStore";
-import { applyTerminalTheme, getTerminalTheme, resolveActiveAppTheme } from "../../../modules/terminal/terminalTheme";
+import { applyTerminalTheme, getTerminalTheme, resolveActiveAppTheme, subscribeTerminalPalette } from "../../../modules/terminal/terminalTheme";
 
 function toBytes(data: string): number[] {
   return Array.from(new TextEncoder().encode(data));
@@ -55,10 +55,8 @@ export function useDockerContainerExecTerminal(
     applyTerminalTheme(term);
 
     // 主题变化时动态更新终端主题
-    const unsubTheme = useSettingsStore.subscribe((state, prev) => {
-      if (state.resolved !== prev.resolved) {
-        applyTerminalTheme(term, state.resolved);
-      }
+    const unsubTheme = subscribeTerminalPalette((resolved) => {
+      applyTerminalTheme(term, resolved);
     });
 
     let cancelled = false;

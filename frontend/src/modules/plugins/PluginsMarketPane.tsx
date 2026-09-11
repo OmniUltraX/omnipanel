@@ -417,7 +417,7 @@ function marketMetaBits(
   t: (key: string, params?: Record<string, string | number>) => string,
   locale: string,
 ): string[] {
-  const bits = [originMetaLabel(item.origin, t, { dbx: Boolean(item.dbxKey) }), t(`plugins.center.kinds.${item.kind}`)];
+  const bits = [originMetaLabel(item.origin, t, { dbx: Boolean(item.dbxKey), rubick: item.sourceId === "rubick" }), t(`plugins.center.kinds.${item.kind}`)];
   const updated = formatPluginDate(item.updatedAt, locale);
   if (updated) bits.push(t("plugins.center.updatedAt", { time: updated }));
   if (item.downloads != null && item.downloads > 0) {
@@ -443,7 +443,11 @@ function MarketAction({
 }) {
   const { t } = useI18n();
   const bundled = item.distribution === "bundled" || installed?.source === "builtin";
-  const canDownload = !bundled && (!item.installed || item.needsUpdate);
+  // 外部来源（Rubick npm 包）：tarball 非标准包，不走版本直装，只走转换安装
+  const isExternal = item.externalNpm != null && item.externalNpm.trim() !== "";
+  const canDownload = isExternal
+    ? !item.installed
+    : !bundled && (!item.installed || item.needsUpdate);
   const openable = canOpenOverlay(installed);
 
   if (canDownload) {
@@ -459,9 +463,11 @@ function MarketAction({
       >
         {installing
           ? t("plugins.catalog.installing")
-          : item.needsUpdate
-            ? t("plugins.catalog.update")
-            : t("plugins.center.get")}
+          : isExternal
+            ? t("plugins.center.convertInstall")
+            : item.needsUpdate
+              ? t("plugins.catalog.update")
+              : t("plugins.center.get")}
       </button>
     );
   }

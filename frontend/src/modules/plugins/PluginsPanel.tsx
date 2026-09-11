@@ -20,6 +20,7 @@ import {
   KIND_FILTERS,
 } from "./pluginCenterTypes";
 import { PluginDepConfirmDialog } from "./PluginDepConfirmDialog";
+import { ExternalConvertDialog } from "./ExternalConvertDialog";
 import { PluginDetailPane } from "./PluginDetailPane";
 import { PluginInstallConfirmDialog } from "./PluginInstallConfirmDialog";
 import { PluginSourcesDialog } from "./PluginSourcesDialog";
@@ -298,6 +299,16 @@ export function PluginsPanel() {
           confirming={center.confirming}
           onConfirm={() => void center.confirmPendingPlan()}
           onCancel={() => center.cancelPendingPlan()}
+        />
+      ) : null}
+      {center.pendingExternal ? (
+        <ExternalConvertDialog
+          itemName={center.pendingExternal.item.name}
+          npm={center.pendingExternal.item.externalNpm ?? ""}
+          verdict={center.pendingExternal.verdict}
+          confirming={center.confirming}
+          onConfirm={() => void center.confirmPendingExternal()}
+          onCancel={() => center.cancelPendingExternal()}
         />
       ) : null}
       <PluginSourcesDialog

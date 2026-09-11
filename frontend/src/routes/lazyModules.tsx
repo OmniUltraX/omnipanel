@@ -86,7 +86,7 @@ export const LazyPluginsPanel = lazyNamedModule(
   "PluginsPanel",
 );
 
-/** 空闲预热顺序：终端优先，其余随后；仅拉 chunk，不挂载 */
+/** 空闲预热顺序：终端优先，其余随后；仅拉 chunk，不挂载（与 shell 预热表对齐，含 cloud） */
 const IDLE_CHUNK_KEYS: OverlayModuleKey[] = [
   "terminal",
   "ssh",
@@ -94,6 +94,7 @@ const IDLE_CHUNK_KEYS: OverlayModuleKey[] = [
   "docker",
   "server",
   "files",
+  "cloud",
   "protocol",
   "workflow",
   "knowledge",

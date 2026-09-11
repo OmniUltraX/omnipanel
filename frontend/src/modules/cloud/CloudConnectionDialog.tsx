@@ -16,6 +16,11 @@ import {
   cloudConnectionToForm,
   cloudBrandKind,
   cloudRegionOptions,
+  isAzureCloud,
+  isBandwagonCloud,
+  isDigitalOceanCloud,
+  isGcpCloud,
+  PLUGIN_ID_AZURE,
   type CloudFormData,
 } from "./cloudForm";
 import { invalidateCloudAccountRegions } from "./cloudRegionDiscovery";
@@ -24,6 +29,12 @@ import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRun
 import { pluginDisplayName } from "../plugins/pluginDisplayName";
 import aliyunIcon from "../../assets/icons/Aliyun.svg";
 import tencentIcon from "../../assets/icons/Tencent.svg";
+import huaweiIcon from "../../assets/icons/Huawei.svg";
+import awsIcon from "../../assets/icons/Aws.svg";
+import azureIcon from "../../assets/icons/Azure.svg";
+import digitalOceanIcon from "../../assets/icons/DigitalOcean.svg";
+import gcpIcon from "../../assets/icons/Gcp.svg";
+import bandwagonIcon from "../../assets/icons/Bandwagon.svg";
 
 interface CloudConnectionDialogProps {
   open: boolean;
@@ -35,6 +46,12 @@ interface CloudConnectionDialogProps {
 const PLUGIN_ICONS: Record<string, string> = {
   "omni.cloud.aliyun": aliyunIcon,
   "omni.cloud.tencent": tencentIcon,
+  "omni.cloud.huawei": huaweiIcon,
+  "omni.cloud.aws": awsIcon,
+  "omni.cloud.azure": azureIcon,
+  "omni.cloud.digitalocean": digitalOceanIcon,
+  "omni.cloud.gcp": gcpIcon,
+  "omni.cloud.bandwagon": bandwagonIcon,
 };
 
 export function CloudConnectionDialog({
@@ -87,16 +104,47 @@ export function CloudConnectionDialog({
 
   const validate = (): string | null => {
     if (!form.name.trim()) return t("server.cloud.create.nameRequired");
-    if (!form.accessKeyId.trim()) return t("server.cloud.create.akRequired");
+    if (
+      !isDigitalOceanCloud(form.pluginId) &&
+      !isGcpCloud(form.pluginId) &&
+      !form.accessKeyId.trim()
+    ) {
+      return t("server.cloud.create.akRequired");
+    }
+    if (isBandwagonCloud(form.pluginId) && !form.accessKeyId.trim()) {
+      return t("cloud.dialog.bandwagonVeidRequired");
+    }
+    if (isAzureCloud(form.pluginId)) {
+      if (!form.tenantId.trim()) return t("cloud.dialog.azureTenantRequired");
+      if (!form.subscriptionId.trim()) return t("cloud.dialog.azureSubscriptionRequired");
+    }
     if (!isEdit && !form.accessKeySecret.trim()) return t("server.cloud.create.skRequired");
     if (!form.pluginId.trim()) return t("cloud.dialog.pluginRequired");
     return null;
   };
 
   const handleTest = async () => {
-    if (!form.accessKeyId.trim()) {
+    if (
+      !isDigitalOceanCloud(form.pluginId) &&
+      !isGcpCloud(form.pluginId) &&
+      !form.accessKeyId.trim()
+    ) {
       setStatus({ kind: "error", message: t("server.cloud.create.akRequired") });
       return;
+    }
+    if (isBandwagonCloud(form.pluginId) && !form.accessKeyId.trim()) {
+      setStatus({ kind: "error", message: t("cloud.dialog.bandwagonVeidRequired") });
+      return;
+    }
+    if (isAzureCloud(form.pluginId)) {
+      if (!form.tenantId.trim()) {
+        setStatus({ kind: "error", message: t("cloud.dialog.azureTenantRequired") });
+        return;
+      }
+      if (!form.subscriptionId.trim()) {
+        setStatus({ kind: "error", message: t("cloud.dialog.azureSubscriptionRequired") });
+        return;
+      }
     }
     if (!form.accessKeySecret.trim() && !isEdit) {
       setStatus({ kind: "error", message: t("server.cloud.create.skRequired") });
@@ -169,7 +217,13 @@ export function CloudConnectionDialog({
         {
           label: testing ? t("server.cloud.create.testing") : t("server.cloud.create.test"),
           variant: "ghost",
-          disabled: saving || testing || !form.accessKeyId.trim() || activatedPlugins.length === 0,
+          disabled:
+            saving ||
+            testing ||
+            activatedPlugins.length === 0 ||
+            (!isDigitalOceanCloud(form.pluginId) &&
+              !isGcpCloud(form.pluginId) &&
+              !form.accessKeyId.trim()),
           onClick: () => void handleTest(),
         },
       ]}
@@ -244,21 +298,78 @@ export function CloudConnectionDialog({
         </div>
       ) : null}
 
-      <div className="form-field">
-        <label className="form-label">
-          {t(brand === "tencent" ? "server.cloud.create.secretId" : "server.cloud.create.accessKeyId")}
-        </label>
-        <TextInput
-          placeholder={brand === "tencent" ? "AKI..." : brand === "aliyun" ? "LTAI..." : ""}
-          value={form.accessKeyId}
-          onChange={(value) => update("accessKeyId", value)}
-          autoComplete="off"
-        />
-      </div>
+      {form.pluginId === PLUGIN_ID_AZURE ? (
+        <>
+          <div className="form-field">
+            <label className="form-label">{t("cloud.dialog.azureTenantId")}</label>
+            <TextInput
+              placeholder={t("cloud.dialog.azureTenantIdPlaceholder")}
+              value={form.tenantId}
+              onChange={(value) => update("tenantId", value)}
+              autoComplete="off"
+            />
+          </div>
+          <div className="form-field">
+            <label className="form-label">{t("cloud.dialog.azureSubscriptionId")}</label>
+            <TextInput
+              placeholder={t("cloud.dialog.azureSubscriptionIdPlaceholder")}
+              value={form.subscriptionId}
+              onChange={(value) => update("subscriptionId", value)}
+              autoComplete="off"
+            />
+          </div>
+        </>
+      ) : null}
+
+      {!isDigitalOceanCloud(form.pluginId) ? (
+        <div className="form-field">
+          <label className="form-label">
+            {t(
+              brand === "tencent"
+                ? "server.cloud.create.secretId"
+                : brand === "azure"
+                  ? "cloud.dialog.azureClientId"
+                  : brand === "bandwagon"
+                    ? "cloud.dialog.bandwagonVeid"
+                    : brand === "gcp"
+                      ? "cloud.dialog.gcpProjectId"
+                      : "server.cloud.create.accessKeyId",
+            )}
+          </label>
+          <TextInput
+            placeholder={
+              brand === "tencent"
+                ? "AKI..."
+                : brand === "aliyun"
+                  ? "LTAI..."
+                  : brand === "aws"
+                    ? "AKIA..."
+                    : brand === "bandwagon"
+                      ? "123456"
+                      : ""
+            }
+            value={form.accessKeyId}
+            onChange={(value) => update("accessKeyId", value)}
+            autoComplete="off"
+          />
+        </div>
+      ) : null}
 
       <div className="form-field">
         <label className="form-label">
-          {t(brand === "tencent" ? "server.cloud.create.secretKey" : "server.cloud.create.accessKeySecret")}
+          {t(
+            brand === "tencent"
+              ? "server.cloud.create.secretKey"
+              : brand === "azure"
+                ? "cloud.dialog.azureClientSecret"
+                : isDigitalOceanCloud(form.pluginId)
+                  ? "cloud.dialog.digitalOceanToken"
+                  : isGcpCloud(form.pluginId)
+                    ? "cloud.dialog.gcpServiceAccountJson"
+                    : isBandwagonCloud(form.pluginId)
+                      ? "cloud.dialog.bandwagonApiKey"
+                      : "server.cloud.create.accessKeySecret",
+          )}
         </label>
         <PasswordInput
           copyable

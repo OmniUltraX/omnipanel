@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { DbColumnMeta } from "../api";
 import type { TableSchema } from "../types";
 import {
+  appendQuickFilterRule,
   buildFilterFields,
   buildPreviewFilterFields,
+  buildQuickFilterRule,
   buildSelectAllFromTableSql,
   buildTablePreviewCountSqlWithRelations,
   buildTablePreviewDataSqlWithRelations,
   buildTablePreviewSql,
+  clearColumnFilter,
   formatFilterWhere,
+  isQuickFilterKindEnabled,
   shouldUseRelationJoinPreview,
 } from "./tablePreviewFilter";
 import { relationDisplayColumnId } from "./tableColumnRelation";
@@ -66,10 +70,14 @@ describe("tablePreviewFilter relation columns", () => {
       rules: [{ field: relationColumnId, operator: "contains", value: "alice" }],
     };
     expect(shouldUseRelationJoinPreview(columnRelations, filter, null)).toBe(true);
-    expect(shouldUseRelationJoinPreview(columnRelations, null, { column: relationColumnId, direction: "asc" })).toBe(
-      true,
-    );
-    expect(shouldUseRelationJoinPreview(columnRelations, null, { column: "user_id", direction: "asc" })).toBe(false);
+    expect(
+      shouldUseRelationJoinPreview(columnRelations, null, [
+        { column: relationColumnId, direction: "asc" },
+      ]),
+    ).toBe(true);
+    expect(
+      shouldUseRelationJoinPreview(columnRelations, null, [{ column: "user_id", direction: "asc" }]),
+    ).toBe(false);
   });
 
   it("builds join SQL with relation filter and sort", () => {
@@ -77,7 +85,7 @@ describe("tablePreviewFilter relation columns", () => {
       combinator: "and" as const,
       rules: [{ field: relationColumnId, operator: "contains", value: "alice" }],
     };
-    const sort = { column: relationColumnId, direction: "asc" as const };
+    const sort = [{ column: relationColumnId, direction: "asc" as const }];
     const dataSql = buildTablePreviewDataSqlWithRelations({
       dbType: "mysql",
       tableName: "orders",
@@ -103,6 +111,58 @@ describe("tablePreviewFilter relation columns", () => {
     expect(countSql).toContain("SELECT COUNT(*)");
     expect(countSql).toContain("LEFT JOIN `users` AS `rel_0`");
     expect(countSql.toLowerCase()).toContain("`rel_0`.`name` like '%alice%'");
+  });
+});
+
+describe("tablePreviewFilter quick filter", () => {
+  it("builds equals and null fallback", () => {
+    expect(buildQuickFilterRule("name", "equals", "alice")).toMatchObject({
+      field: "name",
+      operator: "=",
+      value: "alice",
+    });
+    expect(buildQuickFilterRule("name", "equals", null)).toMatchObject({
+      field: "name",
+      operator: "null",
+    });
+    expect(buildQuickFilterRule("name", "notEquals", null)).toMatchObject({
+      field: "name",
+      operator: "notNull",
+    });
+    expect(buildQuickFilterRule("name", "contains", null)).toBeNull();
+    expect(isQuickFilterKindEnabled("contains", null)).toBe(false);
+    expect(isQuickFilterKindEnabled("equals", null)).toBe(true);
+  });
+
+  it("appends with AND and clears column", () => {
+    const base = {
+      combinator: "and" as const,
+      rules: [{ field: "id", operator: "=", value: 1 }],
+    };
+    const next = appendQuickFilterRule(base, "name", "contains", "alice");
+    expect(next?.rules).toHaveLength(2);
+    const cleared = clearColumnFilter(next, "name");
+    expect(cleared?.rules).toHaveLength(1);
+    expect(clearColumnFilter(cleared, "id")).toBeNull();
+  });
+
+  it("generates SQL for contains and doesNotContain", () => {
+    const containsSql = formatFilterWhere(
+      {
+        combinator: "and" as const,
+        rules: [buildQuickFilterRule("name", "contains", "alice")!],
+      },
+      "mysql",
+    );
+    expect(containsSql?.toLowerCase()).toContain("like");
+    const notContainsSql = formatFilterWhere(
+      {
+        combinator: "and" as const,
+        rules: [buildQuickFilterRule("name", "notContains", "alice")!],
+      },
+      "mysql",
+    );
+    expect(notContainsSql?.toLowerCase()).toContain("not like");
   });
 });
 

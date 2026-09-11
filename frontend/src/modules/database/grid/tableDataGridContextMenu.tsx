@@ -121,6 +121,14 @@ export type TableDataGridContextMenuLabels = {
   filter: string;
   filterColumn: string;
   filterClear: string;
+  filterValue: string;
+  filterExcludeValue: string;
+  filterContainsValue: string;
+  filterNotContainsValue: string;
+  filterLtValue: string;
+  filterGtValue: string;
+  filterIsNull: string;
+  filterIsNotNull: string;
   cellDetail: string;
   columnDetail: string;
   rowDetail: string;
@@ -147,6 +155,16 @@ export type TableDataGridContextMenuLabels = {
   export: string;
 };
 
+export type QuickFilterKind =
+  | "equals"
+  | "notEquals"
+  | "contains"
+  | "notContains"
+  | "lt"
+  | "gt"
+  | "isNull"
+  | "isNotNull";
+
 export type TableDataGridContextMenuActions = {
   canSortDb: boolean;
   canSortPage: boolean;
@@ -162,12 +180,15 @@ export type TableDataGridContextMenuActions = {
   hasSelection: boolean;
   selectedRowCount: number;
   rowActionsEnabled: boolean;
+  /** 快捷筛选某类不可用时（如 NULL 值做包含/比较）对应菜单 disabled */
+  quickFilterEnabled?: (kind: QuickFilterKind) => boolean;
   onSortDbAsc: () => void;
   onSortDbDesc: () => void;
   onSortPageAsc: () => void;
   onSortPageDesc: () => void;
   onFilterColumn: () => void;
   onFilterClear: () => void;
+  onQuickFilter: (kind: QuickFilterKind) => void;
   onCellDetail: () => void;
   onColumnDetail: () => void;
   onRowDetail: () => void;
@@ -238,6 +259,7 @@ export function buildTableDataGridContextMenuItems(
   }
 
   if (actions.canFilter) {
+    const isEnabled = (kind: QuickFilterKind) => actions.quickFilterEnabled?.(kind) ?? true;
     items.push(sep("sep-filter"), {
       id: "filter",
       label: labels.filter,
@@ -247,6 +269,54 @@ export function buildTableDataGridContextMenuItems(
           id: "filter-column",
           label: labels.filterColumn,
           onClick: actions.onFilterColumn,
+        },
+        {
+          id: "filter-value",
+          label: labels.filterValue,
+          disabled: !isEnabled("equals"),
+          onClick: () => actions.onQuickFilter("equals"),
+        },
+        {
+          id: "filter-exclude-value",
+          label: labels.filterExcludeValue,
+          disabled: !isEnabled("notEquals"),
+          onClick: () => actions.onQuickFilter("notEquals"),
+        },
+        {
+          id: "filter-contains-value",
+          label: labels.filterContainsValue,
+          disabled: !isEnabled("contains"),
+          onClick: () => actions.onQuickFilter("contains"),
+        },
+        {
+          id: "filter-not-contains-value",
+          label: labels.filterNotContainsValue,
+          disabled: !isEnabled("notContains"),
+          onClick: () => actions.onQuickFilter("notContains"),
+        },
+        {
+          id: "filter-lt-value",
+          label: labels.filterLtValue,
+          disabled: !isEnabled("lt"),
+          onClick: () => actions.onQuickFilter("lt"),
+        },
+        {
+          id: "filter-gt-value",
+          label: labels.filterGtValue,
+          disabled: !isEnabled("gt"),
+          onClick: () => actions.onQuickFilter("gt"),
+        },
+        {
+          id: "filter-is-null",
+          label: labels.filterIsNull,
+          disabled: !isEnabled("isNull"),
+          onClick: () => actions.onQuickFilter("isNull"),
+        },
+        {
+          id: "filter-is-not-null",
+          label: labels.filterIsNotNull,
+          disabled: !isEnabled("isNotNull"),
+          onClick: () => actions.onQuickFilter("isNotNull"),
         },
         {
           id: "filter-clear",

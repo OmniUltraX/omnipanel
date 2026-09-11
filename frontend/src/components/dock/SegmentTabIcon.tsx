@@ -5,8 +5,15 @@ export type SegmentTabIconKind =
   | "server"
   | "bt"
   | "1panel"
+  | "hestia"
   | "aliyun"
   | "tencent"
+  | "huawei"
+  | "aws"
+  | "azure"
+  | "digitalocean"
+  | "gcp"
+  | "bandwagon"
   | "monitor"
   | "processes"
   | "apps"
@@ -22,8 +29,15 @@ const SEGMENT_TAB_ICON_KINDS = new Set<string>([
   "server",
   "bt",
   "1panel",
+  "hestia",
   "aliyun",
   "tencent",
+  "huawei",
+  "aws",
+  "azure",
+  "digitalocean",
+  "gcp",
+  "bandwagon",
   "monitor",
   "processes",
   "apps",
@@ -38,7 +52,19 @@ const SEGMENT_TAB_ICON_KINDS = new Set<string>([
 type SegmentBrandIconKind = Extract<BrandIconKind, SegmentTabIconKind>;
 
 function isBrandSegmentIcon(icon: SegmentTabIconKind): icon is SegmentBrandIconKind {
-  return icon === "bt" || icon === "1panel" || icon === "aliyun" || icon === "tencent";
+  return (
+    icon === "bt" ||
+    icon === "1panel" ||
+    icon === "hestia" ||
+    icon === "aliyun" ||
+    icon === "tencent" ||
+    icon === "huawei" ||
+    icon === "aws" ||
+    icon === "azure" ||
+    icon === "digitalocean" ||
+    icon === "gcp" ||
+    icon === "bandwagon"
+  );
 }
 
 export function isSegmentTabIconKind(icon: string): icon is SegmentTabIconKind {

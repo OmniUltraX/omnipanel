@@ -28,6 +28,7 @@ function item(partial: Partial<MarketItem> & Pick<MarketItem, "id" | "name">): M
     localInstalls: 0,
     changelog: null,
     sourceId: "official",
+    externalNpm: null,
     ...partial,
   };
 }
@@ -143,8 +144,7 @@ describe("shouldConfirmInstallPlan", () => {
     ).toBe(false);
   });
 
-  it("requires confirm when deps or warnings exist", () => {
-    expect(
+  it("requires confirm when deps or warnings exist", () => {    expect(
       shouldConfirmInstallPlan(
         {
           items: [
@@ -162,5 +162,49 @@ describe("shouldConfirmInstallPlan", () => {
         "a",
       ),
     ).toBe(true);
+  });
+});
+
+describe("marketplaceToMarketItem external", () => {
+  it("passes through externalNpm and marks third-party origin", () => {
+    const converted = marketplaceToMarketItem(
+      {
+        id: "omni.ext.ip-config-rubick-plugin",
+        kind: "addon",
+        name: "本机 IP 查询",
+        description: "ip",
+        version: "1.0.4",
+        installed: false,
+        updateAvailable: false,
+        sourceId: "rubick",
+        downloadSize: 0,
+        permissions: [],
+        externalNpm: "ip-config-rubick-plugin",
+      },
+      "本机 IP 查询",
+    );
+    expect(converted.origin).toBe("thirdParty");
+    expect(converted.sourceId).toBe("rubick");
+    expect(converted.externalNpm).toBe("ip-config-rubick-plugin");
+  });
+
+  it("leaves official items without externalNpm", () => {
+    const converted = marketplaceToMarketItem(
+      {
+        id: "omni.addon.everything",
+        kind: "addon",
+        name: "Everything",
+        description: "",
+        version: "0.1.0",
+        installed: false,
+        updateAvailable: false,
+        sourceId: "official",
+        downloadSize: 0,
+        permissions: [],
+      },
+      "Everything",
+    );
+    expect(converted.origin).toBe("official");
+    expect(converted.externalNpm).toBeNull();
   });
 });

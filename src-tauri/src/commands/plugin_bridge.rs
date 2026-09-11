@@ -67,15 +67,19 @@ impl ProdConfirmer for TauriProdConfirmer {
                 guard.insert(rid.clone(), PendingPluginConfirm { tx, grant_target });
             }
             let _ = app.emit(PLUGIN_CONFIRM_REQUEST_EVENT, &payload);
-            match tokio::time::timeout(CONFIRM_TIMEOUT, rx).await {
-                Ok(Ok(allowed)) => Ok(allowed),
-                _ => {
-                    let _ = pending.lock().await.remove(&rid);
-                    Ok(false) // 超时/通道关闭 = 拒绝
-                }
-            }
+            let allowed = wait_confirm(rx, CONFIRM_TIMEOUT).await;
+            let _ = pending.lock().await.remove(&rid);
+            Ok(allowed)
         })
     }
+}
+
+/// 仅明确同意才放行；超时、通道关闭、用户拒绝一律 false（不发网）。
+async fn wait_confirm(
+    rx: tokio::sync::oneshot::Receiver<bool>,
+    timeout: Duration,
+) -> bool {
+    matches!(tokio::time::timeout(timeout, rx).await, Ok(Ok(true)))
 }
 
 fn uuid_v4() -> String {
@@ -246,14 +250,19 @@ impl PluginBridge {
             })
             .await
             .unwrap_or(false);
-        self.audit(
-            "plugin.prod-confirm",
-            if allowed { "allowed" } else { "blocked" },
-            format!("{action} {target}"),
-        );
         if allowed {
+            self.audit(
+                "plugin.prod-confirm",
+                "allowed",
+                format!("{action} {target}"),
+            );
             Ok(())
         } else {
+            self.audit(
+                "plugin.permission",
+                "blocked",
+                format!("{action} {target}"),
+            );
             Err(PluginError::Invoke(format!(
                 "已拦截对生产环境目标的访问（未获用户确认）: {target}"
             )))
@@ -614,7 +623,8 @@ fn save_candidate(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_host, normalize_bare};
+    use super::{extract_host, normalize_bare, wait_confirm};
+    use std::time::Duration;
 
     #[test]
     fn extract_host_from_url() {
@@ -624,5 +634,68 @@ mod tests {
         );
         assert_eq!(extract_host("10.0.0.8:3306"), Some("10.0.0.8".into()));
         assert_eq!(normalize_bare("DB.internal"), Some("db.internal".into()));
+    }
+
+    #[tokio::test]
+    async fn confirm_timeout_is_deny() {
+        let (_tx, rx) = tokio::sync::oneshot::channel::<bool>();
+        assert!(!wait_confirm(rx, Duration::from_millis(20)).await);
+    }
+
+    #[tokio::test]
+    async fn confirm_cancel_is_deny() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tx.send(false).unwrap();
+        assert!(!wait_confirm(rx, Duration::from_secs(1)).await);
+    }
+
+    #[tokio::test]
+    async fn confirm_allow_is_true() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tx.send(true).unwrap();
+        assert!(wait_confirm(rx, Duration::from_secs(1)).await);
+    }
+
+    #[tokio::test]
+    async fn confirm_dropped_sender_is_deny() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+        drop(tx);
+        assert!(!wait_confirm(rx, Duration::from_secs(1)).await);
+    }
+
+    #[test]
+    fn config_hosts_reads_host_and_address() {
+        use super::config_hosts;
+        assert_eq!(
+            config_hosts(r#"{"host":"https://db.example.com:3306","address":"10.0.0.8"}"#),
+            vec!["db.example.com".to_string(), "10.0.0.8".to_string()]
+        );
+        // 非法 JSON 与无主机字段都不产出主机，prod 闸不会误伤。
+        assert!(config_hosts("not-json").is_empty());
+        assert!(config_hosts(r#"{"port":3306}"#).is_empty());
+    }
+
+    #[test]
+    fn dedot_collapses_parent_dirs() {
+        use super::dedot;
+        use std::path::PathBuf;
+        assert_eq!(
+            dedot(&PathBuf::from("/root/plugin/../plugin/a.json")),
+            PathBuf::from("/root/plugin/a.json")
+        );
+        // 越过根后不再上溢，fsRead 禁锢交由 starts_with 拦截。
+        assert_eq!(
+            dedot(&PathBuf::from("/root/../../etc/passwd")),
+            PathBuf::from("/etc/passwd")
+        );
+    }
+
+    #[test]
+    fn args_digest_never_contains_plaintext() {
+        use super::args_digest;
+        let digest = args_digest(r#"{"token":"s3cr3t-value"}"#);
+        assert!(digest.starts_with("sha256:"));
+        assert!(!digest.contains("s3cr3t-value"));
+        assert!(digest.contains("len=24"));
     }
 }

@@ -12,6 +12,7 @@
 
 pub mod atomic;
 pub mod devkey;
+pub mod external;
 pub mod pack;
 pub mod registry;
 
@@ -22,6 +23,10 @@ pub use atomic::{
 pub use pack::{
     extract_to, pack_dir, pack_dir_with_entries, registry_plugin_from_dir,
     registry_plugin_from_packed,
+};
+pub use external::{
+    ExternalCmd, ExternalFeature, ExternalVerdict, analyze_external_entries,
+    convert_external_to_entries, unpack_npm_tarball,
 };
 pub use registry::{
     RegistryArtifact, RegistryFile, RegistryPlugin, RegistryVersion, canonical_registry_bytes,

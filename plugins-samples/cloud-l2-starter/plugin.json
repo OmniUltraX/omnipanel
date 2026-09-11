@@ -1,0 +1,53 @@
+{
+  "id": "example.cloud.starter",
+  "version": "0.1.0",
+  "displayName": "云厂商 L2 样板",
+  "kind": "cloud",
+  "permissions": ["connections:write", "net:connect", "vault:read"],
+  "entry": { "logic": "logic.js" },
+  "methods": [
+    { "name": "testAccount", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listRegions", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getAccount", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listResources", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getResource", "permissions": ["net:connect", "vault:read"] }
+  ],
+  "contributes": {
+    "ui": {
+      "sidebar": true,
+      "connectionForm": {
+        "fields": [
+          { "key": "accessKeyId", "type": "text" },
+          { "key": "accessKeySecret", "type": "password" },
+          { "key": "regions", "type": "multiselect" }
+        ]
+      }
+    },
+    "cloud": {
+      "capabilities": [
+        {
+          "id": "compute",
+          "label": "弹性云服务器",
+          "scope": "region",
+          "detailSlots": ["overview"],
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "instanceType" },
+            { "key": "zone" },
+            { "key": "publicIp" },
+            { "key": "privateIp" },
+            { "key": "os" }
+          ],
+          "actions": []
+        }
+      ],
+      "regions": [
+        { "id": "cn-north-4", "label": "华北-北京四" },
+        { "id": "cn-east-3", "label": "华东-上海一" },
+        { "id": "cn-south-1", "label": "华南-广州" }
+      ]
+    }
+  }
+}

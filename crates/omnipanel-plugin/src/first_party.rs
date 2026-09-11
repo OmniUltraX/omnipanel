@@ -4,8 +4,15 @@ pub const PLUGIN_ID_THEME_DEFAULT: &str = "omni.theme.default";
 pub const PLUGIN_ID_ADDON_EVERYTHING: &str = "omni.addon.everything";
 pub const PLUGIN_ID_CLOUD_ALIYUN: &str = "omni.cloud.aliyun";
 pub const PLUGIN_ID_CLOUD_TENCENT: &str = "omni.cloud.tencent";
+pub const PLUGIN_ID_CLOUD_HUAWEI: &str = "omni.cloud.huawei";
+pub const PLUGIN_ID_CLOUD_AWS: &str = "omni.cloud.aws";
+pub const PLUGIN_ID_CLOUD_AZURE: &str = "omni.cloud.azure";
+pub const PLUGIN_ID_CLOUD_DIGITALOCEAN: &str = "omni.cloud.digitalocean";
+pub const PLUGIN_ID_CLOUD_GCP: &str = "omni.cloud.gcp";
+pub const PLUGIN_ID_CLOUD_BANDWAGON: &str = "omni.cloud.bandwagon";
 pub const PLUGIN_ID_PANEL_1PANEL: &str = "omni.panel.1panel";
 pub const PLUGIN_ID_PANEL_BT: &str = "omni.panel.bt";
+pub const PLUGIN_ID_PANEL_HESTIA: &str = "omni.panel.hestia";
 pub const PLUGIN_ID_ENGINE_QDRANT: &str = "omni.engine.qdrant";
 pub const PLUGIN_ID_ENGINE_CLICKHOUSE: &str = "omni.engine.clickhouse";
 pub const PLUGIN_ID_ENGINE_MONGODB: &str = "omni.engine.mongodb";
@@ -47,12 +54,40 @@ pub fn cloud_tencent() -> PluginManifest {
     first_party_manifest!("cloud-tencent")
 }
 
+pub fn cloud_huawei() -> PluginManifest {
+    first_party_manifest!("cloud-huawei")
+}
+
+pub fn cloud_aws() -> PluginManifest {
+    first_party_manifest!("cloud-aws")
+}
+
+pub fn cloud_azure() -> PluginManifest {
+    first_party_manifest!("cloud-azure")
+}
+
+pub fn cloud_digitalocean() -> PluginManifest {
+    first_party_manifest!("cloud-digitalocean")
+}
+
+pub fn cloud_gcp() -> PluginManifest {
+    first_party_manifest!("cloud-gcp")
+}
+
+pub fn cloud_bandwagon() -> PluginManifest {
+    first_party_manifest!("cloud-bandwagon")
+}
+
 pub fn panel_1panel() -> PluginManifest {
     first_party_manifest!("panel-1panel")
 }
 
 pub fn panel_bt() -> PluginManifest {
     first_party_manifest!("panel-bt")
+}
+
+pub fn panel_hestia() -> PluginManifest {
+    first_party_manifest!("panel-hestia")
 }
 
 pub fn engine_qdrant() -> PluginManifest {
@@ -119,6 +154,70 @@ pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u
             .as_bytes()
             .to_vec(),
         ),
+        (PLUGIN_ID_CLOUD_TENCENT, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-tencent/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_HUAWEI, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-huawei/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_AWS, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-aws/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_AZURE, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-azure/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_DIGITALOCEAN, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-digitalocean/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_GCP, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-gcp/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_CLOUD_BANDWAGON, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/cloud-bandwagon/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_PANEL_HESTIA, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/panel-hestia/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
         _ => None,
     }
 }
@@ -150,6 +249,14 @@ pub fn first_party_asset_bytes(plugin_id: &str, rel: &str) -> Option<Vec<u8>> {
             .as_bytes()
             .to_vec(),
         ),
+        (PLUGIN_ID_THEME_DEFAULT, "tokens.json") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/theme-default/tokens.json"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
         _ => None,
     }
 }
@@ -160,8 +267,15 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         addon_everything(),
         cloud_aliyun(),
         cloud_tencent(),
+        cloud_huawei(),
+        cloud_aws(),
+        cloud_azure(),
+        cloud_digitalocean(),
+        cloud_gcp(),
+        cloud_bandwagon(),
         panel_1panel(),
         panel_bt(),
+        panel_hestia(),
         engine_qdrant(),
         engine_clickhouse(),
         engine_mongodb(),
@@ -186,8 +300,29 @@ mod tests {
         assert_eq!(addon_everything().id, PLUGIN_ID_ADDON_EVERYTHING);
         assert_eq!(cloud_aliyun().id, PLUGIN_ID_CLOUD_ALIYUN);
         assert_eq!(cloud_tencent().id, PLUGIN_ID_CLOUD_TENCENT);
+        assert_eq!(cloud_tencent().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_huawei().id, PLUGIN_ID_CLOUD_HUAWEI);
+        assert_eq!(cloud_huawei().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_aws().id, PLUGIN_ID_CLOUD_AWS);
+        assert_eq!(cloud_aws().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_azure().id, PLUGIN_ID_CLOUD_AZURE);
+        assert_eq!(cloud_azure().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_digitalocean().id, PLUGIN_ID_CLOUD_DIGITALOCEAN);
+        assert_eq!(cloud_digitalocean().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_gcp().id, PLUGIN_ID_CLOUD_GCP);
+        assert_eq!(cloud_gcp().logic_entry(), Some("logic.js"));
+        assert_eq!(cloud_bandwagon().id, PLUGIN_ID_CLOUD_BANDWAGON);
+        assert_eq!(cloud_bandwagon().logic_entry(), Some("logic.js"));
+        assert!(
+            first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "logic.js")
+                .expect("应嵌入腾讯云 logic.js")
+                .len()
+                > 100
+        );
         assert_eq!(panel_1panel().id, PLUGIN_ID_PANEL_1PANEL);
         assert_eq!(panel_bt().id, PLUGIN_ID_PANEL_BT);
+        assert_eq!(panel_hestia().id, PLUGIN_ID_PANEL_HESTIA);
+        assert_eq!(panel_hestia().logic_entry(), Some("logic.js"));
         assert_eq!(engine_qdrant().id, PLUGIN_ID_ENGINE_QDRANT);
         assert_eq!(engine_clickhouse().id, PLUGIN_ID_ENGINE_CLICKHOUSE);
         assert_eq!(engine_mongodb().id, PLUGIN_ID_ENGINE_MONGODB);
@@ -276,6 +411,40 @@ mod tests {
                 "certs"
             ]
         );
+        assert_eq!(manifest.logic_entry(), Some("logic.js"));
+        manifest.validate().expect("腾讯云 L2 清单应通过校验");
+    }
+
+    #[test]
+    fn cloud_huawei_declares_same_capability_ids() {
+        let manifest = cloud_huawei();
+        let caps: Vec<_> = manifest
+            .contributes
+            .cloud
+            .as_ref()
+            .expect("cloud.capabilities")
+            .capabilities
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert_eq!(
+            caps,
+            vec![
+                "compute",
+                "compute.lite",
+                "network.securityGroup",
+                "network.eip",
+                "network.loadBalancer",
+                "database",
+                "database.cache",
+                "storage.disk",
+                "objectStorage",
+                "domains",
+                "certs"
+            ]
+        );
+        assert_eq!(manifest.logic_entry(), Some("logic.js"));
+        manifest.validate().expect("华为云 L2 清单应通过校验");
     }
 
     #[test]
@@ -393,6 +562,38 @@ mod tests {
     }
 
     #[test]
+    fn tencent_embeds_logic_js() {
+        let bytes = first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "logic.js")
+            .expect("应嵌入腾讯云 logic.js");
+        let src = String::from_utf8(bytes).unwrap();
+        assert!(src.contains("TC3-HMAC-SHA256"));
+        assert!(src.contains("host.netFetch"));
+        assert!(src.contains("host.hash"));
+        assert!(first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "other.js").is_none());
+    }
+
+    #[test]
+    fn huawei_embeds_logic_js() {
+        let bytes = first_party_logic_bytes(PLUGIN_ID_CLOUD_HUAWEI, "logic.js")
+            .expect("应嵌入华为云 logic.js");
+        let src = String::from_utf8(bytes).unwrap();
+        assert!(src.contains("SDK-HMAC-SHA256"));
+        assert!(src.contains("host.netFetch"));
+        assert!(src.contains("host.hash"));
+        assert!(first_party_logic_bytes(PLUGIN_ID_CLOUD_HUAWEI, "other.js").is_none());
+    }
+
+    #[test]
+    fn hestia_embeds_logic_js() {
+        let bytes = first_party_logic_bytes(PLUGIN_ID_PANEL_HESTIA, "logic.js")
+            .expect("应嵌入 HestiaCP logic.js");
+        let src = String::from_utf8(bytes).unwrap();
+        assert!(src.contains("v-list-web-domains"));
+        assert!(src.contains("host.netFetch"));
+        assert!(first_party_logic_bytes(PLUGIN_ID_PANEL_HESTIA, "other.js").is_none());
+    }
+
+    #[test]
     fn warpgate_embeds_logic_js() {
         let bytes = first_party_logic_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "logic.js")
             .expect("应嵌入 warpgate logic.js");
@@ -440,6 +641,39 @@ mod tests {
             .expect("应嵌入 warpgate icon.svg");
         assert!(String::from_utf8(icon).unwrap().contains("<svg"));
         assert!(first_party_asset_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "../icon.svg").is_none());
+    }
+
+    #[test]
+    fn theme_default_tokens_path_and_asset() {
+        let manifest = theme_default();
+        manifest.validate().expect("theme-default 清单应通过校验");
+        assert_eq!(
+            manifest
+                .contributes
+                .themes
+                .as_ref()
+                .expect("themes")
+                .tokens,
+            "tokens.json"
+        );
+        let bytes = first_party_asset_bytes(PLUGIN_ID_THEME_DEFAULT, "tokens.json")
+            .expect("应嵌入 theme-default tokens.json");
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("\"terminal\""));
+        assert!(first_party_asset_bytes(PLUGIN_ID_THEME_DEFAULT, "../tokens.json").is_none());
+    }
+
+    #[test]
+    fn theme_tokens_rejects_traversal() {
+        let mut manifest = theme_default();
+        manifest.contributes.themes = Some(crate::ThemeContribution {
+            tokens: "../evil.json".into(),
+        });
+        assert!(manifest.validate().is_err());
+        manifest.contributes.themes = Some(crate::ThemeContribution {
+            tokens: "tokens.json".into(),
+        });
+        assert!(manifest.validate().is_ok());
     }
 
     #[test]

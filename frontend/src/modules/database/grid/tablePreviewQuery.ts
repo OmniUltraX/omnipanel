@@ -11,8 +11,8 @@ import {
 import { introspectToTableSchemas } from "../sqlEditor/language/completionItems";
 import { makeQueryRunId } from "../sql/queryRun";
 import type { TableSchema } from "../types";
-import type { QueryResult, SortState } from "../workspace/dbWorkspaceState";
-import { buildOrderByClause, rowsToRecord } from "../workspace/dbWorkspaceState";
+import type { QueryResult, SortStates } from "../workspace/dbWorkspaceState";
+import { buildOrderByClause, normalizeSortStates, rowsToRecord } from "../workspace/dbWorkspaceState";
 import type { TableColumnRelation } from "./tableColumnRelation";
 import {
   buildTablePreviewCountSqlWithRelations,
@@ -38,7 +38,7 @@ export interface FetchTablePreviewPageParams {
   dbName: string;
   page: number;
   pageSize: number;
-  sort?: SortState | null;
+  sort?: SortStates | null;
   filter?: RuleGroupType | null;
   columnMeta?: DbColumnMeta[];
   columnRelations?: Record<string, TableColumnRelation>;
@@ -129,7 +129,8 @@ export async function fetchTablePreviewPage({
     return { data, totalRows };
   }
 
-  const orderBy = sort ? buildOrderByClause(sort, dbType) : undefined;
+  const sorts = normalizeSortStates(sort);
+  const orderBy = sorts.length > 0 ? buildOrderByClause(sorts, dbType) : undefined;
   const where = formatFilterWhere(filter, dbType, columnMeta);
   const dataPromise = previewTable(
     connForSchema,

@@ -9,6 +9,7 @@ import type { PanelTabDecl } from "@omnipanel/plugin-sdk";
 
 export const PLUGIN_ID_PANEL_1PANEL = "omni.panel.1panel";
 export const PLUGIN_ID_PANEL_BT = "omni.panel.bt";
+export const PLUGIN_ID_PANEL_HESTIA = "omni.panel.hestia";
 
 export type PanelCapability =
   | "overview"
@@ -25,6 +26,9 @@ const ALIASES: Record<string, string> = {
   "1panel": PLUGIN_ID_PANEL_1PANEL,
   onepanel: PLUGIN_ID_PANEL_1PANEL,
   [PLUGIN_ID_PANEL_1PANEL]: PLUGIN_ID_PANEL_1PANEL,
+  hestia: PLUGIN_ID_PANEL_HESTIA,
+  hestiacp: PLUGIN_ID_PANEL_HESTIA,
+  [PLUGIN_ID_PANEL_HESTIA]: PLUGIN_ID_PANEL_HESTIA,
 };
 
 function livePanelTabIds(pluginId: string): string[] {
@@ -80,6 +84,15 @@ export function isBtPanelService(serviceType: string | null | undefined): boolea
   return canonicalPanelPluginId(serviceType) === PLUGIN_ID_PANEL_BT;
 }
 
+export function isHestiaPanelService(serviceType: string | null | undefined): boolean {
+  return canonicalPanelPluginId(serviceType) === PLUGIN_ID_PANEL_HESTIA;
+}
+
+/** 连接需要持久化面板用户名（1Panel JWT / Hestia 命令 USER）。 */
+export function panelUsesLoginUser(serviceType: string | null | undefined): boolean {
+  return isOnePanelService(serviceType) || isHestiaPanelService(serviceType);
+}
+
 export function isFirstPartyPanelService(serviceType: string | null | undefined): boolean {
   return isOnePanelService(serviceType) || isBtPanelService(serviceType);
 }
@@ -131,12 +144,14 @@ function asPanelTabDecl(raw: unknown): PanelTabDecl | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const rec = raw as {
     id?: unknown;
+    label?: unknown;
     listMethod?: unknown;
     formFields?: unknown;
     actions?: unknown;
   };
   const id = typeof rec.id === "string" ? rec.id.trim() : "";
   if (!id) return null;
+  const label = typeof rec.label === "string" ? rec.label.trim() || undefined : undefined;
   const formFields = Array.isArray(rec.formFields)
     ? rec.formFields.filter(
         (field): field is { key: string; label?: string } =>
@@ -157,6 +172,7 @@ function asPanelTabDecl(raw: unknown): PanelTabDecl | null {
     : undefined;
   return {
     id,
+    label,
     listMethod: typeof rec.listMethod === "string" ? rec.listMethod.trim() || undefined : undefined,
     formFields,
     actions,
@@ -219,9 +235,18 @@ export function panelTabListMethod(
   return DEFAULT_PANEL_LIST_METHODS[tabId] ?? null;
 }
 
-export function panelVendorLabelKey(serviceType: string | null | undefined): "bt" | "1panel" | "other" {
+export function panelVendorLabelKey(serviceType: string | null | undefined): "bt" | "1panel" | "hestia" | "other" {
   if (isBtPanelService(serviceType)) return "bt";
   if (isOnePanelService(serviceType)) return "1panel";
+  if (isHestiaPanelService(serviceType)) return "hestia";
+  return "other";
+}
+
+/** 侧栏类型芯片 class 后缀：`server-item__type-tag--*` */
+export function panelTypeTagModifier(serviceType: string | null | undefined): "bt" | "onepanel" | "hestia" | "other" {
+  if (isBtPanelService(serviceType)) return "bt";
+  if (isOnePanelService(serviceType)) return "onepanel";
+  if (isHestiaPanelService(serviceType)) return "hestia";
   return "other";
 }
 
@@ -237,5 +262,6 @@ export function panelServiceTypeLabel(
   const id = canonicalPanelPluginId(serviceType);
   if (id === PLUGIN_ID_PANEL_BT) return t("server.serviceType.bt");
   if (id === PLUGIN_ID_PANEL_1PANEL) return t("server.serviceType.1panel");
+  if (id === PLUGIN_ID_PANEL_HESTIA) return t("server.serviceType.hestia");
   return pluginDisplayName(id, t);
 }

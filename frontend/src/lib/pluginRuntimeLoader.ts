@@ -29,6 +29,21 @@ const PLUGIN_MODULES: Record<string, PluginModule> = {
 const DYNAMIC_MODULES: Record<string, PluginModule> = {};
 /** 动态入口加载失败的插件（降级为 L1，不再重试直到 reset）。 */
 const DYNAMIC_FAILED = new Set<string>();
+const DYNAMIC_FAILED_REASONS = new Map<string, string>();
+
+/** 第三方 `ui/main.js` 体积上限（与 `plugin_read_asset` 文本上限同量级）。 */
+export const DYNAMIC_UI_MAX_BYTES = 512 * 1024;
+export const UI_INVALID_ENTRY_REASON = "ui.invalid_entry";
+
+function markDynamicFailed(id: string, reason: string): void {
+  DYNAMIC_FAILED.add(id);
+  DYNAMIC_FAILED_REASONS.set(id, reason);
+}
+
+/** 仅测试 / 诊断：动态 UI 求值失败原因。 */
+export function getDynamicUiUnsupportedReason(pluginId: string): string | undefined {
+  return DYNAMIC_FAILED_REASONS.get(pluginId);
+}
 
 export type PluginAssetReader = (pluginId: string, relPath: string) => Promise<string>;
 
@@ -59,7 +74,7 @@ export function evaluateDynamicPluginModule(
   code: string,
   opts: { host: PluginHost; manifest: unknown },
 ): PluginModule | null {
-  if (!code || code.length > 512 * 1024) return null;
+  if (!code || code.length > DYNAMIC_UI_MAX_BYTES) return null;
   try {
     const moduleObj: { exports?: unknown } = {};
     const fn = new Function(
@@ -103,21 +118,21 @@ async function loadDynamicModule(
   host: PluginHost,
   manifest: unknown,
 ): Promise<PluginModule | null> {
-  if (DYNAMIC_MODULES[id]) return DYNAMIC_MODULES[id];
   if (DYNAMIC_FAILED.has(id)) return null;
+  if (DYNAMIC_MODULES[id]) return DYNAMIC_MODULES[id];
   try {
     const code = await getAssetReader()(id, uiEntry);
     const mod = evaluateDynamicPluginModule(code, { host, manifest });
     if (!mod) {
-      console.error(`[plugin-runtime] ${id} unsupported_reason=ui.invalid_entry`);
-      DYNAMIC_FAILED.add(id);
+      console.error(`[plugin-runtime] ${id} unsupported_reason=${UI_INVALID_ENTRY_REASON}`);
+      markDynamicFailed(id, UI_INVALID_ENTRY_REASON);
       return null;
     }
     DYNAMIC_MODULES[id] = mod;
     return mod;
   } catch (err) {
     console.error(`[plugin-runtime] load dynamic ${id} 失败`, err);
-    DYNAMIC_FAILED.add(id);
+    markDynamicFailed(id, UI_INVALID_ENTRY_REASON);
     return null;
   }
 }
@@ -186,6 +201,10 @@ export async function syncPluginLifecycles(
       activeIds.add(id);
     } catch (err) {
       console.error(`[plugin-runtime] activate ${id} 失败`, err);
+      if (!PLUGIN_MODULES[id]) {
+        delete DYNAMIC_MODULES[id];
+        markDynamicFailed(id, UI_INVALID_ENTRY_REASON);
+      }
     }
   }
 }
@@ -204,6 +223,7 @@ export function resetPluginLifecycleForTests(): void {
   activeIds.clear();
   for (const key of Object.keys(DYNAMIC_MODULES)) delete DYNAMIC_MODULES[key];
   DYNAMIC_FAILED.clear();
+  DYNAMIC_FAILED_REASONS.clear();
   assetReader = null;
   catalogReady = false;
 }

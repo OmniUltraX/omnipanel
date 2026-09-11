@@ -1,0 +1,80 @@
+{
+  "id": "omni.cloud.bandwagon",
+  "version": "0.1.0",
+  "displayName": "搬瓦工",
+  "kind": "cloud",
+  "permissions": ["connections:write", "net:connect", "vault:read"],
+  "entry": { "logic": "logic.js" },
+  "methods": [
+    { "name": "testAccount", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listRegions", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getAccount", "permissions": ["net:connect", "vault:read"] },
+    { "name": "listResources", "permissions": ["net:connect", "vault:read"] },
+    { "name": "getResource", "permissions": ["net:connect", "vault:read"] },
+    {
+      "name": "invokeAction",
+      "permissions": ["net:connect", "vault:read"],
+      "dangerAction": "cloud.instance.lifecycle"
+    },
+    { "name": "getMetrics", "permissions": ["net:connect", "vault:read"] },
+    { "name": "queryLogs", "permissions": ["net:connect", "vault:read"] }
+  ],
+  "contributes": {
+    "ui": {
+      "sidebar": true,
+      "connectionForm": {
+        "fields": [
+          { "key": "accessKeyId", "type": "text" },
+          { "key": "accessKeySecret", "type": "password" },
+          { "key": "regions", "type": "multiselect" }
+        ]
+      }
+    },
+    "cloud": {
+      "capabilities": [
+        {
+          "id": "compute",
+          "scope": "region",
+          "detailSlots": ["overview", "metrics", "backups"],
+          "columns": [
+            { "key": "name" },
+            { "key": "status" },
+            { "key": "region" },
+            { "key": "publicIp" },
+            { "key": "privateIp" },
+            { "key": "os" },
+            { "key": "plan" }
+          ],
+          "actions": [
+            { "id": "start", "kind": "plugin" },
+            { "id": "stop", "kind": "plugin" },
+            { "id": "reboot", "kind": "plugin" },
+            { "id": "addSsh", "kind": "host" }
+          ]
+        }
+      ],
+      "regions": [
+        { "id": "losangeles", "label": "洛杉矶" },
+        { "id": "fremont", "label": "弗里蒙特" },
+        { "id": "sanjose", "label": "圣何塞" },
+        { "id": "seattle", "label": "西雅图" },
+        { "id": "newyork", "label": "纽约" },
+        { "id": "newjersey", "label": "新泽西" },
+        { "id": "vancouver", "label": "温哥华" },
+        { "id": "toronto", "label": "多伦多" },
+        { "id": "amsterdam", "label": "阿姆斯特丹" },
+        { "id": "london", "label": "伦敦" },
+        { "id": "frankfurt", "label": "法兰克福" },
+        { "id": "hongkong", "label": "香港" },
+        { "id": "tokyo", "label": "东京" },
+        { "id": "singapore", "label": "新加坡" },
+        { "id": "sydney", "label": "悉尼" },
+        { "id": "dubai", "label": "迪拜" },
+        { "id": "miami", "label": "迈阿密" },
+        { "id": "atlanta", "label": "亚特兰大" },
+        { "id": "dallas", "label": "达拉斯" },
+        { "id": "chicago", "label": "芝加哥" }
+      ]
+    }
+  }
+}

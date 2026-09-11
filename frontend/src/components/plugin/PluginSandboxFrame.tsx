@@ -115,6 +115,47 @@ const PRELUDE = `
 
 export type SandboxTheme = "dark" | "light";
 
+/** 越权/未知方法拒绝文案；null 表示该 method 允许进入后续处理。 */
+export function sandboxBridgeDenyReason(
+  method: string | undefined,
+  granted: ReadonlySet<string>,
+): string | null {
+  switch (method) {
+    case "selection.get":
+      return granted.has("ui:selection") ? null : "缺权限 ui:selection";
+    case "netFetch":
+      return granted.has("net:connect") ? null : "缺权限 net:connect";
+    case "aiComplete":
+      return granted.has("ai:tools") ? null : "缺权限 ai:tools";
+    case "invoke":
+    case "overlay.hide":
+    case "overlayInitial":
+      return null;
+    default:
+      return `白名单外的方法: ${String(method)}`;
+  }
+}
+
+export function formatSandboxBridgeBlockLog(
+  pluginId: string,
+  method: unknown,
+  message: string,
+): string {
+  return `[plugin-bridge] blocked ${pluginId} ${String(method)}: ${message}`;
+}
+
+/**
+ * 拒绝走审计的权限锚点：deny() 经 `pluginRequirePermission(pluginId, anchor)`
+ * 触发后端 `plugin.permission/blocked` audit（缺权即记）。
+ * 白名单外方法无专属权限，锚定 `ui:selection`（结构拒绝 + 控制台日志恒在；
+ * 插件若恰好持有该权限则只记控制台，不重复落 audit）。
+ */
+export function sandboxBridgeAuditPermission(method: string | undefined): string {
+  if (method === "netFetch") return "net:connect";
+  if (method === "aiComplete") return "ai:tools";
+  return "ui:selection";
+}
+
 export function buildSandboxDoc(pluginHtml: string, theme: SandboxTheme = "dark"): string {
   // 在 <head> 或文档最前插入 CSP、主题基座与桥；无 head 标签时前置拼接。
   // light 主题多一段脚本把 data-theme 打到 <html> 上（dark 为缺省，无需设置）。
@@ -166,19 +207,20 @@ export function PluginSandboxFrame({ pluginId, title, html, theme, onInvoke, onH
         } catch {
           /* audit 尽力而为 */
         }
-        console.error(`[plugin-bridge] blocked ${pluginId} ${String(data.method)}: ${message}`);
+        console.error(formatSandboxBridgeBlockLog(pluginId, data.method, message));
         respond(null, message);
       };
       try {
         const { getPluginManifest } = await import("../../lib/pluginManifests");
         const manifest = getPluginManifest(pluginId);
         const granted = new Set(manifest?.permissions ?? []);
+        const denyReason = sandboxBridgeDenyReason(data.method, granted);
+        if (denyReason) {
+          await deny(sandboxBridgeAuditPermission(data.method), denyReason);
+          return;
+        }
         switch (data.method) {
           case "selection.get": {
-            if (!granted.has("ui:selection")) {
-              await deny("ui:selection", "缺权限 ui:selection");
-              break;
-            }
             const { getHostSelection } = await import("../../lib/hostSelection");
             respond(getHostSelection());
             break;
@@ -190,10 +232,6 @@ export function PluginSandboxFrame({ pluginId, title, html, theme, onInvoke, onH
             break;
           }
           case "netFetch": {
-            if (!granted.has("net:connect")) {
-              await deny("net:connect", "缺权限 net:connect");
-              break;
-            }
             respond(await onInvoke("netFetch", data.args));
             break;
           }
@@ -203,10 +241,6 @@ export function PluginSandboxFrame({ pluginId, title, html, theme, onInvoke, onH
             break;
           }
           case "aiComplete": {
-            if (!granted.has("ai:tools")) {
-              await deny("ai:tools", "缺权限 ai:tools");
-              break;
-            }
             const { createPluginHost } = await import("../../lib/pluginHost");
             respond(await createPluginHost(pluginId).ai.complete((data.args ?? {}) as never));
             break;

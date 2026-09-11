@@ -41,15 +41,39 @@ const shellWarmRequested = new Set<OverlayModuleKey>();
 type ShellWarmListener = (key: OverlayModuleKey) => void;
 const shellWarmListeners = new Set<ShellWarmListener>();
 
+/**
+ * 真实延迟 + 空闲对齐：先睡足 timeoutMs（ wall clock，意图即“多久以后再说”），
+ * 到点后再要一个空闲槽（2s 兜底）。直接用 requestIdleCallback 的 timeout 语义
+ * 会在首屏空闲时立刻开火——启动期三个预热调度会同时 stampede 主线程数秒，
+ * hover 都没反应。所有后台预热必须走这里，禁止裸 rIC。
+ */
 function scheduleIdleOrTimeout(run: () => void, timeoutMs: number): () => void {
-  if (typeof requestIdleCallback === "function") {
-    const id = requestIdleCallback(run, { timeout: timeoutMs });
-    return () => {
-      if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
-    };
-  }
-  const timer = window.setTimeout(run, Math.min(timeoutMs, 3000));
-  return () => window.clearTimeout(timer);
+  let settled = false;
+  let timer: number | null = null;
+  let cancelIdle: (() => void) | null = null;
+  const fire = () => {
+    if (settled) return;
+    settled = true;
+    run();
+  };
+  timer = window.setTimeout(() => {
+    timer = null;
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(fire, { timeout: 2000 });
+      cancelIdle = () => {
+        if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
+      };
+      return;
+    }
+    fire();
+  }, Math.max(0, timeoutMs));
+  return () => {
+    settled = true;
+    if (timer) window.clearTimeout(timer);
+    timer = null;
+    cancelIdle?.();
+    cancelIdle = null;
+  };
 }
 
 /** 订阅「预挂载模块壳」请求（不激活路由，仅让 Overlay 提前 mount） */
@@ -148,12 +172,14 @@ export interface IdleOverlayShellWarmOptions {
 }
 
 /**
- * 空闲错峰：按序逐个“chunk 预拉 + 请求挂壳（suspended）”。
- * retain-all 时代挂壳不再与保活冲突：反正挂上就不卸，早挂就是把
- * 首访的 chunk 下载 + React 挂载提前到空闲时付，xterm 初始化
- * 仍受 active/visible 门禁，不会在后台一次性全起。
+ * 空闲错峰：按序逐个预拉 chunk（纯下载 + 求值，不挂壳）。
+ *
+ * 刻意不含壳挂载：实测 11 个悬挂壳 ≈ 启动期 95% 长任务（dev 下数秒），
+ * 而 chunk 预拉仅 ~0.3s。挂壳只走意图驱动（hover/focus/pointerdown 经
+ * scheduleNavHoverWarm → requestModuleShellWarm），与用户意图对齐，
+ * 避免启动 stampede 堵住 hover 等交互。
  */
-export function scheduleIdleOverlayShellWarm(
+export function scheduleIdleChunkWarm(
   options?: IdleOverlayShellWarmOptions,
 ): () => void {
   const keys = options?.keys ?? IDLE_OVERLAY_SHELL_KEYS;
@@ -173,9 +199,6 @@ export function scheduleIdleOverlayShellWarm(
     index += 1;
     void preloadOverlayModuleChunk(key).finally(() => {
       if (cancelled) return;
-      // chunk 就绪后再挂壳：挂载 suspended 树只付 React 成本，数据 effect
-      // 被 moduleLive 门禁挡住，xterm 初始化被 active/visible 门禁挡住。
-      requestModuleShellWarm(key);
       cancelScheduled = scheduleIdleOrTimeout(warmNext, stepShellTimeoutMs);
     });
   };
@@ -187,6 +210,13 @@ export function scheduleIdleOverlayShellWarm(
     cancelScheduled?.();
     cancelScheduled = null;
   };
+}
+
+/** @deprecated 闲时只预拉 chunk，挂壳走意图驱动；用 scheduleIdleChunkWarm */
+export function scheduleIdleOverlayShellWarm(
+  options?: IdleOverlayShellWarmOptions,
+): () => void {
+  return scheduleIdleChunkWarm(options);
 }
 
 /** @deprecated 使用 scheduleIdleOverlayShellWarm */

@@ -1,15 +1,15 @@
 //! marketplace part 1/3: DTOs, internal model, fetch/merge/install helpers.
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use omnipanel_error::OmniError;
 use omnipanel_plugin::{
-    DependencyReq, HOST_API_VERSION, PluginDependencyDecl, PluginKind, PluginListItem,
-    VersionEntry, resolve_install, update_available,
+    HOST_API_VERSION, PluginDependencyDecl, PluginKind, PluginListItem, PluginManifest,
+    VersionEntry, DependencyReq, first_party_manifests, resolve_install, update_available,
 };
 use omnipanel_plugin_pkg::{
-    OFFICIAL_VERIFY_PUBKEYS_HEX, PkgError, RegistryFile, hex_to_verifying_key, parse_registry,
-    verify_registry, verify_registry_allow_unsigned,
+    OFFICIAL_VERIFY_PUBKEYS_HEX, PkgError, RegistryFile, RegistryPlugin, RegistryVersion,
+    hex_to_verifying_key, parse_registry, verify_registry, verify_registry_allow_unsigned,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -17,6 +17,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::commands::plugin::install_plugin_from_path;
+use crate::commands::external::{RUBICK_SOURCE_ID, refuse_external_artifact};
 use crate::state::AppState;
 
 pub(crate) const OFFICIAL_SOURCE_ID: &str = "official";
@@ -60,6 +61,9 @@ pub struct MarketplaceItem {
     pub source_id: String,
     pub download_size: u64,
     pub permissions: Vec<String>,
+    /// 外部来源包名（Rubick npm 名）；官方/内置为空，前端转换安装用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_npm: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -80,7 +84,7 @@ pub struct ResolvePlan {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateInfo {
+pub struct PluginUpdateInfo {
     pub id: String,
     pub installed_version: String,
     pub latest_version: String,
@@ -123,6 +127,8 @@ struct MergedVersion {
     min_host_api: u32,
     url: String,
     sha256: String,
+    /// npm integrity（`sha512-<base64>`）；非空时优先于 sha256 校验。
+    integrity: String,
     size: u64,
     dependencies: Vec<PluginDependencyDecl>,
 }
@@ -136,6 +142,7 @@ struct MergedPlugin {
     source_id: String,
     permissions: Vec<String>,
     versions: Vec<MergedVersion>,
+    external_npm: Option<String>,
 }
 
 fn sanitize_cache_id(id: &str) -> Option<String> {
@@ -235,8 +242,8 @@ async fn fetch_source(
         .text()
         .await
         .map_err(|e| OmniError::connection(format!("read source {} failed: {e}", cfg.id)))?;
-    let file = parse_registry(&text)
-        .map_err(|e| OmniError::invalid_input(format!("parse source: {e}")))?;
+    let file =
+        parse_registry(&text).map_err(|e| OmniError::invalid_input(format!("parse source: {e}")))?;
     let tofu = trust_fetched_registry(cfg, &file)?;
     write_source_cache(plugins_root, &cfg.id, &text);
     Ok((file, tofu))
@@ -278,9 +285,8 @@ fn trust_fetched_registry(
             let key = hex_to_verifying_key(&pubkey).ok_or_else(|| {
                 OmniError::invalid_input(format!("source publisher key invalid {}", cfg.id))
             })?;
-            verify_registry(file, &[key]).map_err(|e| {
-                OmniError::invalid_input(format!("verify source {} failed: {e}", cfg.id))
-            })?;
+            verify_registry(file, &[key])
+                .map_err(|e| OmniError::invalid_input(format!("verify source {} failed: {e}", cfg.id)))?;
             Ok(Some(pubkey))
         }
         _ => Err(OmniError::invalid_input(format!(
@@ -294,7 +300,130 @@ fn bundled_official_registry() -> Option<RegistryFile> {
     parse_registry(crate::commands::official_catalog::BUNDLED_REGISTRY).ok()
 }
 
-fn write_source_cache(plugins_root: Option<&std::path::Path>, source_id: &str, text: &str) {
+fn registry_plugin_from_manifest(manifest: &PluginManifest) -> RegistryPlugin {
+    RegistryPlugin {
+        id: manifest.id.clone(),
+        kind: manifest.kind.as_str().to_string(),
+        name: manifest
+            .display_name
+            .clone()
+            .unwrap_or_else(|| manifest.id.clone()),
+        description: String::new(),
+        external_npm: None,
+        versions: vec![RegistryVersion {
+            version: manifest.version.clone(),
+            changelog: None,
+            min_host_api: manifest.min_host_api,
+            artifact: None,
+            dependencies: manifest.dependencies.clone(),
+        }],
+    }
+}
+
+/// 远程 `plugins-latest` 尚未收录的第一方 bundled 插件仍要出现在市场。
+/// 只在内存里补洞，不写回源缓存，避免把本地清单污染远程 cache。
+fn missing_bundled_official_plugins(files: &[(String, RegistryFile)]) -> Vec<RegistryPlugin> {
+    let present: HashSet<&str> = files
+        .iter()
+        .flat_map(|(_, file)| file.plugins.iter().map(|plugin| plugin.id.as_str()))
+        .collect();
+    let mut missing = Vec::new();
+    let mut missing_ids = HashSet::new();
+    if let Some(seed) = bundled_official_registry() {
+        for plugin in seed.plugins {
+            if present.contains(plugin.id.as_str()) || !missing_ids.insert(plugin.id.clone()) {
+                continue;
+            }
+            missing.push(plugin);
+        }
+    }
+    for manifest in first_party_manifests() {
+        if present.contains(manifest.id.as_str()) || missing_ids.contains(&manifest.id) {
+            continue;
+        }
+        missing_ids.insert(manifest.id.clone());
+        missing.push(registry_plugin_from_manifest(&manifest));
+    }
+    missing
+}
+
+fn fill_bundled_official_gaps(
+    mut files: Vec<(String, RegistryFile)>,
+) -> Vec<(String, RegistryFile)> {
+    let missing = missing_bundled_official_plugins(&files);
+    if missing.is_empty() {
+        return files;
+    }
+    if let Some((_, official)) = files
+        .iter_mut()
+        .find(|(id, _)| id == OFFICIAL_SOURCE_ID)
+    {
+        official.plugins.extend(missing);
+    } else {
+        files.push((
+            OFFICIAL_SOURCE_ID.to_string(),
+            RegistryFile {
+                schema_version: 2,
+                plugins: missing,
+                signature: None,
+                publisher_key: None,
+            },
+        ));
+    }
+    files
+}
+
+/// Rubick 第三方种子（curated，仓库 `plugins/rubick-registry.json`，随版本更新）。
+/// 仅展示与转换安装入口；条目为 npm tarball，一律走 convert 流程（见 refuse_external_artifact）。
+pub(crate) const RUBICK_SEED_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../plugins/rubick-registry.json"
+));
+
+fn bundled_rubick_registry() -> Option<RegistryFile> {
+    parse_registry(RUBICK_SEED_JSON).ok().filter(|f| !f.plugins.is_empty())
+}
+
+/// 无 rubick 来源时补内置种子（与 official 缺洞回填同模式；种子本身即信任根，不走签名流）。
+fn fill_bundled_rubick_seed(
+    mut files: Vec<(String, RegistryFile)>,
+) -> Vec<(String, RegistryFile)> {
+    if files.iter().any(|(id, _)| id == RUBICK_SOURCE_ID) {
+        return files;
+    }
+    if let Some(seed) = bundled_rubick_registry() {
+        files.push((RUBICK_SOURCE_ID.to_string(), seed));
+    }
+    files
+}
+
+/// 全部源拉取失败时用内置官方目录垫底，避免市场空页报 `all sources unavailable`。
+fn seed_official_if_empty(
+    mut files: Vec<(String, RegistryFile)>,
+    errors: &[String],
+) -> Result<Vec<(String, RegistryFile)>, OmniError> {
+    if !files.is_empty() {
+        return Ok(files);
+    }
+    if let Some(seed) = bundled_official_registry() {
+        files.push((OFFICIAL_SOURCE_ID.to_string(), seed));
+        return Ok(files);
+    }
+    Err(OmniError::connection(format!(
+        "all sources unavailable{}",
+        if errors.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", errors.join("; "))
+        }
+    )))
+}
+
+fn write_source_cache(
+    plugins_root: Option<&std::path::Path>,
+    source_id: &str,
+    text: &str,
+) {
     if let Some(path) = cache_path(plugins_root, source_id) {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -328,16 +457,9 @@ fn merge_registries(files: Vec<(String, RegistryFile)>) -> BTreeMap<String, Merg
                     version,
                     changelog: ver.changelog,
                     min_host_api: ver.min_host_api.unwrap_or(1),
-                    url: ver
-                        .artifact
-                        .as_ref()
-                        .map(|a| a.url.clone())
-                        .unwrap_or_default(),
-                    sha256: ver
-                        .artifact
-                        .as_ref()
-                        .map(|a| a.sha256.clone())
-                        .unwrap_or_default(),
+                    url: ver.artifact.as_ref().map(|a| a.url.clone()).unwrap_or_default(),
+                    sha256: ver.artifact.as_ref().map(|a| a.sha256.clone()).unwrap_or_default(),
+                    integrity: ver.artifact.as_ref().map(|a| a.integrity.clone()).unwrap_or_default(),
                     size: ver.artifact.as_ref().map(|a| a.size).unwrap_or(0),
                     dependencies: ver.dependencies,
                 });
@@ -362,6 +484,7 @@ fn merge_registries(files: Vec<(String, RegistryFile)>) -> BTreeMap<String, Merg
                     source_id: source_id.clone(),
                     permissions: Vec::new(),
                     versions,
+                    external_npm: plugin.external_npm,
                 },
             );
         }
@@ -369,7 +492,9 @@ fn merge_registries(files: Vec<(String, RegistryFile)>) -> BTreeMap<String, Merg
     out
 }
 
-fn to_resolver_entries(versions: &[MergedVersion]) -> Vec<VersionEntry> {
+fn to_resolver_entries(
+    versions: &[MergedVersion],
+) -> Vec<VersionEntry> {
     versions
         .iter()
         .map(|v| VersionEntry {
@@ -430,11 +555,7 @@ fn installed_map(
     (raw, parsed)
 }
 
-async fn download_bytes(
-    client: &reqwest::Client,
-    url: &str,
-    plugin_id: &str,
-) -> Result<Vec<u8>, OmniError> {
+async fn download_bytes(client: &reqwest::Client, url: &str, plugin_id: &str) -> Result<Vec<u8>, OmniError> {
     let response = client
         .get(url)
         .header("User-Agent", "OmniPanel-marketplace")
@@ -455,6 +576,58 @@ async fn download_bytes(
         .map_err(|e| OmniError::connection(format!("read download {plugin_id} failed: {e}")))
 }
 
+/// 下载制品完整性校验：`integrity`（npm `dist.integrity`，`<alg>-<base64>`）
+/// 非空时优先校验，失败即拒绝（不回退 sha256）；否则回退 sha256 hex；两者
+/// 皆空表示无可验哈希（bundled 占位），直接放行。
+pub(crate) fn verify_download_bytes(
+    bytes: &[u8],
+    plugin_id: &str,
+    sha256_hex: &str,
+    integrity: &str,
+) -> Result<(), OmniError> {
+    let integrity = integrity.trim();
+    if !integrity.is_empty() {
+        verify_npm_integrity(bytes, plugin_id, integrity)?;
+        return Ok(());
+    }
+    let sha256_hex = sha256_hex.trim();
+    if sha256_hex.is_empty() {
+        return Ok(());
+    }
+    let actual = hex::encode(Sha256::digest(bytes));
+    if !actual.eq_ignore_ascii_case(sha256_hex) {
+        return Err(OmniError::invalid_input(format!(
+            "download checksum mismatch: {plugin_id}"
+        )));
+    }
+    Ok(())
+}
+
+fn verify_npm_integrity(bytes: &[u8], plugin_id: &str, integrity: &str) -> Result<(), OmniError> {
+    let invalid = || {
+        OmniError::invalid_input(format!("download integrity 非法，拒绝安装: {plugin_id}"))
+    };
+    let (alg, b64) = integrity.split_once('-').ok_or_else(invalid)?;
+    use base64::Engine;
+    let expected = base64::engine::general_purpose::STANDARD
+        .decode(b64.trim())
+        .map_err(|_| invalid())?;
+    let actual: Vec<u8> = match alg.trim().to_ascii_lowercase().as_str() {
+        "sha512" => sha2::Sha512::digest(bytes).to_vec(),
+        "sha384" => sha2::Sha384::digest(bytes).to_vec(),
+        "sha256" => sha2::Sha256::digest(bytes).to_vec(),
+        _ => return Err(invalid()),
+    };
+    if actual.len() != expected.len()
+        || !actual.iter().zip(expected.iter()).all(|(a, b)| a == b)
+    {
+        return Err(OmniError::invalid_input(format!(
+            "download checksum mismatch: {plugin_id}"
+        )));
+    }
+    Ok(())
+}
+
 async fn install_merged_version(
     state: &State<'_, AppState>,
     plugin: &MergedPlugin,
@@ -464,9 +637,11 @@ async fn install_merged_version(
         .versions
         .iter()
         .find(|v| &v.version == version)
-        .ok_or_else(|| {
-            OmniError::not_found(format!("version not in source: {} {version}", plugin.id))
-        })?;
+        .ok_or_else(|| OmniError::not_found(format!("version not in source: {} {version}", plugin.id)))?;
+    // Rubick 第三方源条目是 npm tarball（非 `.omni-plugin`），禁止直装，一律走 convert。
+    if plugin.source_id == RUBICK_SOURCE_ID {
+        return Err(refuse_external_artifact(&plugin.id));
+    }
     if entry.url.trim().is_empty() {
         return Err(refuse_bundled_artifact(&plugin.id));
     }
@@ -477,15 +652,7 @@ async fn install_merged_version(
         )));
     }
     let bytes = download_bytes(&state.plugin_http, entry.url.trim(), &plugin.id).await?;
-    if !entry.sha256.trim().is_empty() {
-        let actual = hex::encode(Sha256::digest(&bytes));
-        if !actual.eq_ignore_ascii_case(entry.sha256.trim()) {
-            return Err(OmniError::invalid_input(format!(
-                "download checksum mismatch: {}",
-                plugin.id
-            )));
-        }
-    }
+    verify_download_bytes(&bytes, &plugin.id, entry.sha256.trim(), entry.integrity.trim())?;
     let tmp = std::env::temp_dir().join(format!(
         "omni-market-{}-{}-{}.omni-plugin",
         plugin.id.replace('.', "_"),
@@ -538,19 +705,10 @@ async fn merged_view(
         }
     }
     if files.is_empty() {
-        if let Some(seed) = bundled_official_registry() {
-            files.push((OFFICIAL_SOURCE_ID.to_string(), seed));
-        } else {
-            return Err(OmniError::connection(format!(
-                "all sources unavailable{}",
-                if errors.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", errors.join("; "))
-                }
-            )));
-        }
+        files = seed_official_if_empty(files, &errors)?;
     }
+    files = fill_bundled_official_gaps(files);
+    files = fill_bundled_rubick_seed(files);
     Ok((merge_registries(files), errors))
 }
 
@@ -774,8 +932,9 @@ pub async fn plugin_registry_confirm_key(
         let root = state.plugin_packages_dir.clone();
         let path = cache_path(root.as_deref(), id.trim())
             .ok_or_else(|| OmniError::invalid_input("bad source id"))?;
-        std::fs::read_to_string(path)
-            .map_err(|_| OmniError::not_found(format!("no cached registry, fetch first: {id}")))?
+        std::fs::read_to_string(path).map_err(|_| {
+            OmniError::not_found(format!("no cached registry, fetch first: {id}"))
+        })?
     };
     let file =
         parse_registry(&raw).map_err(|e| OmniError::invalid_input(format!("parse cache: {e}")))?;
@@ -798,19 +957,14 @@ pub async fn plugin_market_catalog(
     let mut out = Vec::new();
     for plugin in merged.values() {
         let installed_version = installed_raw.get(&plugin.id).cloned();
-        let latest = plugin
-            .versions
-            .iter()
-            .max_by(|a, b| a.version.cmp(&b.version));
+        let latest = plugin.versions.iter().max_by(|a, b| a.version.cmp(&b.version));
         let Some(top) = latest else { continue };
         let update_available = match installed_version.as_deref() {
             Some(cur) => match cur.trim().parse::<semver::Version>() {
-                Ok(have) => update_available(
-                    &have,
-                    &to_resolver_entries(&plugin.versions),
-                    HOST_API_VERSION,
-                )
-                .is_some(),
+                Ok(have) => {
+                    update_available(&have, &to_resolver_entries(&plugin.versions), HOST_API_VERSION)
+                        .is_some()
+                }
                 Err(_) => true,
             },
             None => false,
@@ -829,6 +983,7 @@ pub async fn plugin_market_catalog(
             source_id: plugin.source_id.clone(),
             download_size: top.size,
             permissions: plugin.permissions.clone(),
+            external_npm: plugin.external_npm.clone(),
         });
     }
     out.sort_by(|a, b| {
@@ -851,13 +1006,8 @@ pub async fn plugin_resolve_plan(
     let (_raw, installed) = installed_map(&registry);
     let index = to_resolver_index(&merged);
     let req = version_req.unwrap_or_else(|| "*".into());
-    let plan = resolve_install(
-        &[(id.trim().to_string(), req)],
-        &index,
-        HOST_API_VERSION,
-        &installed,
-    )
-    .map_err(|e| OmniError::invalid_input(format!("resolve failed: {e}")))?;
+    let plan = resolve_install(&[(id.trim().to_string(), req)], &index, HOST_API_VERSION, &installed)
+        .map_err(|e| OmniError::invalid_input(format!("resolve failed: {e}")))?;
     let mut items = Vec::new();
     let mut warnings = Vec::new();
     for entry in plan {
@@ -878,10 +1028,7 @@ pub async fn plugin_resolve_plan(
             .iter()
             .any(|v| v.version == entry.version && !v.url.trim().is_empty());
         if !downloadable {
-            warnings.push(format!(
-                "{} {} not downloadable (bundled)",
-                entry.id, entry.version
-            ));
+            warnings.push(format!("{} {} not downloadable (bundled)", entry.id, entry.version));
             continue;
         }
         items.push(ResolvePlanItem {
@@ -908,10 +1055,9 @@ pub async fn plugin_install_version(
         .ok_or_else(|| OmniError::not_found(format!("not in catalog: {id}")))?
         .clone();
     let target: semver::Version = match version {
-        Some(v) => v
-            .trim()
-            .parse()
-            .map_err(|_| OmniError::invalid_input(format!("bad version: {v}")))?,
+        Some(v) => v.trim().parse().map_err(|_| {
+            OmniError::invalid_input(format!("bad version: {v}"))
+        })?,
         None => plugin
             .versions
             .iter()
@@ -953,13 +1099,13 @@ pub async fn plugin_install_version(
 #[specta::specta]
 pub async fn plugin_check_updates(
     state: State<'_, AppState>,
-) -> Result<Vec<UpdateInfo>, OmniError> {
+) -> Result<Vec<PluginUpdateInfo>, OmniError> {
     plugin_check_updates_inner(&state).await
 }
 
 async fn plugin_check_updates_inner(
     state: &State<'_, AppState>,
-) -> Result<Vec<UpdateInfo>, OmniError> {
+) -> Result<Vec<PluginUpdateInfo>, OmniError> {
     let (merged, _errors) = merged_view(state, false).await?;
     let registry = state.plugin_registry.lock().await;
     let (_raw, installed) = installed_map(&registry);
@@ -968,13 +1114,11 @@ async fn plugin_check_updates_inner(
         let Some(have) = installed.get(&plugin.id) else {
             continue;
         };
-        if let Some(latest) = update_available(
-            have,
-            &to_resolver_entries(&plugin.versions),
-            HOST_API_VERSION,
-        ) {
+        if let Some(latest) =
+            update_available(have, &to_resolver_entries(&plugin.versions), HOST_API_VERSION)
+        {
             let entry = plugin.versions.iter().find(|v| v.version == latest);
-            out.push(UpdateInfo {
+            out.push(PluginUpdateInfo {
                 id: plugin.id.clone(),
                 installed_version: have.to_string(),
                 latest_version: latest.to_string(),
@@ -994,21 +1138,16 @@ pub async fn plugin_update_all(
     ids: Option<Vec<String>>,
 ) -> Result<Vec<UpdateResultItem>, OmniError> {
     let updates = plugin_check_updates_inner(&state).await?;
-    let wanted: Vec<UpdateInfo> = match ids {
+    let wanted: Vec<PluginUpdateInfo> = match ids {
         Some(list) => {
             let set: std::collections::HashSet<String> = list.into_iter().collect();
-            updates
-                .into_iter()
-                .filter(|u| set.contains(&u.id))
-                .collect()
+            updates.into_iter().filter(|u| set.contains(&u.id)).collect()
         }
         None => updates,
     };
     let mut out = Vec::new();
     for item in wanted {
-        let result =
-            plugin_install_version_inner(&state, &item.id, Some(item.latest_version.clone()), true)
-                .await;
+        let result = plugin_install_version_inner(&state, &item.id, Some(item.latest_version.clone()), true).await;
         match result {
             Ok(_) => out.push(UpdateResultItem {
                 id: item.id,
@@ -1037,10 +1176,9 @@ async fn plugin_install_version_inner(
         .ok_or_else(|| OmniError::not_found(format!("not in catalog: {id}")))?
         .clone();
     let target: semver::Version = match version {
-        Some(v) => v
-            .trim()
-            .parse()
-            .map_err(|_| OmniError::invalid_input(format!("bad version: {v}")))?,
+        Some(v) => v.trim().parse().map_err(|_| {
+            OmniError::invalid_input(format!("bad version: {v}"))
+        })?,
         None => plugin
             .versions
             .iter()
@@ -1065,7 +1203,8 @@ fn refuse_bundled_artifact(plugin_id: &str) -> OmniError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omnipanel_plugin_pkg::{RegistryArtifact, RegistryPlugin, RegistryVersion};
+    use omnipanel_plugin::{PLUGIN_ID_CLOUD_HUAWEI, PLUGIN_ID_PANEL_HESTIA};
+    use omnipanel_plugin_pkg::RegistryArtifact;
 
     fn mk_file(source: &str) -> RegistryFile {
         RegistryFile {
@@ -1075,6 +1214,7 @@ mod tests {
                 kind: "addon".into(),
                 name: "Demo".into(),
                 description: String::new(),
+                external_npm: None,
                 versions: vec![RegistryVersion {
                     version: "1.0.0".into(),
                     changelog: None,
@@ -1082,6 +1222,7 @@ mod tests {
                     artifact: Some(RegistryArtifact {
                         url: format!("https://{source}/a.omni-plugin"),
                         sha256: String::new(),
+                        integrity: String::new(),
                         size: 1,
                     }),
                     dependencies: vec![],
@@ -1107,36 +1248,34 @@ mod tests {
 
     #[test]
     fn update_available_respects_host_api() {
-        let merged = merge_registries(vec![(
-            "s".into(),
-            RegistryFile {
-                schema_version: 2,
-                plugins: vec![RegistryPlugin {
-                    id: "omni.sample.demo".into(),
-                    kind: "addon".into(),
-                    name: String::new(),
-                    description: String::new(),
-                    versions: vec![
-                        RegistryVersion {
-                            version: "1.0.0".into(),
-                            changelog: None,
-                            min_host_api: None,
-                            artifact: None,
-                            dependencies: vec![],
-                        },
-                        RegistryVersion {
-                            version: "2.0.0".into(),
-                            changelog: Some("big".into()),
-                            min_host_api: Some(99),
-                            artifact: None,
-                            dependencies: vec![],
-                        },
-                    ],
-                }],
-                signature: None,
-                publisher_key: None,
-            },
-        )]);
+        let merged = merge_registries(vec![("s".into(), RegistryFile {
+            schema_version: 2,
+            plugins: vec![RegistryPlugin {
+                id: "omni.sample.demo".into(),
+                kind: "addon".into(),
+                name: String::new(),
+                description: String::new(),
+                external_npm: None,
+                versions: vec![
+                    RegistryVersion {
+                        version: "1.0.0".into(),
+                        changelog: None,
+                        min_host_api: None,
+                        artifact: None,
+                        dependencies: vec![],
+                    },
+                    RegistryVersion {
+                        version: "2.0.0".into(),
+                        changelog: Some("big".into()),
+                        min_host_api: Some(99),
+                        artifact: None,
+                        dependencies: vec![],
+                    },
+                ],
+            }],
+            signature: None,
+            publisher_key: None,
+        })]);
         let have: semver::Version = "1.0.0".parse().unwrap();
         let plugin = &merged["omni.sample.demo"];
         assert_eq!(
@@ -1162,27 +1301,25 @@ mod tests {
         let err = refuse_bundled_artifact("omni.addon.everything");
         assert!(err.message.contains("bundled"));
         assert!(err.message.contains("omni.addon.everything"));
-        let merged = merge_registries(vec![(
-            "official".into(),
-            RegistryFile {
-                schema_version: 2,
-                plugins: vec![RegistryPlugin {
-                    id: "omni.addon.everything".into(),
-                    kind: "addon".into(),
-                    name: "Everything".into(),
-                    description: String::new(),
-                    versions: vec![RegistryVersion {
-                        version: "0.1.0".into(),
-                        changelog: None,
-                        min_host_api: None,
-                        artifact: None,
-                        dependencies: vec![],
-                    }],
+        let merged = merge_registries(vec![("official".into(), RegistryFile {
+            schema_version: 2,
+            plugins: vec![RegistryPlugin {
+                id: "omni.addon.everything".into(),
+                kind: "addon".into(),
+                name: "Everything".into(),
+                description: String::new(),
+                external_npm: None,
+                versions: vec![RegistryVersion {
+                    version: "0.1.0".into(),
+                    changelog: None,
+                    min_host_api: None,
+                    artifact: None,
+                    dependencies: vec![],
                 }],
-                signature: None,
-                publisher_key: None,
-            },
-        )]);
+            }],
+            signature: None,
+            publisher_key: None,
+        })]);
         let plugin = &merged["omni.addon.everything"];
         assert!(plugin.versions.iter().all(|v| v.url.is_empty()));
     }
@@ -1221,5 +1358,149 @@ mod tests {
     fn bundled_seed_parses() {
         let seed = bundled_official_registry().expect("bundled registry");
         assert!(!seed.plugins.is_empty());
+    }
+
+    fn npm_integrity_of(bytes: &[u8]) -> String {
+        use base64::Engine;
+        let digest = sha2::Sha512::digest(bytes);
+        format!(
+            "sha512-{}",
+            base64::engine::general_purpose::STANDARD.encode(digest)
+        )
+    }
+
+    #[test]
+    fn integrity_priority_over_sha256() {
+        let bytes = b"rubick-external-payload";
+        // integrity 正确即放行（sha256 故意写错也不看）
+        verify_download_bytes(bytes, "ext.demo", "deadbeef", &npm_integrity_of(bytes))
+            .expect("integrity ok");
+    }
+
+    #[test]
+    fn integrity_mismatch_rejected_without_fallback() {
+        let bytes = b"rubick-external-payload";
+        // integrity 错误 → 直接拒绝，不回退 sha256（即使 sha256 正确）
+        let good_sha256 = hex::encode(sha2::Sha256::digest(bytes));
+        let err = verify_download_bytes(bytes, "ext.demo", &good_sha256, "sha512-AAAA").unwrap_err();
+        assert!(err.message.contains("mismatch") || err.message.contains("非法"));
+    }
+
+    #[test]
+    fn sha256_fallback_when_no_integrity() {
+        let bytes = b"rubick-external-payload";
+        let good = hex::encode(sha2::Sha256::digest(bytes));
+        verify_download_bytes(bytes, "ext.demo", &good, "").expect("sha256 ok");
+        let err = verify_download_bytes(bytes, "ext.demo", "deadbeef", "").unwrap_err();
+        assert!(err.message.contains("mismatch"));
+    }
+
+    #[test]
+    fn unknown_integrity_alg_rejected() {
+        let err =
+            verify_download_bytes(b"x", "ext.demo", "", "md5-rubbish").unwrap_err();
+        assert!(err.message.contains("非法"));
+    }
+
+    #[test]
+    fn no_hash_means_bundled_placeholder() {
+        verify_download_bytes(b"x", "ext.demo", "", "").expect("no hash ok");
+    }
+
+    #[test]
+    fn bundled_seed_avoids_all_sources_unavailable() {
+        let files = seed_official_if_empty(vec![], &["official: timeout".into()]).expect("seed");
+        assert_eq!(files[0].0, OFFICIAL_SOURCE_ID);
+        assert!(!files[0].1.plugins.is_empty());
+    }
+
+    #[test]
+    fn seed_keeps_existing_files() {
+        let file = mk_file("official");
+        let files = seed_official_if_empty(vec![("official".into(), file)], &[]).unwrap();
+        assert_eq!(files.len(), 1);
+    }
+
+    fn stale_remote_official() -> RegistryFile {
+        let bundled = |id: &str, kind: &str, name: &str| RegistryPlugin {
+            id: id.into(),
+            kind: kind.into(),
+            name: name.into(),
+            description: String::new(),
+            external_npm: None,
+            versions: vec![RegistryVersion {
+                version: "0.1.0".into(),
+                changelog: None,
+                min_host_api: None,
+                artifact: None,
+                dependencies: vec![],
+            }],
+        };
+        RegistryFile {
+            schema_version: 2,
+            plugins: vec![
+                bundled("omni.panel.1panel", "panel", "1Panel"),
+                bundled("omni.panel.bt", "panel", "宝塔面板"),
+                bundled("omni.cloud.aliyun", "cloud", "阿里云"),
+                bundled("omni.cloud.tencent", "cloud", "腾讯云"),
+            ],
+            signature: None,
+            publisher_key: None,
+        }
+    }
+
+    #[test]
+    fn fill_gaps_adds_huawei_and_hestia_when_remote_stale() {
+        let files = fill_bundled_official_gaps(vec![(
+            OFFICIAL_SOURCE_ID.into(),
+            stale_remote_official(),
+        )]);
+        let merged = merge_registries(files);
+        assert!(merged.contains_key(PLUGIN_ID_CLOUD_HUAWEI));
+        assert!(merged.contains_key(PLUGIN_ID_PANEL_HESTIA));
+        assert!(merged.contains_key("omni.panel.1panel"));
+        assert_eq!(merged[PLUGIN_ID_CLOUD_HUAWEI].kind, PluginKind::Cloud);
+        assert_eq!(merged[PLUGIN_ID_PANEL_HESTIA].kind, PluginKind::Panel);
+    }
+
+    #[test]
+    fn fill_gaps_does_not_duplicate_seed_plugins() {
+        let seed = bundled_official_registry().expect("bundled registry");
+        let before = seed.plugins.len();
+        let files = fill_bundled_official_gaps(vec![(OFFICIAL_SOURCE_ID.into(), seed)]);
+        let official = &files[0].1;
+        let unique: HashSet<&str> = official.plugins.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(unique.len(), official.plugins.len());
+        assert!(official.plugins.len() >= before);
+        assert!(unique.contains(PLUGIN_ID_CLOUD_HUAWEI));
+        assert!(unique.contains(PLUGIN_ID_PANEL_HESTIA));
+    }
+
+    #[test]
+    fn fill_rubick_seed_adds_third_party_source() {
+        let files = fill_bundled_rubick_seed(vec![]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, crate::commands::external::RUBICK_SOURCE_ID);
+        let merged = merge_registries(files);
+        assert!(!merged.is_empty());
+        for plugin in merged.values() {
+            assert_eq!(plugin.source_id, crate::commands::external::RUBICK_SOURCE_ID);
+            assert!(
+                plugin.external_npm.as_deref().map(str::trim).unwrap_or_default().len() > 0,
+                "rubick 条目必须带 npm 名：{}",
+                plugin.id
+            );
+            assert!(
+                plugin.id.starts_with("omni.ext."),
+                "rubick 条目 id 命名空间：{}",
+                plugin.id
+            );
+        }
+        // 已有 rubick 来源不重复补
+        let again = fill_bundled_rubick_seed(vec![(
+            crate::commands::external::RUBICK_SOURCE_ID.into(),
+            bundled_rubick_registry().unwrap(),
+        )]);
+        assert_eq!(again.len(), 1);
     }
 }

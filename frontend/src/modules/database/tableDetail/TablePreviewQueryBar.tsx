@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useI18n } from "../../../i18n";
 import type { DbColumnMeta } from "../api";
-import type {
-  PreviewChangeRowFilter,
-  SortState,
+import {
+  normalizeSortStates,
+  type PreviewChangeRowFilter,
+  type SortState,
+  type SortStates,
 } from "../workspace/dbWorkspaceState";
+import type { TableColumnRelation } from "../grid/tableColumnRelation";
+import type { TableSchema } from "../types";
+import {
+  TableDataGridFilterPopover,
+  TableDataGridSortPopover,
+} from "../grid/TableDataGridOverlays";
+import { isTableFilterActive, TABLE_FILTER_ALL_COLUMNS } from "../grid/tablePreviewFilter";
 import type { RuleGroupType } from "react-querybuilder";
 import {
   buildOrderByClauseText,
@@ -89,10 +98,13 @@ export interface TablePreviewQueryBarProps {
   historyKey?: string | null;
   dbType: string;
   columnMeta?: DbColumnMeta[];
+  /** 列关联（透传给表级筛选面板，供关联显示列使用） */
+  columnRelations?: Record<string, TableColumnRelation>;
+  relationTables?: TableSchema[];
   filter: RuleGroupType | null;
-  sort: SortState | null;
+  sort: SortState | SortStates | null;
   onFilterChange: (filter: RuleGroupType | null) => void;
-  onSortChange: (sort: SortState | null) => void;
+  onSortChange: (sort: SortStates) => void;
   enableFilter: boolean;
   changeRowFilter: PreviewChangeRowFilter;
   onChangeRowFilterChange: (filter: PreviewChangeRowFilter) => void;
@@ -102,6 +114,8 @@ export function TablePreviewQueryBar({
   historyKey = null,
   dbType,
   columnMeta,
+  columnRelations,
+  relationTables,
   filter,
   sort,
   onFilterChange,
@@ -117,6 +131,8 @@ export function TablePreviewQueryBar({
   const [whereDraft, setWhereDraft] = useState(canonicalWhere);
   const [orderDraft, setOrderDraft] = useState(canonicalOrder);
   const [changeMenuOpen, setChangeMenuOpen] = useState(false);
+  const [filterAnchor, setFilterAnchor] = useState<DOMRect | null>(null);
+  const [sortAnchor, setSortAnchor] = useState<DOMRect | null>(null);
   const [whereRatio, setWhereRatio] = useState(readWhereRatio);
   const [resizing, setResizing] = useState(false);
   const whereEditingRef = useRef(false);
@@ -245,28 +261,47 @@ export function TablePreviewQueryBar({
 
   const commitWhere = useCallback(() => {
     whereEditingRef.current = false;
+    // 失焦空提交守卫：文本无改动直接返回，不触发查询、不写历史
+    // （点击筛选面板等导致输入框失焦时也会走 blur 提交，这里必须静默）
+    if (whereDraft.trim() === canonicalWhere.trim()) {
+      if (whereDraft !== canonicalWhere) setWhereDraft(canonicalWhere);
+      return;
+    }
     const parsed = parseWhereClauseText(whereDraft, columnMeta);
     if (!parsed.ok) {
       showToast(parsed.error);
       setWhereDraft(canonicalWhere);
       return;
     }
-    onFilterChange(parsed.filter);
     const nextText = buildWhereClauseText(parsed.filter, dbType, columnMeta);
+    // 语义无变化（如仅多了空格/括号）：只做规范化，不触发查询
+    if (nextText.trim() === canonicalWhere.trim()) {
+      if (nextText !== whereDraft) setWhereDraft(nextText);
+      return;
+    }
+    onFilterChange(parsed.filter);
     setWhereDraft(nextText);
     rememberHistory("where", nextText);
   }, [whereDraft, columnMeta, canonicalWhere, onFilterChange, dbType, rememberHistory]);
 
   const commitOrder = useCallback(() => {
     orderEditingRef.current = false;
+    if (orderDraft.trim() === canonicalOrder.trim()) {
+      if (orderDraft !== canonicalOrder) setOrderDraft(canonicalOrder);
+      return;
+    }
     const parsed = parseOrderByClauseText(orderDraft);
     if (!parsed.ok) {
       showToast(parsed.error);
       setOrderDraft(canonicalOrder);
       return;
     }
-    onSortChange(parsed.sort);
     const nextText = buildOrderByClauseText(parsed.sort);
+    if (nextText.trim() === canonicalOrder.trim()) {
+      if (nextText !== orderDraft) setOrderDraft(nextText);
+      return;
+    }
+    onSortChange(parsed.sort);
     setOrderDraft(nextText);
     rememberHistory("order", nextText);
   }, [orderDraft, canonicalOrder, onSortChange, rememberHistory]);
@@ -298,7 +333,7 @@ export function TablePreviewQueryBar({
     orderHistoryRef.current.index = -1;
     orderHistoryRef.current.draft = "";
     setOrderDraft("");
-    onSortChange(null);
+    onSortChange([]);
   }, [onSortChange]);
 
   const handleResizePointerDown = useCallback(
@@ -400,12 +435,26 @@ export function TablePreviewQueryBar({
               className="db-table-query-field db-table-query-field--where"
               style={{ flexGrow: whereRatio, flexBasis: 0 }}
             >
-              <span className="db-table-query-label">
+              <button
+                type="button"
+                className={`db-table-query-label-btn${isTableFilterActive(filter) ? " is-active" : ""}`}
+                title={t("database.tableDetail.openFilterPanel")}
+                aria-label={t("database.tableDetail.openFilterPanel")}
+                aria-expanded={filterAnchor != null}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  // 注意：必须先同步取出 rect，不能在 setState updater 里懒取，
+                  // 否则合成事件回收后 currentTarget 变 null 会崩。
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setSortAnchor(null);
+                  setFilterAnchor((prev) => (prev ? null : rect));
+                }}
+              >
                 <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
                   <path d="M2.5 3.5h11l-4 5v3.5l-3 1.5v-5l-4-5z" strokeLinejoin="round" />
                 </svg>
                 WHERE
-              </span>
+              </button>
               <TablePreviewQuerySqlInput
                 className="db-table-query-input"
                 mode="where"
@@ -485,13 +534,26 @@ export function TablePreviewQueryBar({
           className="db-table-query-field db-table-query-field--order"
           style={enableFilter ? { flexGrow: orderRatio, flexBasis: 0 } : undefined}
         >
-          <span className="db-table-query-label">
+          <button
+            type="button"
+            className={`db-table-query-label-btn${normalizeSortStates(sort).length > 0 ? " is-active" : ""}`}
+            title={t("database.tableDetail.openSortPanel")}
+            aria-label={t("database.tableDetail.openSortPanel")}
+            aria-expanded={sortAnchor != null}
+            onClick={(event) => {
+              event.stopPropagation();
+              // 同上：先同步取出 rect，避免合成事件回收后崩溃。
+              const rect = event.currentTarget.getBoundingClientRect();
+              setFilterAnchor(null);
+              setSortAnchor((prev) => (prev ? null : rect));
+            }}
+          >
             <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
               <path d="M3 4.5h10M3 8h7M3 11.5h4" strokeLinecap="round" />
               <path d="M12 8.5v4M10.5 11.5 12 13l1.5-1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             ORDER BY
-          </span>
+          </button>
           <TablePreviewQuerySqlInput
             className="db-table-query-input"
             mode="order"
@@ -527,6 +589,27 @@ export function TablePreviewQueryBar({
           ) : null}
         </div>
       </div>
+      {filterAnchor && columnMeta ? (
+        <TableDataGridFilterPopover
+          anchorRect={filterAnchor}
+          columnMeta={columnMeta}
+          columnRelations={columnRelations ?? {}}
+          relationTables={relationTables}
+          initialQuery={filter}
+          lockedField={TABLE_FILTER_ALL_COLUMNS}
+          onApply={onFilterChange}
+          onClose={() => setFilterAnchor(null)}
+        />
+      ) : null}
+      {sortAnchor ? (
+        <TableDataGridSortPopover
+          anchorRect={sortAnchor}
+          columns={(columnMeta ?? []).map((col) => ({ name: col.name }))}
+          initialSort={sort}
+          onApply={onSortChange}
+          onClose={() => setSortAnchor(null)}
+        />
+      ) : null}
     </div>
   );
 }

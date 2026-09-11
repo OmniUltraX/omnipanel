@@ -9,7 +9,7 @@ import {
 import type { ServerEntry } from "../../modules/server/panel/serverConnection";
 import type { ServerPanelDockOpenMode } from "../../modules/server/panel/serverPanelWorkspaceTabs";
 import { BrandIconImg, resolvePanelBrandIcon } from "../../modules/server/brandIcons";
-import { isBtPanelService, isOnePanelService, panelServiceTypeLabel } from "../../modules/server/panel/panelPlugin";
+import { panelServiceTypeLabel, panelTypeTagModifier } from "../../modules/server/panel/panelPlugin";
 
 interface ServerSidebarProps {
   servers: ServerEntry[];
@@ -105,7 +105,7 @@ export function ServerSidebar({
                   ) : null}
                   <span className="server-item__name">{server.name}</span>
                   <span
-                    className={`badge badge-muted server-item__type-tag server-item__type-tag--${isBtPanelService(server.serviceType) ? "bt" : isOnePanelService(server.serviceType) ? "onepanel" : "other"}`}
+                    className={`badge badge-muted server-item__type-tag server-item__type-tag--${panelTypeTagModifier(server.serviceType)}`}
                   >
                     {panelServiceTypeLabel(server.serviceType, t)}
                   </span>

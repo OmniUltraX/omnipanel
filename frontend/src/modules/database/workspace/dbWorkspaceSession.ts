@@ -1,8 +1,10 @@
 import {
   createDefaultTablePreviewState,
   DEFAULT_PAGE_SIZE,
+  normalizeSortStates,
   type SqlTabState,
   type SortState,
+  type SortStates,
   type TableColumnRelationConfig,
   type TableDesignerTabState,
   type TablePreviewState,
@@ -25,7 +27,8 @@ export interface DbSqlTabStateSnapshot {
 export interface DbTablePreviewStateSnapshot {
   page: number;
   pageSize: number;
-  sort?: SortState | null;
+  /** 多列排序；兼容读取旧版单对象快照，写入一律为数组 */
+  sort?: SortStates | SortState | null;
   filter?: RuleGroupType | null;
   hiddenColumns?: string[];
   columnRelations?: Record<string, TableColumnRelationConfig>;
@@ -39,7 +42,7 @@ interface PersistedTablePreviewMetaSnapshot {
   tableName: string;
   page: number;
   pageSize: number;
-  sort?: SortState | null;
+  sort?: SortStates | SortState | null;
   filter?: RuleGroupType | null;
 }
 
@@ -118,7 +121,7 @@ function previewStateFromLegacy(
   return {
     page: legacy.page ?? 0,
     pageSize: legacy.pageSize ?? DEFAULT_PAGE_SIZE,
-    sort: legacy.sort ?? null,
+    sort: normalizeSortStates(legacy.sort),
     filter: legacy.filter ?? null,
     hiddenColumns:
       "hiddenColumns" in legacy && legacy.hiddenColumns
@@ -135,10 +138,13 @@ function previewStateFromLegacy(
 export function tablePreviewStateToSnapshot(
   preview: TablePreviewState,
 ): DbTablePreviewStateSnapshot {
+  const sorts: SortStates = Array.isArray(preview.sort)
+    ? preview.sort
+    : normalizeSortStates(preview.sort);
   return {
     page: preview.page,
     pageSize: preview.pageSize,
-    sort: preview.sort ?? null,
+    sort: sorts,
     filter: preview.filter ?? null,
     ...(preview.hiddenColumns.length > 0
       ? { hiddenColumns: [...preview.hiddenColumns] }
@@ -163,7 +169,7 @@ export function tablePreviewStateFromSnapshot(
     tableName: tab.tableName,
     page: previewState?.page ?? 0,
     pageSize: previewState?.pageSize ?? DEFAULT_PAGE_SIZE,
-    sort: previewState?.sort ?? null,
+    sort: normalizeSortStates(previewState?.sort),
     filter: previewState?.filter ?? null,
     hiddenColumns: previewState?.hiddenColumns ? [...previewState.hiddenColumns] : [],
     columnRelations: previewState?.columnRelations

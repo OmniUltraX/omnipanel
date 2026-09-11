@@ -219,11 +219,40 @@ pub struct DiscoveryContribution {
     pub probe_id: String,
 }
 
+fn default_theme_tokens_path() -> String {
+    "tokens.json".into()
+}
+
+/// 包内相对 `.json` 路径（禁止绝对路径 / `..` / URL）。
+pub fn package_rel_json_ok(path: &str) -> bool {
+    let path = path.trim();
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.starts_with('\\')
+        && !path.contains("://")
+        && !path.split(['/', '\\']).any(|seg| seg == "..")
+        && path.to_ascii_lowercase().ends_with(".json")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeContribution {
-    #[serde(default)]
-    pub tokens: Value,
+    /// 包内 tokens 资源相对路径，默认 `tokens.json`。
+    #[serde(default = "default_theme_tokens_path")]
+    pub tokens: String,
+}
+
+impl ThemeContribution {
+    pub fn validate(&self) -> Result<(), crate::error::PluginError> {
+        use crate::error::PluginError;
+        let tokens = self.tokens.trim();
+        if !package_rel_json_ok(tokens) {
+            return Err(PluginError::InvalidManifest(format!(
+                "contributes.themes.tokens 必须是包内相对 .json 路径: {tokens}"
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]

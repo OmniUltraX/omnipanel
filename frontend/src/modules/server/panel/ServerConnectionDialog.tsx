@@ -17,11 +17,15 @@ import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
 import { mergeConnectionTags, userConnectionTags } from "../../tags/tagKinds";
 import onePanelIcon from "../../../assets/icons/1Panel.svg";
 import baotaIcon from "../../../assets/icons/Baota.svg";
+import hestiaIcon from "../../../assets/icons/Hestia.svg";
 import {
+  isHestiaPanelService,
   isOnePanelService,
   canonicalPanelPluginId,
+  panelUsesLoginUser,
   PLUGIN_ID_PANEL_1PANEL,
   PLUGIN_ID_PANEL_BT,
+  PLUGIN_ID_PANEL_HESTIA,
 } from "./panelPlugin";
 import {
   getPanelDriver,
@@ -34,6 +38,7 @@ import { pluginDisplayName } from "../../plugins/pluginDisplayName";
 const PANEL_ICONS: Record<string, string> = {
   [PLUGIN_ID_PANEL_BT]: baotaIcon,
   [PLUGIN_ID_PANEL_1PANEL]: onePanelIcon,
+  [PLUGIN_ID_PANEL_HESTIA]: hestiaIcon,
 };
 
 interface ServerConnectionDialogProps {
@@ -258,16 +263,22 @@ export function ServerConnectionDialog({
       <div className="form-field">
         <label className="form-label">{t("server.create.address")}</label>
         <TextInput
-          placeholder="192.168.1.100:8888"
+          placeholder={
+            isHestiaPanelService(form.serviceType)
+              ? "https://192.168.1.100:8083"
+              : "192.168.1.100:8888"
+          }
           value={form.panelAddress}
           onChange={(value) => update("panelAddress", value)}
         />
         {isOnePanelService(form.serviceType) ? (
           <p className="form-hint">{t("server.create.onePanelAddressHint")}</p>
+        ) : isHestiaPanelService(form.serviceType) ? (
+          <p className="form-hint">{t("server.create.hestiaAddressHint")}</p>
         ) : null}
       </div>
 
-      {isOnePanelService(form.serviceType) ? (
+      {panelUsesLoginUser(form.serviceType) ? (
         <div className="form-field">
           <label className="form-label">{t("server.create.panelUser")}</label>
           <TextInput
@@ -275,7 +286,11 @@ export function ServerConnectionDialog({
             value={form.panelUser}
             onChange={(value) => update("panelUser", value)}
           />
-          <p className="form-hint">{t("server.create.panelUserHint")}</p>
+          <p className="form-hint">
+            {isHestiaPanelService(form.serviceType)
+              ? t("server.create.hestiaUserHint")
+              : t("server.create.panelUserHint")}
+          </p>
         </div>
       ) : null}
 
@@ -286,9 +301,16 @@ export function ServerConnectionDialog({
           value={form.panelKey}
           onChange={(value) => update("panelKey", value)}
           placeholder={
-            isEdit ? t("server.create.keyPlaceholderEdit") : "••••••••"
+            isEdit
+              ? t("server.create.keyPlaceholderEdit")
+              : isHestiaPanelService(form.serviceType)
+                ? t("server.create.hestiaKeyPlaceholder")
+                : "••••••••"
           }
         />
+        {isHestiaPanelService(form.serviceType) ? (
+          <p className="form-hint">{t("server.create.hestiaKeyHint")}</p>
+        ) : null}
         {isEdit ? (
           <p className="form-hint">{t("server.create.keyEditHint")}</p>
         ) : null}

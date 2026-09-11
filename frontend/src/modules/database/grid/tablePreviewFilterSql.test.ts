@@ -16,9 +16,16 @@ describe("tablePreviewFilterSql", () => {
   it("parseOrderByClauseText round-trips", () => {
     expect(parseOrderByClauseText("chapter_id DESC")).toEqual({
       ok: true,
-      sort: { column: "chapter_id", direction: "desc" },
+      sort: [{ column: "chapter_id", direction: "desc" }],
     });
-    expect(parseOrderByClauseText("")).toEqual({ ok: true, sort: null });
+    expect(parseOrderByClauseText("")).toEqual({ ok: true, sort: [] });
+    expect(parseOrderByClauseText("a ASC, b DESC")).toEqual({
+      ok: true,
+      sort: [
+        { column: "a", direction: "asc" },
+        { column: "b", direction: "desc" },
+      ],
+    });
     expect(parseOrderByClauseText("!!!")).toMatchObject({ ok: false });
   });
 

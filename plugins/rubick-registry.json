@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 2,
+  "plugins": [
+    {
+      "id": "omni.ext.ip-config-rubick-plugin",
+      "kind": "addon",
+      "name": "本机 IP 查询",
+      "description": "查询本机的内外网 IP 地址和测速（Rubick 第三方源，需转换安装）",
+      "externalNpm": "ip-config-rubick-plugin",
+      "versions": [
+        {
+          "version": "1.0.4",
+          "minHostApi": 1,
+          "artifact": {
+            "url": "https://registry.npmjs.org/ip-config-rubick-plugin/-/ip-config-rubick-plugin-1.0.4.tgz",
+            "integrity": "sha512-uxR8Ln4gS0rv54z/p+EzpC6s4hci1KqO99qf59Y65OKsjjrLl2G9XF0Dmn1u59c4lHgR2B/Dwx+SEaFXaJirLg==",
+            "size": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "omni.ext.rubick-windows-test",
+      "kind": "addon",
+      "name": "Rubick 打开 EXE 演示",
+      "description": "rubick ui 打开 exe 测试 demo（Rubick 第三方源，需转换安装）",
+      "externalNpm": "rubick-windows-test",
+      "versions": [
+        {
+          "version": "0.0.4",
+          "minHostApi": 1,
+          "artifact": {
+            "url": "https://registry.npmjs.org/rubick-windows-test/-/rubick-windows-test-0.0.4.tgz",
+            "integrity": "sha512-nJVsSOuzmr3ErBEXfVIK6Sy4n1z75hYk8TZLoHjMlNkb7AFEw36wfPOryWRmSQnDpeQyrN25ZRtihtNQZJic3Q==",
+            "size": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "omni.ext.rubick-plugin-cli",
+      "kind": "addon",
+      "name": "Rubick 插件脚手架",
+      "description": "rubick plugin cli（Rubick 第三方源，需转换安装）",
+      "externalNpm": "rubick-plugin-cli",
+      "versions": [
+        {
+          "version": "1.0.3",
+          "minHostApi": 1,
+          "artifact": {
+            "url": "https://registry.npmjs.org/rubick-plugin-cli/-/rubick-plugin-cli-1.0.3.tgz",
+            "integrity": "sha512-lLTYfcy1W7Nn6bAPayrZpR7B3NTHhJrNXXgGqwlusInTs2rHsKluB19+B9mqk22SnWd0E7TQxVp8nPqow0dRJw==",
+            "size": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "omni.ext.rubick-cli",
+      "kind": "addon",
+      "name": "Rubick 命令行",
+      "description": "rubick cli（Rubick 第三方源，需转换安装）",
+      "externalNpm": "rubick-cli",
+      "versions": [
+        {
+          "version": "0.0.3",
+          "minHostApi": 1,
+          "artifact": {
+            "url": "https://registry.npmjs.org/rubick-cli/-/rubick-cli-0.0.3.tgz",
+            "integrity": "sha512-6ijKBhA2XNClS74R6skX5NYqL3qf5inFcMbFGuqcsYU1rQqcOZcAAmEFKuvT1Oo9WGMv8SDo0uPXJhxoTUOQGQ==",
+            "size": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "omni.ext.rubickos-rubick-core",
+      "kind": "addon",
+      "name": "RubickOS 核心",
+      "description": "rubick core plugin system（Rubick 第三方源，需转换安装）",
+      "externalNpm": "@rubickos/rubick-core",
+      "versions": [
+        {
+          "version": "0.1.2",
+          "minHostApi": 1,
+          "artifact": {
+            "url": "https://registry.npmjs.org/@rubickos/rubick-core/-/rubick-core-0.1.2.tgz",
+            "integrity": "sha512-25RZg3lLlxRh+SY4SiBUdFN+kdo7CXOz+C/tA5tiF3tMZopGaQ8Q5YGTILk391j7tsrDAJofj8znfo/gzUISig==",
+            "size": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "omni.ext.rubick-plugin-db",
+      "kind": "addon",
+      "name": "Rubick 数据 API",
+      "description": "rubick core api（Rubick 第三方源，需转换安装）",
+      "externalNpm": "rubick-plugin-db",
+      "versions": [
+        {
+          "version": "0.0.2-24",
+          "minHostApi": 1,
+          "artifact": {
+            "url": "https://registry.npmjs.org/rubick-plugin-db/-/rubick-plugin-db-0.0.2-24.tgz",
+            "integrity": "sha512-9Jw95j4f+LpLKZlNK/FXIxm4YAeVopNXGHwKM4sZV25XNPoZcvGB/AEHDGhtlZsMHqBZwVfxxwnL+AkZb7Fvsg==",
+            "size": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "omni.ext.zhi-rubick-core",
+      "kind": "addon",
+      "name": "Zhi 容器核心",
+      "description": "plugin container core（Rubick 第三方源，需转换安装）",
+      "externalNpm": "zhi-rubick-core",
+      "versions": [
+        {
+          "version": "0.4.0",
+          "minHostApi": 1,
+          "artifact": {
+            "url": "https://registry.npmjs.org/zhi-rubick-core/-/zhi-rubick-core-0.4.0.tgz",
+            "integrity": "sha512-6RZ0jjIgwzzsLd/CmYejY0G9eijFezrLxvXex+aWIQqKHwYQ4JO8NbQSLckRGxfQozjNLbz61Wm0Ml1rEa6Geg==",
+            "size": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "omni.ext.rubick-core",
+      "kind": "addon",
+      "name": "Rubick 核心 API",
+      "description": "rubick core api（Rubick 第三方源，需转换安装）",
+      "externalNpm": "rubick-core",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "minHostApi": 1,
+          "artifact": {
+            "url": "https://registry.npmjs.org/rubick-core/-/rubick-core-0.1.0.tgz",
+            "integrity": "sha512-i5+DZnpKlD2lRhLuvGOKRq8E7laRAEJV34sj0grVHZLlC7KV5zEH5e6iKRAaEX6pY7/+z7+GNI+z4UURRmoO/Q==",
+            "size": 0
+          }
+        }
+      ]
+    }
+  ]
+}

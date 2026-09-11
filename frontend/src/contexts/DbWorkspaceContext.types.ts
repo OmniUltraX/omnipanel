@@ -2,7 +2,7 @@ import type {
   SqlTabState,
   TablePreviewState,
   DbColumnMeta,
-  SortState,
+  SortStates,
 } from "../modules/database/workspace/dbWorkspaceState";
 import type { RuleGroupType } from "react-querybuilder";
 import type { DbWorkspaceTab, SchemaDockOpenMode } from "../modules/database/workspace/workspaceTabs";
@@ -16,7 +16,7 @@ export type DbTabAction = {
   tabId: string;
   page?: number;
   pageSize?: number;
-  sort?: SortState | null;
+  sort?: SortStates | null;
   filter?: RuleGroupType | null;
 };
 
@@ -51,7 +51,7 @@ export interface DbWorkspaceSharedContextValue {
     page: number,
   ) => void;
   requestTabAction: (action: DbTabAction) => void;
-  setTableSort: (tabId: string, sort: SortState | null) => void;
+  setTableSort: (tabId: string, sort: SortStates | null) => void;
   setTableFilter: (tabId: string, filter: RuleGroupType | null) => void;
   setTableGridView: (
     tabId: string,

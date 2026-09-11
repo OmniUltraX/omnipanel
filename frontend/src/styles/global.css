@@ -16632,6 +16632,11 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--success);
     }
 
+    .server-item__type-tag--hestia {
+        background: rgba(124, 58, 237, 0.14);
+        color: #7c3aed;
+    }
+
     .server-item__address {
         font-size: 11px;
         color: var(--meta);
@@ -16939,6 +16944,11 @@ button.omni-btn-tool[aria-pressed="true"] {
     .server-sidebar-body .server-tree-node--server.server-tree-node--onepanel .tree-icon,
     .server-sidebar-body .server-tree-node--1panel .tree-icon {
         color: var(--success);
+    }
+
+    .server-sidebar-body .server-tree-node--server.server-tree-node--hestia .tree-icon,
+    .server-sidebar-body .server-tree-node--hestia .tree-icon {
+        color: #7c3aed;
     }
 
     .server-sidebar-body .server-tree-node--aliyun .tree-icon {

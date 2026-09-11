@@ -8,12 +8,14 @@ export type { PanelDockTabId, PanelSidebarTabId } from "./panelTabIds";
 export {
   PANEL_DOCK_TAB_IDS,
   PANEL_SIDEBAR_TAB_IDS as PANEL_SIDEBAR_TAB_SLOTS,
+  isFirstPartyPanelDockTab,
   listPanelDockTabs,
   listPanelPluginTabIds,
   listPanelSidebarTabs,
+  resolvePanelDockKind,
 } from "./panelTabIds";
 
-/** Panel Host 已实现的 Tab 插槽。插件只能点名这些 id，不能自带 React。 */
+/** 第一方 Dock Tab 的 React 页。未知 panelTabs id 走 GenericPanelTabPane。 */
 export const PANEL_DOCK_TAB_SLOTS = {
   apps: ServerAppsTab,
   websites: ServerWebsitesTab,
