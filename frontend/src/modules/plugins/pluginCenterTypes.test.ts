@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MarketItem } from "./pluginCenterTypes";
 import {
+  categorizeExternalPlugin,
   effectiveDownloads,
   formatPluginCount,
   marketplaceToMarketItem,
@@ -30,6 +31,7 @@ function item(partial: Partial<MarketItem> & Pick<MarketItem, "id" | "name">): M
     changelog: null,
     sourceId: "official",
     externalNpm: null,
+    extCategory: null,
     ...partial,
   };
 }
@@ -216,5 +218,25 @@ describe("sanitizeExternalId", () => {
     expect(sanitizeExternalId("@scope/Name.X")).toBe("scope-name.x");
     expect(sanitizeExternalId("@rubickos/rubick-core")).toBe("rubickos-rubick-core");
     expect(sanitizeExternalId("!!!")).toBe("external");
+  });
+});
+
+describe("categorizeExternalPlugin", () => {
+  it("按名称/描述/关键词启发式分类", () => {
+    expect(
+      categorizeExternalPlugin({ npm: "x", name: "聚合翻译", description: "translate text", keywords: [] }),
+    ).toBe("text");
+    expect(
+      categorizeExternalPlugin({ npm: "json-tool", name: "JSON", description: "formatter", keywords: ["dev"] }),
+    ).toBe("dev");
+    expect(
+      categorizeExternalPlugin({ npm: "x", name: "番茄钟", description: "", keywords: [] }),
+    ).toBe("productivity");
+    expect(
+      categorizeExternalPlugin({ npm: "ip-config", name: "IP", description: "本机内外网", keywords: [] }),
+    ).toBe("system");
+    expect(categorizeExternalPlugin({ npm: "zzz", name: "zzz", description: "", keywords: [] })).toBe(
+      "other",
+    );
   });
 });

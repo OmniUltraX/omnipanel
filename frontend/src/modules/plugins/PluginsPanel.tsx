@@ -247,6 +247,8 @@ export function PluginsPanel() {
               npmActive={center.npmSearch != null}
               onSearchNpm={() => void center.searchNpmMarket()}
               onClearNpmSearch={center.clearNpmSearch}
+              extCategory={center.extCategory}
+              onExtCategory={center.setExtCategory}
               onOpenSources={() => center.setSourcesOpen(true)}
               onUpdateAll={() => void center.updatePlugins(null)}
               onUpdateOne={(id) => void center.updatePlugins([id])}

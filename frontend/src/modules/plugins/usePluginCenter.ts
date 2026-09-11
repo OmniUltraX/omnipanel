@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { parsePluginManifest, type PluginManifest } from "@omnipanel/plugin-sdk";
@@ -15,12 +15,14 @@ import { pluginDisplayName } from "./pluginDisplayName";
 import { firstPartyIdSet, originForInstalled, type PluginOrigin } from "./pluginOrigin";
 import { openPluginOverlay } from "../../lib/pluginHomeLaunch";
 import {
+  categorizeExternalPlugin,
   dbxToMarketItem,
   marketplaceToMarketItem,
   pluginMatchesQuery,
   sanitizeExternalId,
   shouldConfirmInstallPlan,
   withLocalStats,
+  type ExternalCategory,
   type KindFilter,
   type MarketFilter,
   type MarketItem,
@@ -58,6 +60,7 @@ export function usePluginCenter() {
   const [search, setSearch] = useState("");
   const [npmSearch, setNpmSearch] = useState<{ query: string; items: MarketItem[] } | null>(null);
   const [npmSearching, setNpmSearching] = useState(false);
+  const [extCategory, setExtCategory] = useState<ExternalCategory | "all">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const catalog = useDbxCatalogStore((s) => s.drivers);
   const catalogRefreshing = useDbxCatalogStore((s) => s.refreshing);
@@ -107,6 +110,15 @@ export function usePluginCenter() {
     void reloadInstalled();
     void reloadMarket(false);
   }, [reloadInstalled, reloadMarket]);
+
+  // 市场打开即自动拉全量（npm 默认查询，静默失败仅留种子；单次挂载一次）
+  const autoNpmLoaded = useRef(false);
+  useEffect(() => {
+    if (autoNpmLoaded.current) return;
+    autoNpmLoaded.current = true;
+    void searchNpmMarket("rubick", { quiet: true, size: 50 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -201,9 +213,16 @@ export function usePluginCenter() {
       ) {
         return false;
       }
+      if (
+        item.sourceId === "rubick" &&
+        extCategory !== "all" &&
+        item.extCategory !== extCategory
+      ) {
+        return false;
+      }
       return pluginMatchesQuery(item.id, item.name, item.kind, query);
     });
-  }, [marketItems, matchesKind, marketFilter, query]);
+  }, [marketItems, matchesKind, marketFilter, extCategory, query]);
 
   /** 来源直列：官方 + 各来源 id（dbx / rubick / 自定义源…），不再用统一第三方。 */
   const sourceFilters = useMemo(() => {
@@ -227,12 +246,12 @@ export function usePluginCenter() {
     }));
   }, [marketItems, t]);
 
-  const searchNpmMarket = async () => {
-    const q = search.trim();
+  const searchNpmMarket = async (rawQuery?: string, opts?: { quiet?: boolean; size?: number }) => {
+    const q = (rawQuery ?? search).trim();
     if (!q || npmSearching) return;
     setNpmSearching(true);
     try {
-      const hits = await unwrapCommand(commands.pluginExternalSearchNpm(q, 25));
+      const hits = await unwrapCommand(commands.pluginExternalSearchNpm(q, opts?.size ?? 25));
       const mapped: MarketItem[] = hits.map((hit) => ({
         id: `omni.ext.${sanitizeExternalId(hit.npm)}`,
         name: hit.npm,
@@ -255,11 +274,17 @@ export function usePluginCenter() {
         changelog: null,
         sourceId: "rubick",
         externalNpm: hit.npm,
+        extCategory: categorizeExternalPlugin({
+          npm: hit.npm,
+          name: hit.npm,
+          description: hit.description,
+          keywords: hit.keywords,
+        }),
       }));
       setNpmSearch({ query: q, items: mapped });
-      setError(null);
+      if (!opts?.quiet) setError(null);
     } catch (err) {
-      setError(String(err));
+      if (!opts?.quiet) setError(String(err));
     } finally {
       setNpmSearching(false);
     }
@@ -623,6 +648,8 @@ export function usePluginCenter() {
     npmSearching,
     searchNpmMarket,
     clearNpmSearch,
+    extCategory,
+    setExtCategory,
     selectedId,
     setSelectedId,
     selectedInstalled,

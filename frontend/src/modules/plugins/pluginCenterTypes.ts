@@ -108,6 +108,8 @@ export type MarketItem = {
   sourceId: string | null;
   /** 外部来源包名（Rubick npm 名）；官方/内置为空，转换安装用。 */
   externalNpm: string | null;
+  /** 外部分类（仅 rubick 来源；其余为 null）。 */
+  extCategory: ExternalCategory | null;
 };
 
 function optionalStamp(value: string | null | undefined): string | null {
@@ -146,6 +148,7 @@ export function officialToMarketItem(
     changelog: null,
     sourceId: "official",
     externalNpm: null,
+    extCategory: null,
   };
 }
 
@@ -176,6 +179,7 @@ export function dbxToMarketItem(driver: DbxCatalogDriver, name: string): MarketI
     changelog: null,
     sourceId: "dbx",
     externalNpm: null,
+    extCategory: null,
   };
 }
 
@@ -203,6 +207,14 @@ export function marketplaceToMarketItem(item: MarketplaceItem, name: string): Ma
     changelog: item.changelog ?? null,
     sourceId: item.sourceId,
     externalNpm: item.externalNpm ?? null,
+    extCategory:
+      item.sourceId === "rubick"
+        ? categorizeExternalPlugin({
+            npm: item.externalNpm ?? item.id,
+            name,
+            description: item.description,
+          })
+        : null,
   };
 }
 
@@ -367,4 +379,38 @@ export function sanitizeExternalId(name: string): string {
   }
   out = out.replace(/^[-.]+|[-.]+$/g, "");
   return out || "external";
+}
+
+export type ExternalCategory = "text" | "dev" | "productivity" | "system" | "other";
+
+export const EXTERNAL_CATEGORIES: ExternalCategory[] = [
+  "text",
+  "dev",
+  "productivity",
+  "system",
+  "other",
+];
+
+/** 外部插件启发式分类（npm 名/展示名/描述/keywords 文本匹配，首中即定；纯函数可测）。 */
+export function categorizeExternalPlugin(input: {
+  npm: string;
+  name: string;
+  description: string;
+  keywords?: string[] | null;
+}): ExternalCategory {
+  const hay = `${input.npm} ${input.name} ${input.description} ${(input.keywords ?? []).join(" ")}`.toLowerCase();
+  const has = (...words: string[]) => words.some((w) => hay.includes(w));
+  if (has("translate", "翻译", "ocr", "识别", "pdf", "markdown", "笔记", "note", "写作", "search", "搜索")) {
+    return "text";
+  }
+  if (has("json", "dev", "cli", "api", "代码", "code", "正则", "regex", "git", "npm", "terminal", "终端", "docker", "webpack")) {
+    return "dev";
+  }
+  if (has("todo", "待办", "剪贴板", "clipboard", "截图", "取色", "color", "快捷", "计时", "番茄", "pomodoro", "calculator", "计算器")) {
+    return "productivity";
+  }
+  if (has("ip", "系统", "监控", "网络", "下载", "文件", "file", "wifi")) {
+    return "system";
+  }
+  return "other";
 }

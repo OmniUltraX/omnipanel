@@ -349,6 +349,15 @@ export default {
       searchNpm: "Search npm",
       searching: "Searching…",
       clearNpmSearch: "Clear npm results",
+      extCats: {
+        label: "External plugin categories",
+        all: "All",
+        text: "Text & translate",
+        dev: "Dev tools",
+        productivity: "Productivity",
+        system: "System & network",
+        other: "Other",
+      },
       filter: {
         all: "All",
         official: "Official",

@@ -361,12 +361,17 @@ pub(crate) fn refuse_external_artifact(plugin_id: &str) -> OmniError {
     ))
 }
 
+/// 说明：曾计划直拉 `rubick-database` 索引（gitcode），实测文件 API 需鉴权、
+/// raw 页为 SPA 壳，不可靠；已下线该通道，统一走 npm search + curated 种子。
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ExternalSearchItem {
     pub npm: String,
     pub version: String,
     pub description: String,
+    #[serde(default)]
+    pub keywords: Vec<String>,
 }
 
 /// npm 市场搜索（仅元数据，不下载）。live 补齐 curated 种子之外的发现入口。
@@ -381,7 +386,7 @@ pub async fn plugin_external_search_npm(
     if query.is_empty() || query.len() > 128 {
         return Err(OmniError::invalid_input("搜索关键词非法"));
     }
-    let size = max.unwrap_or(10).clamp(1, 25);
+    let size = max.unwrap_or(10).clamp(1, 50);
     let url = format!(
         "{NPM_REGISTRY}/-/v1/search?text={}&size={size}",
         urlencoding_like(&query),
@@ -399,6 +404,19 @@ pub async fn plugin_external_search_npm(
             if name.is_empty() || validate_npm_name(name).is_err() {
                 continue;
             }
+            let keywords: Vec<String> = package
+                .and_then(|p| p.get("keywords"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .take(12)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
             out.push(ExternalSearchItem {
                 npm: name.to_string(),
                 version: package
@@ -411,6 +429,7 @@ pub async fn plugin_external_search_npm(
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string(),
+                keywords,
             });
             if out.len() >= size as usize {
                 break;
@@ -467,7 +486,8 @@ mod tests {
     }
 
     #[test]
-    fn packument_url_encodes_scope() {        assert_eq!(
+    fn packument_url_encodes_scope() {
+        assert_eq!(
             packument_url("@scope/name", "1.0.0"),
             "https://registry.npmjs.org/@scope%2Fname/1.0.0"
         );

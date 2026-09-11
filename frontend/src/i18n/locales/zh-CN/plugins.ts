@@ -347,6 +347,15 @@ export default {
       searchNpm: "搜 npm",
       searching: "搜索中…",
       clearNpmSearch: "清除 npm 结果",
+      extCats: {
+        label: "外部插件分类",
+        all: "全部",
+        text: "翻译文本",
+        dev: "开发工具",
+        productivity: "效率工具",
+        system: "系统网络",
+        other: "其他",
+      },
       sourceDbx: "来源：DBX 官方 Agent 目录",
       sourceDbxHint: "由 DBX 提供的第三方数据库引擎（native 或 JDBC），不是 OmniPanel 第一方捆绑插件。安装后可在数据库连接对话框中使用。",
       filter: {

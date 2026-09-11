@@ -26,3 +26,10 @@
 - [x] 5.2 第三方过滤按来源直列（`MarketFilter` 开放来源 id，chips 由 `sourceFilters` 驱动）。验证：vitest + `tsc -b`
 - [x] 5.3 市场 npm 搜索全量展示（`pluginExternalSearchNpm` 接入市场列表，id 与后端 sanitize 对齐）。验证：vitest（`sanitizeExternalId` 同构用例）+ `tsc -b`
 - [x] 5.4 external-only 对话框可操作（复制包名按钮）。验证：`tsc -b`
+
+## 6. 全量与分类（第二轮反馈）
+
+- [x] 6.1 市场打开自动拉全量（默认 `rubick` 查询 50 条静默合并，手动搜索保留）。验证：`tsc -b`
+- [x] 6.2 Rubick 分类行（启发式 5 类 + 其他，种子与 npm 结果统一打标，来源筛选内生效）。验证：vitest 分类表用例 + `tsc -b`
+- [x] 6.3 gitcode 索引通道下线（文件 API 需鉴权、raw 为 SPA 壳，实测不可达；删命令保 npm+种子双通道）。验证：`cargo check` 无残留引用
+- [x] 6.4 `ExternalSearchItem.keywords` 透传（分类用）。验证：`tsc -b`

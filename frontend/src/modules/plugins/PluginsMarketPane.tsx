@@ -8,6 +8,7 @@ import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchA
 import { originMetaLabel } from "./pluginOrigin";
 import { PluginGlyph } from "./pluginGlyph";
 import {
+  EXTERNAL_CATEGORIES,
   MARKET_PAGE_SIZE_DEFAULT,
   MARKET_PAGE_SIZE_OPTIONS,
   MARKET_SORT_DEFAULT_DIR,
@@ -16,6 +17,7 @@ import {
   formatPluginDate,
   paginateItems,
   sortMarketItems,
+  type ExternalCategory,
   type KindFilter,
   type MarketFilter,
   type MarketItem,
@@ -114,6 +116,8 @@ type Props = {
   npmActive: boolean;
   onSearchNpm: () => void;
   onClearNpmSearch: () => void;
+  extCategory: ExternalCategory | "all";
+  onExtCategory: (category: ExternalCategory | "all") => void;
 };
 
 export function PluginsMarketPane({
@@ -138,6 +142,8 @@ export function PluginsMarketPane({
   npmActive,
   onSearchNpm,
   onClearNpmSearch,
+  extCategory,
+  onExtCategory,
 }: Props) {
   const { t, locale } = useI18n();
   const listRef = useRef<HTMLDivElement>(null);
@@ -222,6 +228,20 @@ export function PluginsMarketPane({
             </button>
           ))}
         </div>
+        {market.some((item) => item.sourceId === "rubick") ? (
+          <div className="plugin-center-filters" role="group" aria-label={t("plugins.center.extCats.label")}>
+            {(["all", ...EXTERNAL_CATEGORIES] as const).map((category) => (
+              <button
+                key={category}
+                type="button"
+                className={`plugin-center-chip${extCategory === category ? " is-active" : ""}`}
+                onClick={() => onExtCategory(category)}
+              >
+                {t(`plugins.center.extCats.${category}`)}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="plugin-center-sort">
           <Select
             size="sm"

@@ -4578,6 +4578,7 @@ export type ExternalSearchItem = {
   npm: string;
   version: string;
   description: string;
+  keywords: string[];
 };
 
 export type ExternalVerdictDto = {
