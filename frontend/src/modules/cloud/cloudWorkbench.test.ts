@@ -21,6 +21,10 @@ import { filterCloudResourceRows, matchesCloudListQuery, resolveCloudQueryRegion
 import { cloudPolicyTone, cloudStatusTone } from "./cloudDetailUi";
 import { paginateCloudItems } from "./cloudPaging";
 import { cloudListSlotKey, cloudRegionFingerprint, isCloudInventoryFresh, cloudAccountStatusDot, cloudAccountStatusError } from "./cloudInventory";
+import {
+  cloudMetricChartsScope,
+  resolveVisibleMetricIds,
+} from "../../stores/cloudMetricChartsPrefsStore";
 import { collectExpiringCloudRows, expiryTone, formatCloudExpiryDate } from "./cloudExpiry";
 import {
   CLOUD_LOG_MAX_SPAN_MS,
@@ -336,6 +340,26 @@ describe("cloud account status dot", () => {
 
   it("刷新中为 connecting", () => {
     expect(cloudAccountStatusDot(undefined, true)).toBe("connecting");
+  });
+});
+
+describe("cloud metric charts visibility prefs", () => {
+  it("scope 由插件与能力组成", () => {
+    expect(cloudMetricChartsScope("omni.cloud.aliyun", "compute")).toBe(
+      "omni.cloud.aliyun::compute",
+    );
+  });
+
+  it("未保存偏好时默认全选", () => {
+    expect(resolveVisibleMetricIds(["a", "b"], undefined)).toEqual(["a", "b"]);
+  });
+
+  it("按保存列表过滤，并保持可用顺序", () => {
+    expect(resolveVisibleMetricIds(["a", "b", "c"], ["c", "a", "x"])).toEqual(["a", "c"]);
+  });
+
+  it("偏好与可用指标无交集时回退全选", () => {
+    expect(resolveVisibleMetricIds(["a", "b"], ["x"])).toEqual(["a", "b"]);
   });
 });
 

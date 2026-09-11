@@ -210,6 +210,11 @@ export default {
     metrics: {
       empty: "暂无监控数据。请确认 AccessKey 有云监控权限。",
       hint: "悬停看数值，点击看详情",
+      selectCharts: "显示的监控图",
+      selectChartsPlaceholder: "选择监控图",
+      allCharts: "全部监控图",
+      selectedCount: "已选 {count} 项",
+      noneSelected: "请至少勾选一个监控图",
       detailTitle: "监控详情",
       latest: "当前",
       min: "最低",

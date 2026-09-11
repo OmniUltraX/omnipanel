@@ -5,7 +5,7 @@ import { commands, type CloudChildRow, type CloudLogPage, type CloudMetricSeries
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { showToast } from "../../stores/toastStore";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { cloudBrandKind, cloudCapabilityLabel, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
+import { cloudCapabilityLabel, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
 import { cloudCapabilityById } from "./cloudCapabilities";
 import { capabilityHasDeclaredAction } from "./cloudWorkspaceTabs";
 import {
@@ -37,8 +37,6 @@ import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
 import { CLOUD_HIGHLIGHT_KEYS, cloudStatusTone, copyCloudText } from "./cloudDetailUi";
 import { CloudPager } from "./CloudListPager";
 import { CLOUD_LOG_DEFAULT_PAGE_SIZE, useCloudPaging } from "./cloudPaging";
-import { ServerTreeIcon } from "../server/panel/serverTreeIcons";
-
 const FIELD_ORDER = [
   "instanceType",
   "instanceClass",
@@ -481,199 +479,228 @@ export function CloudResourceDetailPanel({
     });
   };
 
+  const statusLabel = formatCloudFieldValue(t, "status", detail.status || "") || "—";
+  const metaParts = [
+    cloudCapabilityLabel(t, capability, account.pluginId),
+    detail.regionId ? cloudRegionLabel(detail.regionId) : null,
+  ].filter(Boolean);
+
+  type HeaderAction = {
+    id: string;
+    label: string;
+    disabled?: boolean;
+    onClick: () => void;
+  };
+  const headerActions: HeaderAction[] = [];
+  if (capabilityHasDeclaredAction(cap?.actions, "start")) {
+    headerActions.push({
+      id: "start",
+      label: t("cloud.actions.start"),
+      disabled: busy,
+      onClick: () => void invoke("start"),
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "stop")) {
+    headerActions.push({
+      id: "stop",
+      label: t("cloud.actions.stop"),
+      disabled: busy,
+      onClick: () => void invoke("stop"),
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "reboot")) {
+    headerActions.push({
+      id: "reboot",
+      label: t("cloud.actions.reboot"),
+      disabled: busy,
+      onClick: () => void invoke("reboot"),
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "attach") && capability !== "compute") {
+    headerActions.push({
+      id: "attach",
+      label: t("cloud.actions.attach"),
+      disabled: busy,
+      onClick: () => setActionDialog("attachInstance"),
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "detach") && capability !== "compute") {
+    headerActions.push({
+      id: "detach",
+      label: t("cloud.actions.detach"),
+      disabled: busy,
+      onClick: () =>
+        void invoke("detach", bindInstanceId.trim() ? { instanceId: bindInstanceId.trim() } : {}),
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "modifyBandwidth")) {
+    headerActions.push({
+      id: "modifyBandwidth",
+      label: t("cloud.actions.modifyBandwidth"),
+      disabled: busy,
+      onClick: () => setActionDialog("modifyBandwidth"),
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "createSnapshot") && capability === "storage.disk") {
+    headerActions.push({
+      id: "createSnapshot",
+      label: t("cloud.actions.createSnapshot"),
+      disabled: busy,
+      onClick: () => setActionDialog("createSnapshot"),
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "addSsh")) {
+    headerActions.push({
+      id: "addSsh",
+      label: sshLinked ? t("server.cloud.actions.alreadySsh") : t("server.cloud.actions.addSsh"),
+      disabled: Boolean(sshLinked) || busy,
+      onClick: () => {
+        void (async () => {
+          try {
+            await addCloudInstanceToSsh(
+              account,
+              capability,
+              {
+                id: detail.id,
+                name: detail.name,
+                publicIp: cloudRowField(detail.fields, "publicIp"),
+                privateIp: cloudRowField(detail.fields, "privateIp"),
+              },
+              saveConn,
+            );
+            showToast(t("server.cloud.actions.addedSsh", { name: detail.name || detail.id }));
+          } catch (err) {
+            if (String(err).includes("NO_HOST")) showToast(t("server.cloud.actions.noHost"));
+            else showToast(formatIpcError(err));
+          }
+        })();
+      },
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "addToFiles") && cloudConnection) {
+    headerActions.push({
+      id: "addToFiles",
+      label: ossLinked ? t("server.cloud.actions.alreadyOss") : t("server.cloud.actions.addOss"),
+      disabled: Boolean(ossLinked) || busy,
+      onClick: () => {
+        void (async () => {
+          try {
+            await addCloudOssToFile(account, cloudConnection, {
+              id: detail.id,
+              name: detail.name,
+              region: detail.regionId,
+              endpoint: cloudRowField(detail.fields, "endpoint"),
+            });
+            showToast(t("server.cloud.actions.addedOss", { name: detail.name || detail.id }));
+          } catch (err) {
+            showToast(formatIpcError(err));
+          }
+        })();
+      },
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "addToDatabase")) {
+    headerActions.push({
+      id: "addToDatabase",
+      label: t("cloud.actions.addToDatabase"),
+      disabled: busy,
+      onClick: () => {
+        void (async () => {
+          try {
+            await addCloudRdsToDatabase(account, {
+              id: detail.id,
+              name: detail.name,
+              engine: cloudRowField(detail.fields, "engine"),
+              host: cloudRowField(detail.fields, "connectionString"),
+              port: cloudRowField(detail.fields, "port"),
+            });
+            showToast(t("cloud.actions.addedDb", { name: detail.name || detail.id }));
+          } catch (err) {
+            if (String(err).includes("NO_HOST")) showToast(t("server.cloud.actions.noHost"));
+            else showToast(formatIpcError(err));
+          }
+        })();
+      },
+    });
+  }
+
   return (
     <div className={`cloud-detail${LIST_DETAIL_SLOTS.has(slot) ? " cloud-detail--list" : ""}`}>
       <header className="cloud-detail__header">
-        <div className="cloud-detail__identity">
-          <span className="cloud-detail__brand" aria-hidden>
-            <ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />
-          </span>
-          <div className="cloud-detail__titles">
-            <h2 className="cloud-detail__name">{detail.name || detail.id}</h2>
-            <div className="cloud-detail__chips">
-              <span className={`cloud-pill cloud-pill--${statusTone}`}>
-                {formatCloudFieldValue(t, "status", detail.status || "") || "—"}
-              </span>
-              <span className="cloud-chip">{cloudCapabilityLabel(t, capability, account.pluginId)}</span>
-              {detail.regionId ? (
-                <span className="cloud-chip">{cloudRegionLabel(detail.regionId)}</span>
-              ) : null}
-              <button
-                type="button"
-                className="cloud-chip cloud-chip--copy"
-                title={t("common.copy")}
-                onClick={() => copyValue(detail.id)}
-              >
-                {detail.id}
-              </button>
-              {refreshing ? <span className="cloud-chip">{t("cloud.list.syncing")}</span> : null}
+        <div className="cloud-detail__header-row cloud-detail__header-row--primary">
+          <div className="cloud-detail__identity">
+            <span
+              className={`cloud-detail__status-dot cloud-detail__status-dot--${statusTone}`}
+              title={statusLabel}
+              aria-label={statusLabel}
+            />
+            <div className="cloud-detail__identity-text">
+              <div className="cloud-detail__title-row">
+                <span className="cloud-detail__name">{detail.name || detail.id}</span>
+                <span className={`cloud-pill cloud-pill--${statusTone}`}>{statusLabel}</span>
+                {refreshing ? <span className="badge badge-muted">{t("cloud.list.syncing")}</span> : null}
+              </div>
+              <div className="cloud-detail__meta">
+                <button
+                  type="button"
+                  className="cloud-detail__meta-primary cloud-detail__meta-id"
+                  title={t("common.copy")}
+                  onClick={() => copyValue(detail.id)}
+                >
+                  {detail.id}
+                </button>
+                {metaParts.length > 0 ? (
+                  <span className="cloud-detail__meta-secondary">{metaParts.join(" · ")}</span>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
+
+        {slots.length > 1 || headerActions.length > 0 ? (
+          <div className="cloud-detail__header-row cloud-detail__header-row--secondary">
+            {slots.length > 1 ? (
+              <div className="cloud-detail__tabs" role="tablist">
+                {slots.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    role="tab"
+                    aria-selected={slot === item}
+                    className={`cloud-detail__tab${slot === item ? " is-active" : ""}`}
+                    onClick={() => setSlot(item)}
+                  >
+                    {t(`cloud.detail.slots.${item}`)}
+                    {item === "rules" && (detail.rules?.length ?? 0) > 0 ? (
+                      <span className="cloud-detail__tab-count">{detail.rules?.length}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {headerActions.length > 0 ? (
+              <div className="cloud-detail__actions">
+                {headerActions.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="cloud-detail__action"
+                    disabled={item.disabled}
+                    title={item.label}
+                    onClick={item.onClick}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </header>
-      {slots.length > 1 ? (
-        <div className="cloud-detail__tabs" role="tablist">
-          {slots.map((item) => (
-            <button
-              key={item}
-              type="button"
-              role="tab"
-              aria-selected={slot === item}
-              className={`cloud-detail__tab${slot === item ? " is-active" : ""}`}
-              onClick={() => setSlot(item)}
-            >
-              {t(`cloud.detail.slots.${item}`)}
-              {item === "rules" && (detail.rules?.length ?? 0) > 0 ? (
-                <span className="cloud-detail__tab-count">{detail.rules?.length}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       <div className="cloud-detail__body">
       {slot === "overview" ? (
         <>
-          <div className="cloud-detail__toolbar">
-            {capabilityHasDeclaredAction(cap?.actions, "start") ? (
-              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void invoke("start")}>
-                {t("cloud.actions.start")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "stop") ? (
-              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void invoke("stop")}>
-                {t("cloud.actions.stop")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "reboot") ? (
-              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void invoke("reboot")}>
-                {t("cloud.actions.reboot")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "attach") && capability !== "compute" ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => setActionDialog("attachInstance")}
-              >
-                {t("cloud.actions.attach")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "detach") && capability !== "compute" ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void invoke("detach", bindInstanceId.trim() ? { instanceId: bindInstanceId.trim() } : {})}
-              >
-                {t("cloud.actions.detach")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "modifyBandwidth") ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => setActionDialog("modifyBandwidth")}
-              >
-                {t("cloud.actions.modifyBandwidth")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "createSnapshot") && capability === "storage.disk" ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => setActionDialog("createSnapshot")}
-              >
-                {t("cloud.actions.createSnapshot")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "addSsh") ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={Boolean(sshLinked) || busy}
-                onClick={() => {
-                  void (async () => {
-                    try {
-                      await addCloudInstanceToSsh(
-                        account,
-                        capability,
-                        {
-                          id: detail.id,
-                          name: detail.name,
-                          publicIp: cloudRowField(detail.fields, "publicIp"),
-                          privateIp: cloudRowField(detail.fields, "privateIp"),
-                        },
-                        saveConn,
-                      );
-                      showToast(t("server.cloud.actions.addedSsh", { name: detail.name || detail.id }));
-                    } catch (err) {
-                      if (String(err).includes("NO_HOST")) showToast(t("server.cloud.actions.noHost"));
-                      else showToast(formatIpcError(err));
-                    }
-                  })();
-                }}
-              >
-                {sshLinked ? t("server.cloud.actions.alreadySsh") : t("server.cloud.actions.addSsh")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "addToFiles") && cloudConnection ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={Boolean(ossLinked) || busy}
-                onClick={() => {
-                  void (async () => {
-                    try {
-                      await addCloudOssToFile(account, cloudConnection, {
-                        id: detail.id,
-                        name: detail.name,
-                        region: detail.regionId,
-                        endpoint: cloudRowField(detail.fields, "endpoint"),
-                      });
-                      showToast(t("server.cloud.actions.addedOss", { name: detail.name || detail.id }));
-                    } catch (err) {
-                      showToast(formatIpcError(err));
-                    }
-                  })();
-                }}
-              >
-                {ossLinked ? t("server.cloud.actions.alreadyOss") : t("server.cloud.actions.addOss")}
-              </Button>
-            ) : null}
-            {capabilityHasDeclaredAction(cap?.actions, "addToDatabase") ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
-                  void (async () => {
-                    try {
-                      await addCloudRdsToDatabase(account, {
-                        id: detail.id,
-                        name: detail.name,
-                        engine: cloudRowField(detail.fields, "engine"),
-                        host: cloudRowField(detail.fields, "connectionString"),
-                        port: cloudRowField(detail.fields, "port"),
-                      });
-                      showToast(t("cloud.actions.addedDb", { name: detail.name || detail.id }));
-                    } catch (err) {
-                      if (String(err).includes("NO_HOST")) showToast(t("server.cloud.actions.noHost"));
-                      else showToast(formatIpcError(err));
-                    }
-                  })();
-                }}
-              >
-                {t("cloud.actions.addToDatabase")}
-              </Button>
-            ) : null}
-          </div>
           {slots.includes("rules") ? (
             <div className="cloud-stat-grid">
               {capability === "database" || capability === "database.cache" ? (
@@ -765,6 +792,8 @@ export function CloudResourceDetailPanel({
           rangeId={rangeId}
           loading={metricsLoading}
           error={metricsError}
+          pluginId={account.pluginId}
+          capability={capability}
           onRangeChange={setRangeId}
           onRefresh={() => void refreshMetrics()}
         />

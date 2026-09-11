@@ -210,6 +210,11 @@ export default {
     metrics: {
       empty: "No metric data. Confirm the AccessKey has CloudMonitor permission.",
       hint: "Hover for values, click for details",
+      selectCharts: "Visible charts",
+      selectChartsPlaceholder: "Select charts",
+      allCharts: "All charts",
+      selectedCount: "{count} selected",
+      noneSelected: "Select at least one chart",
       detailTitle: "Metric details",
       latest: "Latest",
       min: "Min",
