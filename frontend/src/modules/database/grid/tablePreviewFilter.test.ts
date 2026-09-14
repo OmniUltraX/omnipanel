@@ -14,9 +14,13 @@ import {
   filterOperatorNeedsValue,
   formatFilterWhere,
   getFilterColumnNames,
+  hasTableFilterRules,
   isEmptyFilterValue,
   isQuickFilterKindEnabled,
+  isTableFilterActive,
+  mergeColumnFilter,
   pruneEmptyFilterRules,
+  reorderIds,
   shouldUseRelationJoinPreview,
 } from "./tablePreviewFilter";
 import { relationDisplayColumnId } from "./tableColumnRelation";
@@ -148,6 +152,108 @@ describe("tablePreviewFilter quick filter", () => {
     const cleared = clearColumnFilter(next, "name");
     expect(cleared?.rules).toHaveLength(1);
     expect(clearColumnFilter(cleared, "id")).toBeNull();
+  });
+
+  it("nests OR column draft as subgroup when merging into AND base", () => {
+    const base = {
+      combinator: "and" as const,
+      rules: [{ field: "id", operator: "=", value: 1 }],
+    };
+    const draft = {
+      combinator: "or" as const,
+      rules: [
+        { field: "name", operator: "=", value: "a" },
+        { field: "name", operator: "=", value: "b" },
+      ],
+    };
+    const merged = mergeColumnFilter(base, "name", draft);
+    expect(merged?.combinator).toBe("and");
+    expect(merged?.rules).toHaveLength(2);
+    const nested = merged?.rules[1] as { combinator: string; rules: unknown[] };
+    expect(nested.combinator).toBe("or");
+    expect(nested.rules).toHaveLength(2);
+    const sql = formatFilterWhere(merged, "mysql")?.toLowerCase() ?? "";
+    expect(sql).toContain("and");
+    expect(sql).toContain("or");
+    expect(sql).toContain("(");
+  });
+
+  it("preserves mixed AND/OR nesting on merge", () => {
+    const base = {
+      combinator: "and" as const,
+      rules: [{ field: "id", operator: "=", value: 1 }],
+    };
+    const draft = {
+      combinator: "and" as const,
+      rules: [
+        {
+          combinator: "or" as const,
+          rules: [
+            { field: "score", operator: "=", value: 1 },
+            { field: "score", operator: "=", value: 2 },
+          ],
+        },
+        { field: "score", operator: "<", value: 10 },
+      ],
+    };
+    const merged = mergeColumnFilter(base, "score", draft);
+    // 顶层同为 AND：拍平一层，内层 OR 子组保留
+    expect(merged?.rules).toHaveLength(3);
+    const sql = formatFilterWhere(merged, "mysql")?.toLowerCase() ?? "";
+    expect(sql).toContain("and");
+    expect(sql).toContain("or");
+    expect(sql).toContain("(");
+  });
+
+  it("keeps muted rows out of SQL but preserves them in the group", () => {
+    const group = {
+      combinator: "and" as const,
+      rules: [
+        { field: "a", operator: "=", value: 1 },
+        { field: "b", operator: "=", value: 2, muted: true },
+      ],
+    };
+    const sql = formatFilterWhere(group, "mysql") ?? "";
+    expect(sql).toContain("a");
+    expect(sql).not.toContain("b");
+    // 全停用 → 不激活，但结构上仍有规则
+    const allMuted = {
+      combinator: "and" as const,
+      rules: [{ field: "b", operator: "=", value: 2, muted: true }],
+    };
+    expect(isTableFilterActive(allMuted)).toBe(false);
+    expect(hasTableFilterRules(allMuted)).toBe(true);
+    expect(formatFilterWhere(allMuted, "mysql")).toBeUndefined();
+    expect(getFilterColumnNames(allMuted).size).toBe(0);
+    expect(getFilterColumnNames(group)).toEqual(new Set(["a"]));
+  });
+
+  it("mergeColumnFilter preserves all-muted column draft", () => {
+    const base = {
+      combinator: "and" as const,
+      rules: [{ field: "id", operator: "=", value: 1 }],
+    };
+    const draft = {
+      combinator: "and" as const,
+      rules: [{ field: "name", operator: "=", value: "x", muted: true }],
+    };
+    const merged = mergeColumnFilter(base, "name", draft);
+    expect(merged).not.toBeNull();
+    expect(hasTableFilterRules(merged)).toBe(true);
+    // 生效条件只剩 id
+    const sql = formatFilterWhere(merged, "mysql") ?? "";
+    expect(sql).toContain("id");
+    expect(sql).not.toContain("name");
+    // 清除该列后停用行也被移除
+    expect(clearColumnFilter(merged, "name")?.rules).toHaveLength(1);
+  });
+
+  it("reorderIds moves rows for drag reorder", () => {
+    expect(reorderIds(["a", "b", "c"], "c", "a", "before")).toEqual(["c", "a", "b"]);
+    expect(reorderIds(["a", "b", "c"], "a", "c", "after")).toEqual(["b", "c", "a"]);
+    expect(reorderIds(["a", "b", "c"], "a", "b", "after")).toEqual(["b", "a", "c"]);
+    expect(reorderIds(["a", "b"], "a", "a", "before")).toEqual(["a", "b"]);
+    expect(reorderIds(["a", "b"], "x", "a", "before")).toEqual(["a", "b"]);
   });
 
   it("generates SQL for contains and doesNotContain", () => {

@@ -61,6 +61,14 @@ export function SelectionFloatLayer() {
     const onSelectionChange = () => {
       refresh();
     };
+    // 输入框/文本域内的选中不会冒泡 selectionchange 到 document：
+    // 用捕获监听 select 事件 + keyup（键盘选区）补齐。
+    const onSelectCapture = () => {
+      window.setTimeout(refresh, 0);
+    };
+    const onKeyUp = () => {
+      refresh();
+    };
     const onKeyDown = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") {
         dismissedFor.current = null;
@@ -70,11 +78,15 @@ export function SelectionFloatLayer() {
     const onScroll = () => setState(null);
     document.addEventListener("mouseup", onMouseUp);
     document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("select", onSelectCapture, true);
+    document.addEventListener("keyup", onKeyUp);
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("selectionchange", onSelectionChange);
+      document.removeEventListener("select", onSelectCapture, true);
+      document.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("scroll", onScroll, true);
     };

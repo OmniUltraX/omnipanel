@@ -1,0 +1,21 @@
+{
+  "id": "omni.addon.translator",
+  "version": "0.1.0",
+  "kind": "addon",
+  "permissions": ["ui:selection", "ai:tools"],
+  "entry": {
+    "ui": "ui/main.js"
+  },
+  "minHostApi": 1,
+  "contributes": {
+    "overlays": [{ "id": "translator", "title": "plugins.names.translator", "entry": "ui/index.html" }],
+    "ui": {
+      "home": {
+        "show": true,
+        "title": "plugins.names.translator",
+        "icon": "icon.svg",
+        "open": { "kind": "overlay", "id": "translator" }
+      }
+    }
+  }
+}

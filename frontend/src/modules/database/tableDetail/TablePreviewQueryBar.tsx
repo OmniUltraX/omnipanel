@@ -14,6 +14,7 @@ import {
   TableDataGridSortPopover,
 } from "../grid/TableDataGridOverlays";
 import { isTableFilterActive, TABLE_FILTER_ALL_COLUMNS } from "../grid/tablePreviewFilter";
+import { cancelPendingBlurCommits } from "./tablePreviewQueryBlur";
 import type { RuleGroupType } from "react-querybuilder";
 import {
   buildOrderByClauseText,
@@ -446,6 +447,8 @@ export function TablePreviewQueryBar({
                   // 注意：必须先同步取出 rect，不能在 setState updater 里懒取，
                   // 否则合成事件回收后 currentTarget 变 null 会崩。
                   const rect = event.currentTarget.getBoundingClientRect();
+                  // 本次点击导致输入框失焦，其 120ms 提交会与面板应用互相覆盖，先取消
+                  cancelPendingBlurCommits();
                   setSortAnchor(null);
                   setFilterAnchor((prev) => (prev ? null : rect));
                 }}
@@ -544,6 +547,7 @@ export function TablePreviewQueryBar({
               event.stopPropagation();
               // 同上：先同步取出 rect，避免合成事件回收后崩溃。
               const rect = event.currentTarget.getBoundingClientRect();
+              cancelPendingBlurCommits();
               setFilterAnchor(null);
               setSortAnchor((prev) => (prev ? null : rect));
             }}

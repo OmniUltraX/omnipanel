@@ -1473,6 +1473,8 @@ export default {
       filterRuleCount: "{count} 条条件",
       filterApply: "应用筛选",
       filterClear: "清除筛选",
+      filterClearColumn: "清除该列",
+      filterDragRow: "拖拽调整顺序",
       filterColumnHint: "过滤此列",
       filterAddCondition: "新增条件",
       filterReset: "重置条件",

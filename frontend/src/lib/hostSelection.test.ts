@@ -33,4 +33,30 @@ describe("hostSelection", () => {
     } as Selection);
     expect(getHostSelection()).toEqual({ text: "term-stale", source: "terminal" });
   });
+
+  it("输入框内的选中可被读到（表格单元格编辑器浮标的根因）", () => {
+    const input = document.createElement("input");
+    input.value = "杨建姐 15266943180";
+    document.body.appendChild(input);
+    input.focus();
+    input.setSelectionRange(0, 3);
+    try {
+      expect(getHostSelection()).toEqual({ text: "杨建姐", source: "dom" });
+    } finally {
+      document.body.removeChild(input);
+    }
+  });
+
+  it("输入框选区收起时返回 null（不误报）", () => {
+    const area = document.createElement("textarea");
+    area.value = "hello";
+    document.body.appendChild(area);
+    area.focus();
+    area.setSelectionRange(2, 2);
+    try {
+      expect(getHostSelection()).toBeNull();
+    } finally {
+      document.body.removeChild(area);
+    }
+  });
 });

@@ -33,8 +33,44 @@ export function ensureTableFilterQuery(filter: RuleGroupType | null | undefined)
   return prepareRuleGroup(filter ?? EMPTY_TABLE_FILTER_BASE);
 }
 
+/** 面板眼睛开关映射到 RQB 原生 muted：导出 SQL 时自动排除，对象本身保留 */
+export function isMutedFilterNode(rule: RuleType | RuleGroupType | string): boolean {
+  return typeof rule !== "string" && rule.muted === true;
+}
+
+/** 是否有实际生效（非 muted）的叶子条件；全停用视为未激活 */
 export function isTableFilterActive(filter: RuleGroupType | null | undefined): boolean {
-  return Boolean(filter?.rules?.length);
+  if (!filter) return false;
+  const walk = (group: RuleGroupType): boolean => {
+    for (const rule of group.rules) {
+      if (typeof rule === "string") continue;
+      if (isMutedFilterNode(rule)) continue;
+      if (isRuleGroup(rule)) {
+        if (walk(rule)) return true;
+      } else {
+        return true;
+      }
+    }
+    return false;
+  };
+  return walk(filter);
+}
+
+/** 结构性判断：是否有任何规则（含 muted 停用的），用于应用时保留停用行 */
+export function hasTableFilterRules(filter: RuleGroupType | null | undefined): boolean {
+  if (!filter) return false;
+  const walk = (group: RuleGroupType): boolean => {
+    for (const rule of group.rules) {
+      if (typeof rule === "string") continue;
+      if (isRuleGroup(rule)) {
+        if (walk(rule)) return true;
+      } else {
+        return true;
+      }
+    }
+    return false;
+  };
+  return walk(filter);
 }
 
 function isRuleGroup(rule: RuleType | RuleGroupType): rule is RuleGroupType {
@@ -60,6 +96,7 @@ export function filterOperatorNeedsValue(operator: unknown): boolean {
 /**
  * 移除「需要值但值为空」的叶子条件，递归处理嵌套组。
  * 用于避免空值被格式化成 `col = ''`（例如 MySQL DATETIME 直接报 1525）。
+ * muted 停用的行始终保留（SQL 导出时由 RQB 自动排除，再次打开可恢复）。
  * 清空后无剩余条件时返回 null。
  */
 export function pruneEmptyFilterRules(
@@ -70,6 +107,10 @@ export function pruneEmptyFilterRules(
     const rules: (RuleType | RuleGroupType | string)[] = [];
     for (const rule of group.rules) {
       if (typeof rule === "string") {
+        rules.push(rule);
+        continue;
+      }
+      if (isMutedFilterNode(rule)) {
         rules.push(rule);
         continue;
       }
@@ -86,7 +127,7 @@ export function pruneEmptyFilterRules(
     return { ...group, rules: rules as RuleGroupType["rules"] };
   };
   const pruned = prune(filter);
-  return isTableFilterActive(pruned) ? pruned : null;
+  return hasTableFilterRules(pruned) ? pruned : null;
 }
 
 export function getFilterColumnNames(filter: RuleGroupType | null | undefined): Set<string> {
@@ -96,6 +137,8 @@ export function getFilterColumnNames(filter: RuleGroupType | null | undefined): 
 
   const walk = (group: RuleGroupType) => {
     for (const rule of group.rules) {
+      if (typeof rule === "string") continue;
+      if (isMutedFilterNode(rule)) continue;
       if (isRuleGroup(rule)) {
         walk(rule);
       } else if (rule.field) {
@@ -223,7 +266,8 @@ export function formatFilterWhere(
   columnMeta?: DbColumnMeta[],
 ): string | undefined {
   const effective = pruneEmptyFilterRules(filter);
-  if (!effective) return undefined;
+  // 全停用（muted）时 RQB 会输出 `1 = 1` 占位，直接视为无过滤，保持 WHERE 栏干净
+  if (!effective || !isTableFilterActive(effective)) return undefined;
   const fields = columnMeta?.length ? buildFilterFields(columnMeta) : undefined;
   const sql = formatQuery(effective, {
     format: "sql",
@@ -374,9 +418,9 @@ export function clearColumnFilter(
   filter: RuleGroupType | null | undefined,
   column: string,
 ): RuleGroupType | null {
-  if (!isTableFilterActive(filter)) return null;
+  if (!hasTableFilterRules(filter)) return null;
   const without = removeColumnRules(ensureTableFilterQuery(filter!), column);
-  return isTableFilterActive(without) ? without : null;
+  return hasTableFilterRules(without) ? without : null;
 }
 
 /** 从全局过滤中提取指定列的条件，供单列过滤弹层编辑 */
@@ -444,15 +488,35 @@ export function mergeColumnFilter(
   columnDraft: RuleGroupType | null,
 ): RuleGroupType | null {
   const without = removeColumnRules(ensureTableFilterQuery(base), column);
-  if (!columnDraft || !isTableFilterActive(columnDraft)) {
-    return isTableFilterActive(without) ? without : null;
+  // 结构性判断（含 muted）：全停用的草稿也要保留行，以便再次打开恢复
+  if (!columnDraft || !hasTableFilterRules(columnDraft)) {
+    return hasTableFilterRules(without) ? without : null;
   }
   const forced = forceColumnOnQuery(columnDraft, column);
+  // 草稿组合符与全局不一致且有多条时包成子组，避免 OR 被拍平成 AND
+  const nestAsGroup =
+    forced.rules.length > 1 &&
+    (forced.combinator ?? "and") !== (without.combinator ?? "and");
   const merged = ensureTableFilterQuery({
     ...without,
-    rules: [...without.rules, ...forced.rules],
+    rules: nestAsGroup ? [...without.rules, forced] : [...without.rules, ...forced.rules],
   });
-  return isTableFilterActive(merged) ? merged : null;
+  return hasTableFilterRules(merged) ? merged : null;
+}
+
+/** 拖拽排序：把 fromId 移动到 targetId 的 before/after，返回新 id 顺序 */
+export function reorderIds(
+  ids: string[],
+  fromId: string,
+  targetId: string,
+  pos: "before" | "after",
+): string[] {
+  if (fromId === targetId) return ids;
+  if (!ids.includes(fromId) || !ids.includes(targetId)) return ids;
+  const next = ids.filter((id) => id !== fromId);
+  const at = next.indexOf(targetId) + (pos === "after" ? 1 : 0);
+  next.splice(at, 0, fromId);
+  return next;
 }
 
 function quoteSqlIdentifier(name: string, dbType: string): string {
