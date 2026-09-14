@@ -148,7 +148,8 @@
  */
 .selection-float-layer {
     position: fixed;
-    z-index: 90;
+    /* 内容层之上、popover(1200) 之上、对话框(1400) 之下；overlay 打开时自动隐藏 */
+    z-index: 1300;
     display: flex;
     gap: 4px;
     padding: 3px;
