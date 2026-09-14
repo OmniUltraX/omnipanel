@@ -51,6 +51,7 @@ import {
   KNOWLEDGE_CHUNKS_CHANGED_EVENT,
 } from "./knowledgeVectorize";
 import { exportKnowledgeMarkdown, exportKnowledgePdf } from "./knowledgeExport";
+import { SiyuanSyncDialog } from "./SiyuanSyncDialog";
 import { KnowledgeSearchResults } from "./panels/KnowledgeSearchResults";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
 import { KNOWLEDGE_TAG_KINDS } from "../tags/tagKinds";
@@ -301,6 +302,7 @@ export function KnowledgeSidebar() {
     null,
   );
   const [showNewMenuSection, setShowNewMenuSection] = useState<KnowledgeLibrarySection | null>(null);
+  const [siyuanDialogOpen, setSiyuanDialogOpen] = useState(false);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const [vectorizedIds, setVectorizedIds] = useState<ReadonlySet<string>>(() => new Set());
   const allowedEntryIds = useModuleTagFilter("knowledge", KNOWLEDGE_TAG_KINDS);
@@ -998,6 +1000,14 @@ export function KnowledgeSidebar() {
       >
         +
       </Button>
+      <Button
+        variant="icon"
+        size="sm"
+        title={t("knowledge.siyuan.openButton")}
+        onClick={() => setSiyuanDialogOpen(true)}
+      >
+        ⟳
+      </Button>
     </div>
   );
 
@@ -1038,7 +1048,7 @@ export function KnowledgeSidebar() {
                     onToggle={() => toggleSection("imported")}
                     actions={renderImportedActions()}
                     autoSize
-                    autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "imported" }}
+                    autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "imported-v2" }}
                   >
                     {renderSectionTree("imported")}
                   </VerticalSplitSidebarSection>
@@ -1084,6 +1094,10 @@ export function KnowledgeSidebar() {
               onClose={() => setBlankCtx(null)}
             />
           )}
+          <SiyuanSyncDialog
+            open={siyuanDialogOpen}
+            onClose={() => setSiyuanDialogOpen(false)}
+          />
         </div>
   );
 }

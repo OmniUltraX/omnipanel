@@ -3130,6 +3130,86 @@
         font-family: var(--font-ui);
     }
 
+    /* 思源同步对话框：复用 switcher 浮层骨架，表单纵排 */
+    .knowledge-siyuan-dialog {
+        width: min(560px, calc(100vw - 32px));
+    }
+
+    .knowledge-siyuan-dialog__body {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px 14px 14px;
+        font-size: 12px;
+        color: var(--fg);
+    }
+
+    .knowledge-siyuan-dialog__row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .knowledge-siyuan-dialog__row label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+    }
+
+    .knowledge-siyuan-dialog__disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+
+    .knowledge-siyuan-dialog__hint {
+        margin: 0;
+        color: var(--meta);
+        font-size: 11px;
+    }
+
+    .knowledge-siyuan-dialog__field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .knowledge-siyuan-dialog__input {
+        flex: 1;
+        min-width: 0;
+        background: var(--bg-deeper);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--fg);
+        font-size: 12px;
+        padding: 6px 8px;
+        outline: none;
+    }
+
+    .knowledge-siyuan-dialog__input:disabled {
+        opacity: 0.55;
+    }
+
+    .knowledge-siyuan-dialog__message {
+        margin: 0;
+        color: var(--meta);
+        white-space: pre-wrap;
+    }
+
+    .knowledge-siyuan-dialog__status {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        color: var(--meta);
+    }
+
+    .knowledge-siyuan-dialog__failed ul {
+        margin: 4px 0 0;
+        padding-left: 16px;
+        max-height: 120px;
+        overflow: auto;
+    }
+
     .knowledge-hover-preview__title {
         font-size: 13px;
         font-weight: 600;

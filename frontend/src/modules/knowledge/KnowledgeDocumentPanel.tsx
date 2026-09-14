@@ -27,6 +27,7 @@ import {
 } from "./knowledgeExport";
 import { parseKnowledgeImportPdfPath } from "./knowledgeImport";
 import { KnowledgePdfPreview } from "./KnowledgePdfPreview";
+import { ContentPreviewView } from "../../components/ui/content/ContentPreviewView";
 import { parseHeadings } from "./metadata/headings";
 import { resolveTitleToId } from "./metadata/KnowledgeMetadataCache";
 import { useKnowledgeMetadata } from "./metadata/useKnowledgeMetadata";
@@ -36,6 +37,8 @@ import {
   createEmptyEntry,
   isKnowledgeFolder,
   isKnowledgeImported,
+  isPdfImportEntry,
+  isSiyuanMirrorEntry,
   normalizeParentId,
   nextSortOrder,
 } from "./knowledgeTree";
@@ -100,7 +103,10 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   );
   const isFolder = entry ? isKnowledgeFolder(entry) : false;
   const isImported = entry ? isKnowledgeImported(entry) : false;
-  const pdfPath = entry && isImported ? parseKnowledgeImportPdfPath(entry.source) : null;
+  // 思源镜像（import:siyuan:）是 markdown 文档，只读展示；PDF 判定只认 import:pdf:。
+  const isSiyuanMirror = entry ? isSiyuanMirrorEntry(entry) : false;
+  const isPdfImport = entry ? isPdfImportEntry(entry) : false;
+  const pdfPath = entry && isPdfImport ? parseKnowledgeImportPdfPath(entry.source) : null;
 
   const children = useMemo(() => {
     if (!entry || !isFolder) return [];
@@ -133,7 +139,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   }, [entries]);
 
   useEffect(() => {
-    if (!entry || isFolder || isImported) {
+    if (!entry || isFolder || isPdfImport) {
       setVectorStatus(null);
       return;
     }
@@ -162,7 +168,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
       cancelled = true;
       window.removeEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
     };
-  }, [entry, isFolder, isImported]);
+  }, [entry, isFolder, isPdfImport]);
 
   const displayTitle = draftTitle ?? entry?.title ?? "";
   const displayContent = draftContent ?? entry?.content ?? "";
@@ -524,9 +530,11 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
                         <span className="knowledge-folder-item__meta">
                           {childIsFolder
                             ? t("knowledge.folder.kindFolder")
-                            : isKnowledgeImported(child)
-                              ? t("knowledge.importPreview.importedBadge")
-                              : t("knowledge.folder.kindDocument")}
+                            : isSiyuanMirrorEntry(child)
+                              ? t("knowledge.siyuan.mirrorBadge")
+                              : isKnowledgeImported(child)
+                                ? t("knowledge.importPreview.importedBadge")
+                                : t("knowledge.folder.kindDocument")}
                         </span>
                       </button>
                     </li>
@@ -540,7 +548,28 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
     );
   }
 
-  if (isImported) {
+  if (isSiyuanMirror && entry) {
+    return (
+      <div className="knowledge-workspace knowledge-workspace--imported knowledge-workspace--note">
+        <div className="knowledge-note-chrome">
+          <div className="knowledge-note-chrome__left">
+            <span className="knowledge-note-chip">{t("knowledge.siyuan.mirrorBadge")}</span>
+          </div>
+        </div>
+        <div className="knowledge-note-scroll">
+          <h1 className="knowledge-note-title knowledge-note-title--readonly">{displayTitle}</h1>
+          <ContentPreviewView
+            status="ready"
+            content={{ kind: "text", text: displayContent }}
+            defaultTextMode="markdown"
+            showTextModeToolbar={false}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (isPdfImport) {
     return (
       <div className="knowledge-workspace knowledge-workspace--imported knowledge-workspace--note">
         <div className="knowledge-note-chrome">

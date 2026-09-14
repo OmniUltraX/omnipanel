@@ -266,7 +266,7 @@ export function CloudMetricCharts({
             >
               <div className="cloud-metrics__card-head">
                 <strong>{metricTitle(t, item)}</strong>
-                <span>{displayValue(last, item.unit)}</span>
+                <span>{displayValue(last ?? undefined, item.unit)}</span>
               </div>
               <div className="cloud-metrics__chart-wrap">
                 <MetricSparkline

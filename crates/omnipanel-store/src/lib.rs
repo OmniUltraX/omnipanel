@@ -30,6 +30,7 @@ mod schema_cache;
 mod schema_filters;
 mod schema_tree_expanded;
 mod secrets_crypto;
+mod siyuan_sync;
 mod skill;
 mod skill_db;
 mod skill_seed;
@@ -134,6 +135,7 @@ pub use secrets_crypto::{
     decrypt_bind_token_wrap, decrypt_vault, decrypt_with_passphrase, derive_master_key,
     encrypt_bind_token_wrap, encrypt_vault_with_salt, encrypt_with_passphrase, generate_salt,
 };
+pub use siyuan_sync::{SiyuanFileState, SiyuanSourceType, SiyuanSyncConfig};
 pub use skill::{
     ParsedSkill, SKILL_MD_FILENAME, SkillFrontmatter, SkillRecord,
     build_selected_skills_bodies_append, build_skills_system_append,

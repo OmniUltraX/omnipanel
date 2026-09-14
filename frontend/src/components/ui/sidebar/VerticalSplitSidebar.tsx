@@ -1,10 +1,14 @@
 import {
+  Children,
+  cloneElement,
+  isValidElement,
   useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactElement,
   type ReactNode,
 } from "react";
 import { cn } from "../../../lib/utils";
@@ -17,6 +21,11 @@ export interface VerticalSplitSidebarSectionConfig {
   autoSize?: boolean;
   /** autoSize 模式下按 id 持久化高度到 localStorage */
   autoSizePersist?: { storageKey: string; id: string };
+  /**
+   * 作为最后一个展开段时撑满剩余空间（自动高度退为最小高度）。
+   * 一般由父容器自动注入，无需手动传入。
+   */
+  fillRemainingSpace?: boolean;
 }
 
 export interface VerticalSplitSidebarProps {
@@ -24,9 +33,67 @@ export interface VerticalSplitSidebarProps {
   className?: string;
 }
 
+/** 读取子元素对应的分段状态（直挂分段 / section 属性透传面板） */
+function readChildSectionState(child: ReactNode): {
+  expanded: boolean;
+  autoSize: boolean;
+  controlled: boolean;
+} | null {
+  if (!isValidElement(child)) return null;
+  const props = child.props as {
+    expanded?: unknown;
+    autoSize?: unknown;
+    bodyHeightPx?: unknown;
+    section?: unknown;
+  };
+  const section =
+    props.section && typeof props.section === "object"
+      ? (props.section as { expanded?: unknown; autoSize?: unknown; bodyHeightPx?: unknown })
+      : null;
+  // 直挂分段以自身 props 为准；section 透传面板（如数据库查询/同步）以内层 section 为准
+  const source = section ?? ("expanded" in props ? props : null);
+  if (!source) return null;
+  return {
+    expanded: source.expanded !== false,
+    autoSize: (source as { autoSize?: unknown }).autoSize === true,
+    controlled: typeof (source as { bodyHeightPx?: unknown }).bodyHeightPx === "number",
+  };
+}
+
 /** 纵向均分、可折叠的多段侧栏容器（数据库 Schema、文件连接等模块复用） */
 export function VerticalSplitSidebar({ children, className }: VerticalSplitSidebarProps) {
-  return <div className={cn("vsplit-sidebar", className)}>{children}</div>;
+  const items = Children.toArray(children);
+  // 最后一个展开段：若为自动高度且没有普通段展开分摊空间，则令其撑满剩余空间，
+  // 避免固定内容高度在容器底部留下空白。
+  let lastExpandedIndex = -1;
+  let hasExpandedFlexSection = false;
+  items.forEach((child, index) => {
+    const state = readChildSectionState(child);
+    if (!state || !state.expanded) return;
+    lastExpandedIndex = index;
+    if (!state.autoSize && !state.controlled) hasExpandedFlexSection = true;
+  });
+  const filled = items.map((child, index) => {
+    if (index !== lastExpandedIndex || hasExpandedFlexSection) return child;
+    const state = readChildSectionState(child);
+    if (!state || !state.autoSize || state.controlled) return child;
+    if (!isValidElement(child)) return child;
+    const props = child.props as {
+      section?: Record<string, unknown>;
+      fillRemainingSpace?: unknown;
+    };
+    if (props.section && typeof props.section === "object") {
+      if (props.section.fillRemainingSpace === true) return child;
+      return cloneElement(child as ReactElement<Record<string, unknown>>, {
+        section: { ...props.section, fillRemainingSpace: true },
+      });
+    }
+    if (props.fillRemainingSpace === true) return child;
+    return cloneElement(child as ReactElement<Record<string, unknown>>, {
+      fillRemainingSpace: true,
+    });
+  });
+  return <div className={cn("vsplit-sidebar", className)}>{filled}</div>;
 }
 
 export function VerticalSplitSidebarSection({
@@ -44,6 +111,7 @@ export function VerticalSplitSidebarSection({
   autoSizePersist,
   /** 拖拽手柄位置：首段常用 bottom，其余段默认 top */
   resizePlacement = "top",
+  fillRemainingSpace = false,
 }: VerticalSplitSidebarSectionConfig & {
   actions?: ReactNode;
   children: ReactNode;
@@ -104,12 +172,14 @@ export function VerticalSplitSidebarSection({
       const prev = measuredBoxRef.current;
       const hasStableHeight =
         (autoHeightRef.current != null && Number.isFinite(autoHeightRef.current)) || prev.h > 0;
-      // 宽度变了且已有高度：视为侧栏拖宽引起的重排，保持当前折叠面板高度
-      if (hasStableHeight && prev.w > 0 && Math.abs(w - prev.w) > 0.5) {
-        measuredBoxRef.current = { w, h: prev.h > 0 ? prev.h : clampHeight(h) };
+      const next = clampHeight(h);
+      // 宽度变了但内容长高了（展开文件夹/新增条目）：必须跟进新高度。
+      // （滚动条出现会改变宽度，旧逻辑会把这次长高吞掉导致内容被截断。）
+      // 只有新高度没有变高时，才视为侧栏拖宽引起的重排而保持原高度。
+      if (hasStableHeight && prev.w > 0 && Math.abs(w - prev.w) > 0.5 && next <= prev.h) {
+        measuredBoxRef.current = { w, h: prev.h > 0 ? prev.h : next };
         return;
       }
-      const next = clampHeight(h);
       measuredBoxRef.current = { w, h: next };
       setAutoHeight((prevHeight) => (prevHeight === next ? prevHeight : next));
     };
@@ -139,6 +209,9 @@ export function VerticalSplitSidebarSection({
 
   const sized = typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight);
   const resizable = sized && typeof effectiveOnChange === "function" && expanded;
+  // 最后一个展开的自动高度段：撑满剩余空间，测量/拖拽高度退为最小高度；
+  // 拖拽只改变撑满的下限，不阻止填充（否则陈旧的持久化高度会永久冻住填充）。
+  const fillActive = fillRemainingSpace && expanded && autoActive && !controlled;
 
   const onResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -204,6 +277,7 @@ export function VerticalSplitSidebarSection({
         "vsplit-sidebar-section",
         !expanded && "vsplit-sidebar-section--collapsed",
         sized && expanded && "vsplit-sidebar-section--sized",
+        fillActive && "vsplit-sidebar-section--fill",
       )}
     >
       {resizePlacement !== "bottom" ? resizeHandle : null}
@@ -240,7 +314,9 @@ export function VerticalSplitSidebarSection({
           )}
           style={
             sized && expanded
-              ? { height: effectiveHeight, flex: "0 0 auto", overflowY: "auto" }
+              ? fillActive
+                ? { minHeight: effectiveHeight, flex: "1 1 auto", overflowY: "auto" }
+                : { height: effectiveHeight, flex: "0 0 auto", overflowY: "auto" }
               : undefined
           }
         >

@@ -45,6 +45,8 @@ interface ClientSyncTombstoneState {
     id: string,
     updatedAt: number,
   ) => void;
+  /** 按 id 前缀清除墓碑（镜像重建后用，防陈旧删除继续杀复活）。 */
+  clearByIdPrefix: (kind: ClientSyncTombstoneKind, prefix: string) => void;
   clearAll: () => void;
 }
 
@@ -114,6 +116,18 @@ export const useClientSyncTombstoneStore = create<ClientSyncTombstoneState>()(
           if (deletedAt === undefined || updatedAt <= deletedAt) return state;
           const next = { ...state.deleted };
           delete next[k];
+          return { deleted: next };
+        });
+      },
+      clearByIdPrefix: (kind, prefix) => {
+        if (!prefix) return;
+        set((state) => {
+          const next: Record<string, number> = {};
+          for (const [key, at] of Object.entries(state.deleted)) {
+            const parsed = parseKey(key);
+            if (parsed && parsed.kind === kind && parsed.id.startsWith(prefix)) continue;
+            next[key] = at;
+          }
           return { deleted: next };
         });
       },
