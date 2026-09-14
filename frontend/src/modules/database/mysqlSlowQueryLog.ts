@@ -283,6 +283,25 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function readMysqlVariableValue(
+  rows: Array<Record<string, unknown>>,
+  name: string,
+): string {
+  const target = name.toLowerCase();
+  for (const row of rows) {
+    const keys = Object.keys(row);
+    const nameKey = keys.find(
+      (key) => key.toLowerCase() === "variable_name" || key.toLowerCase() === "name",
+    );
+    const valueKey = keys.find((key) => key.toLowerCase() === "value");
+    if (!nameKey) continue;
+    const rawName = String(row[nameKey] ?? "").trim();
+    if (rawName.toLowerCase() !== target) continue;
+    return String(valueKey ? (row[valueKey] ?? "") : "").trim();
+  }
+  return "";
+}
+
 async function queryMysqlVariables(
   connection: DbConnectionConfig,
 ): Promise<{ slowLogOn: boolean; logFilePath: string }> {
@@ -292,10 +311,8 @@ async function queryMysqlVariables(
     runId: makeQueryRunId(),
   });
   const rows = rowsToRecord(queryResult.columns, queryResult.rows);
-  const read = (name: string) =>
-    String(rows.find((row) => row.Variable_name === name)?.Value ?? "").trim();
-  const rawSlowLog = read("slow_query_log");
-  const rawLogFile = read("slow_query_log_file");
+  const rawSlowLog = readMysqlVariableValue(rows, "slow_query_log");
+  const rawLogFile = readMysqlVariableValue(rows, "slow_query_log_file");
   const slowLogOn =
     rawSlowLog === "ON" ||
     rawSlowLog === "1" ||
