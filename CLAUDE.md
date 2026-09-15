@@ -27,6 +27,10 @@ OmniPanel is an AI-native cross-platform engineering workstation for developers.
 - **HTTP / Protocols:** reqwest · tokio-tungstenite（WebSocket）· rumqttc（MQTT）· serialport · grpc
 - **Plugins:** QuickJS（`plugin-js`）、WASM（`plugin-wasm`）、ed25519 签名包（`plugin-pkg`）
 
+### 本地联调：MCP 直连运行中的 App
+
+调试运行态问题（数据、命令行为）优先直连，别猜：OmniMCP 是 Streamable HTTP 服务（rmcp），dev 构建 `:12757`、release `:12756`，回环免鉴权。探针脚本 `scripts/omni-mcp-probe.py`（列工具/调工具），协议要点：`Accept` 必须含 `text/event-stream`（跳过 keepalive 空行）、握手后用 `mcp-session-id` 保持会话、必须带 `X-Omni-Module: master` 否则工具列表为空。只读优先；写操作（建/删）必须用户明确同意。
+
 ### Frontend (React + TypeScript)
 
 - **UI:** React 19 · TypeScript · Vite · react-router 7 · Tailwind

@@ -17,6 +17,16 @@ export function isKnowledgeImported(entry: Pick<KnowledgeEntry, "source">): bool
   return entry.source.startsWith("import:");
 }
 
+/** 思源镜像：markdown 文档，只读展示（区别于 PDF 导入）。 */
+export function isSiyuanMirrorEntry(entry: Pick<KnowledgeEntry, "source">): boolean {
+  return entry.source.startsWith("import:siyuan:");
+}
+
+/** PDF 导入：`import:` 族中除思源镜像外的条目。 */
+export function isPdfImportEntry(entry: Pick<KnowledgeEntry, "source">): boolean {
+  return isKnowledgeImported(entry) && !isSiyuanMirrorEntry(entry);
+}
+
 export function knowledgeLibrarySectionForEntry(
   entry: Pick<KnowledgeEntry, "source">,
 ): KnowledgeLibrarySection {

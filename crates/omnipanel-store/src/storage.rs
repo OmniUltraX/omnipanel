@@ -734,6 +734,33 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL
     );
     "#,
+    // v39 — 思源同步：配置单行 + 文件增量状态。
+    // s3_secret_ref 为 Vault credential_ref，库内无明文；S3 执行后置，配置先行占位。
+    r#"
+    CREATE TABLE IF NOT EXISTS siyuan_sync_config (
+        id              TEXT PRIMARY KEY,
+        source_type     TEXT NOT NULL DEFAULT 'local',
+        workspace_path  TEXT NOT NULL DEFAULT '',
+        s3_endpoint     TEXT NOT NULL DEFAULT '',
+        s3_bucket       TEXT NOT NULL DEFAULT '',
+        s3_region       TEXT NOT NULL DEFAULT '',
+        s3_access_key   TEXT NOT NULL DEFAULT '',
+        s3_secret_ref   TEXT NOT NULL DEFAULT '',
+        s3_cloud_name   TEXT NOT NULL DEFAULT 'main',
+        last_sync_at    INTEGER NOT NULL DEFAULT 0,
+        last_report_json TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS siyuan_file_state (
+        file_key   TEXT PRIMARY KEY,
+        box_id     TEXT NOT NULL DEFAULT '',
+        rel_path   TEXT NOT NULL DEFAULT '',
+        mtime_ms   INTEGER NOT NULL DEFAULT 0,
+        entry_id   TEXT NOT NULL DEFAULT '',
+        status     TEXT NOT NULL DEFAULT 'synced',
+        updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_siyuan_file_state_box ON siyuan_file_state(box_id);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

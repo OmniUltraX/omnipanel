@@ -23,5 +23,6 @@ export type { SwitchSyncTeamResult } from "./switchSyncTeam";
 export {
   recordConversationTombstones,
   recordModuleTombstones,
+  useClientSyncTombstoneStore,
 } from "./tombstones";
 export type { ClientSyncConversationsBundle, ClientSyncTombstone } from "./types";

@@ -148,7 +148,9 @@
  */
 .selection-float-layer {
     position: fixed;
-    z-index: 90;
+    /* 单元格编辑器借用 --z-dialog(1400)，必须压过它才能在编辑态可见；
+       仍远低于 toast(10000)/补全浮层等顶层 portal；overlay 打开时自动隐藏 */
+    z-index: 1500;
     display: flex;
     gap: 4px;
     padding: 3px;

@@ -74,7 +74,10 @@ export function formatMetricTime(ts: number): string {
 }
 
 export function metricSeriesMax(series: CloudMetricSeries): number {
-  const values = (series.points ?? []).map((point) => point.value);
+  // 后端 value 可空（缺测为 null）：只按有效值取最大，全空回退 1。
+  const values = (series.points ?? [])
+    .map((point) => point.value)
+    .filter((value): value is number => value != null);
   return Math.max(1, ...(series.unit === "%" ? [100] : []), ...values);
 }
 
@@ -89,8 +92,10 @@ export function plotMetricPoints(
   const innerH = height - CLOUD_METRIC_CHART_PAD.t - CLOUD_METRIC_CHART_PAD.b;
   const points = raw.map((point, i) => {
     const x = CLOUD_METRIC_CHART_PAD.l + (raw.length <= 1 ? innerW / 2 : (i / (raw.length - 1)) * innerW);
-    const y = CLOUD_METRIC_CHART_PAD.t + innerH - (Math.max(0, point.value) / max) * innerH;
-    return { x, y, ts: point.tsMs, value: point.value };
+    // 缺测点按 0 落图（不断线），与 max 口径一致。
+    const value = point.value ?? 0;
+    const y = CLOUD_METRIC_CHART_PAD.t + innerH - (Math.max(0, value) / max) * innerH;
+    return { x, y, ts: point.tsMs, value };
   });
   if (points.length === 0) return { points, max, line: "", area: "" };
   const line = points
@@ -126,7 +131,10 @@ export function metricSeriesStats(points: CloudMetricPoint[] | undefined): {
 } | null {
   const list = points ?? [];
   if (list.length === 0) return null;
-  const values = list.map((point) => point.value);
+  const values = list
+    .map((point) => point.value)
+    .filter((value): value is number => value != null);
+  if (values.length === 0) return null;
   return {
     latest: values[values.length - 1]!,
     min: Math.min(...values),

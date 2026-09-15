@@ -23382,15 +23382,16 @@ button.omni-btn-tool[aria-pressed="true"] {
     flex: 0 0 auto;
 }
 
-/* 非首段折叠时贴齐侧栏底部（SSH 隧道/密钥等中间段收起时合并到底部） */
-.vsplit-sidebar-section--collapsed:not(:first-child),
-.schema-sidebar-section--collapsed:not(:first-child) {
-    margin-top: auto;
-}
+/* 所有折叠段统一从上往下排，不贴底 */
 
 .vsplit-sidebar-section--sized {
     flex: 0 0 auto;
     min-height: 0;
+}
+
+/* 最后一个展开的自动高度段：撑满剩余空间（须在 --sized 之后覆盖 flex） */
+.vsplit-sidebar-section--fill {
+    flex: 1 1 auto;
 }
 
 .vsplit-sidebar-section--sized > .vsplit-sidebar-section__body {
