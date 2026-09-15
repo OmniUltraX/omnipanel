@@ -63,9 +63,11 @@ const EMPTY_FORM: ConnectionFormData = {
 interface ConnectionDialogProps {
   open: boolean;
   onClose: () => void;
-  onSaved?: () => void;
+  onSaved?: (connection: DbConnectionConfig) => void;
   /** 传入已有连接表示编辑模式，表单会回显该连接数据。 */
   initialConnection?: DbConnectionConfig | null;
+  /** 新建时预填（面板一键管理等）；与 initialConnection 互斥时优先编辑模式。 */
+  initialForm?: ConnectionFormData | null;
 }
 
 export function ConnectionDialog({
@@ -73,6 +75,7 @@ export function ConnectionDialog({
   onClose,
   onSaved,
   initialConnection,
+  initialForm,
 }: ConnectionDialogProps) {
   const { t } = useI18n();
   const resolvedTheme = useSettingsStore((s) => s.resolved);
@@ -104,7 +107,9 @@ export function ConnectionDialog({
     }
     const nextForm = initialConnection
       ? connectionToForm(initialConnection)
-      : { ...EMPTY_FORM };
+      : initialForm
+        ? { ...EMPTY_FORM, ...initialForm }
+        : { ...EMPTY_FORM };
     setForm(nextForm);
     setPickerCategory(categoryForEngine(nextForm.engine));
     setPickerSearch("");
@@ -152,7 +157,7 @@ export function ConnectionDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, initialConnection]);
+  }, [open, initialConnection, initialForm]);
 
   const update = <K extends keyof ConnectionFormData>(key: K, value: ConnectionFormData[K]) => {
     setStatus(null);
@@ -273,7 +278,7 @@ export function ConnectionDialog({
       await unwrapCommand(commands.resourceSetTags("connection", saved.id, tags));
       void submitSchemaCacheRefresh([saved.id], schemaCacheReporter);
 
-      onSaved?.();
+      onSaved?.(saved);
       onClose();
     } catch (error) {
       setStatus({

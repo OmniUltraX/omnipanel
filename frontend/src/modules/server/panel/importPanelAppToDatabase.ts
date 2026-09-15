@@ -276,14 +276,24 @@ function notifyDatabaseSidebar(): void {
   window.dispatchEvent(new Event(CLIENT_SYNC_MODULES_APPLIED_EVENT));
 }
 
-export async function importPanelAppToDatabase(options: {
+export function openPanelAppDatabaseConnection(connection: DbConnectionConfig): void {
+  notifyDatabaseSidebar();
+  followUiIntent({ type: "openConnection", module: "database", resourceId: connection.id });
+}
+
+export type PreparePanelAppDatabaseImportResult =
+  | { kind: "existing"; connection: DbConnectionConfig }
+  | { kind: "create"; form: ConnectionFormData };
+
+/** 预填表单；若同端点已存在则直接返回已有连接，否则交给新建对话框。 */
+export async function preparePanelAppDatabaseImport(options: {
   server: ServerEntry;
   appLabel: string;
   appKey?: string;
   appType?: string;
   config: OnePanelAppInstalledParams;
   name?: string;
-}): Promise<{ connection: DbConnectionConfig; created: boolean }> {
+}): Promise<PreparePanelAppDatabaseImportResult> {
   const engine = resolvePanelAppDbEngine({
     key: options.appKey,
     name: options.appLabel,
@@ -305,16 +315,29 @@ export async function importPanelAppToDatabase(options: {
 
   const existing = (await listConnections()).find((item) => sameEndpoint(item, form));
   if (existing) {
-    notifyDatabaseSidebar();
-    followUiIntent({ type: "openConnection", module: "database", resourceId: existing.id });
-    return { connection: existing, created: false };
+    return { kind: "existing", connection: existing };
   }
+  return { kind: "create", form };
+}
 
-  const saved = await saveConnection(formToConnection(form));
-  notifyDatabaseSidebar();
+/** @deprecated 一键管理已改为弹出连接表单；保留给需要静默导入的调用方。 */
+export async function importPanelAppToDatabase(options: {
+  server: ServerEntry;
+  appLabel: string;
+  appKey?: string;
+  appType?: string;
+  config: OnePanelAppInstalledParams;
+  name?: string;
+}): Promise<{ connection: DbConnectionConfig; created: boolean }> {
+  const prepared = await preparePanelAppDatabaseImport(options);
+  if (prepared.kind === "existing") {
+    openPanelAppDatabaseConnection(prepared.connection);
+    return { connection: prepared.connection, created: false };
+  }
+  const saved = await saveConnection(formToConnection(prepared.form));
+  openPanelAppDatabaseConnection(saved);
   void submitSchemaCacheRefresh([saved.id]).catch(() => {
     // Schema 刷新失败不影响连接已写入侧栏
   });
-  followUiIntent({ type: "openConnection", module: "database", resourceId: saved.id });
   return { connection: saved, created: true };
 }

@@ -1656,6 +1656,14 @@ export function SchemaBrowser({
     const trailingItems: ContextMenuItem[] = deleteItem
       ? [deleteItem, { id: "sep-delete", label: "", separator: true }, refreshItem]
       : [refreshItem];
+    const shareIcon = (
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <circle cx="12" cy="3.5" r="1.8" />
+        <circle cx="3.5" cy="8" r="1.8" />
+        <circle cx="12" cy="12.5" r="1.8" />
+        <path d="M5.2 7.1l5.2-2.5M5.2 8.9l5.2 2.5" />
+      </svg>
+    );
     const shareItems: ContextMenuItem[] =
       item.type === "connection" && connection
         ? [
@@ -1663,6 +1671,7 @@ export function SchemaBrowser({
             {
               id: GLOBAL_SHARE_MENU_ID,
               label: t("share.menu"),
+              icon: shareIcon,
               onClick: () =>
                 openShareDialog(buildDatabaseConnectionSharePayload(connection)),
             },

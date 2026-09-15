@@ -3926,6 +3926,14 @@ export function DatabasePanel() {
           <path d="M3 4l.7 9.1a1 1 0 0 0 1 .9h6.6a1 1 0 0 0 1-.9L13 4" />
         </svg>
       );
+      const profileIcon = (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M4 2.5h5.5L13 6v7.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z" />
+          <path d="M9.5 2.5V6H13" />
+          <circle cx="7.5" cy="9" r="1.4" />
+          <path d="M5.2 12.5c0-1.1 1-1.8 2.3-1.8s2.3.7 2.3 1.8" />
+        </svg>
+      );
       const exportIcon = (
         <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
           <path d="M8 2v8" />
@@ -4110,6 +4118,7 @@ export function DatabasePanel() {
           {
             id: "view-profile",
             label: t("resource.profile.viewProfile"),
+            icon: profileIcon,
             onClick: () =>
               openProfile({
                 resourceType: "database",
