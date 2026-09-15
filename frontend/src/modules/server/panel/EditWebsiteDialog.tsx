@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
 import { Select } from "@/components/ui/form/Select";
 import { TextInput } from "@/components/ui/form/TextInput";
+import type { TextEditorHandle } from "@/components/textEditor";
 import {
   createOnePanelClient,
   type OnePanelGroup,
@@ -14,6 +15,7 @@ import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import type { ServerEntry } from "./serverConnection";
 import { BtEditWebsiteDialog } from "./BtEditWebsiteDialog";
 import { isBtPanelService, isOnePanelService } from "./panelPlugin";
+import { WebsiteConfigEditorPane } from "./WebsiteConfigEditorPane";
 
 type EditWebsiteDialogProps = {
   open: boolean;
@@ -99,21 +101,30 @@ export function EditWebsiteDialog({
       open={open}
       server={server}
       websiteId={websiteId}
+      siteName={siteName}
       onClose={onClose}
       onUpdated={onUpdated}
     />
   );
 }
 
+type EditSection = "settings" | "config";
+
 function OnePanelEditWebsiteDialog({
   open,
   server,
   websiteId,
+  siteName = null,
   onClose,
   onUpdated,
 }: EditWebsiteDialogProps) {
   const { t } = useI18n();
   const refreshServer = useServerPanelCacheStore((s) => s.refreshServer);
+  const configRef = useRef<TextEditorHandle>(null);
+
+  const [section, setSection] = useState<EditSection>("settings");
+  const [configDirty, setConfigDirty] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
 
   const [primaryDomain, setPrimaryDomain] = useState("");
   const [remark, setRemark] = useState("");
@@ -134,6 +145,9 @@ function OnePanelEditWebsiteDialog({
   const isProxySite = websiteType === "proxy";
 
   const reset = useCallback(() => {
+    setSection("settings");
+    setConfigDirty(false);
+    setConfigSaving(false);
     setPrimaryDomain("");
     setRemark("");
     setGroupId(0);
@@ -150,7 +164,7 @@ function OnePanelEditWebsiteDialog({
   }, []);
 
   const handleClose = () => {
-    if (busy) return;
+    if (busy || configSaving) return;
     reset();
     onClose();
   };
@@ -322,112 +336,175 @@ function OnePanelEditWebsiteDialog({
     }
   };
 
+  const handleSaveConfig = async () => {
+    const editor = configRef.current;
+    if (!editor?.canSave()) return;
+    setConfigSaving(true);
+    setError(null);
+    try {
+      await editor.save();
+      showToast(t("server.websites.configSaveSuccess"));
+      setConfigDirty(false);
+    } catch (err) {
+      setError(formatEditError(err));
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const primaryAction =
+    section === "config"
+      ? {
+          label: configSaving ? t("common.saving") : t("common.save"),
+          disabled: configSaving || busy || !configDirty,
+          onClick: () => void handleSaveConfig(),
+        }
+      : {
+          label: busy ? t("common.saving") : t("common.confirm"),
+          disabled: busy || configSaving || loading || !canSubmit,
+          onClick: () => void handleSubmit(),
+        };
+
   return (
     <FormDialog
       open={open}
       onClose={handleClose}
       title={t("server.websites.editTitle")}
-      size="lg"
-      cancelDisabled={busy}
-      closeDisabled={busy}
-      primaryAction={{
-        label: busy ? t("common.saving") : t("common.confirm"),
-        disabled: busy || loading || !canSubmit,
-        onClick: () => void handleSubmit(),
-      }}
+      size="xl"
+      bodyClassName="server-create-split"
+      cancelDisabled={busy || configSaving}
+      closeDisabled={busy || configSaving}
+      primaryAction={primaryAction}
       status={error ? { kind: "error", message: error } : null}
     >
-      {loading ? (
-        <p className="form-hint">{t("common.loading")}</p>
-      ) : (
-        <>
-          <FormField label={t("server.create.website.domain")}>
-            <TextInput
-              value={primaryDomain}
-              onChange={setPrimaryDomain}
-              placeholder="example.com"
-              disabled={busy}
-            />
-          </FormField>
+      <nav className="server-create-split__nav" aria-label={t("server.websites.editTitle")}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "settings"}
+          className={`server-create-split__nav-item${section === "settings" ? " is-active" : ""}`}
+          disabled={busy || configSaving}
+          onClick={() => setSection("settings")}
+        >
+          {t("server.websites.editSettings")}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "config"}
+          className={`server-create-split__nav-item${section === "config" ? " is-active" : ""}`}
+          disabled={busy || configSaving}
+          onClick={() => setSection("config")}
+        >
+          {t("server.websites.config")}
+        </button>
+      </nav>
 
-          <FormField label={t("server.create.website.group")}>
-            <Select
-              value={groupId > 0 ? String(groupId) : ""}
-              onChange={(value) => setGroupId(Number(value) || 0)}
-              options={groupOptions}
-              searchable={groups.length >= 8}
-              disabled={busy || groups.length === 0}
-              placeholder={t("server.create.website.group")}
-              emptyText={t("server.create.website.groupDefault")}
-              style={{ width: "100%" }}
-              aria-label={t("server.create.website.group")}
-            />
-          </FormField>
-
-          {isProxySite ? (
-            <FormField label={t("server.create.website.proxyAddress")}>
-              <div className="server-create-website-proxy-row">
-                <Select
-                  value={proxyProtocol}
-                  onChange={setProxyProtocol}
-                  options={[...PROXY_PROTOCOLS]}
-                  searchable={false}
-                  disabled={busy}
-                  style={{ width: "100%" }}
-                  aria-label={t("server.create.website.proxyAddress")}
-                />
+      <div className="server-create-split__main" role="tabpanel">
+        {section === "settings" ? (
+          loading ? (
+            <p className="form-hint">{t("common.loading")}</p>
+          ) : (
+            <>
+              <FormField label={t("server.create.website.domain")}>
                 <TextInput
-                  value={proxyAddress}
-                  onChange={setProxyAddress}
-                  placeholder="127.0.0.1:8080"
+                  value={primaryDomain}
+                  onChange={setPrimaryDomain}
+                  placeholder="example.com"
                   disabled={busy}
                 />
-              </div>
-            </FormField>
-          ) : null}
+              </FormField>
 
-          <FormField
-            label={t("server.websites.expireDate")}
-            hint={t("server.websites.expireDateHint")}
-          >
-            <TextInput
-              value={expireDate}
-              onChange={setExpireDate}
-              placeholder="2099-12-31"
-              disabled={busy}
-            />
-          </FormField>
+              <FormField label={t("server.create.website.group")}>
+                <Select
+                  value={groupId > 0 ? String(groupId) : ""}
+                  onChange={(value) => setGroupId(Number(value) || 0)}
+                  options={groupOptions}
+                  searchable={groups.length >= 8}
+                  disabled={busy || groups.length === 0}
+                  placeholder={t("server.create.website.group")}
+                  emptyText={t("server.create.website.groupDefault")}
+                  style={{ width: "100%" }}
+                  aria-label={t("server.create.website.group")}
+                />
+              </FormField>
 
-          <label className="server-create-website-check">
-            <input
-              type="checkbox"
-              checked={ipv6}
-              disabled={busy}
-              onChange={(e) => setIpv6(e.target.checked)}
-            />
-            <span>{t("server.create.website.ipv6")}</span>
-          </label>
+              {isProxySite ? (
+                <FormField label={t("server.create.website.proxyAddress")}>
+                  <div className="server-create-website-proxy-row">
+                    <Select
+                      value={proxyProtocol}
+                      onChange={setProxyProtocol}
+                      options={[...PROXY_PROTOCOLS]}
+                      searchable={false}
+                      disabled={busy}
+                      style={{ width: "100%" }}
+                      aria-label={t("server.create.website.proxyAddress")}
+                    />
+                    <TextInput
+                      value={proxyAddress}
+                      onChange={setProxyAddress}
+                      placeholder="127.0.0.1:8080"
+                      disabled={busy}
+                    />
+                  </div>
+                </FormField>
+              ) : null}
 
-          <label className="server-create-website-check">
-            <input
-              type="checkbox"
-              checked={favorite}
-              disabled={busy}
-              onChange={(e) => setFavorite(e.target.checked)}
-            />
-            <span>{t("server.websites.favorite")}</span>
-          </label>
+              <FormField
+                label={t("server.websites.expireDate")}
+                hint={t("server.websites.expireDateHint")}
+              >
+                <TextInput
+                  value={expireDate}
+                  onChange={setExpireDate}
+                  placeholder="2099-12-31"
+                  disabled={busy}
+                />
+              </FormField>
 
-          <FormField label={t("server.create.remark")}>
-            <TextInput
-              value={remark}
-              onChange={setRemark}
-              placeholder={t("server.create.remarkPlaceholder")}
-              disabled={busy}
-            />
-          </FormField>
-        </>
-      )}
+              <label className="server-create-website-check">
+                <input
+                  type="checkbox"
+                  checked={ipv6}
+                  disabled={busy}
+                  onChange={(e) => setIpv6(e.target.checked)}
+                />
+                <span>{t("server.create.website.ipv6")}</span>
+              </label>
+
+              <label className="server-create-website-check">
+                <input
+                  type="checkbox"
+                  checked={favorite}
+                  disabled={busy}
+                  onChange={(e) => setFavorite(e.target.checked)}
+                />
+                <span>{t("server.websites.favorite")}</span>
+              </label>
+
+              <FormField label={t("server.create.remark")}>
+                <TextInput
+                  value={remark}
+                  onChange={setRemark}
+                  placeholder={t("server.create.remarkPlaceholder")}
+                  disabled={busy}
+                />
+              </FormField>
+            </>
+          )
+        ) : (
+          <WebsiteConfigEditorPane
+            ref={configRef}
+            open={open}
+            enabled={open && section === "config"}
+            server={server}
+            websiteId={websiteId}
+            siteName={siteName}
+            onDirtyChange={setConfigDirty}
+          />
+        )}
+      </div>
     </FormDialog>
   );
 }

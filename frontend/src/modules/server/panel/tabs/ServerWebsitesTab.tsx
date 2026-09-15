@@ -14,7 +14,6 @@ import {
   IconPlus,
   IconRefresh,
   IconSearch,
-  IconSettings,
   IconStop,
   IconTrash,
 } from "../../../../components/ui/Icons";
@@ -57,7 +56,6 @@ import {
 } from "../serverResourceLabels";
 import {
   WebsiteCertSubWindow,
-  WebsiteConfigSubWindow,
   WebsiteDirSubWindow,
   WebsiteInfoSubWindow,
   WebsiteLogsSubWindow,
@@ -78,7 +76,6 @@ type WebsiteAction =
   | { kind: "info"; websiteId: number; siteName: string; title: string }
   | { kind: "dir"; path: string; title: string }
   | { kind: "logs"; websiteId: number; siteName: string; title: string }
-  | { kind: "config"; websiteId: number; siteName: string; title: string }
   | {
       kind: "cert";
       websiteId: number | null;
@@ -748,26 +745,6 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canFirstPartyAct}
-                title={canFirstPartyAct ? t("server.websites.config") : t("server.websites.panelOnly")}
-                aria-label={canFirstPartyAct ? t("server.websites.config") : t("server.websites.panelOnly")}
-                onClick={() => {
-                  if (!canFirstPartyAct || row.websiteId == null || !row.siteName) return;
-                  setAction({
-                    kind: "config",
-                    websiteId: row.websiteId,
-                    siteName: row.siteName,
-                    title: t("server.websites.configTitle", { name: row.domain }),
-                  });
-                }}
-              >
-                <IconSettings size={14} />
-              </Button>
-              <Button
-                type="button"
-                variant="icon"
-                size="icon-xs"
-                className="db-connection-info-deploy-action-btn"
                 disabled={!canFirstPartyAct || busy}
                 title={canFirstPartyAct ? t("server.websites.edit") : t("server.websites.panelOnly")}
                 aria-label={canFirstPartyAct ? t("server.websites.edit") : t("server.websites.panelOnly")}
@@ -1025,14 +1002,6 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         websiteId={action?.kind === "logs" ? action.websiteId : null}
         siteName={action?.kind === "logs" ? action.siteName : null}
         title={action?.kind === "logs" ? action.title : ""}
-        onClose={() => setAction(null)}
-      />
-      <WebsiteConfigSubWindow
-        open={action?.kind === "config"}
-        server={server}
-        websiteId={action?.kind === "config" ? action.websiteId : null}
-        siteName={action?.kind === "config" ? action.siteName : null}
-        title={action?.kind === "config" ? action.title : ""}
         onClose={() => setAction(null)}
       />
       <WebsiteCertSubWindow

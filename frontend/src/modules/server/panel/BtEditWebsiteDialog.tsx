@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
 import { Select } from "@/components/ui/form/Select";
 import { TextInput } from "@/components/ui/form/TextInput";
+import type { TextEditorHandle } from "@/components/textEditor";
 import { createBtPanelClient, type BtPhpVersion } from "@/lib/btpanel";
 import { showToast } from "@/stores/toastStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
 import type { ServerEntry } from "./serverConnection";
+import { WebsiteConfigEditorPane } from "./WebsiteConfigEditorPane";
 
 type Props = {
   open: boolean;
@@ -16,6 +18,8 @@ type Props = {
   onClose: () => void;
   onUpdated?: () => void;
 };
+
+type EditSection = "settings" | "config";
 
 function formatError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -32,6 +36,11 @@ export function BtEditWebsiteDialog({
 }: Props) {
   const { t } = useI18n();
   const refreshServer = useServerPanelCacheStore((s) => s.refreshServer);
+  const configRef = useRef<TextEditorHandle>(null);
+
+  const [section, setSection] = useState<EditSection>("settings");
+  const [configDirty, setConfigDirty] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
 
   const [remark, setRemark] = useState("");
   const [phpVersion, setPhpVersion] = useState("");
@@ -41,6 +50,9 @@ export function BtEditWebsiteDialog({
   const [error, setError] = useState<string | null>(null);
 
   const reset = useCallback(() => {
+    setSection("settings");
+    setConfigDirty(false);
+    setConfigSaving(false);
     setRemark("");
     setPhpVersion("");
     setError(null);
@@ -49,7 +61,7 @@ export function BtEditWebsiteDialog({
   }, []);
 
   const handleClose = () => {
-    if (busy) return;
+    if (busy || configSaving) return;
     reset();
     onClose();
   };
@@ -141,50 +153,113 @@ export function BtEditWebsiteDialog({
     }
   };
 
+  const handleSaveConfig = async () => {
+    const editor = configRef.current;
+    if (!editor?.canSave()) return;
+    setConfigSaving(true);
+    setError(null);
+    try {
+      await editor.save();
+      showToast(t("server.websites.configSaveSuccess"));
+      setConfigDirty(false);
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const primaryAction =
+    section === "config"
+      ? {
+          label: configSaving ? t("common.saving") : t("common.save"),
+          disabled: configSaving || busy || !configDirty,
+          onClick: () => void handleSaveConfig(),
+        }
+      : {
+          label: busy ? t("common.saving") : t("common.confirm"),
+          disabled: busy || configSaving || loading || !canSubmit,
+          onClick: () => void handleSubmit(),
+        };
+
   return (
     <FormDialog
       open={open}
       onClose={handleClose}
       title={t("server.websites.editTitle")}
-      size="md"
-      cancelDisabled={busy}
-      closeDisabled={busy}
-      primaryAction={{
-        label: busy ? t("common.saving") : t("common.confirm"),
-        disabled: busy || loading || !canSubmit,
-        onClick: () => void handleSubmit(),
-      }}
+      size="xl"
+      bodyClassName="server-create-split"
+      cancelDisabled={busy || configSaving}
+      closeDisabled={busy || configSaving}
+      primaryAction={primaryAction}
       status={error ? { kind: "error", message: error } : null}
     >
-      {loading ? (
-        <p className="form-hint">{t("common.loading")}</p>
-      ) : (
-        <>
-          <FormField label={t("server.create.website.domain")}>
-            <TextInput value={siteName ?? ""} onChange={() => {}} disabled />
-          </FormField>
-          <FormField label={t("server.create.remark")}>
-            <TextInput
-              value={remark}
-              onChange={setRemark}
-              placeholder={t("server.create.remarkPlaceholder")}
-              disabled={busy}
-            />
-          </FormField>
-          <FormField label={t("server.create.website.phpVersion")}>
-            <Select
-              value={phpVersion || "00"}
-              onChange={setPhpVersion}
-              options={phpOptions}
-              searchable={phpOptions.length >= 8}
-              disabled={busy}
-              placeholder={t("server.create.website.phpVersion")}
-              style={{ width: "100%" }}
-              aria-label={t("server.create.website.phpVersion")}
-            />
-          </FormField>
-        </>
-      )}
+      <nav className="server-create-split__nav" aria-label={t("server.websites.editTitle")}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "settings"}
+          className={`server-create-split__nav-item${section === "settings" ? " is-active" : ""}`}
+          disabled={busy || configSaving}
+          onClick={() => setSection("settings")}
+        >
+          {t("server.websites.editSettings")}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "config"}
+          className={`server-create-split__nav-item${section === "config" ? " is-active" : ""}`}
+          disabled={busy || configSaving}
+          onClick={() => setSection("config")}
+        >
+          {t("server.websites.config")}
+        </button>
+      </nav>
+
+      <div className="server-create-split__main" role="tabpanel">
+        {section === "settings" ? (
+          loading ? (
+            <p className="form-hint">{t("common.loading")}</p>
+          ) : (
+            <>
+              <FormField label={t("server.create.website.domain")}>
+                <TextInput value={siteName ?? ""} onChange={() => {}} disabled />
+              </FormField>
+              <FormField label={t("server.create.remark")}>
+                <TextInput
+                  value={remark}
+                  onChange={setRemark}
+                  placeholder={t("server.create.remarkPlaceholder")}
+                  disabled={busy}
+                />
+              </FormField>
+              <FormField label={t("server.create.website.phpVersion")}>
+                <Select
+                  value={phpVersion || "00"}
+                  onChange={setPhpVersion}
+                  options={phpOptions}
+                  searchable={phpOptions.length >= 8}
+                  disabled={busy}
+                  placeholder={t("server.create.website.phpVersion")}
+                  style={{ width: "100%" }}
+                  aria-label={t("server.create.website.phpVersion")}
+                />
+              </FormField>
+            </>
+          )
+        ) : (
+          <WebsiteConfigEditorPane
+            ref={configRef}
+            open={open}
+            enabled={open && section === "config"}
+            server={server}
+            websiteId={websiteId}
+            siteName={siteName}
+            onDirtyChange={setConfigDirty}
+          />
+        )}
+      </div>
     </FormDialog>
   );
 }

@@ -16796,6 +16796,47 @@ button.omni-btn-tool[aria-pressed="true"] {
         padding-right: 2px;
     }
 
+    .server-edit-website-config {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .server-edit-website-config__path {
+        margin: 0;
+        flex-shrink: 0;
+        word-break: break-all;
+    }
+
+    .server-edit-website-config__editor {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md, 6px);
+        overflow: hidden;
+        background: var(--bg-deeper, var(--bg));
+    }
+
+    .server-edit-website-config__preview,
+    .server-edit-website-config__preview .content-preview,
+    .server-edit-website-config__preview .content-preview-code,
+    .server-edit-website-config__preview .code-editor__host,
+    .server-edit-website-config__preview .cm-editor {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .server-edit-website-config__preview .cm-scroller {
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 12px;
+        line-height: 1.45;
+    }
+
     .server-create-website-types {
         display: flex;
         flex-wrap: wrap;
