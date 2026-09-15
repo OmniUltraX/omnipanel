@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
+import { Select } from "@/components/ui/form/Select";
 import { TextInput } from "@/components/ui/form/TextInput";
 import {
   createOnePanelClient,
@@ -233,12 +234,32 @@ function OnePanelCreateCertificateDialog({
     setOptionsLoading(true);
     void (async () => {
       try {
-        const client = createOnePanelClient(server.address, server.key, server.id);
-        const [acmeList, dnsList] = await Promise.all([
-          client.searchAcmeAccounts().catch(() => [] as OnePanelAcmeAccount[]),
-          client.searchDnsAccounts().catch(() => [] as OnePanelDnsAccount[]),
+        const client = createOnePanelClient(
+          server.address,
+          server.key,
+          server.id,
+          server.panelUser,
+        );
+        const [acmeResult, dnsResult] = await Promise.allSettled([
+          client.searchAcmeAccounts(),
+          client.searchDnsAccounts(),
         ]);
         if (cancelled) return;
+
+        // 鉴权失败要暴露；单纯空列表才静默成 []
+        if (acmeResult.status === "rejected") {
+          throw acmeResult.reason;
+        }
+        if (dnsResult.status === "rejected") {
+          const dnsErr = dnsResult.reason;
+          const dnsMsg = dnsErr instanceof Error ? dnsErr.message : String(dnsErr);
+          if (/API\s*接口密钥错误|unauthorized|鉴权失败|白名单|安全入口/i.test(dnsMsg)) {
+            throw dnsErr;
+          }
+        }
+
+        const acmeList = acmeResult.value;
+        const dnsList = dnsResult.status === "fulfilled" ? dnsResult.value : [];
         setAcmeAccounts(acmeList);
         setDnsAccounts(dnsList);
 
@@ -270,6 +291,37 @@ function OnePanelCreateCertificateDialog({
   }, [open, server, isEdit, editId]);
 
   const providerKnown = PROVIDERS.includes(provider as OnePanelSslProvider);
+
+  const acmeOptions = useMemo(() => {
+    if (acmeAccounts.length === 0) {
+      return [{ value: "", label: t("server.create.certificate.acmeEmpty"), disabled: true }];
+    }
+    return acmeAccounts.map((account) => ({
+      value: String(account.id),
+      label: account.type ? `${account.email} (${account.type})` : account.email,
+    }));
+  }, [acmeAccounts, t]);
+
+  const dnsOptions = useMemo(() => {
+    if (dnsAccounts.length === 0) {
+      return [{ value: "", label: t("server.create.certificate.dnsEmpty"), disabled: true }];
+    }
+    return dnsAccounts.map((account) => ({
+      value: String(account.id),
+      label: account.type ? `${account.name} (${account.type})` : account.name,
+    }));
+  }, [dnsAccounts, t]);
+
+  const keyTypeOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = KEY_TYPES.map((kt) => ({
+      value: kt,
+      label: kt,
+    }));
+    if (keyType && !KEY_TYPES.includes(keyType as (typeof KEY_TYPES)[number])) {
+      options.push({ value: keyType, label: keyType });
+    }
+    return options;
+  }, [keyType]);
 
   const canSubmit = useMemo(() => {
     if (isEdit) {
@@ -310,7 +362,12 @@ function OnePanelCreateCertificateDialog({
     setError(null);
     abortApplyRef.current = false;
     try {
-      const client = createOnePanelClient(server.address, server.key, server.id);
+      const client = createOnePanelClient(
+        server.address,
+        server.key,
+        server.id,
+        server.panelUser,
+      );
 
       if (isEdit && editId != null) {
         const body: OnePanelWebsiteSslUpdate = {
@@ -360,6 +417,8 @@ function OnePanelCreateCertificateDialog({
         return;
       }
 
+      // 对齐官方面板：POST /websites/ssl 只建记录；真正申请走 /websites/ssl/obtain。
+      // 旧写法 apply:true 会让创建请求同步跑 ACME，超 60s 超时后鉴权回退常被误报成「API 接口密钥错误」。
       const shouldApply = provider !== "dnsManual";
       const body: OnePanelWebsiteSslCreate = {
         primaryDomain: primaryDomain.trim(),
@@ -370,7 +429,7 @@ function OnePanelCreateCertificateDialog({
         autoRenew,
         keyType,
         description: description.trim(),
-        apply: shouldApply,
+        apply: false,
         pushDir: false,
         dir: "",
         disableCNAME: false,
@@ -391,6 +450,7 @@ function OnePanelCreateCertificateDialog({
         return;
       }
 
+      await client.obtainWebsiteSsl(created.id);
       // 申请中：底部展示 /files/read/ssl 日志，成功后再关弹窗
       await pollSslApplyLog(client, created.id);
       showToast(t("server.create.certificate.applySuccess"));
@@ -482,23 +542,17 @@ function OnePanelCreateCertificateDialog({
 
             {providerKnown || !isEdit ? (
               <FormField label={t("server.create.certificate.acmeAccount")}>
-                <select
-                  className="input"
-                  value={acmeAccountId}
+                <Select
+                  value={acmeAccountId > 0 ? String(acmeAccountId) : ""}
+                  onChange={(value) => setAcmeAccountId(Number(value) || 0)}
+                  options={acmeOptions}
+                  searchable={acmeAccounts.length >= 8}
                   disabled={busy || applying || acmeAccounts.length === 0}
-                  onChange={(e) => setAcmeAccountId(Number(e.target.value) || 0)}
-                >
-                  {acmeAccounts.length === 0 ? (
-                    <option value={0}>{t("server.create.certificate.acmeEmpty")}</option>
-                  ) : (
-                    acmeAccounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.email}
-                        {account.type ? ` (${account.type})` : ""}
-                      </option>
-                    ))
-                  )}
-                </select>
+                  placeholder={t("server.create.certificate.acmeAccount")}
+                  emptyText={t("server.create.certificate.acmeEmpty")}
+                  style={{ width: "100%" }}
+                  aria-label={t("server.create.certificate.acmeAccount")}
+                />
               </FormField>
             ) : null}
 
@@ -528,23 +582,17 @@ function OnePanelCreateCertificateDialog({
 
             {provider === "dnsAccount" ? (
               <FormField label={t("server.create.certificate.dnsAccount")}>
-                <select
-                  className="input"
-                  value={dnsAccountId}
+                <Select
+                  value={dnsAccountId > 0 ? String(dnsAccountId) : ""}
+                  onChange={(value) => setDnsAccountId(Number(value) || 0)}
+                  options={dnsOptions}
+                  searchable={dnsAccounts.length >= 8}
                   disabled={busy || applying || dnsAccounts.length === 0}
-                  onChange={(e) => setDnsAccountId(Number(e.target.value) || 0)}
-                >
-                  {dnsAccounts.length === 0 ? (
-                    <option value={0}>{t("server.create.certificate.dnsEmpty")}</option>
-                  ) : (
-                    dnsAccounts.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                        {account.type ? ` (${account.type})` : ""}
-                      </option>
-                    ))
-                  )}
-                </select>
+                  placeholder={t("server.create.certificate.dnsAccount")}
+                  emptyText={t("server.create.certificate.dnsEmpty")}
+                  style={{ width: "100%" }}
+                  aria-label={t("server.create.certificate.dnsAccount")}
+                />
               </FormField>
             ) : null}
 
@@ -556,21 +604,16 @@ function OnePanelCreateCertificateDialog({
             ) : null}
 
             <FormField label={t("server.create.certificate.keyType")}>
-              <select
-                className="input"
+              <Select
                 value={keyType}
+                onChange={setKeyType}
+                options={keyTypeOptions}
+                searchable={false}
                 disabled={busy || applying}
-                onChange={(e) => setKeyType(e.target.value)}
-              >
-                {KEY_TYPES.map((kt) => (
-                  <option key={kt} value={kt}>
-                    {kt}
-                  </option>
-                ))}
-                {!KEY_TYPES.includes(keyType as (typeof KEY_TYPES)[number]) && keyType ? (
-                  <option value={keyType}>{keyType}</option>
-                ) : null}
-              </select>
+                placeholder={t("server.create.certificate.keyType")}
+                style={{ width: "100%" }}
+                aria-label={t("server.create.certificate.keyType")}
+              />
             </FormField>
 
             <label className="server-create-website-check">

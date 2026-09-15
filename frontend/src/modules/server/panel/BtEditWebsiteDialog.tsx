@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
+import { Select } from "@/components/ui/form/Select";
 import { TextInput } from "@/components/ui/form/TextInput";
 import { createBtPanelClient, type BtPhpVersion } from "@/lib/btpanel";
 import { showToast } from "@/stores/toastStore";
@@ -91,6 +92,25 @@ export function BtEditWebsiteDialog({
     };
   }, [open, server.address, server.key, siteName, websiteId]);
 
+  const phpOptions = useMemo(() => {
+    const options = [
+      {
+        value: "00",
+        label: t("server.create.website.btTypeStatic"),
+      },
+      ...phpVersions
+        .filter((v) => v.version !== "00")
+        .map((v) => ({
+          value: v.version,
+          label: v.name || `PHP ${v.version}`,
+        })),
+    ];
+    if (phpVersion && !options.some((opt) => opt.value === phpVersion)) {
+      options.push({ value: phpVersion, label: phpVersion });
+    }
+    return options;
+  }, [phpVersion, phpVersions, t]);
+
   const canSubmit = useMemo(
     () => Boolean(websiteId != null && siteName),
     [websiteId, siteName],
@@ -152,21 +172,16 @@ export function BtEditWebsiteDialog({
             />
           </FormField>
           <FormField label={t("server.create.website.phpVersion")}>
-            <select
-              className="input"
-              value={phpVersion}
+            <Select
+              value={phpVersion || "00"}
+              onChange={setPhpVersion}
+              options={phpOptions}
+              searchable={phpOptions.length >= 8}
               disabled={busy}
-              onChange={(e) => setPhpVersion(e.target.value)}
-            >
-              <option value="00">{t("server.create.website.btTypeStatic")}</option>
-              {phpVersions
-                .filter((v) => v.version !== "00")
-                .map((v) => (
-                  <option key={v.version} value={v.version}>
-                    {v.name || `PHP ${v.version}`}
-                  </option>
-                ))}
-            </select>
+              placeholder={t("server.create.website.phpVersion")}
+              style={{ width: "100%" }}
+              aria-label={t("server.create.website.phpVersion")}
+            />
           </FormField>
         </>
       )}

@@ -39,8 +39,7 @@ export function websiteRowUrl(row: Record<string, unknown>): string | null {
   const hasSsl =
     protocol.includes("HTTPS") ||
     protocol.includes("SSL") ||
-    websiteSslId(row) != null ||
-    Boolean(row.websiteSSL ?? row.ssl);
+    isWebsiteSslBound(row);
   return `${hasSsl ? "https" : "http"}://${primary}`;
 }
 
@@ -171,15 +170,21 @@ export function cronjobNumericId(row: Record<string, unknown>): number | null {
 }
 
 export function websiteSslId(row: Record<string, unknown>): number | null {
-  const ssl = row.websiteSSL ?? row.ssl;
+  const ssl = row.websiteSSL ?? row.webSiteSSL ?? row.ssl;
   if (ssl && typeof ssl === "object") {
     const id = (ssl as Record<string, unknown>).id;
-    if (typeof id === "number" && Number.isFinite(id)) return id;
-    if (typeof id === "string" && /^\d+$/.test(id.trim())) return Number(id.trim());
+    if (typeof id === "number" && Number.isFinite(id) && id > 0) return id;
+    if (typeof id === "string" && /^\d+$/.test(id.trim())) {
+      const n = Number(id.trim());
+      if (n > 0) return n;
+    }
   }
-  const direct = row.websiteSSLId ?? row.sslId;
-  if (typeof direct === "number" && Number.isFinite(direct)) return direct;
-  if (typeof direct === "string" && /^\d+$/.test(direct.trim())) return Number(direct.trim());
+  const direct = row.websiteSSLId ?? row.webSiteSSLId ?? row.sslId;
+  if (typeof direct === "number" && Number.isFinite(direct) && direct > 0) return direct;
+  if (typeof direct === "string" && /^\d+$/.test(direct.trim())) {
+    const n = Number(direct.trim());
+    if (n > 0) return n;
+  }
   return null;
 }
 
@@ -385,13 +390,20 @@ export function parseCertificateExpireDate(raw: string): Date | null {
     if (!Number.isFinite(num)) return null;
     const ms = text.length >= 13 ? num : num * 1000;
     const date = new Date(ms);
-    return Number.isNaN(date.getTime()) ? null : date;
+    return isPlausibleCertificateExpireDate(date) ? date : null;
   }
 
   // 常见面板格式：2026-12-31 / 2026-12-31 23:59:59 / 2026/12/31
   const normalized = text.includes("T") ? text : text.replace(/-/g, "/");
   const date = new Date(normalized);
-  return Number.isNaN(date.getTime()) ? null : date;
+  return isPlausibleCertificateExpireDate(date) ? date : null;
+}
+
+/** 过滤 1Panel 站点占位日（0001-01-01）与远古/超远日期，避免未绑证误判「已过期」 */
+function isPlausibleCertificateExpireDate(date: Date): boolean {
+  if (Number.isNaN(date.getTime())) return false;
+  const year = date.getFullYear();
+  return year >= 2000 && year <= 2100;
 }
 
 function startOfLocalDay(date: Date): Date {
@@ -410,67 +422,58 @@ export type WebsiteCertificateInfo = {
   expireRaw: string | null;
   /** 剩余天数；无有效日期时为 null */
   daysLeft: number | null;
-  /** 是否存在证书（含仅有 HTTPS 标记但无到期日） */
+  /** 是否已绑定证书 */
   hasCert: boolean;
 };
 
-/** 从网站自身字段或证书列表解析证书到期信息 */
+/** 1Panel：`sslStatus === "success"` 表示已绑定；其它面板无该字段时回退 SSL id。 */
+export function isWebsiteSslBound(website: Record<string, unknown>): boolean {
+  const status = String(website.sslStatus ?? website.ssl_status ?? "")
+    .trim()
+    .toLowerCase();
+  if (status) return status === "success";
+  return websiteSslId(website) != null;
+}
+
+/** 证书过期时间：优先网站行 `sslExpireDate`，其次嵌套 SSL 对象。 */
+export function websiteSslExpireRaw(website: Record<string, unknown>): string {
+  const direct = String(
+    website.sslExpireDate ?? website.ssl_expire_date ?? website.sslExpire ?? "",
+  ).trim();
+  if (direct) return direct;
+  const ssl = website.websiteSSL ?? website.webSiteSSL ?? website.ssl;
+  if (ssl && typeof ssl === "object") {
+    return certificateExpire(ssl as Record<string, unknown>);
+  }
+  return "";
+}
+
+/**
+ * 从网站字段解析证书展示信息。
+ * 事实源（1Panel）：`sslStatus=success` 已绑定，`sslExpireDate` 为过期时间。
+ */
 export function websiteCertificateInfo(
   website: Record<string, unknown>,
-  certificates: Record<string, unknown>[] = [],
+  _certificates: Record<string, unknown>[] = [],
 ): WebsiteCertificateInfo {
-  const fromExpire = (raw: string, hasCert = true): WebsiteCertificateInfo => {
-    const expireRaw = raw.trim() || null;
-    if (!expireRaw) {
-      return { expireRaw: null, daysLeft: null, hasCert };
-    }
-    const date = parseCertificateExpireDate(expireRaw);
-    return {
-      expireRaw,
-      daysLeft: date ? daysUntilCertificateExpiry(date) : null,
-      hasCert,
-    };
-  };
-
-  const ssl = website.websiteSSL ?? website.ssl;
-  if (ssl && typeof ssl === "object") {
-    const sslRow = ssl as Record<string, unknown>;
-    const expire = certificateExpire(sslRow);
-    if (expire) return fromExpire(expire, true);
-    const label = certificateRowLabel(sslRow);
-    if (label && label !== "—") {
-      return { expireRaw: null, daysLeft: null, hasCert: true };
-    }
-  }
-
-  const directExpire = String(
-    website.sslExpireDate ?? website.expireDate ?? website.sslExpire ?? "",
-  ).trim();
-  if (directExpire) return fromExpire(directExpire, true);
-
-  const protocol = String(website.protocol ?? "").toUpperCase();
-  if (protocol.includes("HTTPS") || protocol.includes("SSL")) {
-    return { expireRaw: null, daysLeft: null, hasCert: true };
-  }
-
-  const siteDomains = websiteDomains(website);
-  if (siteDomains.length === 0 || certificates.length === 0) {
+  if (!isWebsiteSslBound(website)) {
     return { expireRaw: null, daysLeft: null, hasCert: false };
   }
 
-  for (const cert of certificates) {
-    const certDomain = normalizeDomain(certificateRowLabel(cert));
-    if (!certDomain || certDomain === "—") continue;
-    const matched = siteDomains.some(
-      (domain) => domain === certDomain || domain.endsWith(`.${certDomain}`) || certDomain.endsWith(`.${domain}`),
-    );
-    if (!matched) continue;
-    const expire = certificateExpire(cert);
-    if (expire) return fromExpire(expire, true);
+  const expireRawText = websiteSslExpireRaw(website);
+  if (!expireRawText) {
     return { expireRaw: null, daysLeft: null, hasCert: true };
   }
-
-  return { expireRaw: null, daysLeft: null, hasCert: false };
+  const date = parseCertificateExpireDate(expireRawText);
+  if (!date) {
+    // 占位日（如 0001-01-01）：已绑定但不展示假「已过期」
+    return { expireRaw: null, daysLeft: null, hasCert: true };
+  }
+  return {
+    expireRaw: expireRawText,
+    daysLeft: daysUntilCertificateExpiry(date),
+    hasCert: true,
+  };
 }
 
 /** 证书剩余天数 → badge 色调（绿→黄→红连续渐变） */
@@ -499,44 +502,7 @@ export function websiteCertificateDaysBadgeStyle(
   return { color, background };
 }
 
-function normalizeDomain(value: string): string {
-  return value.trim().toLowerCase().replace(/\.$/, "");
-}
-
-function websiteDomains(row: Record<string, unknown>): string[] {
-  const domains = new Set<string>();
-  const push = (value: unknown) => {
-    const text = String(value ?? "").trim();
-    if (!text || text === "—") return;
-    for (const part of text.split(/[\s,;]+/)) {
-      const normalized = normalizeDomain(part);
-      if (normalized) domains.add(normalized);
-    }
-  };
-
-  push(row.primaryDomain);
-  // 宝塔 domain 字段常为域名数量（数字），勿当域名
-  if (typeof row.domain === "string" && !/^\d+$/.test(row.domain.trim())) {
-    push(row.domain);
-  }
-  push(row.name);
-  push(row.webname);
-  push(row.alias);
-  push(row.domains);
-
-  const ssl = row.websiteSSL ?? row.ssl;
-  if (ssl && typeof ssl === "object") {
-    const sslRow = ssl as Record<string, unknown>;
-    push(sslRow.primaryDomain);
-    push(sslRow.domain);
-    push(sslRow.dns);
-    push(sslRow.domains);
-  }
-
-  return [...domains];
-}
-
-/** 从网站自身字段或证书列表匹配出展示用证书文案（兼容旧调用） */
+/** 从网站自身字段解析展示用证书文案（兼容旧调用） */
 export function websiteCertificateLabel(
   website: Record<string, unknown>,
   certificates: Record<string, unknown>[] = [],

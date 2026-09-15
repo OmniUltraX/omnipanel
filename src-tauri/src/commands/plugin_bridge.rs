@@ -152,7 +152,25 @@ fn format_net_error(err: reqwest::Error) -> String {
         || lower.contains("self signed")
         || lower.contains("self-signed")
     {
-        format!("TLS 证书不受信任。若目标使用自签证书，请勾选「允许自签证书」后重试。{msg}")
+        return format!(
+            "TLS 证书不受信任。若目标使用自签证书，请勾选「允许自签证书」后重试。{msg}"
+        );
+    }
+    if let Some(status) = err.status() {
+        let code = status.as_u16();
+        let hint = match code {
+            401 | 403 => "认证失败或无权限",
+            404 => "接口不存在",
+            502 => "网关错误（502），目标服务可能未启动或反向代理异常",
+            503 => "服务暂时不可用（503）",
+            504 => "网关超时（504）",
+            _ => "",
+        };
+        if hint.is_empty() {
+            format!("请求失败: HTTP {code} — {msg}")
+        } else {
+            format!("请求失败: HTTP {code} — {hint}。{msg}")
+        }
     } else {
         format!("请求失败: {msg}")
     }

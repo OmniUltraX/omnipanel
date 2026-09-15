@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
+import { Select } from "@/components/ui/form/Select";
 import { TextInput } from "@/components/ui/form/TextInput";
 import {
   createOnePanelClient,
   type OnePanelGroup,
+  type OnePanelWebsiteProxyConfig,
   type OnePanelWebsiteUpdate,
 } from "@/lib/onepanel";
 import { showToast } from "@/stores/toastStore";
@@ -21,6 +23,11 @@ type EditWebsiteDialogProps = {
   onClose: () => void;
   onUpdated?: () => void;
 };
+
+const PROXY_PROTOCOLS = [
+  { value: "http://", label: "http://" },
+  { value: "https://", label: "https://" },
+] as const;
 
 function formatEditError(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -43,6 +50,28 @@ function asBool(value: unknown, fallback = false): boolean {
   if (value === 1 || value === "1" || value === "true") return true;
   if (value === 0 || value === "0" || value === "false") return false;
   return fallback;
+}
+
+function splitProxyPass(proxyPass: string): { protocol: string; address: string } {
+  const raw = proxyPass.trim();
+  if (/^https:\/\//i.test(raw)) {
+    return { protocol: "https://", address: raw.replace(/^https:\/\//i, "") };
+  }
+  if (/^http:\/\//i.test(raw)) {
+    return { protocol: "http://", address: raw.replace(/^http:\/\//i, "") };
+  }
+  return { protocol: "http://", address: raw };
+}
+
+function pickPrimaryProxy(
+  proxies: OnePanelWebsiteProxyConfig[],
+): OnePanelWebsiteProxyConfig | null {
+  if (proxies.length === 0) return null;
+  const root =
+    proxies.find((item) => item.match === "/" || item.match === "") ??
+    proxies.find((item) => item.enable !== false) ??
+    proxies[0];
+  return root ?? null;
 }
 
 export function EditWebsiteDialog({
@@ -92,11 +121,17 @@ function OnePanelEditWebsiteDialog({
   const [ipv6, setIpv6] = useState(false);
   const [favorite, setFavorite] = useState(false);
   const [expireDate, setExpireDate] = useState("");
+  const [websiteType, setWebsiteType] = useState("");
+  const [proxyProtocol, setProxyProtocol] = useState("http://");
+  const [proxyAddress, setProxyAddress] = useState("");
+  const [proxyConfig, setProxyConfig] = useState<OnePanelWebsiteProxyConfig | null>(null);
 
   const [groups, setGroups] = useState<OnePanelGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isProxySite = websiteType === "proxy";
 
   const reset = useCallback(() => {
     setPrimaryDomain("");
@@ -105,6 +140,10 @@ function OnePanelEditWebsiteDialog({
     setIpv6(false);
     setFavorite(false);
     setExpireDate("");
+    setWebsiteType("");
+    setProxyProtocol("http://");
+    setProxyAddress("");
+    setProxyConfig(null);
     setError(null);
     setBusy(false);
     setLoading(false);
@@ -123,7 +162,12 @@ function OnePanelEditWebsiteDialog({
     setError(null);
     void (async () => {
       try {
-        const client = createOnePanelClient(server.address, server.key, server.id);
+        const client = createOnePanelClient(
+          server.address,
+          server.key,
+          server.id,
+          server.panelUser,
+        );
         const [detail, groupList] = await Promise.all([
           client.getWebsite(websiteId),
           client.searchGroups("website").catch(() => [] as OnePanelGroup[]),
@@ -134,18 +178,40 @@ function OnePanelEditWebsiteDialog({
           asString(detail.primaryDomain ?? detail.primary_domain ?? detail.alias),
         );
         setRemark(asString(detail.remark));
-        setGroupId(
-          asNumber(
+        const loadedGroupId = asNumber(
+          detail.webSiteGroupId ??
             detail.websiteGroupId ??
-              detail.webSiteGroupID ??
-              detail.websiteGroupID ??
-              detail.groupID,
-          ),
+            detail.webSiteGroupID ??
+            detail.websiteGroupID ??
+            detail.groupID ??
+            detail.groupId,
         );
+        const fallbackGroup =
+          groupList.find((g) => g.isDefault)?.id ?? groupList[0]?.id ?? 1;
+        setGroupId(loadedGroupId > 0 ? loadedGroupId : fallbackGroup);
         setIpv6(asBool(detail.IPV6 ?? detail.ipv6));
         setFavorite(asBool(detail.favorite));
         const expire = asString(detail.expireDate ?? detail.expire_date);
         setExpireDate(expire.slice(0, 10));
+
+        const type = asString(detail.type).toLowerCase();
+        setWebsiteType(type);
+
+        if (type === "proxy") {
+          const proxies = await client.getWebsiteProxies(websiteId).catch(() => []);
+          if (cancelled) return;
+          const primary = pickPrimaryProxy(proxies);
+          const fromDetail = asString(detail.proxy);
+          const proxyPass = primary?.proxyPass?.trim() || fromDetail;
+          const split = splitProxyPass(proxyPass);
+          setProxyProtocol(split.protocol);
+          setProxyAddress(split.address);
+          setProxyConfig(primary);
+        } else {
+          setProxyProtocol("http://");
+          setProxyAddress("");
+          setProxyConfig(null);
+        }
       } catch (err) {
         if (!cancelled) setError(formatEditError(err));
       } finally {
@@ -157,10 +223,28 @@ function OnePanelEditWebsiteDialog({
     };
   }, [open, server, websiteId]);
 
-  const canSubmit = useMemo(
-    () => Boolean(websiteId != null && primaryDomain.trim()),
-    [websiteId, primaryDomain],
-  );
+  const groupOptions = useMemo(() => {
+    if (groups.length === 0) {
+      return [
+        {
+          value: "0",
+          label: t("server.create.website.groupDefault"),
+          disabled: true,
+        },
+      ];
+    }
+    return groups.map((group) => ({
+      value: String(group.id),
+      label:
+        group.name === "Default" ? t("server.create.website.groupDefault") : group.name,
+    }));
+  }, [groups, t]);
+
+  const canSubmit = useMemo(() => {
+    if (!(websiteId != null && primaryDomain.trim() && groupId > 0)) return false;
+    if (isProxySite && !proxyAddress.trim()) return false;
+    return true;
+  }, [websiteId, primaryDomain, groupId, isProxySite, proxyAddress]);
 
   const handleSubmit = async () => {
     if (!isOnePanelService(server.serviceType) || websiteId == null) {
@@ -175,12 +259,17 @@ function OnePanelEditWebsiteDialog({
     setBusy(true);
     setError(null);
     try {
-      const client = createOnePanelClient(server.address, server.key, server.id);
+      const client = createOnePanelClient(
+        server.address,
+        server.key,
+        server.id,
+        server.panelUser,
+      );
       const body: OnePanelWebsiteUpdate = {
         id: websiteId,
         primaryDomain: primaryDomain.trim(),
         remark: remark.trim(),
-        webSiteGroupID: groupId || undefined,
+        webSiteGroupId: groupId,
         IPV6: ipv6,
         favorite,
       };
@@ -188,6 +277,39 @@ function OnePanelEditWebsiteDialog({
         body.expireDate = expireDate.trim();
       }
       await client.updateWebsite(body);
+
+      if (isProxySite) {
+        const nextPass = `${proxyProtocol}${proxyAddress.trim()}`;
+        if (proxyConfig) {
+          await client.updateWebsiteProxy({
+            ...proxyConfig,
+            id: websiteId,
+            operate: "edit",
+            proxyPass: nextPass,
+            replaces: proxyConfig.replaces ?? {},
+          });
+        } else {
+          // 无现成代理条目时按官方面板默认值新建一条根路径反代
+          const alias = asString(primaryDomain).replace(/[^a-zA-Z0-9._-]+/g, "_") || "proxy";
+          await client.updateWebsiteProxy({
+            id: websiteId,
+            operate: "create",
+            enable: true,
+            cache: false,
+            cacheTime: 1,
+            cacheUnit: "m",
+            name: alias.slice(0, 64),
+            modifier: "^~",
+            match: "/",
+            proxyPass: nextPass,
+            proxyHost: "$host",
+            replaces: {},
+            sni: false,
+            proxySSLName: "",
+          });
+        }
+      }
+
       showToast(t("server.websites.editSuccess"));
       await refreshServer(server);
       reset();
@@ -229,25 +351,40 @@ function OnePanelEditWebsiteDialog({
           </FormField>
 
           <FormField label={t("server.create.website.group")}>
-            <select
-              className="input"
-              value={groupId}
+            <Select
+              value={groupId > 0 ? String(groupId) : ""}
+              onChange={(value) => setGroupId(Number(value) || 0)}
+              options={groupOptions}
+              searchable={groups.length >= 8}
               disabled={busy || groups.length === 0}
-              onChange={(e) => setGroupId(Number(e.target.value) || 0)}
-            >
-              {groups.length === 0 ? (
-                <option value={0}>{t("server.create.website.groupDefault")}</option>
-              ) : (
-                groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name === "Default"
-                      ? t("server.create.website.groupDefault")
-                      : group.name}
-                  </option>
-                ))
-              )}
-            </select>
+              placeholder={t("server.create.website.group")}
+              emptyText={t("server.create.website.groupDefault")}
+              style={{ width: "100%" }}
+              aria-label={t("server.create.website.group")}
+            />
           </FormField>
+
+          {isProxySite ? (
+            <FormField label={t("server.create.website.proxyAddress")}>
+              <div className="server-create-website-proxy-row">
+                <Select
+                  value={proxyProtocol}
+                  onChange={setProxyProtocol}
+                  options={[...PROXY_PROTOCOLS]}
+                  searchable={false}
+                  disabled={busy}
+                  style={{ width: "100%" }}
+                  aria-label={t("server.create.website.proxyAddress")}
+                />
+                <TextInput
+                  value={proxyAddress}
+                  onChange={setProxyAddress}
+                  placeholder="127.0.0.1:8080"
+                  disabled={busy}
+                />
+              </div>
+            </FormField>
+          ) : null}
 
           <FormField
             label={t("server.websites.expireDate")}

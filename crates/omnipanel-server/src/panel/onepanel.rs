@@ -109,6 +109,19 @@ fn current_timestamp() -> i64 {
         .unwrap_or(0)
 }
 
+fn unauthorized_error(body: impl AsRef<str>) -> OmniError {
+    let text = body.as_ref();
+    let lower = text.to_ascii_lowercase();
+    let message = if lower.contains("白名单") || lower.contains("whitelist") {
+        "API 访问被拒绝（请检查接口 IP 白名单是否放行本机）"
+    } else if lower.contains("entrance") || lower.contains("安全入口") {
+        "API 鉴权失败（请确认地址含安全入口，且 EntranceCode 正确）"
+    } else {
+        "API 接口密钥错误"
+    };
+    OmniError::new(ErrorCode::Auth, message).with_cause(text.to_string())
+}
+
 fn truncate_text(text: &str, max: usize) -> String {
     if text.len() <= max {
         return text.to_string();
@@ -389,6 +402,18 @@ async fn send_request_with_api_fallback(
                     if matches!(auth, AuthStyle::Jwt { .. }) {
                         jwt_token = None;
                     }
+                    // 超时说明请求已发出且鉴权多半已通过；继续换 Token/路径会把根因盖成「API 接口密钥错误」
+                    if matches!(err.code, ErrorCode::Timeout)
+                        || err
+                            .cause
+                            .as_deref()
+                            .is_some_and(|c| c.to_ascii_lowercase().contains("timed out"))
+                    {
+                        return Err(
+                            OmniError::new(ErrorCode::Timeout, "1Panel 请求超时")
+                                .with_cause(err.cause.unwrap_or(err.message)),
+                        );
+                    }
                     last_err = Some(err);
                 }
             }
@@ -586,7 +611,12 @@ async fn send_request_once(
     }
 
     let resp = req.send().await.map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "1Panel 请求失败").with_cause(e.to_string())
+        let detail = e.to_string();
+        if e.is_timeout() || detail.to_ascii_lowercase().contains("timed out") {
+            OmniError::new(ErrorCode::Timeout, "1Panel 请求超时").with_cause(detail)
+        } else {
+            OmniError::new(ErrorCode::Connection, "1Panel 请求失败").with_cause(detail)
+        }
     })?;
 
     let status = resp.status();
@@ -605,7 +635,7 @@ async fn send_request_once(
 
     if status == reqwest::StatusCode::UNAUTHORIZED {
         let text = String::from_utf8_lossy(&bytes).into_owned();
-        return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text));
+        return Err(unauthorized_error(text));
     }
 
     if !status.is_success() {
@@ -845,9 +875,7 @@ async fn send_multipart(
         }
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(
-                OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text.into_owned())
-            );
+            return Err(unauthorized_error(text));
         }
 
         if !status.is_success() {
@@ -1144,7 +1172,7 @@ pub async fn fetch_app_icon(host: &str, api_key: &str, app_key: &str) -> Result<
         }
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误"));
+            return Err(unauthorized_error(trimmed));
         }
 
         if !status.is_success() {

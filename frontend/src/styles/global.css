@@ -16819,13 +16819,13 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .server-create-website-domain-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 96px;
+        grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 8.5rem);
         gap: 8px;
         align-items: end;
     }
 
     .server-create-website-domain-row:has(> button) {
-        grid-template-columns: minmax(0, 1fr) 96px auto;
+        grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 8.5rem) auto;
     }
 
     .server-create-website-domain-row > .form-field {
