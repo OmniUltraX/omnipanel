@@ -176,12 +176,18 @@ fn format_net_error(err: reqwest::Error) -> String {
     }
 }
 
-fn http_client_for(shared: &reqwest::Client, insecure: bool) -> Result<reqwest::Client, String> {
-    if !insecure {
-        return Ok(shared.clone());
+fn http_client_for(_shared: &reqwest::Client, insecure: bool) -> Result<reqwest::Client, String> {
+    // L2 net_fetch 目标多为内网（Nacos / 面板 / 堡垒）。必须 no_proxy：
+    // Windows 系统代理开启时，reqwest(WinHTTP) 常不认 IE 的 `10.*` 例外，
+    // 会把请求拐进 Clash 等本地代理，对局域网 POST 返回 502；浏览器却能直连。
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(8))
+        .no_proxy();
+    if insecure {
+        builder = builder.danger_accept_invalid_certs(true);
     }
-    reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
+    builder
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))
 }
