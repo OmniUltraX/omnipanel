@@ -3,6 +3,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { Button } from "../../components/ui/Button";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { useI18n } from "../../i18n";
@@ -383,24 +384,28 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
       {
         id: "export-md",
         label: t("knowledge.export.markdown"),
+        icon: contextMenuIcons.export,
         disabled: exporting !== null,
         onClick: () => void handleExportMd(),
       },
       {
         id: "export-pdf",
         label: t("knowledge.export.pdf"),
+        icon: contextMenuIcons.export,
         disabled: exporting !== null,
         onClick: () => void handleExportPdf(),
       },
       {
         id: "insert-image",
         label: t("knowledge.assets.insertImage"),
+        icon: contextMenuIcons.image,
         onClick: () => void handleInsertImage(),
       },
       { id: "sep-vectorize", separator: true, label: "" },
       {
         id: "vectorize",
         label: vectorLabel,
+        icon: contextMenuIcons.vectorize,
         shortcut: vectorStatusLabel,
         disabled: !embeddingProvider || vectorizing,
         onClick: () => void handleVectorize(),
@@ -409,6 +414,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
       {
         id: "save",
         label: t("knowledge.save"),
+        icon: contextMenuIcons.save,
         disabled: saveState !== "dirty",
         onClick: () => {
           if (saveTimerRef.current) clearTimeout(saveTimerRef.current);

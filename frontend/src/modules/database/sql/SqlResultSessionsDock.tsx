@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { DockableWorkspace, type DockableTab } from "../../../components/dock";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
 import { useI18n } from "../../../i18n";
 import {
   makeSqlResultSessionLabel,
@@ -119,11 +120,13 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
         label: pinned
           ? t("database.results.unpinSession")
           : t("database.results.pinSession"),
+        icon: pinned ? contextMenuIcons.unpin : contextMenuIcons.pin,
         onClick: () => onPinSession(contextMenuSession.id, !pinned),
       },
       {
         id: "close",
         label: t("database.results.closeSession"),
+        icon: contextMenuIcons.close,
         onClick: () => onCloseSession(contextMenuSession.id),
       },
     ];

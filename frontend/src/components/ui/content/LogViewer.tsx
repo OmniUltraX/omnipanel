@@ -3,6 +3,7 @@ import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { useI18n } from "../../../i18n";
 import { ContextMenu, type ContextMenuItem } from "../menu/ContextMenu";
+import { contextMenuIcons } from "../menu/contextMenuIcons";
 
 export interface LogViewerProps {
   /** 日志全文，写兀xterm 展示 */
@@ -267,12 +268,14 @@ export function LogViewer({
       {
         id: "copy-selection",
         label: t("logViewer.copySelection"),
+        icon: contextMenuIcons.copy,
         disabled: !hasSelection,
         onClick: () => void copySelection(),
       },
       {
         id: "copy-all",
         label: t("logViewer.copyAll"),
+        icon: contextMenuIcons.clipboard,
         disabled: !text,
         onClick: () => void copyAll(),
       },

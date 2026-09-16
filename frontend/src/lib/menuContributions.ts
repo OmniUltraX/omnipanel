@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from "../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../components/ui/menu/contextMenuIcons";
 import { getHostSelection } from "./hostSelection";
 import {
   GLOBAL_SHARE_MENU_ID,
@@ -87,6 +88,7 @@ export function mergeContributedMenuItems(
   const extras = visibleMenuContributions().map((c) => ({
     id: c.id,
     label: c.label,
+    icon: c.id === GLOBAL_SHARE_MENU_ID ? contextMenuIcons.share : undefined,
     onClick: () => c.onClick({ selectionText: getHostSelection()?.text ?? "" }),
   }));
   if (items.some((item) => item.id === GLOBAL_SHARE_MENU_ID)) {

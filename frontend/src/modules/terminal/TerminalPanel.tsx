@@ -56,6 +56,7 @@ import {
   type TabContextMenuAction,
 } from "../../components/ui/menu/contextMenuItems";
 import type { ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { TerminalSessionsWorkspaceView } from "./TerminalSessionsWorkspaceView";
 import { useTerminalSessionsChrome } from "./TerminalSessionsChromeContext";
 import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
@@ -895,17 +896,20 @@ export function TerminalPanel() {
           {
             id: "tab-rename",
             label: t("shell.topbar.rename"),
+            icon: contextMenuIcons.rename,
             onClick: () => handleContextAction("rename"),
           },
           {
             id: "tab-ai-rename",
             label: t("terminal.sessions.aiRename"),
+            icon: contextMenuIcons.ai,
             onClick: () => handleContextAction("aiRename"),
           },
           { id: "tab-sep-rename", separator: true, label: "" },
           {
             id: "tab-copy",
             label: t("terminal.sessions.copy"),
+            icon: contextMenuIcons.copy,
             onClick: () => handleContextAction("copy"),
           },
           { id: "tab-sep-copy", separator: true, label: "" },
@@ -919,11 +923,13 @@ export function TerminalPanel() {
           {
             id: "tab-close-and-end",
             label: t("shell.topbar.close"),
+            icon: contextMenuIcons.close,
             onClick: () => handleContextAction("closeAndEnd"),
           },
           {
             id: "tab-close-bulk",
             label: t("shell.topbar.closeTabs"),
+            icon: contextMenuIcons.close,
             children: buildTabBulkCloseSubmenuItems(t, tabCount, tabIndex, handleContextAction),
           },
         ];

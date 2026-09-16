@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { Button } from "@/components/ui/Button";
 import { IconRefresh } from "@/components/ui/Icons";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
@@ -339,11 +340,13 @@ export function ServerPanelTreeSidebar({
     {
       id: "edit",
       label: t("server.sidebar.edit"),
+      icon: contextMenuIcons.edit,
       onClick: () => ctxServer && onEditServer?.(ctxServer),
     },
     {
       id: "delete",
       label: t("server.sidebar.delete"),
+      icon: contextMenuIcons.delete,
       danger: true,
       onClick: () => {
         if (!ctxServer || !onDeleteServer) return;

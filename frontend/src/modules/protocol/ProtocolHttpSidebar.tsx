@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
 import { useShareUiStore } from "../../stores/shareUiStore";
 import { buildHttpRequestSharePayload } from "../share/resourceShare";
@@ -758,16 +759,19 @@ export function ProtocolHttpSidebar() {
         {
           id: "new-folder",
           label: t("protocol.sidebar.newFolder"),
+          icon: contextMenuIcons.folder,
           onClick: () => void handleCreateFolder(parentFolderId),
         },
         {
           id: "new-request",
           label: t("protocol.sidebar.newRequest"),
+          icon: contextMenuIcons.file,
           onClick: () => handleCreateRequest(parentFolderId),
         },
         {
           id: "import",
           label: t("protocol.sidebar.import"),
+          icon: contextMenuIcons.import,
           onClick: () => {
             if (!http?.importHttpDocument) return;
             void runProtocolHttpImport({
@@ -785,6 +789,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "rename-folder",
         label: t("protocol.sidebar.renameFolder"),
+        icon: contextMenuIcons.rename,
         onClick: () => {
           const folder = folders.find((f) => f.id === target.folderId);
           if (!folder) return;
@@ -801,6 +806,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "delete-folder",
         label: t("protocol.sidebar.deleteFolder"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => {
           const clickedKey = `folder:${target.folderId}`;
@@ -828,6 +834,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "rename-request",
         label: t("protocol.sidebar.renameRequest"),
+        icon: contextMenuIcons.rename,
         onClick: () => {
           const req = savedRequests.find((entry) => entry.id === target.requestId);
           if (!req) return;
@@ -844,6 +851,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: GLOBAL_SHARE_MENU_ID,
         label: t("share.menu"),
+        icon: contextMenuIcons.share,
         onClick: () => {
           const req = savedRequests.find((entry) => entry.id === target.requestId);
           if (!req) return;
@@ -853,6 +861,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "delete-request",
         label: t("protocol.sidebar.deleteRequest"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => {
           const clickedKey = `request:${target.requestId}`;
@@ -878,6 +887,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "rename-entry",
         label: t("protocol.sidebar.renameRequest"),
+        icon: contextMenuIcons.rename,
         onClick: () => {
           const labEntry = labEntries.find((item) => item.id === target.entryId);
           if (!labEntry) return;
@@ -900,6 +910,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "delete-entry",
         label: t("protocol.sidebar.deleteRequest"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => {
           const clickedKey = `entry:${target.entryId}`;
@@ -932,6 +943,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "rename-history",
         label: t("protocol.sidebar.renameHistory"),
+        icon: contextMenuIcons.rename,
         onClick: () => {
           if (!historyEntry) return;
           void quickInput({
@@ -946,6 +958,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "delete-history",
         label: t("protocol.sidebar.deleteHistory"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => void http.deleteHistoryEntry(target.historyId),
       });
@@ -955,6 +968,7 @@ export function ProtocolHttpSidebar() {
       items.push({
         id: "clear-request-history",
         label: t("protocol.sidebar.clearRequestHistory"),
+        icon: contextMenuIcons.clear,
         danger: true,
         onClick: () => {
           void appConfirm(

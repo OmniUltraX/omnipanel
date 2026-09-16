@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { Button } from "@/components/ui/Button";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
@@ -451,6 +452,7 @@ export function DockerPanelTreeSidebar({
         {
           id: "new-folder",
           label: t("docker.sidebar.newFolder"),
+          icon: contextMenuIcons.folder,
           onClick: () => handleCreateFolder(null),
         },
       ];
@@ -460,16 +462,19 @@ export function DockerPanelTreeSidebar({
         {
           id: "new-folder",
           label: t("docker.sidebar.newFolder"),
+          icon: contextMenuIcons.folder,
           onClick: () => handleCreateFolder(ctxTarget.folder.id),
         },
         {
           id: "rename-folder",
           label: t("docker.sidebar.renameFolder"),
+          icon: contextMenuIcons.rename,
           onClick: () => handleRenameFolder(ctxTarget.folder),
         },
         {
           id: "delete-folder",
           label: t("docker.sidebar.deleteFolder"),
+          icon: contextMenuIcons.delete,
           danger: true,
           onClick: () => deleteFolder(ctxTarget.folder.id),
         },
@@ -479,6 +484,7 @@ export function DockerPanelTreeSidebar({
       {
         id: "new-folder",
         label: t("docker.sidebar.newFolder"),
+        icon: contextMenuIcons.folder,
         onClick: () => handleCreateFolder(null),
       },
     ];
@@ -487,11 +493,13 @@ export function DockerPanelTreeSidebar({
         {
           id: "edit",
           label: t("docker.sidebar.edit"),
+          icon: contextMenuIcons.edit,
           onClick: () => onEditConnection?.(ctxTarget.connection),
         },
         {
           id: "delete",
           label: t("docker.sidebar.delete"),
+          icon: contextMenuIcons.delete,
           danger: true,
           onClick: () => {
             if (!onDeleteConnection) return;

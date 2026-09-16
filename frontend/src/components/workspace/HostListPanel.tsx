@@ -33,6 +33,7 @@ import { useSshHostStore } from "../../stores/sshHostStore";
 import { usePanelProbeStore } from "../../modules/server/ssh/stores/panelProbeStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../ui/menu/withGlobalShareMenuItem";
 import { useShareUiStore } from "../../stores/shareUiStore";
 import { buildSshConnectionSharePayload } from "../../modules/share/resourceShare";
@@ -763,6 +764,7 @@ export function HostListPanel({
       {
         id: "move-root",
         label: t("ssh.sidebar.moveToRoot"),
+        icon: contextMenuIcons.move,
         disabled: current == null,
         onClick: () => {
           moveNode({
@@ -776,6 +778,7 @@ export function HostListPanel({
       items.push({
         id: `move-${folder.id}`,
         label: folderDisplayName(folder.name, t),
+        icon: contextMenuIcons.folder,
         disabled: current === folder.id,
         onClick: () => {
           moveNode({
@@ -795,32 +798,38 @@ export function HostListPanel({
       {
         id: "host-connect",
         label: t("ssh.context.connect"),
+        icon: contextMenuIcons.connect,
         onClick: () => handleConnect(host, "preview"),
       },
       {
         id: "host-open-workspace",
         label: t("ssh.context.openInWorkspace"),
+        icon: contextMenuIcons.window,
         onClick: () => handleConnect(host, "permanent"),
       },
       { id: "host-sep-jump", separator: true, label: "" },
       {
         id: "host-open-terminal",
         label: t("ssh.actions.openTerminal"),
+        icon: contextMenuIcons.terminal,
         onClick: () => jumpSshTerminal(host.id, host.name),
       },
       {
         id: "host-open-sftp",
         label: t("ssh.actions.openSftp"),
+        icon: contextMenuIcons.sftp,
         onClick: () => jumpSshSftp(host.id, { hostName: host.name, navigate }),
       },
       {
         id: "host-open-docker",
         label: t("ssh.quickActions.docker"),
+        icon: contextMenuIcons.docker,
         onClick: () => void jumpSshDocker(host.id, t("ssh.quickActions.dockerMissing")),
       },
       {
         id: "host-open-panel",
         label: t("ssh.quickActions.panel"),
+        icon: contextMenuIcons.panel,
         disabled: !hasPanel,
         disabledReason: hasPanel ? undefined : t("ssh.quickActions.panelMissing"),
         onClick: () => jumpSshPanel(host.id, t("ssh.quickActions.panelMissing")),
@@ -829,6 +838,7 @@ export function HostListPanel({
       {
         id: "host-edit",
         label: t("ssh.dialog.edit"),
+        icon: contextMenuIcons.edit,
         onClick: () => {
           const conn = connections.find((c) => c.id === host.id);
           if (conn) {
@@ -841,11 +851,13 @@ export function HostListPanel({
       {
         id: "host-duplicate",
         label: t("ssh.context.duplicate"),
+        icon: contextMenuIcons.duplicate,
         onClick: () => handleDuplicateHost(host),
       },
       {
         id: GLOBAL_SHARE_MENU_ID,
         label: t("share.menu"),
+        icon: contextMenuIcons.share,
         onClick: () => {
           const conn = connections.find((c) => c.id === host.id);
           if (conn) {
@@ -856,11 +868,13 @@ export function HostListPanel({
       {
         id: "host-copy-cmd",
         label: t("ssh.context.copySshCommand"),
+        icon: contextMenuIcons.clipboard,
         onClick: () => void handleCopySshCommand(host),
       },
       {
         id: "host-view-profile",
         label: t("resource.profile.viewProfile"),
+        icon: contextMenuIcons.profile,
         onClick: () =>
           openProfile({ resourceType: "ssh", resourceId: host.id, displayName: host.name }),
       },
@@ -868,12 +882,14 @@ export function HostListPanel({
       {
         id: "host-move",
         label: t("ssh.context.moveTo"),
+        icon: contextMenuIcons.move,
         children: buildMoveFolderChildren(host),
       },
       { id: "host-sep-3", separator: true, label: "" },
       {
         id: "host-delete",
         label: t("ssh.dialog.delete"),
+        icon: contextMenuIcons.delete,
         onClick: () => void handleDeleteHost(host),
         danger: true,
       },
@@ -887,11 +903,13 @@ export function HostListPanel({
         {
           id: "new-folder",
           label: t("ssh.sidebar.newFolder"),
+          icon: contextMenuIcons.folder,
           onClick: () => handleCreateFolder(null),
         },
         {
           id: "new-host",
           label: t("ssh.dialog.addTitle"),
+          icon: contextMenuIcons.plus,
           onClick: handleAdd,
         },
       ];
@@ -901,26 +919,31 @@ export function HostListPanel({
         {
           id: "new-host-here",
           label: t("ssh.context.newHostHere"),
+          icon: contextMenuIcons.plus,
           onClick: () => handleNewHostInFolder(ctxTarget.folder.id),
         },
         {
           id: "import-config-here",
           label: t("ssh.context.importConfigHere"),
+          icon: contextMenuIcons.import,
           onClick: () => openImportDialog(ctxTarget.folder.id),
         },
         {
           id: "new-folder",
           label: t("ssh.sidebar.newFolder"),
+          icon: contextMenuIcons.folder,
           onClick: () => handleCreateFolder(ctxTarget.folder.id),
         },
         {
           id: "rename-folder",
           label: t("ssh.sidebar.renameFolder"),
+          icon: contextMenuIcons.rename,
           onClick: () => handleRenameFolder(ctxTarget.folder),
         },
         {
           id: "delete-folder",
           label: t("ssh.sidebar.deleteFolder"),
+          icon: contextMenuIcons.delete,
           danger: true,
           onClick: () => void handleDeleteFolder(ctxTarget.folder),
         },

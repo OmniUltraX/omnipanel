@@ -45,6 +45,7 @@ import { DetailPanelShell } from "../../../components/ui/layout/DetailPanelShell
 import { Button } from "../../../components/ui/primitives/Button";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
 import { showToast } from "../../../stores/toastStore";
 
 interface DatabaseTablesPanelProps {
@@ -935,6 +936,7 @@ export function DatabaseTablesPanel({
       items.push({
         id: "open-data",
         label: t("database.contextMenu.viewTableData"),
+        icon: contextMenuIcons.open,
         onClick: () => handleOpenTableData(single),
       });
     }
@@ -942,6 +944,7 @@ export function DatabaseTablesPanel({
       items.push({
         id: "design",
         label: t("database.contextMenu.designTable"),
+        icon: contextMenuIcons.design,
         onClick: () => handleDesignTable(single),
       });
     }
@@ -949,6 +952,7 @@ export function DatabaseTablesPanel({
       items.push({
         id: "view-ddl",
         label: t("database.contextMenu.viewDdl"),
+        icon: contextMenuIcons.file,
         onClick: () => handleOpenDdlDrawer(single),
       });
     }
@@ -957,6 +961,7 @@ export function DatabaseTablesPanel({
     items.push({
       id: "copy",
       label: t("database.contextMenu.copy"),
+      icon: contextMenuIcons.copy,
       children: [
         {
           id: "copy-names",
@@ -1010,12 +1015,14 @@ export function DatabaseTablesPanel({
     items.push({
       id: "clone",
       label: t("database.tablesPanel.cloneTables", { count }),
+      icon: contextMenuIcons.duplicate,
       disabled: !canClone,
       onClick: () => void handleCloneTables(targets),
     });
     items.push({
       id: "delete",
       label: t("database.tablesPanel.deleteTables", { count }),
+      icon: contextMenuIcons.delete,
       danger: true,
       disabled: !canDrop,
       onClick: () => void handleDeleteTables(targets),

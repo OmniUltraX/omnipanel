@@ -8,6 +8,7 @@ import {
 } from "react";
 import { FileEntryIcon } from "../../components/ui/icons/FileEntryIcon";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { useI18n } from "../../i18n";
 import type { FileEntry } from "../../ipc/bindings";
 import { quickInput } from "../../lib/quickInput";
@@ -221,11 +222,13 @@ export function FilePreviewTreeSidebar({
       {
         id: "new-file",
         label: t("files.preview.tree.newFile"),
+        icon: contextMenuIcons.file,
         onClick: () => void handleCreateFile(),
       },
       {
         id: "new-folder",
         label: t("files.actions.mkdir"),
+        icon: contextMenuIcons.folder,
         onClick: () => void handleCreateFolder(),
       },
     ];

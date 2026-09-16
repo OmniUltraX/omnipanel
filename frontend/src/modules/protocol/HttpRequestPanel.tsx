@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { ModuleSegmentDock } from "../../components/dock";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { quickInput } from "../../lib/quickInput";
@@ -80,6 +81,7 @@ export function HttpRequestPanel({
       {
         id: "rename",
         label: t("protocol.sidebar.renameRequest"),
+        icon: contextMenuIcons.rename,
         onClick: () => void handleRenameTab(tabCtxMenu.tabId),
       },
     ];

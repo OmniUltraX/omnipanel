@@ -1,5 +1,6 @@
 import type { ContextMenuItem } from "./ContextMenu";
 import type { WorkspaceInfo } from "../../../stores/workspaceStore";
+import { contextMenuIcons } from "./contextMenuIcons";
 
 export type TabCloseAction = "close" | "closeLeft" | "closeRight" | "closeOthers" | "closeAll";
 
@@ -68,11 +69,13 @@ function buildWorkspaceTabMenuItems(
     {
       id: "tab-move-to-current-workspace",
       label: t("shell.workspace.moveToCurrent"),
+      icon: contextMenuIcons.move,
       onClick: () => onMove(currentId),
     },
     {
       id: "tab-move-to-other-workspace",
       label: t("shell.workspace.moveToOther"),
+      icon: contextMenuIcons.folder,
       children: otherChildren,
     },
     { id: "tab-sep-workspace", separator: true, label: "" },
@@ -89,24 +92,28 @@ function buildTabBulkCloseSubmenuItems(
     {
       id: "tab-close-left",
       label: t("shell.topbar.closeLeft"),
+      icon: contextMenuIcons.closeLeft,
       disabled: tabIndex <= 0,
       onClick: () => onAction("closeLeft"),
     },
     {
       id: "tab-close-right",
       label: t("shell.topbar.closeRight"),
+      icon: contextMenuIcons.closeRight,
       disabled: tabIndex >= tabCount - 1,
       onClick: () => onAction("closeRight"),
     },
     {
       id: "tab-close-others",
       label: t("shell.topbar.closeOthers"),
+      icon: contextMenuIcons.closeOthers,
       disabled: tabCount <= 1,
       onClick: () => onAction("closeOthers"),
     },
     {
       id: "tab-close-all",
       label: t("shell.topbar.closeAll"),
+      icon: contextMenuIcons.closeAll,
       disabled: tabCount <= 0,
       onClick: () => onAction("closeAll"),
     },
@@ -126,6 +133,7 @@ export function buildTabCloseMenuItems(
         {
           id: "tab-rename",
           label: t(options.renameLabelKey ?? "shell.topbar.rename"),
+          icon: contextMenuIcons.rename,
           onClick: () => onAction("rename"),
         },
         { id: "tab-sep-rename", separator: true, label: "" },
@@ -137,6 +145,7 @@ export function buildTabCloseMenuItems(
         {
           id: "tab-ai-rename",
           label: t(options.aiRenameLabelKey ?? "terminal.sessions.aiRename"),
+          icon: contextMenuIcons.ai,
           onClick: () => onAction("aiRename"),
         },
         { id: "tab-sep-ai-rename", separator: true, label: "" },
@@ -150,6 +159,7 @@ export function buildTabCloseMenuItems(
         {
           id: "tab-refresh",
           label: t("shell.topbar.refresh"),
+          icon: contextMenuIcons.refresh,
           onClick: () => onAction("refresh"),
         },
         { id: "tab-sep-refresh", separator: true, label: "" },
@@ -164,6 +174,7 @@ export function buildTabCloseMenuItems(
         {
           id: "tab-close-bulk",
           label: t("shell.topbar.closeTabs"),
+          icon: contextMenuIcons.close,
           children: buildTabBulkCloseSubmenuItems(t, tabCount, tabIndex, onAction),
         },
       ];
@@ -172,6 +183,7 @@ export function buildTabCloseMenuItems(
       {
         id: "tab-close",
         label: t("shell.topbar.closeCurrent"),
+        icon: contextMenuIcons.close,
         onClick: () => onAction("close"),
       },
       { id: "tab-sep-1", separator: true, label: "" },

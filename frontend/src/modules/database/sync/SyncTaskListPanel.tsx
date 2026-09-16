@@ -2,6 +2,7 @@ import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/primitives/Button";
 import { ContextMenu } from "../../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
 import { appConfirm } from "../../../lib/appConfirm";
 import { quickInput } from "../../../lib/quickInput";
 import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";
@@ -121,11 +122,13 @@ export function SyncTaskListPanel({ onOpenTask, onRunTask, section }: SyncTaskLi
             {
               id: "run",
               label: t("database.syncTasks.run"),
+              icon: contextMenuIcons.play,
               onClick: () => onRunTask(ctxMenu.task),
             },
             {
               id: "rename",
               label: t("database.syncTasks.rename"),
+              icon: contextMenuIcons.rename,
               onClick: () => {
                 const task = ctxMenu.task;
                 setCtxMenu(null);
@@ -135,6 +138,7 @@ export function SyncTaskListPanel({ onOpenTask, onRunTask, section }: SyncTaskLi
             {
               id: "delete",
               label: t("database.syncTasks.delete"),
+              icon: contextMenuIcons.delete,
               danger: true,
               onClick: () => {
                 const task = ctxMenu.task;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { buildTabCloseMenuItems, type TabContextMenuAction } from "../../components/ui/menu";
 import {
   ModuleSegmentDock,
@@ -699,6 +700,7 @@ function FilesBrowserView() {
       {
         id: "open-pinned",
         label: t("files.sidebar.openPinned"),
+        icon: contextMenuIcons.open,
         onClick: () => openConnectionPanel(conn, "permanent"),
       },
     ];
@@ -706,6 +708,7 @@ function FilesBrowserView() {
       {
         id: "build-index",
         label: hasIndex ? t("files.index.rebuild") : t("files.index.build"),
+        icon: hasIndex ? contextMenuIcons.refresh : contextMenuIcons.test,
         disabled: isBuilding,
         onClick: () => void handleBuildIndex(conn),
       },
@@ -714,6 +717,7 @@ function FilesBrowserView() {
       indexItems.push({
         id: "clear-index",
         label: t("files.index.clear"),
+        icon: contextMenuIcons.clear,
         disabled: isBuilding,
         onClick: () => void handleClearIndex(conn),
       });
@@ -727,17 +731,20 @@ function FilesBrowserView() {
       {
         id: "edit",
         label: t("files.context.edit"),
+        icon: contextMenuIcons.edit,
         onClick: () => openEditConnectionDialog(conn.id),
       },
       {
         id: "test",
         label: t("files.context.test"),
+        icon: contextMenuIcons.test,
         onClick: () => void handleTestConnection(conn.id),
       },
       { id: "sep1", separator: true, label: "" },
       {
         id: "delete",
         label: t("files.context.deleteConn"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => void handleDeleteConnection(conn),
       },
@@ -786,17 +793,20 @@ function FilesBrowserView() {
       {
         id: "open-preview",
         label: t("files.context.open"),
+        icon: contextMenuIcons.open,
         onClick: () => handleFavoriteOpen(favorite, "preview"),
       },
       {
         id: "open-pinned",
         label: t("files.sidebar.openPinned"),
+        icon: contextMenuIcons.open,
         onClick: () => handleFavoriteOpen(favorite, "permanent"),
       },
       { id: "sep1", separator: true, label: "" },
       {
         id: "rename",
         label: t("files.sidebar.favoriteRename"),
+        icon: contextMenuIcons.rename,
         onClick: () => {
           void (async () => {
             const next = await quickInput({
@@ -813,6 +823,7 @@ function FilesBrowserView() {
       {
         id: "delete",
         label: t("files.sidebar.favoriteDelete"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => {
           removeFavorite(favorite.id);

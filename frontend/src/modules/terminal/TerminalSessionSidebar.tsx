@@ -21,6 +21,7 @@ import { useBlocksStore } from "../../stores/blocksStore";
 import { showToast } from "../../stores/toastStore";
 import { QuickInputDialog } from "../../components/ui/form/QuickInputDialog";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import {
   SidebarTreeEmpty,
   SidebarTreeNode,
@@ -389,12 +390,14 @@ export function TerminalSessionSidebar({
         {
           id: "new-session",
           label: t("terminal.sessions.newUnderConnection"),
+          icon: contextMenuIcons.plus,
           onClick: () => onCreateSession(group.resourceId, group.name),
         },
         { id: "conn-sep-1", separator: true, label: "" },
         {
           id: "conn-expand-all",
           label: t("terminal.sessions.expandAll"),
+          icon: contextMenuIcons.expand,
           onClick: () => {
             setExpandedMap((prev) => {
               const next = { ...prev, [group.resourceId]: true };
@@ -406,6 +409,7 @@ export function TerminalSessionSidebar({
         {
           id: "conn-collapse-all",
           label: t("terminal.sessions.collapseAll"),
+          icon: contextMenuIcons.collapse,
           onClick: () => {
             setExpandedMap((prev) => {
               const next = { ...prev, [group.resourceId]: false };
@@ -421,6 +425,7 @@ export function TerminalSessionSidebar({
           {
             id: "conn-rename",
             label: t("terminal.sessions.renameConnection"),
+            icon: contextMenuIcons.rename,
             onClick: () => onRenameConnection(group.resourceId, group.name),
           },
         );
@@ -430,6 +435,7 @@ export function TerminalSessionSidebar({
         {
           id: "conn-tags",
           label: t("resourceTags.section"),
+          icon: contextMenuIcons.tags,
           onClick: () => setTagEditTarget({ resourceId: group.resourceId, name: group.name }),
         },
       );
@@ -439,6 +445,7 @@ export function TerminalSessionSidebar({
           {
             id: "conn-end-all",
             label: t("terminal.sessions.endAllSessions"),
+            icon: contextMenuIcons.stop,
             danger: true,
             onClick: () => onEndAllSessionsInConnection(group.resourceId),
           },
@@ -724,6 +731,7 @@ export function TerminalSessionSidebar({
           {
             id: "session-open",
             label: t("terminal.sessions.open"),
+            icon: contextMenuIcons.open,
             onClick: () => {
               onSelectSession(sessionCtxMenu.session.id);
               setSessionCtxMenu(null);
@@ -732,6 +740,7 @@ export function TerminalSessionSidebar({
           {
             id: "session-rename",
             label: t("shell.topbar.rename"),
+            icon: contextMenuIcons.rename,
             onClick: () => handleRenameSession(sessionCtxMenu.session),
           },
           {
@@ -739,12 +748,14 @@ export function TerminalSessionSidebar({
             label: aiNamingIds.has(sessionCtxMenu.session.id)
               ? t("terminal.sessions.aiRenaming")
               : t("terminal.sessions.aiRename"),
+            icon: contextMenuIcons.ai,
             disabled: aiNamingIds.has(sessionCtxMenu.session.id),
             onClick: () => handleAiRenameSession(sessionCtxMenu.session),
           },
           {
             id: "session-copy",
             label: t("terminal.sessions.copy"),
+            icon: contextMenuIcons.copy,
             onClick: () => handleCopySession(sessionCtxMenu.session),
           },
         ];
@@ -765,6 +776,7 @@ export function TerminalSessionSidebar({
           {
             id: "session-end",
             label: t("terminal.sessions.end"),
+            icon: contextMenuIcons.stop,
             danger: true,
             onClick: () => {
               endSessionsForTarget(sessionCtxMenu.session.id);

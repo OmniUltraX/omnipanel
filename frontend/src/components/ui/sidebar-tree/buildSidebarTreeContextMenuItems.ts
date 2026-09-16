@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from "@/components/ui/ContextMenu";
+import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 
 export type BuildSidebarTreeContextMenuItemsOptions = {
   renameLabel: string;
@@ -26,6 +27,7 @@ export function buildSidebarTreeContextMenuItems({
     items.push({
       id: "sidebar-tree-rename",
       label: renameLabel,
+      icon: contextMenuIcons.rename,
       disabled: renameDisabled,
       onClick: onRename,
     });
@@ -35,6 +37,7 @@ export function buildSidebarTreeContextMenuItems({
     items.push({
       id: "sidebar-tree-delete",
       label: deleteLabel,
+      icon: contextMenuIcons.delete,
       danger: true,
       disabled: deleteDisabled,
       onClick: onDelete,

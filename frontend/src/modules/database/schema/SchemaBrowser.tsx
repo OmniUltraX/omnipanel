@@ -128,6 +128,7 @@ import {
 import type { SchemaSidebarSectionConfig } from "./SchemaSidebarSection";
 import { SchemaSidebarSection } from "./SchemaSidebarSection";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/ContextMenu";
+import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../../../components/ui/menu/withGlobalShareMenuItem";
 import { useShareUiStore } from "../../../stores/shareUiStore";
 import { buildDatabaseConnectionSharePayload } from "../../share/resourceShare";
@@ -1547,6 +1548,7 @@ export function SchemaBrowser({
         {
           id: "layout-new-folder",
           label: t("database.sidebar.newFolder"),
+          icon: contextMenuIcons.folder,
           onClick: () => void handleCreateLayoutFolder(null),
         },
       ];
@@ -1561,16 +1563,19 @@ export function SchemaBrowser({
         {
           id: "layout-new-folder",
           label: t("database.sidebar.newFolder"),
+          icon: contextMenuIcons.folder,
           onClick: () => void handleCreateLayoutFolder(folderId),
         },
         {
           id: "layout-rename-folder",
           label: t("database.sidebar.renameFolder"),
+          icon: contextMenuIcons.rename,
           onClick: () => void handleRenameLayoutFolder(folderId, item.label),
         },
         {
           id: "layout-delete-folder",
           label: t("database.sidebar.deleteFolder"),
+          icon: contextMenuIcons.delete,
           danger: true,
           onClick: () => void handleDeleteLayoutFolder(folderId),
         },
@@ -1609,20 +1614,12 @@ export function SchemaBrowser({
               ? [connection]
               : undefined,
       }) ?? [];
-    const refreshIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <path d="M2 8a6 6 0 0 1 10.5-3.9" />
-        <path d="M14 2v3h-3" />
-        <path d="M14 8a6 6 0 0 1-10.5 3.9" />
-        <path d="M2 14v-3h3" />
-      </svg>
-    );
     const connRefreshing = connection ? Boolean(refreshingNodeIds[item.id]) : false;
     const canRefresh = Boolean(connection && isConnectionEnabled(connection));
     const refreshItem: ContextMenuItem = {
       id: "refresh-schema-node",
       label: t("common.refresh"),
-      icon: refreshIcon,
+      icon: contextMenuIcons.refresh,
       disabled: !canRefresh || connRefreshing,
       onClick: () => {
         if (connection) {
@@ -1630,20 +1627,12 @@ export function SchemaBrowser({
         }
       },
     };
-    const deleteIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <path d="M2 4h12" />
-        <path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" />
-        <path d="M6 7v5M10 7v5" />
-        <path d="M3 4l.7 9.1a1 1 0 0 0 1 .9h6.6a1 1 0 0 0 1-.9L13 4" />
-      </svg>
-    );
     const deleteItem: ContextMenuItem | null =
       connection && isSchemaNodeDeletable(item.type)
         ? {
             id: "delete-schema-node",
             label: t(schemaNodeDeleteLabelKey(item.type)),
-            icon: deleteIcon,
+            icon: contextMenuIcons.delete,
             danger: true,
             disabled:
               Boolean(deletingNodeIds[item.id]) ||
@@ -1656,14 +1645,6 @@ export function SchemaBrowser({
     const trailingItems: ContextMenuItem[] = deleteItem
       ? [deleteItem, { id: "sep-delete", label: "", separator: true }, refreshItem]
       : [refreshItem];
-    const shareIcon = (
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-        <circle cx="12" cy="3.5" r="1.8" />
-        <circle cx="3.5" cy="8" r="1.8" />
-        <circle cx="12" cy="12.5" r="1.8" />
-        <path d="M5.2 7.1l5.2-2.5M5.2 8.9l5.2 2.5" />
-      </svg>
-    );
     const shareItems: ContextMenuItem[] =
       item.type === "connection" && connection
         ? [
@@ -1671,7 +1652,7 @@ export function SchemaBrowser({
             {
               id: GLOBAL_SHARE_MENU_ID,
               label: t("share.menu"),
-              icon: shareIcon,
+              icon: contextMenuIcons.share,
               onClick: () =>
                 openShareDialog(buildDatabaseConnectionSharePayload(connection)),
             },
