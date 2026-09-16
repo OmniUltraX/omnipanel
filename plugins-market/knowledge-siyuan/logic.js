@@ -1,12 +1,13 @@
 // 思源知识源 L2 逻辑：本地文件解析（宿主遍历授权目录，逐文件调 parseDocument）。
 //
 // parseDocument({ relPath, content }) →
-//   { kind: "notebook", id, name }        // <box>/.siyuan/conf.json
-//   { kind: "doc", id, title, markdown }  // *.sy（Spec 2 PascalCase AST 为主，旧格式兼容）
-//   { kind: "skip" }                      // 其他文件
+//   { kind: "notebook", id, name }                 // <box>/.siyuan/conf.json
+//   { kind: "doc", id, title, markdown, tags }     // *.sy（Spec 2 PascalCase AST 为主，旧格式兼容）
+//   { kind: "skip" }                               // 其他文件
 //
 // 组装规则与宿主 runner 同格式约定（id/source/tag 见 plugin.json 上游文档）：
-// 行内 Data 拼接、链接/公式标记、代码围栏、表格 | 连接、列表序号、未知块降级。
+// 行内 Data 拼接、链接/公式标记、图片 ![alt](dest)、代码围栏、表格 | 连接、
+// 列表序号、未知块降级；标签来自文档 Properties.tags + 行内 tag 标记。
 
 function asObj(v) {
   if (v && typeof v === "object") return v;
@@ -65,7 +66,9 @@ function b64decode(input) {
   }
 }
 
-// 节点自身文本：行内标记（链接/公式）→ Data → markdown → content（不 trim，落块时统一）。
+// 节点自身文本：行内标记（链接/公式/标签原文）→ Data → markdown → content。
+// 注意：图片节点不走这里（renderImage 直出 ![alt](dest)），tag 标记原文保留在
+// 正文里，标签另由 collectDocTags 收集（正文可读性与标签索引兼得）。
 function ownText(node) {
   var markText = str(node.TextMarkTextContent);
   if (markText.trim() !== "") {
@@ -91,12 +94,35 @@ function inlineInto(node, buf) {
   var t = nodeType(node);
   if (t === "NodeSoftBreak") { buf.push("\n"); return; }
   if (t === "NodeHardBreak") { buf.push("  \n"); return; }
+  if (t === "NodeImage") { buf.push(renderImage(node)); return; }
   var own = ownText(node);
   if (own !== "") buf.push(own);
   var kids = nodeChildren(node);
   for (var i = 0; i < kids.length; i++) {
     if (!isStructural(kids[i])) inlineInto(kids[i], buf);
   }
+}
+
+// 图片：NodeImage 下 NodeLinkText=alt、NodeLinkDest=dest（通常 assets/…）。
+// dest 原样保留（宿主同步期改写为 knowledge-asset://），alt 为空也照出图。
+function renderImage(node) {
+  var alt = "";
+  var dest = "";
+  var kids = nodeChildren(node);
+  for (var i = 0; i < kids.length; i++) {
+    var kt = nodeType(kids[i]);
+    if (kt === "NodeLinkText" && alt === "") alt = str(kids[i].Data);
+    if (kt === "NodeLinkDest" && dest === "") dest = str(kids[i].Data).trim();
+  }
+  if (dest === "") {
+    // 降级：子节点文本兜底（旧语料可能只有文本）。
+    var buf = [];
+    for (var j = 0; j < kids.length; j++) {
+      if (!isStructural(kids[j])) inlineInto(kids[j], buf);
+    }
+    return buf.join("");
+  }
+  return "![" + alt + "](" + dest + ")";
 }
 
 function subtreeInline(node) {
@@ -289,6 +315,43 @@ function stemOf(relPath) {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
+// HTML 实体最小解码（tag 文本是转义后存的；&amp; 最后，避免二次解码）。
+function unescapeTagText(s) {
+  return String(s || "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+// 文档标签：Properties.tags（逗号分隔）+ 行内 tag 标记，去重保序。
+function collectDocTags(doc) {
+  var out = [];
+  var seen = {};
+  function push(raw) {
+    var text = unescapeTagText(raw).replace(/^#+|#+$/g, "").trim();
+    if (text === "" || seen[text]) return;
+    seen[text] = true;
+    out.push(text);
+  }
+  var props = nodeProps(doc);
+  var propTags = str(props.tags);
+  if (propTags !== "") {
+    var parts = propTags.split(",");
+    for (var i = 0; i < parts.length; i++) push(parts[i]);
+  }
+  (function walk(node) {
+    var kids = nodeChildren(node);
+    for (var i = 0; i < kids.length; i++) {
+      var c = kids[i];
+      if (str(c.TextMarkType) === "tag") push(c.TextMarkTextContent);
+      walk(c);
+    }
+  })(doc);
+  return out;
+}
+
 function topDir(relPath) {
   return String(relPath || "").split("/")[0] || "";
 }
@@ -319,7 +382,7 @@ function parseDocument(args) {
   }
   if (!doc || typeof doc !== "object") throw new Error("解析 .sy 失败: 空文档");
   var id = stemOf(relPath);
-  return { kind: "doc", id: id, title: docTitle(doc, id), markdown: docMarkdown(doc) };
+  return { kind: "doc", id: id, title: docTitle(doc, id), markdown: docMarkdown(doc), tags: collectDocTags(doc) };
 }
 
 // 远程源兼容（本地文件源不调这些，保留占位以满足"方法存在"类检查）。

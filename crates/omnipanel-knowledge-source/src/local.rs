@@ -9,7 +9,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
-use super::adapter::{KsDocContent, KsDocRef, KsNotebook, MethodCaller, SourceAdapter};
+use super::adapter::{
+    KsDocContent, KsDocRef, KsNotebook, MethodCaller, SourceAdapter, MAX_ASSET_BYTES,
+};
 
 /// 单文件上限（8MB），超限跳过并计数。
 pub const MAX_PARSE_BYTES: u64 = 8 * 1024 * 1024;
@@ -311,6 +313,7 @@ impl<C: MethodCaller> PluginLocalAdapter<C> {
                         .unwrap_or("")
                         .to_string();
                     let box_id = Self::top_dir(&file.rel_path);
+                    let tags = super::adapter::parse_doc_tags(&value);
                     docs.insert(
                         id.clone(),
                         CachedDoc {
@@ -321,6 +324,7 @@ impl<C: MethodCaller> PluginLocalAdapter<C> {
                                 box_id: box_id.clone(),
                                 rel_path: file.rel_path.clone(),
                                 fingerprint: file.mtime_ms.to_string(),
+                                tags,
                             },
                             content: KsDocContent {
                                 title,
@@ -395,6 +399,34 @@ impl<C: MethodCaller> SourceAdapter for PluginLocalAdapter<C> {
 
     fn file_key(&self, doc: &KsDocRef) -> String {
         format!("local:{}:{}", doc.box_id, doc.rel_path)
+    }
+
+    fn asset_managed(&self) -> bool {
+        true
+    }
+
+    fn fetch_asset(&self, doc: &KsDocRef, rel: &str) -> Result<Option<(String, Vec<u8>)>, String> {
+        // 禁锢：只允许盒子内 assets/ 下文件，拒绝 .. 与绝对路径。
+        let clean = rel.replace('\\', "/");
+        let clean = clean.trim().trim_start_matches('/');
+        if clean.is_empty() || clean.contains("..") || !clean.starts_with("assets/") {
+            return Ok(None);
+        }
+        let box_root = self.root.join(&doc.box_id);
+        let path = box_root.join(clean);
+        // canonicalize 确认不出盒子目录（防 box_id/rel 构造穿越）。
+        let (canon_root, canon_path) = match (box_root.canonicalize(), path.canonicalize()) {
+            (Ok(r), Ok(p)) => (r, p),
+            _ => return Ok(None),
+        };
+        if !canon_path.starts_with(&canon_root) || !canon_path.is_file() {
+            return Ok(None);
+        }
+        let bytes = std::fs::read(&path).map_err(|e| format!("读资源失败 {clean}: {e}"))?;
+        if bytes.len() as u64 > MAX_ASSET_BYTES {
+            return Ok(None);
+        }
+        Ok(Some((clean.replace('/', "__"), bytes)))
     }
 
     fn list_notebooks(&self) -> Result<Vec<KsNotebook>, String> {
@@ -614,6 +646,7 @@ mod tests {
                 box_id: "box1".to_string(),
                 rel_path: "a.md".to_string(),
                 fingerprint: "1".to_string(),
+                tags: Vec::new(),
             }),
             "local:box1:a.md"
         );

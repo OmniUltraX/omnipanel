@@ -175,6 +175,36 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   const displayTitle = draftTitle ?? entry?.title ?? "";
   const displayContent = draftContent ?? entry?.content ?? "";
   const displayTags = draftTags ?? entry?.tags ?? [];
+  // 镜像预览：knowledge-asset:// 预解析为可播直链（图片/附件）。
+  const [resolvedContent, setResolvedContent] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedContent(null);
+    if (!isSiyuanMirror && !isPdfImport) return;
+    const text = displayContent;
+    if (!text.includes("knowledge-asset://")) return;
+    void (async () => {
+      const matches = [...text.matchAll(/knowledge-asset:\/\/([^/\s)]+)\/([^)\s]+)/g)];
+      if (matches.length === 0) return;
+      let out = text;
+      const { convertFileSrc } = await import("@tauri-apps/api/core");
+      for (const m of matches) {
+        try {
+          const abs = await unwrapCommand(commands.knowledgeAssetPath(m[1], m[2]), {
+            quiet: true,
+          });
+          out = out.split(m[0]).join(convertFileSrc(abs));
+        } catch {
+          // 解析失败保留原文（破图 + alt 文本可读）
+        }
+      }
+      if (!cancelled) setResolvedContent(out);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [displayContent, entry?.id, isSiyuanMirror, isPdfImport]);
+  const previewContent = resolvedContent ?? displayContent;
   const charCount = useMemo(() => countKnowledgeChars(displayContent), [displayContent]);
   const headings = useMemo(() => parseHeadings(displayContent), [displayContent]);
 
@@ -567,7 +597,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
           <h1 className="knowledge-note-title knowledge-note-title--readonly">{displayTitle}</h1>
           <ContentPreviewView
             status="ready"
-            content={{ kind: "text", text: displayContent }}
+            content={{ kind: "text", text: previewContent }}
             defaultTextMode="markdown"
             showTextModeToolbar={false}
           />

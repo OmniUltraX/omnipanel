@@ -91,6 +91,31 @@ async fn js_parses_sy_like_native() {
     }
 }
 
+const SY_IMG_TAG_DOC: &str = r###"{"ID":"doc2","Spec":"2","Type":"NodeDocument","Properties":{"id":"doc2","title":"图文","tags":"cnb,personal"},"Children":[
+{"ID":"p1","Type":"NodeParagraph","Children":[{"Type":"NodeImage","Data":"span","Children":[{"Type":"NodeBang"},{"Type":"NodeOpenBracket"},{"Type":"NodeLinkText","Data":"eb5a608c"},{"Type":"NodeCloseBracket"},{"Type":"NodeOpenParen"},{"Type":"NodeLinkDest","Data":"assets/eb5a608c-20250612-ibnfbr1.jpg"},{"Type":"NodeCloseParen"}]}]},
+{"ID":"p2","Type":"NodeParagraph","Children":[{"Type":"NodeText","Data":"喜欢 "},{"Type":"NodeTextMark","TextMarkType":"tag","TextMarkTextContent":"sport"}]}
+]}"###;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn js_renders_images_and_collects_tags() {
+    let scope = JsExecutorScope::new();
+    let ret = scope.call(
+        "parseDocument",
+        serde_json::json!({ "relPath": "box1/doc2.sy", "content": SY_IMG_TAG_DOC }),
+    );
+    assert_eq!(ret["kind"], "doc");
+    let md = ret["markdown"].as_str().expect("markdown 字符串");
+    assert!(
+        md.contains("![eb5a608c](assets/eb5a608c-20250612-ibnfbr1.jpg)"),
+        "图片应为标准 markdown 语法:\n{md}"
+    );
+    let tags = ret["tags"].as_array().expect("tags 数组");
+    let tags: Vec<&str> = tags.iter().filter_map(|v| v.as_str()).collect();
+    assert!(tags.contains(&"cnb"), "文档属性标签: {tags:?}");
+    assert!(tags.contains(&"personal"), "文档属性标签: {tags:?}");
+    assert!(tags.contains(&"sport"), "行内标签: {tags:?}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn js_routes_conf_and_skips() {
     let scope = JsExecutorScope::new();
