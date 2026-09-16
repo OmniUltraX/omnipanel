@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "@/i18n";
-import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { Button } from "@/components/ui/Button";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";

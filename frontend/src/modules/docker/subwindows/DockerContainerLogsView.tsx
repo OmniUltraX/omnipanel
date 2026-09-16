@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LogViewer } from "../../../components/ui/LogViewer";
 import { Button } from "../../../components/ui/Button";
-import { IconDropdownButton } from "../../../components/ui/IconDropdownButton";
+import { IconDropdownButton } from "../../../components/ui/menu";
 import { IconClock, IconRefresh } from "../../../components/ui/Icons";
 import { useI18n } from "../../../i18n";
 import { DOCKER_LOG, DOCKER_LOG_END } from "../../../ipc/events";

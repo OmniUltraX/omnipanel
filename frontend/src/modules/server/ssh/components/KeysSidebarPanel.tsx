@@ -5,7 +5,7 @@ import type { SshKeyInfo } from "../../../../ipc/bindings";
 import { Select } from "../../../../components/ui/Select";
 import { PasswordInput } from "../../../../components/ui/PasswordInput";
 import { TextInput } from "../../../../components/ui/TextInput";
-import type { ContextMenuItem } from "../../../../components/ui/ContextMenu";
+import type { ContextMenuItem } from "../../../../components/ui/menu";
 import { contextMenuIcons } from "../../../../components/ui/menu/contextMenuIcons";
 import { FormDialog } from "../../../../components/ui/form/FormDialog";
 import { IconCopy } from "../../../../components/ui/icons/Icons";

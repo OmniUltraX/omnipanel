@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
-import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../ui/menu";
 import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import { Button } from "../ui/Button";
 import {

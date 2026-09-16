@@ -32,7 +32,7 @@ import { loadSshPoolStatuses } from "../../stores/sshConnectionStore";
 import { useSshHostStore } from "../../stores/sshHostStore";
 import { usePanelProbeStore } from "../../modules/server/ssh/stores/panelProbeStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
-import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../ui/menu";
 import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../ui/menu/withGlobalShareMenuItem";
 import { useShareUiStore } from "../../stores/shareUiStore";

@@ -1,7 +1,7 @@
 import { Button } from "../../../components/ui/Button";
-import { IconDropdownButton } from "../../../components/ui/IconDropdownButton";
+import { IconDropdownButton } from "../../../components/ui/menu";
 import { ScopedSearch } from "../../../components/ui/search";
-import { ContextMenu } from "../../../components/ui/ContextMenu";
+import { ContextMenu } from "../../../components/ui/menu";
 import { appAlert } from "../../../lib/appAlert";
 import {
   makeTableFilterKey,

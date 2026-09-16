@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { useI18n } from "@/i18n";
 import { type TreeRowMouseEvent } from "./useTreeClickDelay";
 import { useSidebarTreeNodeSelection } from "./SidebarTreeSelectionProvider";

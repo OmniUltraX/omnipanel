@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from "../../../components/ui/ContextMenu";
+import type { ContextMenuItem } from "../../../components/ui/menu";
 import type { DbConnectionConfig } from "../api";
 import type { DbSqlFileNode } from "../../../stores/dbSqlFileStore";
 import type { SchemaTreeItem } from "./schemaTreeItem";

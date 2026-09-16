@@ -34,6 +34,32 @@ export default defineConfig([
                 '禁止使用 Tauri 原生 confirm/message/ask。请用 appConfirm / appAlert / appPrompt；文件选择请 import open 或 save。',
             },
           ],
+          patterns: [
+            {
+              group: [
+                '**/components/ui/ContextMenu',
+                '**/components/ui/ContextMenu.*',
+                '@/components/ui/ContextMenu',
+                '@/components/ui/ContextMenu.*',
+                '**/ui/ContextMenu',
+                '**/ui/ContextMenu.*',
+              ],
+              message:
+                '请从 @/components/ui/menu（或相对路径 .../ui/menu）导入 ContextMenu，勿直接引用根目录双轨副本。',
+            },
+            {
+              group: [
+                '**/components/ui/IconDropdownButton',
+                '**/components/ui/IconDropdownButton.*',
+                '@/components/ui/IconDropdownButton',
+                '@/components/ui/IconDropdownButton.*',
+                '**/ui/IconDropdownButton',
+                '**/ui/IconDropdownButton.*',
+              ],
+              message:
+                '请从 @/components/ui/menu（或相对路径 .../ui/menu）导入 IconDropdownButton，勿直接引用根目录双轨副本。',
+            },
+          ],
         },
       ],
       'no-restricted-globals': [

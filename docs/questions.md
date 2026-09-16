@@ -63,7 +63,13 @@ Rust：`omnipanel-ai` / `mcp` / `gateway`（再加前端 `lib/ai` 近 90 文件 
 
 ## 5. 平台层在复制，而不是收敛
 
-`ContextMenu`、`IconDropdownButton` 各有两套实现且**已分叉**（hint portal、`group` 字段等）。这和刚才菜单图标统一是同一类问题：**没有单一事实源时，一致性只能靠人肉扫**。UI 原语双轨 = 设计系统尚未真正建立。
+`ContextMenu`、`IconDropdownButton` 曾各有两套实现且**已分叉**（hint portal、`group` 字段等）。这和刚才菜单图标统一是同一类问题：**没有单一事实源时，一致性只能靠人肉扫**。UI 原语双轨 = 设计系统尚未真正建立。
+
+**进展（Q5 · menu 单轨）**：
+- 事实源：`frontend/src/components/ui/menu/`（保留 placement / hidden 测量 / portal hint）
+- 根目录 `ui/ContextMenu.tsx`、`ui/IconDropdownButton.tsx` 改为 thin re-export；`ui/contextMenuItems.ts` 仍 re-export `menu/`
+- 根目录 `group` 组头渲染并入 `menu/IconDropdownButton`；补齐 `.context-menu-item__hint-tooltip` / `__hint-slot` / `row--with-hint`（portal hint + `title` 兜底）
+- 调用方改为 `@/components/ui/menu`（或相对 `.../ui/menu`）；eslint `no-restricted-imports` 禁止直接引用根路径双轨文件
 
 ---
 
