@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
+use omnipanel_error::{OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
@@ -37,26 +38,28 @@ impl WsSession {
     pub async fn connect(
         config: WsConfig,
         on_message: mpsc::UnboundedSender<WsMessage>,
-    ) -> Result<Self, String> {
+    ) -> OmniResult<Self> {
         let mut request = config
             .url
             .into_client_request()
-            .map_err(|e| format!("Invalid WebSocket URL: {e}"))?;
+            .map_err(|e| OmniError::invalid_input(format!("Invalid WebSocket URL: {e}")))?;
 
         // Add custom headers
         for (key, value) in &config.headers {
             request.headers_mut().insert(
                 key.parse::<tokio_tungstenite::tungstenite::http::HeaderName>()
-                    .map_err(|e| format!("Invalid header name {key}: {e}"))?,
+                    .map_err(|e| OmniError::invalid_input(format!("Invalid header name {key}: {e}")))?,
                 value
                     .parse::<tokio_tungstenite::tungstenite::http::HeaderValue>()
-                    .map_err(|e| format!("Invalid header value for {key}: {e}"))?,
+                    .map_err(|e| {
+                        OmniError::invalid_input(format!("Invalid header value for {key}: {e}"))
+                    })?,
             );
         }
 
         let (ws_stream, _) = connect_async(request)
             .await
-            .map_err(|e| format!("WebSocket connect failed: {e}"))?;
+            .map_err(|e| OmniError::connection(format!("WebSocket connect failed: {e}")))?;
 
         let (mut write, mut read) = ws_stream.split();
         let (write_tx, mut write_rx) = mpsc::unbounded_channel::<Message>();
@@ -135,25 +138,26 @@ impl WsSession {
     }
 
     /// Send a text message through the WebSocket.
-    pub fn send_text(&self, text: String) -> Result<(), String> {
+    pub fn send_text(&self, text: String) -> OmniResult<()> {
         self.write_tx
             .send(Message::Text(text.into()))
-            .map_err(|e| format!("Send failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Send failed: {e}")))
     }
 
     /// Send binary data through the WebSocket (hex-encoded input, sent as binary frame).
-    pub fn send_binary_hex(&self, hex_data: &str) -> Result<(), String> {
-        let data = hex::decode(hex_data).map_err(|e| format!("Invalid hex data: {e}"))?;
+    pub fn send_binary_hex(&self, hex_data: &str) -> OmniResult<()> {
+        let data = hex::decode(hex_data)
+            .map_err(|e| OmniError::invalid_input(format!("Invalid hex data: {e}")))?;
         self.write_tx
             .send(Message::Binary(data.into()))
-            .map_err(|e| format!("Send failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Send failed: {e}")))
     }
 
     /// Send a real WebSocket Ping frame.
-    pub fn send_ping(&self) -> Result<(), String> {
+    pub fn send_ping(&self) -> OmniResult<()> {
         self.write_tx
             .send(Message::Ping(vec![].into()))
-            .map_err(|e| format!("Ping failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Ping failed: {e}")))
     }
 }
 

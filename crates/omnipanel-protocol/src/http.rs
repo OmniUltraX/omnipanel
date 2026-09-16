@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use omnipanel_error::{OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::proxy::{build_http_client_for_url, normalize_localhost_url};
-use crate::state::ProxyConfig;
+use crate::proxy::{self, ProxyConfig};
 
 /// HTTP request configuration from the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,10 +36,10 @@ pub struct HttpResponse {
 pub async fn execute_request(
     config: HttpRequestConfig,
     proxy_config: &ProxyConfig,
-) -> Result<HttpResponse, String> {
-    let url = normalize_localhost_url(&config.url);
+) -> OmniResult<HttpResponse> {
+    let url = proxy::normalize_localhost_url(&config.url);
     let timeout = Duration::from_millis(config.timeout_ms.unwrap_or(30_000));
-    let client = build_http_client_for_url(&url, proxy_config, timeout)?;
+    let client = proxy::build_http_client_for_url(&url, proxy_config, timeout)?;
 
     let method = config.method.to_uppercase();
     let mut req = match method.as_str() {
@@ -50,7 +50,11 @@ pub async fn execute_request(
         "DELETE" => client.delete(&url),
         "HEAD" => client.head(&url),
         "OPTIONS" => client.request(reqwest::Method::OPTIONS, &url),
-        _ => return Err(format!("Unsupported HTTP method: {method}")),
+        _ => {
+            return Err(OmniError::invalid_input(format!(
+                "Unsupported HTTP method: {method}"
+            )));
+        }
     };
 
     // Add query params
@@ -98,7 +102,7 @@ pub async fn execute_request(
     let resp = req
         .send()
         .await
-        .map_err(|e| format!("HTTP request failed: {e}"))?;
+        .map_err(|e| OmniError::connection(format!("HTTP request failed: {e}")))?;
     let elapsed = start.elapsed().as_millis() as u64;
 
     let status = resp.status().as_u16();
@@ -125,7 +129,7 @@ pub async fn execute_request(
     let body = resp
         .text()
         .await
-        .map_err(|e| format!("Failed to read response body: {e}"))?;
+        .map_err(|e| OmniError::internal(format!("Failed to read response body: {e}")))?;
 
     let size_bytes = body.len();
 

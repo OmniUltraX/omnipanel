@@ -3,17 +3,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::ipc::Channel;
 use tauri::{Emitter, State};
 
-use crate::protocol::http::{self, HttpRequestConfig, HttpResponse};
-use crate::protocol::mqtt::{self, MqttConfig, MqttMessage, MqttPublish, MqttSubscription};
-use crate::protocol::redis_pubsub::{
+use crate::state::AppState;
+use omnipanel_protocol::http::{self, HttpRequestConfig, HttpResponse};
+use omnipanel_protocol::modbus::{self, ModbusConfig};
+use omnipanel_protocol::mqtt::{self, MqttConfig, MqttMessage, MqttPublish, MqttSubscription};
+use omnipanel_protocol::redis_pubsub::{
     self, RedisPubSubConfig, RedisPubSubMessage, RedisPubSubPublish,
 };
-use crate::protocol::serial::{self, PortInfo, SerialConfig};
-use crate::protocol::sniffer::{self, CaptureStats, NetworkInterface, SnifferPacket};
-use crate::protocol::sse::{self, SseConfig, SseEventMessage};
-use crate::protocol::ws::{self, WsConfig, WsMessage};
-use crate::state::AppState;
-use omnipanel_protocol::modbus::{self, ModbusConfig};
+use omnipanel_protocol::serial::{self, PortInfo, SerialConfig};
+use omnipanel_protocol::sniffer::{self, CaptureStats, NetworkInterface, SnifferPacket};
+use omnipanel_protocol::sse::{self, SseConfig, SseEventMessage};
+use omnipanel_protocol::ws::{self, WsConfig, WsMessage};
 use omnipanel_store::{
     HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest, ensure_creator_tag,
 };
@@ -30,7 +30,7 @@ static REDIS_PUBSUB_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[tauri::command]
 pub async fn serial_scan_ports() -> Result<Vec<PortInfo>, String> {
-    serial::scan_ports()
+    serial::scan_ports().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -41,7 +41,7 @@ pub async fn serial_open(
 ) -> Result<String, String> {
     let id = format!("serial-{}", SERIAL_COUNTER.fetch_add(1, Ordering::Relaxed));
 
-    let mut session = serial::SerialSession::open(&config)?;
+    let mut session = serial::SerialSession::open(&config).map_err(|e| e.to_string())?;
 
     // Spawn a reader task to forward received data to frontend
     let session_id = id.clone();
@@ -94,7 +94,7 @@ pub async fn serial_write(
     let session = sessions
         .get_mut(&id)
         .ok_or_else(|| format!("Serial session {id} not found"))?;
-    session.write(&data)
+    session.write(&data).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -118,7 +118,7 @@ pub async fn serial_set_dtr(
     let session = sessions
         .get_mut(&id)
         .ok_or_else(|| format!("Serial session {id} not found"))?;
-    session.set_dtr(level)
+    session.set_dtr(level).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -131,7 +131,7 @@ pub async fn serial_set_rts(
     let session = sessions
         .get_mut(&id)
         .ok_or_else(|| format!("Serial session {id} not found"))?;
-    session.set_rts(level)
+    session.set_rts(level).map_err(|e| e.to_string())
 }
 
 // ──────────────────────────────────────────────
@@ -144,7 +144,9 @@ pub async fn http_request(
     config: HttpRequestConfig,
 ) -> Result<HttpResponse, String> {
     let proxy_config = state.proxy_config.lock().await.clone();
-    http::execute_request(config, &proxy_config).await
+    http::execute_request(config, &proxy_config)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ──────────────────────────────────────────────
@@ -179,7 +181,9 @@ pub async fn ws_connect(
         );
     });
 
-    let session = ws::WsSession::connect(config, tx).await?;
+    let session = ws::WsSession::connect(config, tx)
+        .await
+        .map_err(|e| e.to_string())?;
 
     state.ws_sessions.lock().await.insert(id.clone(), session);
 
@@ -197,7 +201,7 @@ pub async fn ws_send_text(
     let session = sessions
         .get(&id)
         .ok_or_else(|| format!("WebSocket session {id} not found"))?;
-    session.send_text(message)
+    session.send_text(message).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -210,7 +214,9 @@ pub async fn ws_send_binary(
     let session = sessions
         .get(&id)
         .ok_or_else(|| format!("WebSocket session {id} not found"))?;
-    session.send_binary_hex(&hex::encode(data))
+    session
+        .send_binary_hex(&hex::encode(data))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -219,7 +225,7 @@ pub async fn ws_ping(state: State<'_, AppState>, id: String) -> Result<(), Strin
     let session = sessions
         .get(&id)
         .ok_or_else(|| format!("WebSocket session {id} not found"))?;
-    session.send_ping()
+    session.send_ping().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -264,7 +270,9 @@ pub async fn sse_connect(
     });
 
     let proxy_config = state.proxy_config.lock().await.clone();
-    let session = sse::SseSession::connect(config, &proxy_config, tx).await?;
+    let session = sse::SseSession::connect(config, &proxy_config, tx)
+        .await
+        .map_err(|e| e.to_string())?;
     state.sse_sessions.lock().await.insert(id.clone(), session);
     tracing::info!("SSE connected: {id}");
     Ok(id)
@@ -312,7 +320,9 @@ pub async fn mqtt_connect(
         );
     });
 
-    let session = mqtt::MqttSession::connect(config, tx).await?;
+    let session = mqtt::MqttSession::connect(config, tx)
+        .await
+        .map_err(|e| e.to_string())?;
 
     state.mqtt_sessions.lock().await.insert(id.clone(), session);
 
@@ -333,6 +343,7 @@ pub async fn mqtt_subscribe(
     session
         .subscribe(&subscription.topic, subscription.qos)
         .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -345,7 +356,7 @@ pub async fn mqtt_unsubscribe(
     let session = sessions
         .get(&id)
         .ok_or_else(|| format!("MQTT session {id} not found"))?;
-    session.unsubscribe(&topic).await
+    session.unsubscribe(&topic).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -358,14 +369,14 @@ pub async fn mqtt_publish(
     let session = sessions
         .get(&id)
         .ok_or_else(|| format!("MQTT session {id} not found"))?;
-    session.publish(message).await
+    session.publish(message).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn mqtt_disconnect(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let mut sessions = state.mqtt_sessions.lock().await;
     if let Some(session) = sessions.remove(&id) {
-        session.disconnect().await?;
+        session.disconnect().await.map_err(|e| e.to_string())?;
         tracing::info!("MQTT disconnected: {id}");
         Ok(())
     } else {
@@ -407,7 +418,9 @@ pub async fn redis_pubsub_connect(
         );
     });
 
-    let session = redis_pubsub::RedisPubSubSession::connect(config, tx).await?;
+    let session = redis_pubsub::RedisPubSubSession::connect(config, tx)
+        .await
+        .map_err(|e| e.to_string())?;
 
     state
         .redis_pubsub_sessions
@@ -429,7 +442,7 @@ pub async fn redis_pubsub_subscribe(
     let session = sessions
         .get(&id)
         .ok_or_else(|| format!("Redis Pub/Sub session {id} not found"))?;
-    session.subscribe(&channel)
+    session.subscribe(&channel).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -442,7 +455,7 @@ pub async fn redis_pubsub_unsubscribe(
     let session = sessions
         .get(&id)
         .ok_or_else(|| format!("Redis Pub/Sub session {id} not found"))?;
-    session.unsubscribe(&channel)
+    session.unsubscribe(&channel).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -455,7 +468,7 @@ pub async fn redis_pubsub_publish(
     let session = sessions
         .get(&id)
         .ok_or_else(|| format!("Redis Pub/Sub session {id} not found"))?;
-    session.publish(message).await
+    session.publish(message).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -662,7 +675,9 @@ pub async fn sniffer_start_capture(
     iface: String,
     filter: String,
 ) -> Result<String, String> {
-    sniffer::start_capture(&state.sniffer_sessions, iface, filter).await
+    sniffer::start_capture(&state.sniffer_sessions, iface, filter)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -671,7 +686,9 @@ pub async fn sniffer_stop_capture(
     state: State<'_, AppState>,
     capture_id: String,
 ) -> Result<(), String> {
-    sniffer::stop_capture(&state.sniffer_sessions, &capture_id).await
+    sniffer::stop_capture(&state.sniffer_sessions, &capture_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -682,7 +699,9 @@ pub async fn sniffer_get_packets(
     limit: Option<f64>,
 ) -> Result<Vec<SnifferPacket>, String> {
     let limit = limit.map(|n| n as usize);
-    sniffer::get_packets(&state.sniffer_sessions, &capture_id, limit).await
+    sniffer::get_packets(&state.sniffer_sessions, &capture_id, limit)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -691,7 +710,9 @@ pub async fn sniffer_get_stats(
     state: State<'_, AppState>,
     capture_id: String,
 ) -> Result<CaptureStats, String> {
-    sniffer::get_stats(&state.sniffer_sessions, &capture_id).await
+    sniffer::get_stats(&state.sniffer_sessions, &capture_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ──────────────────────────────────────────────

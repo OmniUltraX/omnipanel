@@ -3,7 +3,7 @@ name = "omnipanel-protocol"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "协议实验室共享实现（grpc / modbus；从桌面与 Web 下沉复用）"
+description = "协议实验室共享实现（http/sse/ws/mqtt/…；从桌面与 Web 下沉复用）"
 
 [dependencies]
 serde.workspace = true
@@ -12,3 +12,11 @@ tokio.workspace = true
 reqwest = { workspace = true }
 specta.workspace = true
 omnipanel-error = { path = "../omnipanel-error" }
+url.workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+hex.workspace = true
+redis.workspace = true
+rumqttc.workspace = true
+tokio-tungstenite.workspace = true
+serialport.workspace = true

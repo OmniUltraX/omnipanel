@@ -5,31 +5,23 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
 
 use crate::agent::AgentRegistry;
-use crate::protocol::mqtt::MqttSession;
-use crate::protocol::redis_pubsub::RedisPubSubSession;
-use crate::protocol::serial::SerialSession;
-use crate::protocol::sniffer::SnifferSession;
-use crate::protocol::sse::SseSession;
-use crate::protocol::ws::WsSession;
 use omnipanel_core::terminal::Terminal;
 use omnipanel_db::DbDriver;
 use omnipanel_docker::DockerExecSession;
 use omnipanel_exec::{ExecutionEngine, ShellExecutor};
 use omnipanel_protocol::grpc::GrpcSession;
 use omnipanel_protocol::modbus::ModbusSession;
+use omnipanel_protocol::mqtt::MqttSession;
+use omnipanel_protocol::redis_pubsub::RedisPubSubSession;
+use omnipanel_protocol::serial::SerialSession;
+use omnipanel_protocol::sniffer::SnifferSession;
+use omnipanel_protocol::sse::SseSession;
+use omnipanel_protocol::ws::WsSession;
 use omnipanel_ssh::SshSession;
 use omnipanel_store::{AppModuleStatus, DatabaseConnectionStore, FileIndexStorage, Storage};
 
-/// Proxy 配置，从前端设置同步到后端。
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
-pub struct ProxyConfig {
-    pub enabled: bool,
-    pub protocol: String,
-    pub host: String,
-    pub port: u16,
-    pub username: String,
-    pub password: String,
-}
+/// Proxy 配置，从前端设置同步到后端（事实源：`omnipanel_protocol::proxy`）。
+pub use omnipanel_protocol::proxy::ProxyConfig;
 
 use omnipanel_ai::provider::AiProviderRegistry;
 

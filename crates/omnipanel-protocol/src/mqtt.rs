@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use omnipanel_error::{OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
@@ -61,7 +62,7 @@ impl MqttSession {
     pub async fn connect(
         config: MqttConfig,
         on_message: mpsc::UnboundedSender<MqttMessage>,
-    ) -> Result<Self, String> {
+    ) -> OmniResult<Self> {
         // Parse broker URL to extract host and port
         // Accepts formats: "mqtt://host:port", "mqtts://host:port", "host:port", "host"
         let default_port = if config.use_tls.unwrap_or(false) {
@@ -101,12 +102,24 @@ impl MqttSession {
                 &config.tls_client_cert,
                 &config.tls_client_key,
             ) {
-                let ca =
-                    std::fs::read(ca_path).map_err(|e| format!("Failed to read CA cert: {e}"))?;
-                let client_cert = std::fs::read(cert_path)
-                    .map_err(|e| format!("Failed to read client cert: {e}"))?;
-                let client_key = std::fs::read(key_path)
-                    .map_err(|e| format!("Failed to read client key: {e}"))?;
+                let ca = std::fs::read(ca_path).map_err(|e| {
+                    OmniError::new(
+                        omnipanel_error::ErrorCode::Io,
+                        format!("Failed to read CA cert: {e}"),
+                    )
+                })?;
+                let client_cert = std::fs::read(cert_path).map_err(|e| {
+                    OmniError::new(
+                        omnipanel_error::ErrorCode::Io,
+                        format!("Failed to read client cert: {e}"),
+                    )
+                })?;
+                let client_key = std::fs::read(key_path).map_err(|e| {
+                    OmniError::new(
+                        omnipanel_error::ErrorCode::Io,
+                        format!("Failed to read client key: {e}"),
+                    )
+                })?;
                 let tls_config = rumqttc::TlsConfiguration::Simple {
                     ca,
                     alpn: None,
@@ -115,8 +128,12 @@ impl MqttSession {
                 mqttoptions.set_transport(rumqttc::Transport::tls_with_config(tls_config));
             } else if let Some(ca_path) = &config.tls_ca_path {
                 // CA-only TLS (server verification, no client cert)
-                let ca =
-                    std::fs::read(ca_path).map_err(|e| format!("Failed to read CA cert: {e}"))?;
+                let ca = std::fs::read(ca_path).map_err(|e| {
+                    OmniError::new(
+                        omnipanel_error::ErrorCode::Io,
+                        format!("Failed to read CA cert: {e}"),
+                    )
+                })?;
                 let tls_config = rumqttc::TlsConfiguration::Simple {
                     ca,
                     alpn: None,
@@ -173,47 +190,47 @@ impl MqttSession {
     }
 
     /// Subscribe to a topic.
-    pub async fn subscribe(&self, topic: &str, qos: u8) -> Result<(), String> {
+    pub async fn subscribe(&self, topic: &str, qos: u8) -> OmniResult<()> {
         let qos = match qos {
             0 => rumqttc::QoS::AtMostOnce,
             1 => rumqttc::QoS::AtLeastOnce,
             2 => rumqttc::QoS::ExactlyOnce,
-            _ => return Err(format!("Invalid QoS: {qos}")),
+            _ => return Err(OmniError::invalid_input(format!("Invalid QoS: {qos}"))),
         };
         self.client
             .subscribe(topic, qos)
             .await
-            .map_err(|e| format!("Subscribe failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Subscribe failed: {e}")))
     }
 
     /// Unsubscribe from a topic.
-    pub async fn unsubscribe(&self, topic: &str) -> Result<(), String> {
+    pub async fn unsubscribe(&self, topic: &str) -> OmniResult<()> {
         self.client
             .unsubscribe(topic)
             .await
-            .map_err(|e| format!("Unsubscribe failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Unsubscribe failed: {e}")))
     }
 
     /// Publish a message.
-    pub async fn publish(&self, msg: MqttPublish) -> Result<(), String> {
+    pub async fn publish(&self, msg: MqttPublish) -> OmniResult<()> {
         let qos = match msg.qos {
             0 => rumqttc::QoS::AtMostOnce,
             1 => rumqttc::QoS::AtLeastOnce,
             2 => rumqttc::QoS::ExactlyOnce,
-            _ => return Err(format!("Invalid QoS: {}", msg.qos)),
+            _ => return Err(OmniError::invalid_input(format!("Invalid QoS: {}", msg.qos))),
         };
         self.client
             .publish(msg.topic, qos, msg.retain, msg.payload.as_bytes())
             .await
-            .map_err(|e| format!("Publish failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Publish failed: {e}")))
     }
 
     /// Disconnect from the broker.
-    pub async fn disconnect(&self) -> Result<(), String> {
+    pub async fn disconnect(&self) -> OmniResult<()> {
         self.client
             .disconnect()
             .await
-            .map_err(|e| format!("Disconnect failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Disconnect failed: {e}")))
     }
 }
 

@@ -1,3 +1,4 @@
+use omnipanel_error::{OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -159,7 +160,7 @@ pub async fn start_capture(
     sessions: &SnifferSessions,
     interface: String,
     filter: String,
-) -> Result<String, String> {
+) -> OmniResult<String> {
     let id = format!(
         "sniffer-{}",
         std::time::SystemTime::now()
@@ -178,9 +179,11 @@ pub async fn start_capture(
 }
 
 /// 停止抓包。
-pub async fn stop_capture(sessions: &SnifferSessions, capture_id: &str) -> Result<(), String> {
+pub async fn stop_capture(sessions: &SnifferSessions, capture_id: &str) -> OmniResult<()> {
     let mut sessions = sessions.lock().await;
-    let session = sessions.get_mut(capture_id).ok_or("Capture not found")?;
+    let session = sessions
+        .get_mut(capture_id)
+        .ok_or_else(|| OmniError::not_found("Capture not found"))?;
     session.stop();
     Ok(())
 }
@@ -190,9 +193,11 @@ pub async fn get_packets(
     sessions: &SnifferSessions,
     capture_id: &str,
     limit: Option<usize>,
-) -> Result<Vec<SnifferPacket>, String> {
+) -> OmniResult<Vec<SnifferPacket>> {
     let sessions = sessions.lock().await;
-    let session = sessions.get(capture_id).ok_or("Capture not found")?;
+    let session = sessions
+        .get(capture_id)
+        .ok_or_else(|| OmniError::not_found("Capture not found"))?;
     let limit = limit.unwrap_or(100);
     let start = if session.packets.len() > limit {
         session.packets.len() - limit
@@ -206,9 +211,11 @@ pub async fn get_packets(
 pub async fn get_stats(
     sessions: &SnifferSessions,
     capture_id: &str,
-) -> Result<CaptureStats, String> {
+) -> OmniResult<CaptureStats> {
     let sessions = sessions.lock().await;
-    let session = sessions.get(capture_id).ok_or("Capture not found")?;
+    let session = sessions
+        .get(capture_id)
+        .ok_or_else(|| OmniError::not_found("Capture not found"))?;
     Ok(CaptureStats {
         capture_id: capture_id.to_string(),
         iface: session.interface.clone(),

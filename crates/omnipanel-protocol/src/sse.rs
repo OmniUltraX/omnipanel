@@ -5,12 +5,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
+use omnipanel_error::{OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 
-use crate::commands::proxy::{build_http_client_for_url, normalize_localhost_url};
-use crate::state::ProxyConfig;
+use crate::proxy::{self, ProxyConfig};
 
 /// SSE 连接配置（前端已解析 Query；认证与 HTTP 一样走 auth 字段）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,8 +60,8 @@ impl SseSession {
         config: SseConfig,
         proxy_config: &ProxyConfig,
         on_event: mpsc::UnboundedSender<SseEventMessage>,
-    ) -> Result<Self, String> {
-        let url = normalize_localhost_url(&config.url);
+    ) -> OmniResult<Self> {
+        let url = proxy::normalize_localhost_url(&config.url);
         let method = config.method.to_uppercase();
         // 调试：核对前端传入的原始配置（含认证字段是否落到 Rust）
         tracing::info!(
@@ -77,8 +77,11 @@ impl SseSession {
         );
 
         // SSE 长连接：关闭短超时（用近乎无限的读超时，由会话 abort 结束）
-        let client =
-            build_http_client_for_url(&url, proxy_config, Duration::from_secs(60 * 60 * 24 * 7))?;
+        let client = proxy::build_http_client_for_url(
+            &url,
+            proxy_config,
+            Duration::from_secs(60 * 60 * 24 * 7),
+        )?;
 
         let mut req = match method.as_str() {
             "GET" => client.get(&url),
@@ -88,7 +91,11 @@ impl SseSession {
             "DELETE" => client.delete(&url),
             "HEAD" => client.head(&url),
             "OPTIONS" => client.request(reqwest::Method::OPTIONS, &url),
-            _ => return Err(format!("Unsupported SSE HTTP method: {method}")),
+            _ => {
+                return Err(OmniError::invalid_input(format!(
+                    "Unsupported SSE HTTP method: {method}"
+                )));
+            }
         };
         let mut outgoing_headers: HashMap<String, String> = HashMap::new();
         let mut has_accept = false;
@@ -176,7 +183,10 @@ impl SseSession {
             "SSE connect: outgoing request"
         );
 
-        let resp = req.send().await.map_err(|e| format!("SSE 连接失败: {e}"))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| OmniError::connection(format!("SSE 连接失败: {e}")))?;
 
         tracing::info!(
             target: "protocol_sse",
@@ -192,11 +202,11 @@ impl SseSession {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(format!(
+            return Err(OmniError::connection(format!(
                 "SSE 连接失败 (HTTP {}): {}",
                 status.as_u16(),
                 body.chars().take(200).collect::<String>()
-            ));
+            )));
         }
 
         let mut stream = resp.bytes_stream();

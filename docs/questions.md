@@ -40,10 +40,10 @@
 - crate 边界形同虚设（“该进 crate 的还在壳里”）  
 - `Result<T, String>` 与 `OmniError` 并存（database/protocol 等仍大量 String），错误模型未收敛
 
-**进展（Q3 第一刀 · panel 已下沉；第二刀 · protocol grpc/modbus 已下沉）**：
+**进展（Q3 第一刀 · panel 已下沉；第二刀 · protocol grpc/modbus 已下沉；第三刀 · 剩余协议 + proxy 解耦）**：
 - 新建 `crates/omnipanel-panel`（`btpanel` + `onepanel`），以原 `src-tauri/src/panel/` 为权威源迁入；`omnipanel-app` 与 `omnipanel-server` 改为依赖该 crate，删除两边本地 `panel/` 源文件。命令层（`commands/panel.rs` / `panel_cmds.rs`）仅改 import，IPC 语义不变。
-- 新建 `crates/omnipanel-protocol`（`grpc` + `modbus`），以桌面 `src-tauri/src/protocol/{grpc,modbus}.rs` 为权威源合并；会话表仍在命令层 / `AppState`·`ServerState`。桌面删除本地副本，server 删除整个仅含这两文件的 `protocol/` 模块。**其余协议（http/ws/mqtt/sse/serial/redis/sniffer）仍在壳里，待后续下沉。**
-
+- 新建 `crates/omnipanel-protocol`（`grpc` + `modbus`），以桌面 `src-tauri/src/protocol/{grpc,modbus}.rs` 为权威源合并；会话表仍在命令层 / `AppState`·`ServerState`。桌面删除本地副本，server 删除整个仅含这两文件的 `protocol/` 模块。
+- **第三刀**：`http` / `sse` / `ws` / `mqtt` / `redis_pubsub` / `serial` / `sniffer` 全部下沉到 `omnipanel-protocol`；桌面删除 `src-tauri/src/protocol/`。`proxy` 客户端构建抽到 `omnipanel_protocol::proxy`（`ProxyConfig` DTO + `build_http_client_for_url` 等），命令层薄包装 `map_err(|e| e.to_string())`；Web `http_client` 同样改走 crate。crate API 用 `OmniResult`，IPC 签名未改。
 ---
 
 ## 4. AI 能力是“产品三条线”，不是清晰子系统
@@ -83,6 +83,24 @@ Rust：`omnipanel-ai` / `mcp` / `gateway`（再加前端 `lib/ai` 近 90 文件 
 - 数据库、Docker、云等可插拔子系统（包边界 + 懒加载 + 独立发布节奏）  
 
 现在更像**功能加法**，缺少“什么可以不进主进程/主包”的架构决策。
+
+**最佳方案（已拍板方向 · Host + 卫星，不另造子系统框架）**：
+
+| 层 | 放什么 | 工程形态 |
+|----|--------|----------|
+| **L0 核心壳** | Dock/侧栏/路由、插件宿主、`plugin_invoke`、连接/vault/grant、终端·SSH·文件、AI 编排入口、在场验证 | 永远进主进程；禁止旁路 |
+| **L1 近核工作台** | 数据库、Docker（编排深、上下文连续） | monorepo 内分包 + 懒加载；**不**整模块插件化；引擎/面板用已有 `engine`/`panel` 切面 |
+| **L2 卫星** | 云厂商、第三方中间件、导入器、主题/addon | **只走**现有 `kind=cloud` / `module` / `importer` / …；独立插件包发版 |
+| **L3 协议** | 协议实验室 | Protocol Host（壳在核心）+ 实现进 `omnipanel-protocol`；Tab/模块可关；中期再 capability 化 |
+
+**三条铁律**：① 禁止再新增内核 `ModuleKey` 做卫星产品；② 第一方能力不得再开静态 IPC 特例（阿里云等收口到 `plugin_invoke`）；③ 「可插拔」优先 = 可关 + Host 合同 + 独立发版，**不是**另起可运行 App。
+
+**落地顺序**：冻结 ModuleKey → 云/中间件只扩插件 → 协议继续下沉 + Host → 运行时默认关卫星 → 最后才 Cargo feature / 发行 SKU。
+
+**进展（Q6 · Protocol Host 合同草图）**：
+- 新增 `frontend/src/lib/protocol/protocolCapability.ts`（`ProtocolCapability` 类型：id / labelKey / sidebar? / panel? / enabledByDefault? / devLocked? 等）
+- 新增 `frontend/src/lib/protocol/protocolCapabilityRegistry.ts`：内置注册表包装现有 `protocolLabConfig` tab 列表与可见性规则；`ProtocolPanel` 小步改读 registry 判断可见 tab，**未**把大 switch 改成全动态填槽
+- 后端协议实现已进 `omnipanel-protocol`（见 §3 第三刀）；开放 `kind=protocol` 插件仍后置
 
 ---
 

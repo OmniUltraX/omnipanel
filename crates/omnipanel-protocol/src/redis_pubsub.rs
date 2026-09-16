@@ -1,3 +1,4 @@
+use omnipanel_error::{OmniError, OmniResult};
 use redis::aio::MultiplexedConnection;
 use redis::{AsyncCommands, Client};
 use serde::{Deserialize, Serialize};
@@ -47,14 +48,15 @@ impl RedisPubSubSession {
     pub async fn connect(
         config: RedisPubSubConfig,
         on_message: tokio_mpsc::UnboundedSender<RedisPubSubMessage>,
-    ) -> Result<Self, String> {
+    ) -> OmniResult<Self> {
         let url = build_redis_url(&config);
-        let client = Client::open(url.as_str()).map_err(|e| format!("Invalid Redis URL: {e}"))?;
+        let client = Client::open(url.as_str())
+            .map_err(|e| OmniError::invalid_input(format!("Invalid Redis URL: {e}")))?;
 
         let publish_conn = client
             .get_multiplexed_tokio_connection()
             .await
-            .map_err(|e| format!("Redis connect failed: {e}"))?;
+            .map_err(|e| OmniError::connection(format!("Redis connect failed: {e}")))?;
 
         let (cmd_tx, cmd_rx) = mpsc::channel::<PubSubCommand>();
         let reader_client = client.clone();
@@ -117,23 +119,23 @@ impl RedisPubSubSession {
         })
     }
 
-    pub fn subscribe(&self, channel: &str) -> Result<(), String> {
+    pub fn subscribe(&self, channel: &str) -> OmniResult<()> {
         self.cmd_tx
             .send(PubSubCommand::Subscribe(channel.to_string()))
-            .map_err(|e| format!("Subscribe failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Subscribe failed: {e}")))
     }
 
-    pub fn unsubscribe(&self, channel: &str) -> Result<(), String> {
+    pub fn unsubscribe(&self, channel: &str) -> OmniResult<()> {
         self.cmd_tx
             .send(PubSubCommand::Unsubscribe(channel.to_string()))
-            .map_err(|e| format!("Unsubscribe failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Unsubscribe failed: {e}")))
     }
 
-    pub async fn publish(&self, msg: RedisPubSubPublish) -> Result<u64, String> {
+    pub async fn publish(&self, msg: RedisPubSubPublish) -> OmniResult<u64> {
         let mut conn = self.publish_conn.clone();
         conn.publish::<_, _, u64>(&msg.channel, &msg.message)
             .await
-            .map_err(|e| format!("Publish failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Publish failed: {e}")))
     }
 
     pub fn disconnect(&self) {
