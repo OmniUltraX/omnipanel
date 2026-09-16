@@ -6,6 +6,7 @@ import GridLayout, {
 import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
 import { IconSettings, IconTrash } from "../../components/ui/icons/Icons";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
 import { Button } from "../../components/ui/primitives/Button";
 import { useI18n } from "../../i18n";
@@ -129,12 +130,14 @@ export function HomeCustomPanelView({ panelId }: HomeCustomPanelViewProps) {
       {
         id: "custom-panel-add-widget",
         label: t("homeWorkspace.customPanel.addWidget"),
+        icon: contextMenuIcons.widget,
         onClick: () => setPickerOpen(true),
       },
       { id: "custom-panel-sep-share", separator: true, label: "" },
       {
         id: GLOBAL_SHARE_MENU_ID,
         label: t("share.menu"),
+        icon: contextMenuIcons.share,
         onClick: () =>
           openShareDialog(buildCustomPanelSharePayload(panelId)),
       },

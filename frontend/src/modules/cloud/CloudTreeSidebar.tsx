@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { Button } from "@/components/ui/Button";
 import { IconPlus } from "@/components/ui/Icons";
 import { MultiSelect } from "@/components/ui/form/MultiSelect";
@@ -369,6 +370,7 @@ export function CloudTreeSidebar({
         items.push({
           id: "openConsole",
           label: t("cloud.actions.openConsole"),
+          icon: contextMenuIcons.openExternal,
           onClick: () => {
             void openExternal(consoleUrl);
           },
@@ -378,6 +380,7 @@ export function CloudTreeSidebar({
         items.push({
           id: "edit",
           label: t("common.edit"),
+          icon: contextMenuIcons.edit,
           onClick: () => onEditAccount(ctxTarget.account),
         });
       }
@@ -385,6 +388,7 @@ export function CloudTreeSidebar({
         items.push({
           id: "delete",
           label: t("common.delete"),
+          icon: contextMenuIcons.delete,
           danger: true,
           onClick: () => onDeleteAccount(ctxTarget.account.id),
         });
@@ -395,6 +399,7 @@ export function CloudTreeSidebar({
       items.push({
         id: "refresh",
         label: t("cloud.tree.refresh"),
+        icon: contextMenuIcons.refresh,
         onClick: () => {
           const cap = cloudCapabilitiesForPlugin(ctxTarget.account.pluginId).find(
             (item) => item.id === ctxTarget.capabilityId,
@@ -419,6 +424,7 @@ export function CloudTreeSidebar({
     items.push({
       id: "openDetail",
       label: t("cloud.tree.openDetail"),
+      icon: contextMenuIcons.open,
       onClick: () =>
         onNavigate(
           {
@@ -434,6 +440,7 @@ export function CloudTreeSidebar({
     items.push({
       id: "copyId",
       label: t("cloud.tree.copyId"),
+      icon: contextMenuIcons.copy,
       onClick: () => {
         void copyCloudText(row.id).then((ok) => {
           if (ok) showToast(t("common.copied"));
@@ -445,6 +452,7 @@ export function CloudTreeSidebar({
       items.push({
         id: "copyIp",
         label: t("cloud.tree.copyIp"),
+        icon: contextMenuIcons.copy,
         onClick: () => {
           void copyCloudText(publicIp).then((ok) => {
             if (ok) showToast(t("common.copied"));
@@ -456,6 +464,7 @@ export function CloudTreeSidebar({
       items.push({
         id: "addSsh",
         label: t("server.cloud.actions.addSsh"),
+        icon: contextMenuIcons.connect,
         onClick: () => {
           void (async () => {
             try {

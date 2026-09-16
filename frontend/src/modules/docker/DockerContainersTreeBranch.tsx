@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { SidebarTreeEmpty, SidebarTreeNode } from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo, DockerContainerSummary } from "@/ipc/bindings";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
@@ -130,6 +131,7 @@ export function DockerContainersTreeBranch({
         {
           id: "compose-down",
           label: t("docker.composePanel.down"),
+          icon: contextMenuIcons.stop,
           danger: true,
           onClick: () => {
             void (async () => {
@@ -153,6 +155,7 @@ export function DockerContainersTreeBranch({
       {
         id: "container-remove",
         label: t("docker.dockPanel.removeContainer"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => {
           void (async () => {

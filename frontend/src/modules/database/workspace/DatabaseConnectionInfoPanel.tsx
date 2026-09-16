@@ -8,6 +8,7 @@ import { Button } from "../../../components/ui/primitives/Button";
 import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
 import { ScopedSearch } from "../../../components/ui/search/ScopedSearch";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useSshConnectionStore } from "../../../stores/sshConnectionStore";
 import { useDbWorkspace } from "../../../contexts/DbWorkspaceContext";
@@ -1201,11 +1202,13 @@ export function DatabaseConnectionInfoPanel({
       {
         id: "open",
         label: t("database.connectionInfo.databases.open"),
+        icon: contextMenuIcons.open,
         onClick: () => openDatabase(dbName),
       },
       {
         id: "copy-name",
         label: t("database.connectionInfo.databases.copyName"),
+        icon: contextMenuIcons.copy,
         onClick: () => {
           void navigator.clipboard.writeText(dbName).then(
             () => showToast(t("database.connectionInfo.databases.copiedName")),

@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from "../ui/menu/ContextMenu";
+import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 
 export type FileEntryCtxLabels = {
   open: string;
@@ -58,6 +59,7 @@ export function buildFileEntryContextMenuItems(
     items.push({
       id: "open",
       label: isDir ? labels.openDir : labels.openFile,
+      icon: contextMenuIcons.open,
       onClick: handlers.onOpen,
     });
   }
@@ -65,6 +67,7 @@ export function buildFileEntryContextMenuItems(
     items.push({
       id: "edit",
       label: labels.edit,
+      icon: contextMenuIcons.edit,
       onClick: handlers.onEdit,
     });
   }
@@ -72,19 +75,35 @@ export function buildFileEntryContextMenuItems(
     items.push({
       id: "download",
       label: labels.download,
+      icon: contextMenuIcons.download,
       onClick: handlers.onDownload,
     });
   }
 
   pushSep(items, "sep-copy");
   if (handlers.onCopyName) {
-    items.push({ id: "copy-name", label: labels.copyName, onClick: handlers.onCopyName });
+    items.push({
+      id: "copy-name",
+      label: labels.copyName,
+      icon: contextMenuIcons.copy,
+      onClick: handlers.onCopyName,
+    });
   }
   if (handlers.onCopyPath) {
-    items.push({ id: "copy-path", label: labels.copyPath, onClick: handlers.onCopyPath });
+    items.push({
+      id: "copy-path",
+      label: labels.copyPath,
+      icon: contextMenuIcons.clipboard,
+      onClick: handlers.onCopyPath,
+    });
   }
   if (isDir && handlers.onCopyCd) {
-    items.push({ id: "copy-cd", label: labels.copyCd, onClick: handlers.onCopyCd });
+    items.push({
+      id: "copy-cd",
+      label: labels.copyCd,
+      icon: contextMenuIcons.terminal,
+      onClick: handlers.onCopyCd,
+    });
   }
 
   const hasShell =
@@ -92,18 +111,34 @@ export function buildFileEntryContextMenuItems(
   if (hasShell) {
     pushSep(items, "sep-shell");
     if (isDir && handlers.onListDir) {
-      items.push({ id: "list-dir", label: labels.listDir, onClick: handlers.onListDir });
+      items.push({
+        id: "list-dir",
+        label: labels.listDir,
+        icon: contextMenuIcons.list,
+        onClick: handlers.onListDir,
+      });
     }
     if (!isDir && handlers.onViewContent) {
-      items.push({ id: "view-content", label: labels.viewContent, onClick: handlers.onViewContent });
+      items.push({
+        id: "view-content",
+        label: labels.viewContent,
+        icon: contextMenuIcons.file,
+        onClick: handlers.onViewContent,
+      });
     }
     if (handlers.onShowInfo) {
-      items.push({ id: "show-info", label: labels.showInfo, onClick: handlers.onShowInfo });
+      items.push({
+        id: "show-info",
+        label: labels.showInfo,
+        icon: contextMenuIcons.info,
+        onClick: handlers.onShowInfo,
+      });
     }
     if (handlers.onRevealInSftp) {
       items.push({
         id: "reveal-sftp",
         label: labels.revealInSftp,
+        icon: contextMenuIcons.sftp,
         onClick: handlers.onRevealInSftp,
       });
     }
@@ -113,15 +148,26 @@ export function buildFileEntryContextMenuItems(
   if (hasMutate) {
     pushSep(items, "sep-mutate");
     if (handlers.onRename) {
-      items.push({ id: "rename", label: labels.rename, onClick: handlers.onRename });
+      items.push({
+        id: "rename",
+        label: labels.rename,
+        icon: contextMenuIcons.rename,
+        onClick: handlers.onRename,
+      });
     }
     if (handlers.onChmod) {
-      items.push({ id: "chmod", label: labels.chmod, onClick: handlers.onChmod });
+      items.push({
+        id: "chmod",
+        label: labels.chmod,
+        icon: contextMenuIcons.chmod,
+        onClick: handlers.onChmod,
+      });
     }
     if (handlers.onDelete) {
       items.push({
         id: "delete",
         label: labels.delete,
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: handlers.onDelete,
       });

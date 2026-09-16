@@ -6,6 +6,7 @@ import { Select } from "../../../../components/ui/Select";
 import { PasswordInput } from "../../../../components/ui/PasswordInput";
 import { TextInput } from "../../../../components/ui/TextInput";
 import type { ContextMenuItem } from "../../../../components/ui/ContextMenu";
+import { contextMenuIcons } from "../../../../components/ui/menu/contextMenuIcons";
 import { FormDialog } from "../../../../components/ui/form/FormDialog";
 import { IconCopy } from "../../../../components/ui/icons/Icons";
 import { Button } from "../../../../components/ui/primitives/Button";
@@ -593,6 +594,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                           {
                             id: "ssh-key-details",
                             label: t("ssh.keys.details"),
+                            icon: contextMenuIcons.info,
                             disabled: detailLoading,
                             onClick: () => void handleViewDetails(key.name),
                           },
@@ -601,6 +603,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                           contextMenuItems.push({
                             id: "ssh-key-copy-path",
                             label: t("ssh.keys.copyPath"),
+                            icon: contextMenuIcons.copy,
                             onClick: () => void handleCopyText(key.path),
                           });
                         }

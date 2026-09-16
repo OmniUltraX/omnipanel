@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import { Button } from "../ui/Button";
 import {
   VerticalSplitSidebarSection,
@@ -50,11 +51,13 @@ export function ServerSidebar({
     {
       id: "edit",
       label: t("server.sidebar.edit"),
+      icon: contextMenuIcons.edit,
       onClick: () => ctxServer && onEditServer?.(ctxServer),
     },
     {
       id: "delete",
       label: t("server.sidebar.delete"),
+      icon: contextMenuIcons.delete,
       danger: true,
       onClick: () => ctxServer && onDeleteServer?.(ctxServer.id),
     },

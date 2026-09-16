@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog, save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { FileEntryIcon } from "../../components/ui/icons/FileEntryIcon";
 import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
@@ -1347,6 +1348,7 @@ export function FileConnectionPanel({
       {
         id: "open",
         label: t("files.context.open"),
+        icon: contextMenuIcons.open,
         onClick: () => handleActivate(entry),
       },
     ];
@@ -1358,6 +1360,7 @@ export function FileConnectionPanel({
       items.push({
         id: "favorite",
         label: isFav ? t("files.sidebar.removeFavoriteCurrent") : t("files.sidebar.addFavorite"),
+        icon: contextMenuIcons.star,
         onClick: () => toggleFavoritePath(favPath),
       });
     }
@@ -1366,6 +1369,7 @@ export function FileConnectionPanel({
         items.push({
           id: "download",
           label: t("files.actions.download"),
+          icon: contextMenuIcons.download,
           onClick: () => void handleDownload(entry),
         });
       }
@@ -1373,6 +1377,7 @@ export function FileConnectionPanel({
         items.push({
           id: "copyLink",
           label: t("files.context.copyLink"),
+          icon: contextMenuIcons.copy,
           onClick: () => void handleCopyS3Link(entry),
         });
       }
@@ -1382,16 +1387,19 @@ export function FileConnectionPanel({
       {
         id: "copy",
         label: t("files.clipboard.copy"),
+        icon: contextMenuIcons.copy,
         onClick: () => handleClipboardCopy(entry),
       },
       {
         id: "cut",
         label: t("files.clipboard.cutAction"),
+        icon: contextMenuIcons.cut,
         onClick: () => handleClipboardCut(entry),
       },
       {
         id: "paste",
         label: t("files.clipboard.paste"),
+        icon: contextMenuIcons.paste,
         disabled: clipboardItems.length === 0,
         onClick: () => void handleClipboardPaste(),
       },
@@ -1401,11 +1409,13 @@ export function FileConnectionPanel({
       {
         id: "rename",
         label: t("files.actions.rename"),
+        icon: contextMenuIcons.rename,
         onClick: () => void handleRename(entry),
       },
       {
         id: "delete",
         label: t("files.actions.delete"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => void handleDeleteMulti(getSelectedEntries()),
       },
@@ -1413,6 +1423,7 @@ export function FileConnectionPanel({
       {
         id: "properties",
         label: t("files.context.properties"),
+        icon: contextMenuIcons.properties,
         onClick: () => setSelected(entry),
       },
     );

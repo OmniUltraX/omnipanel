@@ -12,6 +12,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { ScopedSearch } from "../../components/ui/ScopedSearch";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { Button } from "../../components/ui/Button";
 import {
   usePersistedVerticalSplitSections,
@@ -724,11 +725,13 @@ export function KnowledgeSidebar() {
             {
               id: "new-folder",
               label: t("knowledge.tree.newFolder"),
+              icon: contextMenuIcons.folder,
               onClick: () => void createFolder(parentId),
             },
             {
               id: "new-doc",
               label: t("knowledge.tree.newDocument"),
+              icon: contextMenuIcons.file,
               onClick: () => void handleCreateDocument(parentId),
             },
           ]
@@ -738,11 +741,13 @@ export function KnowledgeSidebar() {
       {
         id: "open-preview",
         label: t("knowledge.tree.openPreview"),
+        icon: contextMenuIcons.open,
         onClick: () => openEntry(ctxEntry.id, "preview"),
       },
       {
         id: "open-permanent",
         label: t("knowledge.tree.openPermanent"),
+        icon: contextMenuIcons.open,
         onClick: () => {
           if (isFolder) {
             setExpanded(ctxEntry.id, true);
@@ -761,6 +766,7 @@ export function KnowledgeSidebar() {
       {
         id: "import-pdf",
         label: t("knowledge.tree.importPdf"),
+        icon: contextMenuIcons.import,
         onClick: () => void handleImportPdf(parentId),
       },
       ...(!isFolder
@@ -769,16 +775,19 @@ export function KnowledgeSidebar() {
             {
               id: "export-md",
               label: t("knowledge.export.markdown"),
+              icon: contextMenuIcons.export,
               onClick: () => void handleExportMarkdown(ctxEntry),
             },
             {
               id: "export-pdf",
               label: t("knowledge.export.pdf"),
+              icon: contextMenuIcons.export,
               onClick: () => void handleExportPdf(ctxEntry),
             },
             {
               id: GLOBAL_SHARE_MENU_ID,
               label: t("share.menu"),
+              icon: contextMenuIcons.share,
               onClick: () =>
                 openShareDialog(buildKnowledgeEntrySharePayload(ctxEntry)),
             },
@@ -786,6 +795,7 @@ export function KnowledgeSidebar() {
             {
               id: "vectorize",
               label: t("knowledge.vectorize.parse"),
+              icon: contextMenuIcons.vectorize,
               shortcut: ctxVectorized ? t("knowledge.vectorize.reparse") : undefined,
               disabled: !embeddingProvider || isKnowledgeEntryVectorizing(ctxEntry.id),
               onClick: () => void handleVectorize(ctxEntry),
@@ -793,6 +803,7 @@ export function KnowledgeSidebar() {
             {
               id: "text-chunks",
               label: t("knowledge.chunks.open"),
+              icon: contextMenuIcons.list,
               disabled: !ctxVectorized,
               onClick: () => openEntryChunks(ctxEntry.id),
             },
@@ -802,17 +813,20 @@ export function KnowledgeSidebar() {
       {
         id: "copy-title",
         label: t("knowledge.tree.copyTitle"),
+        icon: contextMenuIcons.copy,
         onClick: () => void handleCopyTitle(ctxEntry),
       },
       {
         id: "rename",
         label: t("knowledge.tree.rename"),
+        icon: contextMenuIcons.rename,
         shortcut: "F2",
         onClick: () => void handleRename(ctxEntry),
       },
       {
         id: "copy",
         label: t("knowledge.tree.duplicate"),
+        icon: contextMenuIcons.duplicate,
         shortcut: "Ctrl+D",
         onClick: () => void duplicateEntry(ctxEntry.id),
       },
@@ -820,6 +834,7 @@ export function KnowledgeSidebar() {
       {
         id: "delete",
         label: t("knowledge.delete"),
+        icon: contextMenuIcons.delete,
         shortcut: "Del",
         danger: true,
         onClick: () => {
@@ -1179,11 +1194,13 @@ export function KnowledgeSidebar() {
                       {
                         id: "blank-folder",
                         label: t("knowledge.tree.newFolder"),
+                        icon: contextMenuIcons.folder,
                         onClick: () => void createFolder(parentForNew("selfBuilt")),
                       },
                       {
                         id: "blank-doc",
                         label: t("knowledge.tree.newDocument"),
+                        icon: contextMenuIcons.file,
                         onClick: () => void handleCreateDocument(parentForNew("selfBuilt")),
                       },
                     ]
@@ -1191,6 +1208,7 @@ export function KnowledgeSidebar() {
                       {
                         id: "blank-import-pdf",
                         label: t("knowledge.tree.importPdf"),
+                        icon: contextMenuIcons.import,
                         onClick: () => void handleImportPdf(parentForNew("imported")),
                       },
                     ]

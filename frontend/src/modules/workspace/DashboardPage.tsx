@@ -8,6 +8,7 @@ import {
   type TabContextMenuAction,
 } from "../../components/ui/menu";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
+import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
 import { appConfirm } from "../../lib/appConfirm";
 import { quickInput } from "../../lib/quickInput";
@@ -212,6 +213,7 @@ export function DashboardPage() {
       {
         id: GLOBAL_SHARE_MENU_ID,
         label: t("share.menu"),
+        icon: contextMenuIcons.share,
         onClick: () =>
           openShareDialog(buildCustomPanelSharePayload(tabId)),
       },
@@ -219,6 +221,7 @@ export function DashboardPage() {
       {
         id: "tab-delete-custom-panel",
         label: t("homeWorkspace.customPanel.deleteMenu"),
+        icon: contextMenuIcons.delete,
         danger: true,
         onClick: () => {
           void handleDeleteCustomPanel(tabId);

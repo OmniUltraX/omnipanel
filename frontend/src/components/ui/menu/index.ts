@@ -3,5 +3,6 @@ export {
   buildTabCloseMenuItems,
   type TabContextMenuAction,
 } from "./contextMenuItems";
+export { contextMenuIcons, ContextMenuIcon } from "./contextMenuIcons";
 export { ToolbarMenuButton } from "./ToolbarMenuButton";
 export { IconDropdownButton } from "./IconDropdownButton";

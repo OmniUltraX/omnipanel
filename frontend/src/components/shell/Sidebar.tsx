@@ -20,6 +20,7 @@ import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { sidebarItemsForVisible, type SidebarNavItem } from "../../lib/sidebarNav";
 import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
 import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import {
   isModuleWindowSupported,
   openModuleWindow,
@@ -180,6 +181,7 @@ export function Sidebar() {
         {
           id: "open-in-new-window",
           label: t("shell.nav.openInNewWindow"),
+          icon: contextMenuIcons.window,
           onClick: () => handleOpenInNewWindow(ctxMenu.path),
         },
       ]

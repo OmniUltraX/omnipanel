@@ -26,6 +26,7 @@ import {
 import { moveWorkspaceTabToMain } from "../../lib/crossWindowDockTransfer";
 import { deliverSnapshotToWorkspace } from "../../lib/workspaceSnapshotDelivery";
 import { ContextMenu, type ContextMenuItem } from "../ui/menu/ContextMenu";
+import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import { buildTabBulkCloseSubmenuItems } from "../ui/menu/contextMenuItems";
 import { useI18n } from "../../i18n";
 import { WorkspaceDockTabPanel } from "./WorkspaceDockTabPanel";
@@ -330,6 +331,7 @@ export function WorkspaceDockCore({
         items.push({
           id: "ws-tab-refresh",
           label: t("shell.topbar.refresh"),
+          icon: contextMenuIcons.refresh,
           onClick: () => handleRefreshTab(ctxTab.id),
         });
         items.push({ id: "ws-tab-sep-1", separator: true, label: "" });
@@ -339,6 +341,7 @@ export function WorkspaceDockCore({
         items.push({
           id: "ws-tab-move-to-main",
           label: t("shell.workspace.moveToMain"),
+          icon: contextMenuIcons.move,
           onClick: () => {
             void handleMoveToMain(ctxTab);
           },
@@ -367,6 +370,7 @@ export function WorkspaceDockCore({
         items.push({
           id: "ws-tab-move-to-other-ws",
           label: t("shell.workspace.moveToOther"),
+          icon: contextMenuIcons.move,
           children: wsChildren,
         });
       }
@@ -379,11 +383,13 @@ export function WorkspaceDockCore({
         items.push({
           id: "ws-tab-close",
           label: t("shell.topbar.closeCurrent"),
+          icon: contextMenuIcons.close,
           onClick: () => handleCloseAction("close"),
         });
         items.push({
           id: "ws-tab-close-bulk",
           label: t("shell.topbar.closeTabs"),
+          icon: contextMenuIcons.close,
           children: buildTabBulkCloseSubmenuItems(
             t,
             tabCount,

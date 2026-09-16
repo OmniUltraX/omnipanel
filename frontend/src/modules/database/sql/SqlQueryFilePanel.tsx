@@ -3,6 +3,7 @@ import { useI18n } from "../../../i18n";
 import { Button } from "../../../components/ui/primitives/Button";
 import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/search/ScopedSearch";
 import { ContextMenu } from "../../../components/ui/menu/ContextMenu";
+import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
 import { quickInput } from "../../../lib/quickInput";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { useDbSqlFileStore, type DbSqlFileNode } from "../../../stores/dbSqlFileStore";
@@ -719,6 +720,7 @@ export function SqlQueryFilePanel({
                   {
                     id: "new-folder-root",
                     label: t("database.queryFiles.newFolder"),
+                    icon: contextMenuIcons.folder,
                     onClick: () => void handleCreateFolder(),
                   },
                 ]
@@ -727,11 +729,13 @@ export function SqlQueryFilePanel({
                     {
                       id: "rename-tree-chart",
                       label: t("database.treeChart.rename"),
+                      icon: contextMenuIcons.rename,
                       onClick: () => void handleRenameTreeChart(ctxMenu.node as DbTreeChartFileNode),
                     },
                     {
                       id: "delete-tree-chart",
                       label: t("database.treeChart.delete"),
+                      icon: contextMenuIcons.delete,
                       danger: true,
                       onClick: () => {
                         deleteTreeChartNode(ctxMenu.node!.id);
@@ -744,21 +748,25 @@ export function SqlQueryFilePanel({
                       {
                         id: "new-file",
                         label: t("database.queryFiles.newFile"),
+                        icon: contextMenuIcons.file,
                         onClick: () => void handleCreateFile(ctxMenu.node!.id),
                       },
                       {
                         id: "new-folder",
                         label: t("database.queryFiles.newFolder"),
+                        icon: contextMenuIcons.folder,
                         onClick: () => void handleCreateFolder(ctxMenu.node!.id),
                       },
                       {
                         id: "rename",
                         label: t("database.queryFiles.rename"),
+                        icon: contextMenuIcons.rename,
                         onClick: () => void handleRename(ctxMenu.node as DbSqlFileNode),
                       },
                       {
                         id: "delete",
                         label: t("database.queryFiles.delete"),
+                        icon: contextMenuIcons.delete,
                         danger: true,
                         onClick: () => {
                           const folderId = ctxMenu.node!.id;
@@ -772,11 +780,13 @@ export function SqlQueryFilePanel({
                         {
                           id: "rename",
                           label: t("database.queryFiles.rename"),
+                          icon: contextMenuIcons.rename,
                           onClick: () => void handleRename(ctxMenu.node as DbSqlFileNode),
                         },
                         {
                           id: "delete",
                           label: t("database.queryFiles.delete"),
+                          icon: contextMenuIcons.delete,
                           danger: true,
                           onClick: () => deleteNode(ctxMenu.node!.id),
                         },
