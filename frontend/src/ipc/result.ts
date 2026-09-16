@@ -35,7 +35,9 @@ export function isAuthIpcError(error: unknown): boolean {
   const code = ipcErrorCode(error)?.toLowerCase();
   if (code === "auth") return true;
   const message = formatIpcError(error);
-  return /认证被拒绝|authentication (failed|rejected)|auth fail/i.test(message);
+  return /认证被拒绝|authentication (failed|rejected)|auth fail|API\s*接口密钥错误|密钥校验失败/i.test(
+    message,
+  );
 }
 
 const recentIpcErrors = new Map<string, number>();

@@ -20,11 +20,16 @@ use omnipanel_plugin::{
     LogicFuture, LogicPackage, PluginError, PluginHostBridge, PluginLogicExecutor,
     PluginLogicInstance,
 };
-use rquickjs::{Context, Function, Object, Runtime};
+use rquickjs::{Context, Ctx, Exception, Function, Object, Runtime};
 
 const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 const STACK_LIMIT: usize = 1024 * 1024;
 pub const DEFAULT_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// 宿主桥失败时抛真正的 JS Error，避免 `new_from_js_message` 伪装成类型转换错误。
+fn throw_host(ctx: &Ctx<'_>, msg: impl AsRef<str>) -> rquickjs::Error {
+    Exception::throw_message(ctx, msg.as_ref())
+}
 
 pub struct JsExecutor {
     call_timeout: Duration,
@@ -115,10 +120,8 @@ impl JsInstanceInner {
                 "hmac",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |spec: String| -> rquickjs::Result<String> {
-                        b.hmac(&spec).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.hmac", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>, spec: String| -> rquickjs::Result<String> {
+                        b.hmac(&spec).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -126,10 +129,8 @@ impl JsInstanceInner {
                 "hash",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |spec: String| -> rquickjs::Result<String> {
-                        b.hash(&spec).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.hash", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>, spec: String| -> rquickjs::Result<String> {
+                        b.hash(&spec).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -137,10 +138,8 @@ impl JsInstanceInner {
                 "sign",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |spec: String| -> rquickjs::Result<String> {
-                        b.sign(&spec).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.sign", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>, spec: String| -> rquickjs::Result<String> {
+                        b.sign(&spec).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -148,10 +147,8 @@ impl JsInstanceInner {
                 "encode",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |spec: String| -> rquickjs::Result<String> {
-                        b.encode(&spec).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.encode", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>, spec: String| -> rquickjs::Result<String> {
+                        b.encode(&spec).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -159,10 +156,8 @@ impl JsInstanceInner {
                 "netFetch",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |url: String| -> rquickjs::Result<String> {
-                        b.net_fetch(&url).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.netFetch", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>, url: String| -> rquickjs::Result<String> {
+                        b.net_fetch(&url).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -170,10 +165,8 @@ impl JsInstanceInner {
                 "fsRead",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |path: String| -> rquickjs::Result<String> {
-                        b.fs_read(&path).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.fsRead", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>, path: String| -> rquickjs::Result<String> {
+                        b.fs_read(&path).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -181,14 +174,9 @@ impl JsInstanceInner {
                 "connectionUpsert",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |json: String| -> rquickjs::Result<()> {
-                        b.connection_upsert(&json).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message(
-                                "host.connectionUpsert",
-                                "void",
-                                msg,
-                            )
-                        })
+                    move |ctx: Ctx<'_>, json: String| -> rquickjs::Result<()> {
+                        b.connection_upsert(&json)
+                            .map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -196,10 +184,9 @@ impl JsInstanceInner {
                 "invoke",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |method: String, args: String| -> rquickjs::Result<String> {
-                        b.invoke(&method, &args).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.invoke", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>, method: String, args: String| -> rquickjs::Result<String> {
+                        b.invoke(&method, &args)
+                            .map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -207,10 +194,8 @@ impl JsInstanceInner {
                 "vaultGet",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |key: String| -> rquickjs::Result<String> {
-                        b.vault_get(&key).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.vaultGet", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>, key: String| -> rquickjs::Result<String> {
+                        b.vault_get(&key).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -218,10 +203,8 @@ impl JsInstanceInner {
                 "vaultHas",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |key: String| -> rquickjs::Result<bool> {
-                        b.vault_has(&key).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.vaultHas", "boolean", msg)
-                        })
+                    move |ctx: Ctx<'_>, key: String| -> rquickjs::Result<bool> {
+                        b.vault_has(&key).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -229,10 +212,9 @@ impl JsInstanceInner {
                 "vaultPut",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |key: String, secret: String| -> rquickjs::Result<()> {
-                        b.vault_put(&key, &secret).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.vaultPut", "void", msg)
-                        })
+                    move |ctx: Ctx<'_>, key: String, secret: String| -> rquickjs::Result<()> {
+                        b.vault_put(&key, &secret)
+                            .map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -240,10 +222,8 @@ impl JsInstanceInner {
                 "vaultDelete",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |key: String| -> rquickjs::Result<()> {
-                        b.vault_delete(&key).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.vaultDelete", "void", msg)
-                        })
+                    move |ctx: Ctx<'_>, key: String| -> rquickjs::Result<()> {
+                        b.vault_delete(&key).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -251,10 +231,8 @@ impl JsInstanceInner {
                 "stateGet",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move || -> rquickjs::Result<String> {
-                        b.state_get().map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.stateGet", "string", msg)
-                        })
+                    move |ctx: Ctx<'_>| -> rquickjs::Result<String> {
+                        b.state_get().map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -262,10 +240,8 @@ impl JsInstanceInner {
                 "stateSet",
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
-                    move |payload: String| -> rquickjs::Result<()> {
-                        b.state_set(&payload).map_err(|msg| {
-                            rquickjs::Error::new_from_js_message("host.stateSet", "void", msg)
-                        })
+                    move |ctx: Ctx<'_>, payload: String| -> rquickjs::Result<()> {
+                        b.state_set(&payload).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
@@ -303,11 +279,13 @@ impl JsInstanceInner {
                     let detail = value
                         .as_exception()
                         .and_then(|exc| exc.message())
+                        .filter(|s| !s.trim().is_empty())
                         .unwrap_or_else(|| format!("{value:?}"));
                     if started.elapsed() >= call_timeout {
                         Err(format!("执行超时（{}ms 中断）", call_timeout.as_millis()))
                     } else {
-                        Err(format!("JS 异常: {detail}"))
+                        // 宿主桥已抛清晰 Error.message，避免再套一层「类型转换」噪音
+                        Err(detail)
                     }
                 }
                 Err(other) => Err(format!("{other}")),

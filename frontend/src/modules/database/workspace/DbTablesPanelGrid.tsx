@@ -73,7 +73,8 @@ export interface DbTablesPanelGridProps<T> {
   /** 传入后启用列宽拖拽，并持久化到 localStorage */
   columnResizeStorageKey?: string;
   /**
-   * @deprecated 面板网格已固定 Canvas 渲染；保留 prop 以免破坏调用方。
+   * @deprecated 无操作列时固定 Canvas；含 actions / actionsSticky 时自动改走 DOM tbody。
+   * 保留 prop 以免破坏调用方。
    */
   virtualizeRows?: boolean;
   /** Canvas 行高 */
@@ -233,11 +234,31 @@ function resolveDisplayText<T>(
 }
 
 function defaultColumnWidth<T>(column: DbTablesPanelGridColumn<T>): number {
-  if (isActionColumn(column as DbTablesPanelGridColumn<unknown>)) return 36;
-  return column.defaultWidth ?? (column.nameCell ? 180 : 120);
+  if (column.defaultWidth != null && Number.isFinite(column.defaultWidth)) {
+    return column.defaultWidth;
+  }
+  if (isActionColumn(column as DbTablesPanelGridColumn<unknown>)) return 72;
+  return column.nameCell ? 180 : 120;
 }
 
-/** 数据库侧栏/连接信息面板共用的对齐表格（固定 Canvas body）。 */
+function bodyCellClassName<T>(column: DbTablesPanelGridColumn<T>): string | undefined {
+  const classes: string[] = [];
+  if (column.nameCell) {
+    classes.push("db-tables-panel-grid__name");
+  }
+  if (column.variant === "actions") {
+    classes.push("db-tables-panel-grid__actions-col");
+  }
+  if (column.variant === "actionsSticky") {
+    classes.push("db-tables-panel-grid__actions-col", "db-tables-panel-grid__actions-col--sticky");
+  }
+  if (column.cellClassName) {
+    classes.push(column.cellClassName);
+  }
+  return classes.length > 0 ? classes.join(" ") : undefined;
+}
+
+/** 数据库侧栏/连接信息面板共用的对齐表格。含操作列时走 DOM tbody（Canvas 无法挂 React 按钮）。 */
 export function DbTablesPanelGrid<T>({
   columns,
   rows,
@@ -252,7 +273,7 @@ export function DbTablesPanelGrid<T>({
   onRowClick,
   onRowDoubleClick,
   onRowContextMenu,
-  rowClassName: _rowClassName,
+  rowClassName,
   columnResizeStorageKey,
   virtualRowHeight = DEFAULT_VIRTUAL_ROW_HEIGHT,
   onSelectAllRows,
@@ -267,6 +288,10 @@ export function DbTablesPanelGrid<T>({
   const [selectedCell, setSelectedCell] = useState<CellSelection | null>(null);
   const [hostWidth, setHostWidth] = useState(0);
   const resizeEnabled = Boolean(columnResizeStorageKey);
+  const needsDomBody = useMemo(
+    () => columns.some((column) => isActionColumn(column as DbTablesPanelGridColumn<unknown>)),
+    [columns],
+  );
 
   const resizeColumnDefs = useMemo(
     () => (resizeEnabled ? toResizeColumnDefs(columns) : []),
@@ -480,9 +505,10 @@ export function DbTablesPanelGrid<T>({
       ref={hostRef}
       className={[
         "db-tables-panel-grid-host",
-        // --virtual 提供 overflow:auto（与历史 CSS 约定一致）；--canvas 挂 sticky 表头与 canvas body
+        // --virtual 提供 overflow:auto（与历史 CSS 约定一致）
         "db-tables-panel-grid-host--virtual",
-        "db-tables-panel-grid-host--canvas",
+        // 无操作列时走 canvas body；有操作列必须 DOM tbody 才能挂 React 按钮
+        needsDomBody ? "" : "db-tables-panel-grid-host--canvas",
         resizeEnabled && resizingColumnId ? "db-tables-panel-grid-host--col-resizing" : "",
       ]
         .filter(Boolean)
@@ -499,7 +525,7 @@ export function DbTablesPanelGrid<T>({
         ref={tableRef}
         className={[
           tableClassName(variant, className, resizeEnabled),
-          "db-tables-panel-grid--canvas-chrome",
+          needsDomBody ? "" : "db-tables-panel-grid--canvas-chrome",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -584,46 +610,103 @@ export function DbTablesPanelGrid<T>({
             })}
           </tr>
         </thead>
+        {needsDomBody ? (
+          <tbody>
+            {rows.map((row, rowIndex) => {
+              const key = rowKey(row, rowIndex);
+              const selected = isRowSelected(key);
+              const extraClass = rowClassName?.(row);
+              return (
+                <tr
+                  key={String(key)}
+                  className={[selected ? "is-selected" : "", extraClass ?? ""]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onClick={(event) => onRowClick?.(row, event)}
+                  onDoubleClick={(event) => onRowDoubleClick?.(row, event)}
+                  onContextMenu={(event) => {
+                    if (!onRowContextMenu) return;
+                    event.preventDefault();
+                    onRowContextMenu(row, event);
+                  }}
+                >
+                  {columns.map((column) => {
+                    const canvasCol = canvasColumns.find((c) => c.id === column.id);
+                    const copyable = isColumnCopyable(column);
+                    return (
+                      <td
+                        key={column.id}
+                        data-col-id={column.id}
+                        className={bodyCellClassName(column)}
+                        style={
+                          canvasCol
+                            ? { width: canvasCol.width, minWidth: canvasCol.width }
+                            : undefined
+                        }
+                        title={column.getTitle?.(row)}
+                        onClick={
+                          copyable
+                            ? (event) => {
+                                setSelectedCell({ rowKey: key, columnId: column.id });
+                                // 避免操作列吞掉行点击；文本列仍可选中
+                                if (!isActionColumn(column as DbTablesPanelGridColumn<unknown>)) {
+                                  event.stopPropagation();
+                                }
+                              }
+                            : undefined
+                        }
+                      >
+                        {column.render(row, rowIndex)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        ) : null}
       </table>
-      <PanelGridCanvasBody
-        scrollElementRef={hostRef}
-        columns={canvasColumns}
-        rows={rows}
-        rowHeight={virtualRowHeight}
-        getCellText={getCanvasCellText}
-        isRowSelected={isCanvasRowSelected}
-        selectedCell={selectedCellForCanvas}
-        drawStyle="list"
-        sizerClassName="db-tables-panel-grid-canvas-sizer"
-        canvasClassName="db-tables-panel-grid-canvas"
-        onCellClick={(row, rowIndex, columnId, event) => {
-          const key = rowKey(row, rowIndex);
-          setSelectedCell({ rowKey: key, columnId });
-          onRowClick?.(row, event);
-        }}
-        onRowClick={(row, _rowIndex, event) => {
-          onRowClick?.(row, event);
-        }}
-        onRowDoubleClick={(row, rowIndex, columnId, event) => {
-          if (onRowDoubleClick) {
-            onRowDoubleClick(row, event);
-            return;
-          }
-          const column = columns.find((col) => col.id === columnId);
-          if (!column || !isColumnCopyable(column)) return;
-          const text = resolveCopyText(row, column);
-          if (!text) return;
-          void writeToClipboard(text).then((ok) => {
-            if (ok) showToast(t("common.copied"));
-          });
-          setSelectedCell({ rowKey: rowKey(row, rowIndex), columnId });
-        }}
-        onRowContextMenu={(row, _rowIndex, event) => {
-          if (!onRowContextMenu) return;
-          event.preventDefault();
-          onRowContextMenu(row, event);
-        }}
-      />
+      {needsDomBody ? null : (
+        <PanelGridCanvasBody
+          scrollElementRef={hostRef}
+          columns={canvasColumns}
+          rows={rows}
+          rowHeight={virtualRowHeight}
+          getCellText={getCanvasCellText}
+          isRowSelected={isCanvasRowSelected}
+          selectedCell={selectedCellForCanvas}
+          drawStyle="list"
+          sizerClassName="db-tables-panel-grid-canvas-sizer"
+          canvasClassName="db-tables-panel-grid-canvas"
+          onCellClick={(row, rowIndex, columnId, event) => {
+            const key = rowKey(row, rowIndex);
+            setSelectedCell({ rowKey: key, columnId });
+            onRowClick?.(row, event);
+          }}
+          onRowClick={(row, _rowIndex, event) => {
+            onRowClick?.(row, event);
+          }}
+          onRowDoubleClick={(row, rowIndex, columnId, event) => {
+            if (onRowDoubleClick) {
+              onRowDoubleClick(row, event);
+              return;
+            }
+            const column = columns.find((col) => col.id === columnId);
+            if (!column || !isColumnCopyable(column)) return;
+            const text = resolveCopyText(row, column);
+            if (!text) return;
+            void writeToClipboard(text).then((ok) => {
+              if (ok) showToast(t("common.copied"));
+            });
+            setSelectedCell({ rowKey: rowKey(row, rowIndex), columnId });
+          }}
+          onRowContextMenu={(row, _rowIndex, event) => {
+            if (!onRowContextMenu) return;
+            event.preventDefault();
+            onRowContextMenu(row, event);
+          }}
+        />
+      )}
     </div>
   );
 }

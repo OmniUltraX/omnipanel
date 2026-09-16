@@ -14,7 +14,6 @@ import {
   IconPlus,
   IconRefresh,
   IconSearch,
-  IconSettings,
   IconStop,
   IconTrash,
 } from "../../../../components/ui/Icons";
@@ -30,6 +29,7 @@ import {
 } from "../../../../lib/panelDriverRegistry";
 import type { ServerEntry } from "../serverConnection";
 import {
+  isOnePanelService,
   panelHasCapability,
   panelTabCreateSpec,
 } from "../panelPlugin";
@@ -56,12 +56,12 @@ import {
 } from "../serverResourceLabels";
 import {
   WebsiteCertSubWindow,
-  WebsiteConfigSubWindow,
   WebsiteDirSubWindow,
   WebsiteInfoSubWindow,
   WebsiteLogsSubWindow,
 } from "../WebsiteActionSubWindows";
 import { CreateWebsiteDialog, EditWebsiteDialog } from "../ServerResourceCreateDialogs";
+import { BindWebsiteCertificateDialog } from "../BindWebsiteCertificateDialog";
 import { PluginFormDialog } from "../PluginFormDialog";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
@@ -76,7 +76,6 @@ type WebsiteAction =
   | { kind: "info"; websiteId: number; siteName: string; title: string }
   | { kind: "dir"; path: string; title: string }
   | { kind: "logs"; websiteId: number; siteName: string; title: string }
-  | { kind: "config"; websiteId: number; siteName: string; title: string }
   | {
       kind: "cert";
       websiteId: number | null;
@@ -146,6 +145,10 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
   const [action, setAction] = useState<WebsiteAction | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<{ id: number; siteName: string } | null>(null);
+  const [bindCertTarget, setBindCertTarget] = useState<{
+    id: number;
+    siteName: string;
+  } | null>(null);
   const [sortColumn, setSortColumn] = useState<WebsiteSortColumn>("domain");
   const [sortDirection, setSortDirection] = useState<DbTablesPanelGridSortDirection>("asc");
   const [statusBusyId, setStatusBusyId] = useState<number | null>(null);
@@ -590,11 +593,37 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         defaultWidth: 120,
         minWidth: 88,
         render: (row) => {
+          if (!row.hasCert) {
+            const canBind =
+              inproc &&
+              canManage &&
+              isOnePanelService(server.serviceType) &&
+              row.websiteId != null;
+            const emptyBadge = (
+              <span className="badge badge-muted">{t("server.websites.certEmpty")}</span>
+            );
+            if (!canBind) return emptyBadge;
+            return (
+              <button
+                type="button"
+                className="server-resource-text-btn"
+                title={t("server.websites.certBind")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (row.websiteId == null) return;
+                  setBindCertTarget({
+                    id: row.websiteId,
+                    siteName: row.siteName ?? row.domain,
+                  });
+                }}
+              >
+                {emptyBadge}
+              </button>
+            );
+          }
           const label =
             row.certDaysLeft == null
-              ? row.hasCert
-                ? t("server.websites.certNoExpire")
-                : "—"
+              ? t("server.websites.certNoExpire")
               : row.certDaysLeft < 0
                 ? t("server.websites.certExpired")
                 : row.certDaysLeft === 0
@@ -634,8 +663,10 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
             </button>
           );
         },
-        getTitle: (row) => row.certExpireRaw ?? undefined,
-        getCopyValue: (row) => row.certExpireRaw ?? undefined,
+        getTitle: (row) =>
+          row.hasCert ? (row.certExpireRaw ?? undefined) : t("server.websites.certEmpty"),
+        getCopyValue: (row) =>
+          row.hasCert ? (row.certExpireRaw ?? undefined) : t("server.websites.certEmpty"),
       },
       {
         id: "actions",
@@ -643,8 +674,8 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         variant: "actionsSticky",
         copyable: false,
         resizable: false,
-        defaultWidth: 156,
-        minWidth: 156,
+        defaultWidth: 168,
+        minWidth: 168,
         render: (row) => {
           const canFirstPartyAct =
             inproc && canManage && row.websiteId != null && Boolean(row.siteName);
@@ -714,26 +745,6 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
                 variant="icon"
                 size="icon-xs"
                 className="db-connection-info-deploy-action-btn"
-                disabled={!canFirstPartyAct}
-                title={canFirstPartyAct ? t("server.websites.config") : t("server.websites.panelOnly")}
-                aria-label={canFirstPartyAct ? t("server.websites.config") : t("server.websites.panelOnly")}
-                onClick={() => {
-                  if (!canFirstPartyAct || row.websiteId == null || !row.siteName) return;
-                  setAction({
-                    kind: "config",
-                    websiteId: row.websiteId,
-                    siteName: row.siteName,
-                    title: t("server.websites.configTitle", { name: row.domain }),
-                  });
-                }}
-              >
-                <IconSettings size={14} />
-              </Button>
-              <Button
-                type="button"
-                variant="icon"
-                size="icon-xs"
-                className="db-connection-info-deploy-action-btn"
                 disabled={!canFirstPartyAct || busy}
                 title={canFirstPartyAct ? t("server.websites.edit") : t("server.websites.panelOnly")}
                 aria-label={canFirstPartyAct ? t("server.websites.edit") : t("server.websites.panelOnly")}
@@ -766,6 +777,7 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
     handleEditWebsite,
     handleToggleStatus,
     inproc,
+    server.serviceType,
     statusBusyId,
     t,
   ]);
@@ -794,9 +806,8 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         sortDirection={sortDirection}
         onSortColumn={toggleSort}
         selectedRowKey={selectedItemId ?? null}
-        // 网站行含操作按钮等 React 单元格；canvas 模式只绘文本，强制走 DOM host
-        virtualizeRows={false}
-        columnResizeStorageKey={`omnipanel.server.websites.column-widths.${server.id}.v5`}
+        // 含操作列时 DbTablesPanelGrid 自动走 DOM tbody，以挂载 React 按钮
+        columnResizeStorageKey={`omnipanel.server.websites.column-widths.${server.id}.v7`}
       />
     );
   };
@@ -993,14 +1004,6 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         title={action?.kind === "logs" ? action.title : ""}
         onClose={() => setAction(null)}
       />
-      <WebsiteConfigSubWindow
-        open={action?.kind === "config"}
-        server={server}
-        websiteId={action?.kind === "config" ? action.websiteId : null}
-        siteName={action?.kind === "config" ? action.siteName : null}
-        title={action?.kind === "config" ? action.title : ""}
-        onClose={() => setAction(null)}
-      />
       <WebsiteCertSubWindow
         open={action?.kind === "cert"}
         server={server}
@@ -1036,6 +1039,14 @@ export function ServerWebsitesTab({ server, selectedItemId }: Props) {
         siteName={editTarget?.siteName ?? null}
         onClose={() => setEditTarget(null)}
         onUpdated={() => void refresh()}
+      />
+      <BindWebsiteCertificateDialog
+        open={bindCertTarget != null}
+        server={server}
+        websiteId={bindCertTarget?.id ?? null}
+        siteName={bindCertTarget?.siteName ?? null}
+        onClose={() => setBindCertTarget(null)}
+        onBound={() => void refresh()}
       />
     </div>
   );

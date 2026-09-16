@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
+import { Select } from "@/components/ui/form/Select";
 import { createBtPanelClient } from "@/lib/btpanel";
 import { showToast } from "@/stores/toastStore";
 import { useServerPanelCacheStore } from "@/stores/serverPanelCacheStore";
@@ -71,6 +72,13 @@ export function BtCreateCertificateDialog({ open, server, onClose, onCreated }: 
     };
   }, [open, server.address, server.key]);
 
+  const siteOptions = useMemo(() => {
+    if (sites.length === 0) {
+      return [{ value: "", label: t("server.create.certificate.btSiteEmpty"), disabled: true }];
+    }
+    return sites.map((name) => ({ value: name, label: name }));
+  }, [sites, t]);
+
   const canSubmit = useMemo(
     () => Boolean(siteName.trim() && certificate.trim() && privateKey.trim()),
     [siteName, certificate, privateKey],
@@ -114,22 +122,17 @@ export function BtCreateCertificateDialog({ open, server, onClose, onCreated }: 
       status={error ? { kind: "error", message: error } : null}
     >
       <FormField label={t("server.create.certificate.btSite")}>
-        <select
-          className="input"
+        <Select
           value={siteName}
+          onChange={setSiteName}
+          options={siteOptions}
+          searchable={sites.length >= 8}
           disabled={busy || sites.length === 0}
-          onChange={(e) => setSiteName(e.target.value)}
-        >
-          {sites.length === 0 ? (
-            <option value="">{t("server.create.certificate.btSiteEmpty")}</option>
-          ) : (
-            sites.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))
-          )}
-        </select>
+          placeholder={t("server.create.certificate.btSite")}
+          emptyText={t("server.create.certificate.btSiteEmpty")}
+          style={{ width: "100%" }}
+          aria-label={t("server.create.certificate.btSite")}
+        />
       </FormField>
       <FormField label={t("server.create.certificate.certPem")}>
         <textarea

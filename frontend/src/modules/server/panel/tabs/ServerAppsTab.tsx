@@ -14,8 +14,9 @@ import {
 import type { OnePanelApp, OnePanelAppInstalledParams, OnePanelInstalledApp } from "../../../../lib/onepanel";
 import { stripHtmlToPlainText } from "../../../../lib/stripHtmlToPlainText";
 import { appConfirm } from "../../../../lib/appConfirm";
-import { quickInput } from "../../../../lib/quickInput";
 import { showToast } from "../../../../stores/toastStore";
+import type { ConnectionFormData } from "../../../database/api";
+import { ConnectionDialog } from "../../../database/connection/ConnectionDialog";
 import type { ServerEntry } from "../serverConnection";
 import {
   markServerAppIconsBroken,
@@ -26,8 +27,8 @@ import { useServerApps } from "../useServerApps";
 import { AppInstallLogDialog } from "../AppInstallLogDialog";
 import { AppInstalledParamsDialog } from "../AppInstalledParamsDialog";
 import {
-  defaultPanelAppConnectionName,
-  importPanelAppToDatabase,
+  openPanelAppDatabaseConnection,
+  preparePanelAppDatabaseImport,
   isPanelAppManagedByDatabase,
 } from "../importPanelAppToDatabase";
 import {
@@ -204,6 +205,7 @@ export function ServerAppsTab({ server }: Props) {
     appType?: string;
   } | null>(null);
   const [managingKey, setManagingKey] = useState<string | null>(null);
+  const [dbImportForm, setDbImportForm] = useState<ConnectionFormData | null>(null);
 
   const error = !supportsApps
     ? t("server.appMarket.unsupported")
@@ -455,14 +457,6 @@ export function ServerAppsTab({ server }: Props) {
       if (!canOpenInstalledParams || app.installState !== "installed" || app.installId == null) return;
       if (!isPanelAppManagedByDatabase(app) || managingKey) return;
       const appLabel = app.name || app.key || "—";
-      const name = await quickInput({
-        title: t("server.appMarket.manageInDatabaseNameTitle"),
-        placeholder: t("server.appMarket.manageInDatabaseNamePlaceholder"),
-        defaultValue: defaultPanelAppConnectionName(server.name, appLabel),
-        validate: (value) =>
-          value.trim() ? null : t("server.appMarket.manageInDatabaseNameRequired"),
-      });
-      if (!name) return;
       setManagingKey(app.key);
       setActionError(null);
       try {
@@ -471,19 +465,23 @@ export function ServerAppsTab({ server }: Props) {
           { id: app.installId },
         );
         if (!config) throw new Error(t("server.appMarket.unsupported"));
-        const result = await importPanelAppToDatabase({
+        const prepared = await preparePanelAppDatabaseImport({
           server,
           appLabel,
           appKey: app.key,
           appType: app.type,
           config: config as OnePanelAppInstalledParams,
-          name: name.trim(),
         });
-        showToast(
-          result.created
-            ? t("server.appMarket.manageInDatabaseDone", { name: result.connection.name })
-            : t("server.appMarket.manageInDatabaseExists", { name: result.connection.name }),
-        );
+        if (prepared.kind === "existing") {
+          openPanelAppDatabaseConnection(prepared.connection);
+          showToast(
+            t("server.appMarket.manageInDatabaseExists", {
+              name: prepared.connection.name,
+            }),
+          );
+          return;
+        }
+        setDbImportForm(prepared.form);
       } catch (err) {
         setActionError(formatError(err));
       } finally {
@@ -794,6 +792,17 @@ export function ServerAppsTab({ server }: Props) {
         appLabel={paramsTarget?.label ?? ""}
         appKey={paramsTarget?.appKey}
         appType={paramsTarget?.appType}
+      />
+      <ConnectionDialog
+        open={dbImportForm != null}
+        initialForm={dbImportForm}
+        onClose={() => setDbImportForm(null)}
+        onSaved={(connection) => {
+          openPanelAppDatabaseConnection(connection);
+          showToast(
+            t("server.appMarket.manageInDatabaseDone", { name: connection.name }),
+          );
+        }}
       />
     </div>
   );

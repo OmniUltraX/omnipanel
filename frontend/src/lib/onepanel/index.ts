@@ -43,6 +43,8 @@ export {
   type OnePanelSslProvider,
   type OnePanelWebsiteCreate,
   type OnePanelWebsiteDomain,
+  type OnePanelWebsiteHttpsOp,
+  type OnePanelWebsiteProxyConfig,
   type OnePanelWebsiteSslCreate,
   type OnePanelWebsiteSslUpload,
   type OnePanelWebsiteSslUpdate,

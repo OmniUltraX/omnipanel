@@ -100,6 +100,19 @@ fn current_timestamp() -> i64 {
         .unwrap_or(0)
 }
 
+fn unauthorized_error(body: impl AsRef<str>) -> OmniError {
+    let text = body.as_ref();
+    let lower = text.to_ascii_lowercase();
+    let message = if lower.contains("白名单") || lower.contains("whitelist") {
+        "API 访问被拒绝（请检查接口 IP 白名单是否放行本机）"
+    } else if lower.contains("entrance") || lower.contains("安全入口") {
+        "API 鉴权失败（请确认地址含安全入口，且 EntranceCode 正确）"
+    } else {
+        "API 接口密钥错误"
+    };
+    OmniError::new(ErrorCode::Auth, message).with_cause(text.to_string())
+}
+
 fn truncate_text(text: &str, max: usize) -> String {
     if text.len() <= max {
         return text.to_string();
@@ -213,9 +226,10 @@ async fn send_request(
     }
 }
 
-fn flavor_cache_key(host: &str) -> String {
+fn session_cache_key(host: &str) -> String {
+    // 必须带上安全入口：同一 origin 不同入口不应共用会话，否则会偶发鉴权失败
     resolve_endpoint(host)
-        .map(|e| e.base_url)
+        .map(|e| format!("{}|{}", e.base_url, e.entrance))
         .unwrap_or_else(|_| host.trim().to_string())
 }
 
@@ -223,19 +237,19 @@ fn cached_session(host: &str) -> Option<HostSession> {
     SESSION_CACHE
         .lock()
         .ok()?
-        .get(&flavor_cache_key(host))
+        .get(&session_cache_key(host))
         .cloned()
 }
 
 fn remember_session(host: &str, session: HostSession) {
     if let Ok(mut guard) = SESSION_CACHE.lock() {
-        guard.insert(flavor_cache_key(host), session);
+        guard.insert(session_cache_key(host), session);
     }
 }
 
 fn forget_session(host: &str) {
     if let Ok(mut guard) = SESSION_CACHE.lock() {
-        guard.remove(&flavor_cache_key(host));
+        guard.remove(&session_cache_key(host));
     }
 }
 
@@ -280,6 +294,16 @@ fn sanitize_route_miss(err: OmniError) -> OmniError {
     err
 }
 
+fn auth_same_kind(a: &AuthStyle, b: &AuthStyle) -> bool {
+    match (a, b) {
+        (AuthStyle::ApiToken { algo: x }, AuthStyle::ApiToken { algo: y }) => x == y,
+        (AuthStyle::Jwt { .. }, AuthStyle::Jwt { .. }) => true,
+        _ => false,
+    }
+}
+
+/// API Key 路径永远优先 MD5 / HMAC；JWT 仅作无 API 接口时的兜底，且绝不插到队首。
+/// 旧逻辑把过期 JWT 放最前，会导致偶发「API 接口密钥错误」。
 fn auth_candidates(cached: Option<&HostSession>) -> Vec<AuthStyle> {
     let mut all = vec![
         AuthStyle::ApiToken {
@@ -289,24 +313,17 @@ fn auth_candidates(cached: Option<&HostSession>) -> Vec<AuthStyle> {
             algo: TokenAlgo::HmacSha256,
         },
     ];
-    if let Some(hit) = cached {
-        match &hit.auth {
-            AuthStyle::Jwt { token } => {
-                all.insert(
-                    0,
-                    AuthStyle::Jwt {
-                        token: token.clone(),
-                    },
-                );
-            }
-            other => {
-                all.retain(|item| match (item, other) {
-                    (AuthStyle::ApiToken { algo: a }, AuthStyle::ApiToken { algo: b }) => a != b,
-                    _ => true,
-                });
-                all.insert(0, other.clone());
-            }
-        }
+    if let Some(AuthStyle::ApiToken { algo }) = cached.map(|s| &s.auth) {
+        all.retain(|item| match item {
+            AuthStyle::ApiToken { algo: a } => a != algo,
+            _ => true,
+        });
+        all.insert(
+            0,
+            AuthStyle::ApiToken {
+                algo: *algo,
+            },
+        );
     }
     all
 }
@@ -318,7 +335,7 @@ fn looks_like_html_bytes(bytes: &[u8]) -> bool {
     lower.starts_with("<!doctype") || lower.starts_with("<html")
 }
 
-/// 官方鉴权：MD5 Token → HMAC-SHA256 Token → JWT 登录（`PanelAuthorization`）。
+/// 官方鉴权：MD5 Token → HMAC-SHA256 Token →（最后）JWT 登录。
 /// URL：`/api/v2` → `/api/v1`，必要时 `/{entrance}/api/v*`。
 async fn send_request_with_api_fallback(
     host: &str,
@@ -331,60 +348,148 @@ async fn send_request_with_api_fallback(
     let has_entrance = !endpoint.entrance.is_empty();
     let cached = cached_session(host);
     let mut last_err: Option<OmniError> = None;
-    let mut jwt_token: Option<String> = cached.as_ref().and_then(|s| match &s.auth {
-        AuthStyle::Jwt { token } => Some(token.clone()),
-        _ => None,
-    });
 
-    for flavor in flavor_candidates(has_entrance, cached.as_ref().map(|s| s.flavor)) {
-        let mut auths = auth_candidates(cached.as_ref());
-        if jwt_token.is_none() {
-            // 占位：真正 token 在循环里按 flavor 登录
-            auths.push(AuthStyle::Jwt {
-                token: String::new(),
-            });
-        }
-        for auth in auths {
-            let auth = match auth {
-                AuthStyle::Jwt { token } if token.is_empty() => {
-                    match jwt_login(host, api_key, flavor).await {
-                        Ok(token) => {
-                            jwt_token = Some(token.clone());
-                            AuthStyle::Jwt { token }
-                        }
-                        Err(err) => {
-                            last_err = Some(err);
-                            continue;
-                        }
-                    }
-                }
-                AuthStyle::Jwt { token } => AuthStyle::Jwt { token },
-                other => other,
-            };
-            match send_request_once(host, api_key, method, path, body.clone(), flavor, &auth).await
+    let flavors = flavor_candidates(has_entrance, cached.as_ref().map(|s| s.flavor));
+    let token_auths = auth_candidates(cached.as_ref());
+
+    // 第一轮：只走 API Token，避免过期 JWT 抢跑导致偶发 401
+    for flavor in &flavors {
+        for auth in &token_auths {
+            match send_request_once(host, api_key, method, path, body.clone(), *flavor, auth).await
             {
                 Ok(v) => {
                     if looks_like_html_bytes(&v.2) {
-                        forget_session(host);
+                        if cached
+                            .as_ref()
+                            .is_some_and(|s| s.flavor == *flavor && auth_same_kind(&s.auth, auth))
+                        {
+                            forget_session(host);
+                        }
                         last_err = Some(
                             OmniError::internal("1Panel 返回了 HTML 页面而非 JSON")
                                 .with_cause(truncate_text(&String::from_utf8_lossy(&v.2), 300)),
                         );
                         continue;
                     }
-                    remember_session(host, HostSession { flavor, auth });
+                    remember_session(
+                        host,
+                        HostSession {
+                            flavor: *flavor,
+                            auth: auth.clone(),
+                        },
+                    );
                     return Ok(v);
                 }
                 Err(err) => {
-                    forget_session(host);
-                    if matches!(auth, AuthStyle::Jwt { .. }) {
-                        jwt_token = None;
+                    let was_cached = cached
+                        .as_ref()
+                        .is_some_and(|s| s.flavor == *flavor && auth_same_kind(&s.auth, auth));
+                    if was_cached {
+                        forget_session(host);
+                    }
+                    if matches!(err.code, ErrorCode::Timeout)
+                        || err
+                            .cause
+                            .as_deref()
+                            .is_some_and(|c| c.to_ascii_lowercase().contains("timed out"))
+                    {
+                        return Err(
+                            OmniError::new(ErrorCode::Timeout, "1Panel 请求超时")
+                                .with_cause(err.cause.unwrap_or(err.message)),
+                        );
+                    }
+                    // Token 鉴权偶发 401（时钟边界 / 面板瞬时拒绝）：立刻用新时间戳重试一次
+                    if matches!(err.code, ErrorCode::Auth) {
+                        match send_request_once(
+                            host,
+                            api_key,
+                            method,
+                            path,
+                            body.clone(),
+                            *flavor,
+                            auth,
+                        )
+                        .await
+                        {
+                            Ok(v) if !looks_like_html_bytes(&v.2) => {
+                                remember_session(
+                                    host,
+                                    HostSession {
+                                        flavor: *flavor,
+                                        auth: auth.clone(),
+                                    },
+                                );
+                                return Ok(v);
+                            }
+                            _ => {}
+                        }
                     }
                     last_err = Some(err);
                 }
             }
         }
     }
+
+    // 第二轮：JWT 兜底（无 API 接口、或密钥实际是登录密码的老环境）
+    let mut jwt_token: Option<String> = cached.as_ref().and_then(|s| match &s.auth {
+        AuthStyle::Jwt { token } if !token.is_empty() => Some(token.clone()),
+        _ => None,
+    });
+    for flavor in &flavors {
+        let jwt_auth = if let Some(token) = jwt_token.clone() {
+            AuthStyle::Jwt { token }
+        } else {
+            match jwt_login(host, api_key, *flavor).await {
+                Ok(token) => {
+                    jwt_token = Some(token.clone());
+                    AuthStyle::Jwt { token }
+                }
+                Err(err) => {
+                    last_err = Some(err);
+                    continue;
+                }
+            }
+        };
+        match send_request_once(host, api_key, method, path, body.clone(), *flavor, &jwt_auth)
+            .await
+        {
+            Ok(v) => {
+                if looks_like_html_bytes(&v.2) {
+                    // 登录本身成功，多半是路径/flavor 不对；保留 JWT 给下一轮 flavor 复用
+                    last_err = Some(
+                        OmniError::internal("1Panel 返回了 HTML 页面而非 JSON")
+                            .with_cause(truncate_text(&String::from_utf8_lossy(&v.2), 300)),
+                    );
+                    continue;
+                }
+                remember_session(
+                    host,
+                    HostSession {
+                        flavor: *flavor,
+                        auth: jwt_auth,
+                    },
+                );
+                return Ok(v);
+            }
+            Err(err) => {
+                forget_session(host);
+                jwt_token = None;
+                if matches!(err.code, ErrorCode::Timeout)
+                    || err
+                        .cause
+                        .as_deref()
+                        .is_some_and(|c| c.to_ascii_lowercase().contains("timed out"))
+                {
+                    return Err(
+                        OmniError::new(ErrorCode::Timeout, "1Panel 请求超时")
+                            .with_cause(err.cause.unwrap_or(err.message)),
+                    );
+                }
+                last_err = Some(err);
+            }
+        }
+    }
+
     Err(sanitize_route_miss(
         last_err.unwrap_or_else(|| OmniError::internal("1Panel 请求失败")),
     ))
@@ -577,7 +682,12 @@ async fn send_request_once(
     }
 
     let resp = req.send().await.map_err(|e| {
-        OmniError::new(ErrorCode::Connection, "1Panel 请求失败").with_cause(e.to_string())
+        let detail = e.to_string();
+        if e.is_timeout() || detail.to_ascii_lowercase().contains("timed out") {
+            OmniError::new(ErrorCode::Timeout, "1Panel 请求超时").with_cause(detail)
+        } else {
+            OmniError::new(ErrorCode::Connection, "1Panel 请求失败").with_cause(detail)
+        }
     })?;
 
     let status = resp.status();
@@ -596,7 +706,7 @@ async fn send_request_once(
 
     if status == reqwest::StatusCode::UNAUTHORIZED {
         let text = String::from_utf8_lossy(&bytes).into_owned();
-        return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text));
+        return Err(unauthorized_error(text));
     }
 
     if !status.is_success() {
@@ -836,9 +946,7 @@ async fn send_multipart(
         }
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(
-                OmniError::new(ErrorCode::Auth, "API 接口密钥错误").with_cause(text.into_owned())
-            );
+            return Err(unauthorized_error(text));
         }
 
         if !status.is_success() {
@@ -1135,7 +1243,7 @@ pub async fn fetch_app_icon(host: &str, api_key: &str, app_key: &str) -> Result<
         }
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(OmniError::new(ErrorCode::Auth, "API 接口密钥错误"));
+            return Err(unauthorized_error(trimmed));
         }
 
         if !status.is_success() {
@@ -1203,5 +1311,49 @@ mod tests {
                 .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
         );
         assert_ne!(token, build_token("test-key", 1_700_000_000));
+    }
+
+    #[test]
+    fn auth_candidates_never_prioritize_jwt() {
+        let cached_jwt = HostSession {
+            flavor: ApiFlavor {
+                prefix: "/api/v2",
+                entrance_in_path: false,
+            },
+            auth: AuthStyle::Jwt {
+                token: "expired".into(),
+            },
+        };
+        let list = auth_candidates(Some(&cached_jwt));
+        assert_eq!(list.len(), 2);
+        assert!(matches!(
+            list[0],
+            AuthStyle::ApiToken {
+                algo: TokenAlgo::Md5
+            }
+        ));
+        assert!(list.iter().all(|a| !matches!(a, AuthStyle::Jwt { .. })));
+
+        let cached_hmac = HostSession {
+            flavor: cached_jwt.flavor,
+            auth: AuthStyle::ApiToken {
+                algo: TokenAlgo::HmacSha256,
+            },
+        };
+        let list = auth_candidates(Some(&cached_hmac));
+        assert!(matches!(
+            list[0],
+            AuthStyle::ApiToken {
+                algo: TokenAlgo::HmacSha256
+            }
+        ));
+    }
+
+    #[test]
+    fn session_cache_key_includes_entrance() {
+        let a = session_cache_key("https://panel.example:7777/secret");
+        let b = session_cache_key("https://panel.example:7777/other");
+        assert_ne!(a, b);
+        assert!(a.contains("secret") || a.contains('|'));
     }
 }

@@ -332,10 +332,60 @@ export interface OnePanelWebsiteUpdate {
   id: number;
   primaryDomain: string;
   remark?: string;
-  webSiteGroupID?: number;
+  /** 与 1Panel WebSiteUpdateReq 对齐（Id 小写 d） */
+  webSiteGroupId: number;
   expireDate?: string;
   IPV6?: boolean;
   favorite?: boolean;
+}
+
+/** POST /websites/proxies · /websites/proxies/update — 反向代理配置。 */
+export interface OnePanelWebsiteProxyConfig {
+  id: number;
+  operate?: "create" | "edit" | "enable" | "disable" | string;
+  enable?: boolean;
+  cache?: boolean;
+  cacheTime?: number;
+  cacheUnit?: string;
+  name: string;
+  modifier?: string;
+  match: string;
+  proxyPass: string;
+  proxyHost?: string;
+  replaces?: Record<string, string>;
+  sni?: boolean;
+  proxySSLName?: string;
+  content?: string;
+  filePath?: string;
+  cors?: boolean;
+  allowOrigins?: string;
+  allowMethods?: string;
+  allowHeaders?: string;
+  allowCredentials?: boolean;
+  preflight?: boolean;
+  sslVerify?: boolean;
+  serverCacheTime?: number;
+  serverCacheUnit?: string;
+}
+
+/** POST /websites/:id/https — 开启/更新网站 HTTPS（绑定已有证书等）。 */
+export interface OnePanelWebsiteHttpsOp {
+  websiteId: number;
+  enable?: boolean;
+  type?: "existed" | "auto" | "manual";
+  websiteSSLId?: number;
+  httpConfig?: "HTTPSOnly" | "HTTPAlso" | "HTTPToHTTPS";
+  httpsPorts?: number[];
+  hsts?: boolean;
+  hstsIncludeSubDomains?: boolean;
+  http3?: boolean;
+  algorithm?: string;
+  SSLProtocol?: string[];
+  certificate?: string;
+  privateKey?: string;
+  importType?: string;
+  certificatePath?: string;
+  privateKeyPath?: string;
 }
 
 /** POST /websites/ssl/update — 修改证书。 */

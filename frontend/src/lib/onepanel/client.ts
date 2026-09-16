@@ -37,6 +37,8 @@ import {
   type OnePanelWebsiteCreate,
   type OnePanelWebsiteSslCreate,
   type OnePanelWebsiteSslUpload,
+  type OnePanelWebsiteHttpsOp,
+  type OnePanelWebsiteProxyConfig,
   type OnePanelWebsiteSslUpdate,
   type OnePanelWebsiteUpdate,
   type OnePanelCronjobCreate,
@@ -193,14 +195,22 @@ export class OnePanelClient {
     this.useTauri = options.useTauri ?? true;
   }
 
-  /** 把登录用户名塞进 URL userinfo，供 Rust 走官方 JWT 登录。 */
+  /**
+   * 传给 Rust 的 host：必须保留安全入口路径，否则无法生成 EntranceCode，
+   * 全接口会以 401「API 接口密钥错误」失败（密钥本身可能是对的）。
+   * 可选把登录用户名塞进 userinfo，供 Rust 走官方 JWT 登录。
+   */
   private ipcHost(): string {
-    if (!this.username) return this.baseUrl;
+    const withEntrance = this.entrance
+      ? `${this.baseUrl.replace(/\/+$/, "")}/${this.entrance}`
+      : this.baseUrl;
+    if (!this.username) return withEntrance;
     try {
-      const url = new URL(this.baseUrl);
-      return `${url.protocol}//${encodeURIComponent(this.username)}@${url.host}`;
+      const url = new URL(withEntrance);
+      const path = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
+      return `${url.protocol}//${encodeURIComponent(this.username)}@${url.host}${path}`;
     } catch {
-      return this.baseUrl;
+      return withEntrance;
     }
   }
 
@@ -301,7 +311,11 @@ export class OnePanelClient {
       );
       if (result.status === "error") {
         const ipcHay = `${result.error.message} ${result.error.cause ?? ""}`;
-        const status = /404|405|not found|版本不兼容|接口不存在|鉴权或入口/i.test(ipcHay) ? 404 : 0;
+        const status = /API\s*接口密钥错误|unauthorized|鉴权失败/i.test(ipcHay)
+          ? 401
+          : /404|405|not found|版本不兼容|接口不存在|鉴权或入口/i.test(ipcHay)
+            ? 404
+            : 0;
         throw new OnePanelApiError(
           formatIpcError(result.error),
           status,
@@ -356,7 +370,13 @@ export class OnePanelClient {
         presenceToken,
       );
       if (result.status === "error") {
-        throw new OnePanelApiError(formatIpcError(result.error), 0, result.error.cause ?? undefined);
+        const ipcHay = `${result.error.message} ${result.error.cause ?? ""}`;
+        const status = /API\s*接口密钥错误|unauthorized|鉴权失败/i.test(ipcHay)
+          ? 401
+          : /404|405|not found|版本不兼容|接口不存在|鉴权或入口/i.test(ipcHay)
+            ? 404
+            : 0;
+        throw new OnePanelApiError(formatIpcError(result.error), status, result.error.cause ?? undefined);
       }
       return result.data;
     }
@@ -570,6 +590,68 @@ export class OnePanelClient {
     });
   }
 
+  /** POST /websites/proxies — 获取网站反向代理配置列表。 */
+  async getWebsiteProxies(websiteId: number): Promise<OnePanelWebsiteProxyConfig[]> {
+    const data = await this.request<unknown>({
+      method: "POST",
+      path: "/websites/proxies",
+      body: { id: websiteId },
+    });
+    return unwrapList<Record<string, unknown>>(data)
+      .map((item) => ({
+        id: Number(item.id ?? websiteId),
+        operate: item.operate != null ? String(item.operate) : undefined,
+        enable: item.enable != null ? Boolean(item.enable) : undefined,
+        cache: item.cache != null ? Boolean(item.cache) : undefined,
+        cacheTime: item.cacheTime != null ? Number(item.cacheTime) : undefined,
+        cacheUnit: item.cacheUnit != null ? String(item.cacheUnit) : undefined,
+        name: String(item.name ?? ""),
+        modifier: item.modifier != null ? String(item.modifier) : undefined,
+        match: String(item.match ?? "/"),
+        proxyPass: String(item.proxyPass ?? item.proxy_pass ?? ""),
+        proxyHost: item.proxyHost != null ? String(item.proxyHost) : undefined,
+        replaces:
+          item.replaces && typeof item.replaces === "object"
+            ? (item.replaces as Record<string, string>)
+            : undefined,
+        sni: item.sni != null ? Boolean(item.sni) : undefined,
+        proxySSLName: item.proxySSLName != null ? String(item.proxySSLName) : undefined,
+        content: item.content != null ? String(item.content) : undefined,
+        filePath: item.filePath != null ? String(item.filePath) : undefined,
+        cors: item.cors != null ? Boolean(item.cors) : undefined,
+        allowOrigins: item.allowOrigins != null ? String(item.allowOrigins) : undefined,
+        allowMethods: item.allowMethods != null ? String(item.allowMethods) : undefined,
+        allowHeaders: item.allowHeaders != null ? String(item.allowHeaders) : undefined,
+        allowCredentials:
+          item.allowCredentials != null ? Boolean(item.allowCredentials) : undefined,
+        preflight: item.preflight != null ? Boolean(item.preflight) : undefined,
+        sslVerify: item.sslVerify != null ? Boolean(item.sslVerify) : undefined,
+      }))
+      .filter((item) => item.name || item.proxyPass);
+  }
+
+  /** POST /websites/proxies/update — 创建/修改反向代理配置。 */
+  async updateWebsiteProxy(body: OnePanelWebsiteProxyConfig): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/websites/proxies/update",
+      body,
+    });
+  }
+
+  /** POST /websites/:id/https — 开启/更新网站 HTTPS（绑定已有证书）。 */
+  async updateWebsiteHttps(body: OnePanelWebsiteHttpsOp): Promise<void> {
+    const websiteId = Number(body.websiteId);
+    if (!Number.isFinite(websiteId) || websiteId <= 0) {
+      throw new OnePanelApiError("缺少有效的网站 id", 0);
+    }
+    await this.request({
+      method: "POST",
+      path: `/websites/${websiteId}/https`,
+      body,
+    });
+  }
+
   /** POST /groups/search — 分组列表（网站分组 type=website）。 */
   async searchGroups(type: string = "website"): Promise<OnePanelGroup[]> {
     const data = await this.request<unknown>({
@@ -620,7 +702,7 @@ export class OnePanelClient {
       .filter((item) => item.id > 0);
   }
 
-  /** POST /websites/ssl — 申请/创建 ACME 证书，返回证书 id。 */
+  /** POST /websites/ssl — 创建 ACME 证书记录，返回证书 id（不在此接口里同步跑完申请）。 */
   async createWebsiteSsl(
     body: OnePanelWebsiteSslCreate,
   ): Promise<{ id: number; status?: string; message?: string }> {
@@ -638,6 +720,18 @@ export class OnePanelClient {
       status: typeof data?.status === "string" ? data.status : undefined,
       message: typeof data?.message === "string" ? data.message : undefined,
     };
+  }
+
+  /**
+   * POST /websites/ssl/obtain — 触发证书申请（与官方面板一致：先 create 再 obtain）。
+   * 接口通常很快返回，实际 ACME 过程在后台跑，需配合 readSslLog / getSslById 轮询。
+   */
+  async obtainWebsiteSsl(id: number): Promise<void> {
+    await this.request({
+      method: "POST",
+      path: "/websites/ssl/obtain",
+      body: { ID: id },
+    });
   }
 
   /** POST /websites/ssl/update — 修改证书。 */
@@ -919,7 +1013,7 @@ export class OnePanelClient {
 
   /**
    * 按行读取网站日志。
-   * v2: POST /files/read/website；v1: POST /websites/log。
+   * v2: POST /files/read/website；v1: POST /websites/log/search。
    * name 通常为 access.log / error.log。
    */
   async readWebsiteLog(params: {
@@ -939,6 +1033,7 @@ export class OnePanelClient {
         query: { operateNode: "local" },
         body: {
           id,
+          ID: id,
           type: "website",
           name,
           page,
@@ -946,15 +1041,18 @@ export class OnePanelClient {
         },
       });
       return parseFileLineContent(data);
-    } catch {
-      const logType = name.replace(/\.log$/i, "") || "access";
+    } catch (err) {
+      // 鉴权失败不要吞掉去试旧路径，避免误导为「换接口再失败」
+      if (err instanceof OnePanelApiError && err.isAuthError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/API\s*接口密钥错误|unauthorized|鉴权失败/i.test(msg)) throw err;
+
       const data = await this.request<Record<string, unknown>>({
         method: "POST",
-        path: "/websites/log",
+        path: "/websites/log/search",
         body: {
           id,
-          operate: "get",
-          logType,
+          logType: name.endsWith(".log") ? name : `${name}.log`,
           page,
           pageSize,
         },

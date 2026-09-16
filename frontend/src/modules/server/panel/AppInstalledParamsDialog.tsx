@@ -5,11 +5,12 @@ import { Button } from "../../../components/ui/primitives/Button";
 import { useI18n } from "../../../i18n";
 import type { OnePanelAppInstalledParams, OnePanelAppParam } from "../../../lib/onepanel";
 import { getPanelDriver, panelConnectionCtx } from "../../../lib/panelDriverRegistry";
-import { quickInput } from "../../../lib/quickInput";
 import { showToast } from "../../../stores/toastStore";
+import type { ConnectionFormData } from "../../database/api";
+import { ConnectionDialog } from "../../database/connection/ConnectionDialog";
 import {
-  defaultPanelAppConnectionName,
-  importPanelAppToDatabase,
+  openPanelAppDatabaseConnection,
+  preparePanelAppDatabaseImport,
   isPanelAppManagedByDatabase,
 } from "./importPanelAppToDatabase";
 import type { ServerEntry } from "./serverConnection";
@@ -126,6 +127,7 @@ export function AppInstalledParamsDialog({
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<OnePanelAppInstalledParams | null>(null);
+  const [dbImportForm, setDbImportForm] = useState<ConnectionFormData | null>(null);
   const canManage = isPanelAppManagedByDatabase({ key: appKey, name: appLabel, type: appType });
 
   useEffect(() => {
@@ -144,6 +146,7 @@ export function AppInstalledParamsDialog({
     setError(null);
     setConfig(null);
     setImporting(false);
+    setDbImportForm(null);
     void driver
       .getInstalledAppParams(panelConnectionCtx(server), { id: installId })
       .then((data) => {
@@ -201,30 +204,28 @@ export function AppInstalledParamsDialog({
 
   const handleImportToDatabase = async () => {
     if (!config || importing) return;
-    const name = await quickInput({
-      title: t("server.appMarket.manageInDatabaseNameTitle"),
-      placeholder: t("server.appMarket.manageInDatabaseNamePlaceholder"),
-      defaultValue: defaultPanelAppConnectionName(server.name, appLabel),
-      validate: (value) =>
-        value.trim() ? null : t("server.appMarket.manageInDatabaseNameRequired"),
-    });
-    if (!name) return;
     setImporting(true);
+    setError(null);
     try {
-      const result = await importPanelAppToDatabase({
+      const prepared = await preparePanelAppDatabaseImport({
         server,
         appLabel,
         appKey,
         appType,
         config,
-        name: name.trim(),
       });
-      showToast(
-        result.created
-          ? t("server.appMarket.manageInDatabaseDone", { name: result.connection.name })
-          : t("server.appMarket.manageInDatabaseExists", { name: result.connection.name }),
-      );
-      onClose();
+      if (prepared.kind === "existing") {
+        openPanelAppDatabaseConnection(prepared.connection);
+        showToast(
+          t("server.appMarket.manageInDatabaseExists", {
+            name: prepared.connection.name,
+          }),
+        );
+        onClose();
+        return;
+      }
+      // 保持本对话框挂载，以便弹出新建连接表单；参数窗隐藏到表单关闭
+      setDbImportForm(prepared.form);
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -233,8 +234,9 @@ export function AppInstalledParamsDialog({
   };
 
   return (
+    <>
     <FormDialog
-      open={open}
+      open={open && dbImportForm == null}
       onClose={onClose}
       title={t("server.appMarket.paramsTitle", { name: appLabel })}
       subtitle={t("server.appMarket.paramsSubtitle")}
@@ -290,5 +292,20 @@ export function AppInstalledParamsDialog({
         ) : null}
       </div>
     </FormDialog>
+    <ConnectionDialog
+      open={dbImportForm != null}
+      initialForm={dbImportForm}
+      onClose={() => {
+        setDbImportForm(null);
+        onClose();
+      }}
+      onSaved={(connection) => {
+        openPanelAppDatabaseConnection(connection);
+        showToast(
+          t("server.appMarket.manageInDatabaseDone", { name: connection.name }),
+        );
+      }}
+    />
+    </>
   );
 }

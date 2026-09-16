@@ -1874,11 +1874,13 @@
         position: sticky;
         right: 0;
         z-index: 2;
-        width: 72px;
+        /* 多按钮操作列宽度由列定义 / inline style 控制，避免被固定 72px 裁切 */
+        width: auto;
         min-width: 72px;
-        max-width: 72px;
+        max-width: none;
         background: var(--bg-deeper);
         box-shadow: -1px 0 0 var(--border);
+        overflow: visible;
     }
 
     .db-tables-panel-grid__row-actions {

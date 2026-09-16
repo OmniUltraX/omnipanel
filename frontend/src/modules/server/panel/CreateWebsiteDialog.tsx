@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/i18n";
 import { FormDialog, FormField } from "@/components/ui/form/FormDialog";
+import { Select } from "@/components/ui/form/Select";
 import { TextInput } from "@/components/ui/form/TextInput";
 import { Button } from "@/components/ui/primitives/Button";
 import {
@@ -51,7 +52,6 @@ function aliasFromDomain(domain: string): string {
     .split(":")[0]
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/^\.+|\.+$/g, "")
-    .replace(/\./g, "_")
     .slice(0, 64);
 }
 
@@ -591,15 +591,18 @@ function OnePanelCreateWebsiteDialog({
       {type === "proxy" ? (
         <FormField label={t("server.create.website.proxyAddress")}>
           <div className="server-create-website-proxy-row">
-            <select
-              className="input"
+            <Select
               value={proxyProtocol}
+              onChange={setProxyProtocol}
+              options={[
+                { value: "http://", label: "http://" },
+                { value: "https://", label: "https://" },
+              ]}
+              searchable={false}
               disabled={busy}
-              onChange={(e) => setProxyProtocol(e.target.value)}
-            >
-              <option value="http://">http://</option>
-              <option value="https://">https://</option>
-            </select>
+              style={{ width: "100%" }}
+              aria-label={t("server.create.website.proxyAddress")}
+            />
             <TextInput
               value={proxyAddress}
               onChange={setProxyAddress}
