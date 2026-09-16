@@ -5,8 +5,6 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
 
 use crate::agent::AgentRegistry;
-use crate::protocol::grpc::GrpcSession;
-use crate::protocol::modbus::ModbusSession;
 use crate::protocol::mqtt::MqttSession;
 use crate::protocol::redis_pubsub::RedisPubSubSession;
 use crate::protocol::serial::SerialSession;
@@ -17,6 +15,8 @@ use omnipanel_core::terminal::Terminal;
 use omnipanel_db::DbDriver;
 use omnipanel_docker::DockerExecSession;
 use omnipanel_exec::{ExecutionEngine, ShellExecutor};
+use omnipanel_protocol::grpc::GrpcSession;
+use omnipanel_protocol::modbus::ModbusSession;
 use omnipanel_ssh::SshSession;
 use omnipanel_store::{AppModuleStatus, DatabaseConnectionStore, FileIndexStorage, Storage};
 

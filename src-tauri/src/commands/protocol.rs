@@ -4,7 +4,6 @@ use tauri::ipc::Channel;
 use tauri::{Emitter, State};
 
 use crate::protocol::http::{self, HttpRequestConfig, HttpResponse};
-use crate::protocol::modbus::{self, ModbusConfig};
 use crate::protocol::mqtt::{self, MqttConfig, MqttMessage, MqttPublish, MqttSubscription};
 use crate::protocol::redis_pubsub::{
     self, RedisPubSubConfig, RedisPubSubMessage, RedisPubSubPublish,
@@ -14,6 +13,7 @@ use crate::protocol::sniffer::{self, CaptureStats, NetworkInterface, SnifferPack
 use crate::protocol::sse::{self, SseConfig, SseEventMessage};
 use crate::protocol::ws::{self, WsConfig, WsMessage};
 use crate::state::AppState;
+use omnipanel_protocol::modbus::{self, ModbusConfig};
 use omnipanel_store::{
     HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest, ensure_creator_tag,
 };
@@ -707,7 +707,7 @@ pub async fn modbus_connect(
     config: ModbusConfig,
 ) -> Result<String, String> {
     let id = format!("modbus-{}", MODBUS_COUNTER.fetch_add(1, Ordering::Relaxed));
-    let session = modbus::ModbusSession::connect(config)?;
+    let session = modbus::ModbusSession::connect(config).map_err(|e| e.to_string())?;
     state
         .modbus_sessions
         .lock()
@@ -726,7 +726,7 @@ pub async fn modbus_read_coils(
 ) -> Result<Vec<bool>, String> {
     let sessions = state.modbus_sessions.lock().await;
     let session = sessions.get(&id).ok_or("Modbus session not found")?;
-    session.read_coils(addr, qty)
+    session.read_coils(addr, qty).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -739,7 +739,9 @@ pub async fn modbus_read_discrete_inputs(
 ) -> Result<Vec<bool>, String> {
     let sessions = state.modbus_sessions.lock().await;
     let session = sessions.get(&id).ok_or("Modbus session not found")?;
-    session.read_discrete_inputs(addr, qty)
+    session
+        .read_discrete_inputs(addr, qty)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -752,7 +754,9 @@ pub async fn modbus_read_holding_registers(
 ) -> Result<Vec<u16>, String> {
     let sessions = state.modbus_sessions.lock().await;
     let session = sessions.get(&id).ok_or("Modbus session not found")?;
-    session.read_holding_registers(addr, qty)
+    session
+        .read_holding_registers(addr, qty)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -765,7 +769,9 @@ pub async fn modbus_read_input_registers(
 ) -> Result<Vec<u16>, String> {
     let sessions = state.modbus_sessions.lock().await;
     let session = sessions.get(&id).ok_or("Modbus session not found")?;
-    session.read_input_registers(addr, qty)
+    session
+        .read_input_registers(addr, qty)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -778,7 +784,9 @@ pub async fn modbus_write_single_coil(
 ) -> Result<(), String> {
     let mut sessions = state.modbus_sessions.lock().await;
     let session = sessions.get_mut(&id).ok_or("Modbus session not found")?;
-    session.write_single_coil(addr, value)
+    session
+        .write_single_coil(addr, value)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -791,7 +799,9 @@ pub async fn modbus_write_single_register(
 ) -> Result<(), String> {
     let mut sessions = state.modbus_sessions.lock().await;
     let session = sessions.get_mut(&id).ok_or("Modbus session not found")?;
-    session.write_single_register(addr, value)
+    session
+        .write_single_register(addr, value)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -804,7 +814,9 @@ pub async fn modbus_write_multiple_coils(
 ) -> Result<(), String> {
     let mut sessions = state.modbus_sessions.lock().await;
     let session = sessions.get_mut(&id).ok_or("Modbus session not found")?;
-    session.write_multiple_coils(addr, values)
+    session
+        .write_multiple_coils(addr, values)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -817,7 +829,9 @@ pub async fn modbus_write_multiple_registers(
 ) -> Result<(), String> {
     let mut sessions = state.modbus_sessions.lock().await;
     let session = sessions.get_mut(&id).ok_or("Modbus session not found")?;
-    session.write_multiple_registers(addr, values)
+    session
+        .write_multiple_registers(addr, values)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -825,5 +839,5 @@ pub async fn modbus_write_multiple_registers(
 pub async fn modbus_disconnect(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let mut sessions = state.modbus_sessions.lock().await;
     let session = sessions.get_mut(&id).ok_or("Modbus session not found")?;
-    session.disconnect()
+    session.disconnect().map_err(|e| e.to_string())
 }

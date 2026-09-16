@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
-import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
+import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
 
 export type SchemaConnectionFolder = {
   id: string;
@@ -94,7 +94,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
           parentId,
         };
         set((state) => ({ folders: [...state.folders, folder] }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
         return folder;
       },
 
@@ -111,7 +111,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
         set((state) => ({
           folders: state.folders.map((f) => (f.id === folderId ? { ...f, name: nextName } : f)),
         }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
         return true;
       },
 
@@ -127,7 +127,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
           }
           return { folders, connectionParents };
         });
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
       },
 
       moveFolder: (folderId, newParentId) => {
@@ -143,7 +143,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
             f.id === folderId ? { ...f, parentId: newParentId } : f,
           ),
         }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
         return true;
       },
 
@@ -151,7 +151,7 @@ export const useDbSchemaConnectionLayoutStore = create<DbSchemaConnectionLayoutS
         set((state) => ({
           connectionParents: { ...state.connectionParents, [connId]: parentId },
         }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
       },
     }),
     {

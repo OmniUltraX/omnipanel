@@ -25,6 +25,7 @@ import { expandMainWindow, showSplashWindow } from "./lib/bootSplashBridge";
 import { initDeviceNameCache } from "./lib/deviceIdentity";
 import { selectIsLoggedIn, useAuthStore } from "./stores/authStore";
 import { syncAuthProfile } from "./lib/auth/syncAuthProfile";
+import "./lib/registerSyncBridges";
 
 const MIN_SPLASH_MS = 800;
 const EXIT_ANIM_MS = 520;

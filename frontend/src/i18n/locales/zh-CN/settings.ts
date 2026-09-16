@@ -121,6 +121,8 @@ export default {
     aiServices: {
       title: "服务",
       desc: "Agent Router 与 OmniMCP 独立配置（开发版默认 :8766 / :12757，正式版 :8765 / :12756）",
+      appChatHint:
+        "App 内对话走内置编排（ai_chat_stream），不在此页。本页只配置对外的 Agent Router / OmniMCP。",
       tabRouter: "Agent Router",
       tabOmniMcp: "OmniMCP",
       tabTraces: "Trace 分析",
@@ -148,6 +150,14 @@ export default {
         liveToolsTitle: "实时工具",
         liveToolsDesc: "OmniMCP 当前已注册的工具列表。",
         toolsUiDelegatedHint: "部分工具的开放状态由对应模块的设置委托管理。",
+      },
+      traces: {
+        desc: "按 source 查看轨迹：internal = 内置编排（ai_chat_stream），gateway = Agent Router 入站，mcp_external = 外部 MCP。",
+        sourceInternal: "internal（内置编排）",
+        sourceGateway: "gateway（Agent Router）",
+        sourceMcpExternal: "mcp_external（外部 MCP）",
+        loading: "加载中…",
+        empty: "暂无 session",
       },
     },
     builtinTools: {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
-import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { Button } from "@/components/ui/Button";
 import { IconPlus } from "@/components/ui/Icons";

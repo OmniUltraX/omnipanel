@@ -72,7 +72,7 @@ pub async fn panel_1panel_request(
     body: Option<String>,
 ) -> Result<String, OmniError> {
     let body_val = parse_optional_json_body(body)?;
-    let result = crate::panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
+    let result = omnipanel_panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
     serde_json::to_string(&result).map_err(|e| {
         OmniError::internal("failed to serialize 1Panel response").with_cause(e.to_string())
     })
@@ -83,7 +83,7 @@ pub async fn panel_1panel_test_connection(
     host: String,
     api_key: String,
 ) -> Result<bool, OmniError> {
-    crate::panel::onepanel::test_connection(&host, &api_key).await?;
+    omnipanel_panel::onepanel::test_connection(&host, &api_key).await?;
     Ok(true)
 }
 
@@ -93,7 +93,7 @@ pub async fn panel_1panel_app_icon(
     api_key: String,
     app_key: String,
 ) -> Result<String, OmniError> {
-    crate::panel::onepanel::fetch_app_icon(&host, &api_key, &app_key).await
+    omnipanel_panel::onepanel::fetch_app_icon(&host, &api_key, &app_key).await
 }
 
 /// 1Panel raw text request (used for log downloads etc).
@@ -105,7 +105,7 @@ pub async fn panel_1panel_request_text(
     body: Option<String>,
 ) -> Result<String, OmniError> {
     let body_val = parse_optional_json_body(body)?;
-    crate::panel::onepanel::request_text(&host, &api_key, &method, &path, body_val).await
+    omnipanel_panel::onepanel::request_text(&host, &api_key, &method, &path, body_val).await
 }
 
 /// 1Panel binary request (certificate zip etc). Returns Base64 to avoid IPC corruption.
@@ -115,9 +115,9 @@ pub async fn panel_1panel_request_bytes(
     method: String,
     path: String,
     body: Option<String>,
-) -> Result<crate::panel::onepanel::OnePanelBinaryPayload, OmniError> {
+) -> Result<omnipanel_panel::onepanel::OnePanelBinaryPayload, OmniError> {
     let body_val = parse_optional_json_body(body)?;
-    crate::panel::onepanel::request_bytes(&host, &api_key, &method, &path, body_val).await
+    omnipanel_panel::onepanel::request_bytes(&host, &api_key, &method, &path, body_val).await
 }
 
 /// 1Panel file upload (multipart /files/upload, or chunked /files/chunkupload).
@@ -130,7 +130,7 @@ pub async fn panel_1panel_upload_file(
     content_base64: String,
     overwrite: Option<bool>,
 ) -> Result<(), OmniError> {
-    crate::panel::onepanel::upload_file(
+    omnipanel_panel::onepanel::upload_file(
         &host,
         &api_key,
         &path,
@@ -161,7 +161,7 @@ pub async fn panel_bt_request(
         }
     };
 
-    let result = crate::panel::btpanel::request(&host, &api_sk, &path, body_map).await?;
+    let result = omnipanel_panel::btpanel::request(&host, &api_sk, &path, body_map).await?;
     serde_json::to_string(&result).map_err(|e| {
         OmniError::internal("failed to serialize BT-Panel response").with_cause(e.to_string())
     })
@@ -185,7 +185,7 @@ pub async fn panel_bt_request_get(
         }
     };
 
-    let result = crate::panel::btpanel::request_get(&host, &api_sk, &path, query_map).await?;
+    let result = omnipanel_panel::btpanel::request_get(&host, &api_sk, &path, query_map).await?;
     serde_json::to_string(&result).map_err(|e| {
         OmniError::internal("failed to serialize BT-Panel response").with_cause(e.to_string())
     })
@@ -193,7 +193,7 @@ pub async fn panel_bt_request_get(
 
 /// BT-Panel connectivity test.
 pub async fn panel_bt_test_connection(host: String, api_sk: String) -> Result<bool, OmniError> {
-    crate::panel::btpanel::test_connection(&host, &api_sk).await?;
+    omnipanel_panel::btpanel::test_connection(&host, &api_sk).await?;
     Ok(true)
 }
 
@@ -207,6 +207,6 @@ pub async fn panel_bt_app_icon(
     app_name: String,
     icon_file: Option<String>,
 ) -> Result<String, OmniError> {
-    crate::panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name, icon_file.as_deref())
+    omnipanel_panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name, icon_file.as_deref())
         .await
 }

@@ -58,7 +58,7 @@ omnipanel/
 │   │   └── engine-{mysql,postgres,clickhouse,mongodb,redis}/
 │   ├── omnipanel-db-sync/        # 库同步与 diff
 │   ├── omnipanel-docker/         # bollard 封装（本地 / 远程 / SSH 宿主 / 面板）
-│   ├── omnipanel-ai/ -assistant/ -mcp/ -gateway/   # AI 三条能力线
+│   ├── omnipanel-ai/ -assistant/ -mcp/ -gateway/   # AI：内置编排 / 助手同步 / OmniMCP / Agent Router（产品切面，见「AI 能力矩阵」）
 │   ├── omnipanel-cloud/ + -aliyun/ + -tencent/     # 云厂商能力工作台
 │   ├── omnipanel-plugin/ -pkg/ -js/ -wasm/         # 插件平台（签名 / QuickJS / WASM）
 │   ├── omnipanel-store/          # rusqlite 本地库 + keyring 凭据 + 加密
@@ -195,7 +195,7 @@ cargo test
 - **Context continuity:** Terminal, SSH, database, Docker, and AI share context — no copy-paste between modules.
 - **AI safety:** AI suggests but never executes without user confirmation. Dangerous commands require explicit approval. All high-risk operations are auditable.
 - **Environment tagging:** All resources tagged as dev/test/staging/prod. Production operations get strong warnings.
-- **禁止循环依赖（前端）：** store 与模块双向 import 会打乱 ESM 求值顺序，表现为运行期 store 是 `undefined`（如 `useTerminalStore.subscribe` 报 "Cannot read properties of undefined"），且**让出一个微任务也不够**——要等整条同步加载链走完。需要"反向通知"时用回调注册，参考 `frontend/src/lib/assistantSnapshotSyncBridge.ts`（`modules/assistant` ↔ `stores/terminalStore` 就是这么解开的）。
+- **禁止循环依赖（前端）：** store 与模块双向 import 会打乱 ESM 求值顺序，表现为运行期 store 是 `undefined`（如 `useTerminalStore.subscribe` 报 "Cannot read properties of undefined"），且**让出一个微任务也不够**——要等整条同步加载链走完。**新 store 禁止 import modules；反向通知用 `lib/*Bridge`。** 参考 `frontend/src/lib/assistantSnapshotSyncBridge.ts`（`modules/assistant` ↔ `stores/terminalStore` 就是这么解开的）。
 
 ## 模块现状（原 Development Phases 已作废）
 
@@ -211,13 +211,30 @@ cargo test
 | 服务器 | 主机监控；宝塔 / 1Panel（站点、应用、证书、计划任务） |
 | 云厂商 | 阿里云、腾讯云——账户 → 能力 → 实例的能力工作台 |
 | 协议实验室 | HTTP / WebSocket / MQTT / Serial / gRPC |
-| AI | 三条能力线：内置编排器（`ai_chat_stream`）、Agent Router（`:8765`）、OmniMCP（`:12756`） |
+| AI | 三条**产品切面**（非同级子系统）：内置编排 / Agent Router / OmniMCP——见下方矩阵 |
 | 工作流 / 任务 | 模板、runbook、任务中心与待办、Quick Launcher、可审计执行 |
 | 同步 | 团队同步（`sync_key_v2` + 密钥中继）、客户端快照同步 |
 | 插件 | L1 声明式 / L2 logic.js·wasm / L3 沙箱 UI；签名安装 + 插件中心 + Studio |
 | 安全 | 在场验证（Windows Hello / Touch ID 或短命 token），危险操作按 action+target 一次性消费 |
 
 进行中的变更提案见 `openspec/changes/`；产品需求见 `PRD.md`。
+
+## AI 能力矩阵（三条产品切面）
+
+三条线按**谁调用 / 什么协议 / 什么端口**区分，crate 不必合并。工程收敛优先：**前端只走 `lib/ai` 公开入口**，禁止再开平行 `/chat/completions` 客户端。
+
+| 切面 | 职责 | 入口 | 端口（release / dev） | 前端该怎么用 |
+|------|------|------|----------------------|--------------|
+| **内置编排** | App 内 Dock / 终端内联 / 子会话 / Skills / RAG / 工具循环 | IPC `ai_chat_stream` → `omnipanel-ai` `InternalOrchestrator` | 无独立端口 | `lib/ai`：`runInternalAiChat` / `submitAiPrompt` / `requestAiCompletionOnce` |
+| **Agent Router** | 给外部客户端（Cline / curl）的 OpenAI 兼容本地网关 | `omnipanel-gateway`（设置开启后 spawn） | `:8765` / `:8766` | 仅设置页配置 + 状态指示；**App UI 不走此路径推理** |
+| **OmniMCP** | 给 Cursor 等 MCP 客户端暴露本机工具；也被内置编排注入为工具面 | `omnipanel-mcp` Streamable HTTP `/mcp` | `:12756` / `:12757` | 设置页管理；工具经 `mcp_*` 或编排 DirectInject |
+
+旁系（**不是**第四条推理线）：
+
+- `omnipanel-assistant` + `modules/assistant`：云端助手设备同步 / 入站聊天 → 再进内置编排
+- `runSimpleChat` / `streamOpenAI`：遗留前端直连 SSE，**禁止新调用**；oneshot 一律优先 `runInternalAiChat`
+
+Desktop / Web：Web 的 `ai_chat_stream` 仅 HTTP backend（无 ACP/CLI）；Agent Router / 内置 OmniMCP 监听以桌面为主。
 
 ## Cross-Platform Targets
 

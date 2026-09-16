@@ -41,7 +41,12 @@ function buildApiMessages(
   return messages;
 }
 
-/** 单次 LLM 调用（无 Agent / 工具），用于简单结构化任务。 */
+/**
+ * 单次 LLM 调用（无 Agent / 工具），用于简单结构化任务。
+ *
+ * @deprecated 请改用 `requestAiCompletionOnce`（oneshot）或 `runInternalAiChat`（对话流）。
+ * 本函数经 `streamOpenAI` 前端直连 `/chat/completions`，是第四条推理路径；无现存调用方。
+ */
 export async function runSimpleChat(
   modelConfig: ModelConfig,
   systemPrompt: string,

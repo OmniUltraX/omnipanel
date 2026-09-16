@@ -1,5 +1,9 @@
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import {
+  setClientConversationSyncCancelHook,
+  setClientConversationSyncHook,
+} from "../../lib/clientConversationSyncBridge";
 import { useAuthStore } from "../../stores/authStore";
 import { useAiStore } from "../../stores/aiStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
@@ -97,3 +101,7 @@ export async function flushClientConversationSync(
   } catch {
   }
 }
+
+// 注册到桥接模块，供 store 侧解耦调用（切断 stores ↔ clientSync 的循环依赖）。
+setClientConversationSyncHook(scheduleClientConversationSync);
+setClientConversationSyncCancelHook(cancelClientConversationSync);

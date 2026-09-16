@@ -7,10 +7,10 @@ import {
   type SshConfigSyncResult,
 } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
-import { clearSshAuthHold } from "../modules/server/ssh/sshAuthHold";
+import { clearSshAuthHold } from "../lib/sshAuthHold";
 import { notifyAssistantSnapshotSync } from "../lib/assistantSnapshotSyncBridge";
-import { scheduleClientModuleSync } from "../modules/clientSync";
-import { recordModuleTombstones } from "../modules/clientSync/tombstones";
+import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
+import { recordModuleTombstones } from "./clientSyncTombstoneStore";
 import {
   SEED_RESOURCES,
   type EnvironmentTag,
@@ -194,7 +194,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         });
         notifyAssistantSnapshotSync();
         if (!isNameOnlyChange(connection, existing, "name")) {
-          scheduleClientModuleSync();
+          notifyClientModuleSync();
         }
         return saved;
       }
@@ -228,7 +228,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         connections: state.connections.map((c) => savedMap.get(c.id) ?? c),
       }));
       notifyAssistantSnapshotSync();
-      scheduleClientModuleSync();
+      notifyClientModuleSync();
     } catch (e) {
       set({ error: String(e) });
     }
@@ -247,7 +247,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         }
         recordModuleTombstones("connection", [id]);
         notifyAssistantSnapshotSync();
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
       } else {
         set({ error: res.error.message });
       }

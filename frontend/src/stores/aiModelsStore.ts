@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 
 import { commands } from "../ipc/bindings";
 import { resolveApiBaseUrl } from "../lib/ai/resolveApiBaseUrl";
+import { notifyAssistantSnapshotSync } from "../lib/assistantSnapshotSyncBridge";
 import { canUseAiBackend } from "../lib/isTauriRuntime";
 import { fetchProviderModelList, mergeModelCatalog, buildApiModelMeta } from "../lib/fetchProviderModels";
 import type { ApiModelMeta } from "../lib/fetchProviderModels";
@@ -434,9 +435,7 @@ async function persistProviders(providers: AiModelProvider[]): Promise<void> {
     console.warn("[aiModelsStore] 写入磁盘失败:", e);
   }
   // 模型目录变更后推助手端快照（脱敏，不含 API Key）
-  void import("../modules/assistant").then((m) => {
-    m.scheduleAssistantSnapshotSync();
-  });
+  notifyAssistantSnapshotSync();
 }
 
 /**

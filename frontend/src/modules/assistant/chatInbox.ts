@@ -10,6 +10,7 @@ import {
   skipAskUserForm,
   submitAskUserAnswers,
 } from "../../lib/ai/orchestration/askUserToolDispatcher";
+import { setAssistantChatInboxHooks } from "../../lib/assistantInboxBridge";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { safeTauriUnlisten } from "../../lib/safeTauriUnlisten";
 import { useAiStore } from "../../stores/aiStore";
@@ -428,3 +429,6 @@ export async function stopAssistantChatInbox(): Promise<void> {
     // 停止失败可忽略
   }
 }
+
+// 注册到桥接模块，供 authStore 解耦启停（切断 stores ↔ assistant 的循环依赖）。
+setAssistantChatInboxHooks(startAssistantChatInbox, stopAssistantChatInbox);

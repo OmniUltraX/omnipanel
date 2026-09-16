@@ -33,6 +33,7 @@ import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
 import { useBottomWorkspaceShortcut } from "./hooks/useBottomWorkspaceShortcut";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
+import "./lib/registerSyncBridges";
 
 interface WorkspaceWindowRootProps {
   workspaceId: string;

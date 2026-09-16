@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useI18n } from "@/i18n";
-import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { SidebarTreeEmpty, SidebarTreeNode } from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo, DockerContainerSummary } from "@/ipc/bindings";

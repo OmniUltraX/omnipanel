@@ -5,7 +5,7 @@ import { DatabaseModuleContextBridge } from "./ai";
 import { DbSchemaProvider } from "./schema/DbSchemaContext";
 import { DatabaseDialogsHost } from "./workspace/DatabaseDialogsHost";
 import { DatabaseWorkspaceDock } from "./workspace/DatabaseWorkspaceDock";
-import { ContextMenu } from "../../components/ui/ContextMenu";
+import { ContextMenu } from "../../components/ui/menu";
 import { buildTabCloseMenuItems } from "../../components/ui/menu";
 import { DockTabIcon } from "../../components/dock/DockTabIcon";
 import { CsvExportDialog } from "./workspace/CsvExportDialog";

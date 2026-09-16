@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from "@/components/ui/ContextMenu";
+import type { ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 
 export type BuildSidebarTreeContextMenuItemsOptions = {

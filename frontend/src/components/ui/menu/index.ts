@@ -5,4 +5,4 @@ export {
 } from "./contextMenuItems";
 export { contextMenuIcons, ContextMenuIcon } from "./contextMenuIcons";
 export { ToolbarMenuButton } from "./ToolbarMenuButton";
-export { IconDropdownButton } from "./IconDropdownButton";
+export { IconDropdownButton, type IconDropdownButtonItem } from "./IconDropdownButton";

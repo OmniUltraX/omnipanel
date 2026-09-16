@@ -216,6 +216,10 @@ async function* parseOpenAiSseStream(chunks: AsyncIterable<string>): AsyncGenera
   }
 }
 
+/**
+ * @deprecated 请改用 `runInternalAiChat` / `requestAiCompletionOnce`。
+ * 前端 SSE 直连 `/chat/completions` 是第四条推理路径，禁止新调用。
+ */
 export async function* streamOpenAI(
   messages: ApiMessage[],
   config: ModelConfig,
@@ -256,6 +260,10 @@ export async function* streamOpenAI(
   yield* parseOpenAiSseStream(responseBody);
 }
 
+/**
+ * @deprecated 请改用 `runInternalAiChat` / `requestAiCompletionOnce`。
+ * 与 `streamOpenAI` 同属前端平行 SSE，禁止新调用。
+ */
 export async function* streamAnthropic(
   messages: ApiMessage[],
   config: ModelConfig,
@@ -457,6 +465,10 @@ export function buildModelMessages(
   return { apiMessages, tools };
 }
 
+/**
+ * @deprecated 请改用 `runInternalAiChat` / `requestAiCompletionOnce`。
+ * 快捷启动页内问答仍走此函数（需与 Dock 会话隔离的流式 delta）；勿作为新入口。
+ */
 export async function* streamModelChat(
   apiMessages: ApiMessage[],
   config: ModelConfig,
@@ -511,6 +523,9 @@ export function mergeToolCallDeltas(
   return result;
 }
 
+/**
+ * @deprecated 请改用 `requestAiCompletionOnce`。无现存调用方。
+ */
 export async function* streamSimpleChat(
   config: ModelConfig,
   systemPrompt: string,

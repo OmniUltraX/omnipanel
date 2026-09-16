@@ -1,0 +1,14 @@
+[package]
+name = "omnipanel-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "协议实验室共享实现（grpc / modbus；从桌面与 Web 下沉复用）"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest = { workspace = true }
+specta.workspace = true
+omnipanel-error = { path = "../omnipanel-error" }

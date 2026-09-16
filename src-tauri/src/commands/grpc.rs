@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tauri::State;
 
-use crate::protocol::grpc::{GrpcCallRequest, GrpcCallResponse, GrpcConnectionConfig, GrpcSession};
+use omnipanel_protocol::grpc::{GrpcCallRequest, GrpcCallResponse, GrpcConnectionConfig, GrpcSession};
 use crate::state::AppState;
 
 static GRPC_COUNTER: AtomicU64 = AtomicU64::new(1);

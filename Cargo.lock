@@ -5563,11 +5563,13 @@ dependencies = [
  "omnipanel-gateway",
  "omnipanel-knowledge-source",
  "omnipanel-mcp",
+ "omnipanel-panel",
  "omnipanel-plugin",
  "omnipanel-plugin-js",
  "omnipanel-plugin-pkg",
  "omnipanel-plugin-wasm",
  "omnipanel-presence",
+ "omnipanel-protocol",
  "omnipanel-ssh",
  "omnipanel-store",
  "omnipanel-transfer",
@@ -5929,6 +5931,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-panel"
+version = "0.0.5"
+dependencies = [
+ "base64 0.22.1",
+ "hmac 0.12.1",
+ "md5",
+ "omnipanel-docker",
+ "omnipanel-error",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "specta",
+ "tokio",
+]
+
+[[package]]
 name = "omnipanel-plugin"
 version = "0.0.5"
 dependencies = [
@@ -6005,6 +6024,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-protocol"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-error",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "specta",
+ "tokio",
+]
+
+[[package]]
 name = "omnipanel-s3"
 version = "0.0.5"
 dependencies = [
@@ -6056,7 +6087,9 @@ dependencies = [
  "omnipanel-exec",
  "omnipanel-gateway",
  "omnipanel-mcp",
+ "omnipanel-panel",
  "omnipanel-presence",
+ "omnipanel-protocol",
  "omnipanel-s3",
  "omnipanel-ssh",
  "omnipanel-store",

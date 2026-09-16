@@ -1,6 +1,9 @@
 /**
  * 快捷启动「询问 AI」：仅在启动窗内 HTTP 流式补全。
  * 不走 ai_chat_stream / 会话体系，避免牵动主窗 AI 抽屉。
+ *
+ * 白名单：不能迁到 `requestAiCompletionOnce` / `runInternalAiChat`——调用方依赖
+ * `onDelta` 页内流式，且必须与 Dock 会话完全隔离。新场景请走 oneshot / 编排。
  */
 import { streamModelChat, type ModelConfig } from "../../components/ai/assistant-ui/chatModel";
 import { resolveScenarioModelSelectionId } from "../aiScenarioModels";

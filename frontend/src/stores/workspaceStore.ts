@@ -9,7 +9,8 @@ import { resolveResourceById } from "./connectionStore";
 import { DASHBOARD_PATH } from "../lib/paths";
 import { getCachedDeviceName } from "../lib/deviceIdentity";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
-import { scheduleClientModuleSync, recordModuleTombstones } from "../modules/clientSync";
+import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
+import { recordModuleTombstones } from "./clientSyncTombstoneStore";
 
 export interface WorkspaceInfo {
   id: string;
@@ -169,7 +170,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             detail: { prevWorkspaceId: prevId, nextWorkspaceId: newWorkspace.id },
           }),
         );
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
         return newWorkspace;
       },
 
@@ -240,7 +241,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           // ignore
         }
         recordModuleTombstones("workspace", [id]);
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
         return true;
       },
 

@@ -5,7 +5,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createIndexedDBStorage } from "@/lib/indexedDbStorage";
-import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
+import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
 
 export type DockerSidebarFolder = {
   id: string;
@@ -64,7 +64,7 @@ function parentStorageKey(parentId: string | null): string {
 }
 
 function notifyDockerSidebarTreeChanged(): void {
-  scheduleClientModuleSync();
+  notifyClientModuleSync();
 }
 
 function isDescendantFolder(

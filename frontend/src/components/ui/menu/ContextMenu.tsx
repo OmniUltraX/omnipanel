@@ -68,6 +68,7 @@ function ContextMenuDisabledHint({ reason }: { reason: string }) {
       <span
         ref={anchorRef}
         className="context-menu-item__hint"
+        title={reason}
         aria-label={reason}
         onMouseEnter={showTooltip}
         onMouseLeave={hideTooltip}

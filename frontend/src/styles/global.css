@@ -21195,6 +21195,39 @@ button.omni-btn-tool[aria-pressed="true"] {
     position: relative;
 }
 
+.context-menu-row--with-hint {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+}
+
+.context-menu-row--with-hint > .context-menu-item {
+    flex: 1;
+    min-width: 0;
+}
+
+.context-menu-item__hint-slot {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding-right: 6px;
+}
+
+.context-menu-item__hint-tooltip {
+    max-width: min(280px, calc(100vw - 24px));
+    padding: 6px 8px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--fg);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-md, 0 4px 16px rgb(0 0 0 / 0.12));
+    pointer-events: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .context-menu-item {
     display: flex;
     align-items: center;

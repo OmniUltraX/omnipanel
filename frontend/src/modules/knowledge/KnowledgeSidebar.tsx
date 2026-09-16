@@ -11,7 +11,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { ScopedSearch } from "../../components/ui/ScopedSearch";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu";
 import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { Button } from "../../components/ui/Button";
 import {

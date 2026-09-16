@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { Button } from "../../components/ui/Button";
-import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu";
 import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { TextInput } from "../../components/ui/form/TextInput";

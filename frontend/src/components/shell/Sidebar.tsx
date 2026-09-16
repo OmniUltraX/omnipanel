@@ -19,7 +19,7 @@ import { getNavVisibleModuleKeys, useAppModuleStore } from "../../stores/appModu
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { sidebarItemsForVisible, type SidebarNavItem } from "../../lib/sidebarNav";
 import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
-import { ContextMenu, type ContextMenuItem } from "../ui/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "../ui/menu";
 import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import {
   isModuleWindowSupported,
