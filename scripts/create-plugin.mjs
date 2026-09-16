@@ -33,6 +33,7 @@ const KINDS = [
   "panel",
   "importer",
   "addon",
+  "knowledge",
   "js-logic",
   "l3-overlay",
   "wasm-stub",
@@ -315,6 +316,35 @@ if (kind === "wasm-stub") {
     permissions: [],
     contributes: {
       launcher: { prefix: name },
+    },
+  };
+} else if (kind === "knowledge") {
+  manifest = {
+    id,
+    version: "0.1.0",
+    displayName: name,
+    kind: "knowledge",
+    permissions: [],
+    entry: { logic: "logic.js" },
+    methods: [
+      { name: "listNotebooks", permissions: [] },
+      { name: "listDocuments", permissions: [] },
+      { name: "getDocument", permissions: [] },
+      { name: "searchNotes", permissions: [] },
+    ],
+    contributes: {
+      knowledgeSources: [
+        {
+          id: name,
+          title: name,
+          formats: ["md"],
+          listMethod: "listNotebooks",
+          listDocumentsMethod: "listDocuments",
+          getMethod: "getDocument",
+          searchMethod: "searchNotes",
+          fields: [],
+        },
+      ],
     },
   };
 } else {
@@ -601,6 +631,57 @@ globalThis.call = call;
   );
 }
 
+if (kind === "knowledge") {
+  writeFileSync(
+    path.join(dir, "logic.js"),
+    `function asObj(v) {
+  if (v && typeof v === "object") return v;
+  try { return JSON.parse(String(v || "{}")); } catch (e) { return {}; }
+}
+var NOTEBOOKS = [{ id: "nb-demo", name: "演示笔记本" }];
+var DOCS = [{
+  id: "doc-hello", notebookId: "nb-demo", title: "你好，知识源",
+  markdown: "# 你好，知识源\\n\\n这是 knowledge kind 插件返回的演示文档。\\n", updatedAt: 0
+}];
+function listNotebooks() { return NOTEBOOKS.slice(); }
+function listDocuments(args) {
+  var a = asObj(args);
+  return DOCS.filter(function (d) { return !a.notebookId || d.notebookId === a.notebookId; })
+    .map(function (d) { return { id: d.id, title: d.title, parentId: d.notebookId }; });
+}
+function getDocument(args) {
+  var a = asObj(args);
+  for (var i = 0; i < DOCS.length; i++) {
+    if (DOCS[i].id === a.id) {
+      return { title: DOCS[i].title, markdown: DOCS[i].markdown, updatedAt: DOCS[i].updatedAt };
+    }
+  }
+  throw new Error("NotFound: " + a.id);
+}
+function searchNotes(args) {
+  var keyword = String(asObj(args).keyword || "").toLowerCase();
+  if (!keyword) return [];
+  return DOCS.filter(function (d) {
+    return (d.title + "\\n" + d.markdown).toLowerCase().indexOf(keyword) >= 0;
+  }).map(function (d) { return { id: d.id, title: d.title, snippet: d.markdown.slice(0, 80) }; });
+}
+var HANDLERS = {
+  listNotebooks: listNotebooks,
+  listDocuments: listDocuments,
+  getDocument: getDocument,
+  searchNotes: searchNotes
+};
+function call(method, argsJson) {
+  var handler = HANDLERS[String(method || "")];
+  if (!handler) throw new Error("UnknownMethod: " + method);
+  var result = handler(asObj(argsJson));
+  return typeof result === "string" ? result : JSON.stringify(result);
+}
+globalThis.call = call;
+`,
+  );
+}
+
 if (kind === "cloud") {
   writeFileSync(
     path.join(dir, "logic.js"),
@@ -656,7 +737,6 @@ globalThis.call = call;
 `,
   );
 }
-
 if (engineSidecar) {
   mkdirSync(path.join(dir, "bin"), { recursive: true });
   mkdirSync(path.join(dir, "src-agent-rs", "src"), { recursive: true });

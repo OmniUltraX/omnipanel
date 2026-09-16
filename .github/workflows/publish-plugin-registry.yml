@@ -8,6 +8,7 @@ on:
       - "plugins/*/plugin.json"
       - "plugins-market/*/plugin.json"
       - "plugins-market/*/ui/**"
+      - "plugins-market/*/logic.js"
       - "scripts/generate-plugin-registry.mjs"
       - ".github/workflows/publish-plugin-registry.yml"
   workflow_dispatch:
@@ -34,7 +35,28 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           . "$HOME/.cargo/env"
           mkdir -p dist
-          cargo run -q -p omnipanel-plugin-pkg --bin pack -- plugins-market/addon-translator "dist/omni-addon-translator-$(node -p "require('./plugins-market/addon-translator/plugin.json').version").omni-plugin"
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const { execFileSync } = require("child_process");
+            const market = "plugins-market";
+            const manifestByDir = {};
+            for (const dir of fs.readdirSync(market, { withFileTypes: true })) {
+              if (!dir.isDirectory()) continue;
+              const manifestPath = path.join(market, dir.name, "plugin.json");
+              if (!fs.existsSync(manifestPath)) continue;
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+              const asset = manifest.id.replace(/\./g, "-") + "-" + manifest.version + ".omni-plugin";
+              manifestByDir[dir.name] = { manifest, asset };
+              execFileSync(
+                "cargo",
+                ["run", "-q", "-p", "omnipanel-plugin-pkg", "--bin", "pack", "--",
+                 path.join(market, dir.name), path.join("dist", asset)],
+                { stdio: "inherit" },
+              );
+            }
+            fs.writeFileSync("dist/market-assets.json", JSON.stringify(manifestByDir, null, 2));
+          '
           ls -la dist
 
       - name: Fill market artifact hash/size into staged registry
@@ -42,31 +64,29 @@ jobs:
           node -e '
             const fs = require("fs");
             const crypto = require("crypto");
-            const manifest = JSON.parse(fs.readFileSync("plugins-market/addon-translator/plugin.json", "utf8"));
-            const file = `dist/omni-addon-translator-${manifest.version}.omni-plugin`;
-            const bytes = fs.readFileSync(file);
+            const manifestByDir = JSON.parse(fs.readFileSync("dist/market-assets.json", "utf8"));
             const registry = JSON.parse(fs.readFileSync("plugins/registry.json", "utf8"));
-            const entry = registry.plugins.find((p) => p.id === manifest.id);
-            if (!entry) throw new Error("registry 缺少 " + manifest.id);
-            const url = `https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-addon-translator-${manifest.version}.omni-plugin`;
-            if (Array.isArray(entry.versions) && entry.versions.length) {
-              entry.versions[0].version = manifest.version;
-              entry.versions[0].artifact = {
+            for (const [dir, { manifest, asset }] of Object.entries(manifestByDir)) {
+              const bytes = fs.readFileSync("dist/" + asset);
+              const entry = registry.plugins.find((p) => p.id === manifest.id);
+              if (!entry) throw new Error("registry 缺少 " + manifest.id + "（" + dir + "）");
+              const url = `https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/${asset}`;
+              const artifact = {
                 url,
                 sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
                 size: bytes.length,
               };
-            } else {
-              entry.version = manifest.version;
-              entry.distribution = "download";
-              entry.artifact = {
-                url,
-                sha256: crypto.createHash("sha256").update(bytes).digest("hex"),
-                size: bytes.length,
-              };
+              if (Array.isArray(entry.versions) && entry.versions.length) {
+                entry.versions[0].version = manifest.version;
+                entry.versions[0].artifact = artifact;
+              } else {
+                entry.version = manifest.version;
+                entry.distribution = "download";
+                entry.artifact = artifact;
+              }
+              console.log(`[market-artifact] ${manifest.id} v${manifest.version} sha256/size 回填完成`);
             }
             fs.writeFileSync("plugin-registry.json", JSON.stringify(registry, null, 2) + "\n");
-            console.log(`[market-artifact] ${manifest.id} v${manifest.version} sha256/size 回填完成`);
           '
           ls -la plugin-registry.json dist
 

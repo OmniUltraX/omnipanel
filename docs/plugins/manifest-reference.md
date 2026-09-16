@@ -11,7 +11,7 @@
 | `id` | string | ✅ | 反向域名式唯一标识，如 `omni.engine.clickhouse`。安装包 id 与内置冲突时拒绝安装 |
 | `version` | string | ✅ | SemVer；覆盖升级用 |
 | `displayName` | string | — | 侧栏 / 插件中心显示名；缺省回退宿主 i18n 或 id |
-| `kind` | enum | ✅ | 七选一：`engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon` |
+| `kind` | enum | ✅ | 八选一：`engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon` / `knowledge`（知识源适配器，见下） |
 | `permissions` | string[] | — | 声明所需权限；缺权调用即失败（见 [permissions-and-levels](./permissions-and-levels.md)） |
 | `methods` | object[] | — | L2 网关白名单：`{ name, permissions[] }`；未声明的 method 一律 `UnknownMethod` |
 | `entry.logic` | string | — | L2 逻辑包相对路径，仅 `.wasm` / `.js`；禁止 `..` 与绝对路径 |
@@ -39,6 +39,7 @@
 | `launcher.prefix` | addon | 快捷启动前缀（如 Everything 的 `es`） |
 | `discovery[]` | panel/module | 发现 probe 归属声明 `{ probeId }` |
 | `importers[]` | importer | `{ id, title, hint?, sourceKind?: instances\|dockerConnections, fetchMethod?, scanners?, defaultGroup?, resourceKinds?, defaultTag?, sshAuth?, note?, fields[…], entry? }`。`instances`（默认）由宿主画实例表单，L2 `fetchMethod` 拉目标；`dockerConnections` 左侧列出已有 Docker 连接，宿主按 `scanners[]` 扫描。`resourceKinds` 声明会写入的资源类型，设置里按类型各选分组。样板：`plugins/importer-warpgate`、`plugins/importer-docker-db` |
+| `knowledgeSources[]` | knowledge | 只读数据源适配器：`{ id（全局唯一）, title?, hint?, formats?[], listMethod, listDocumentsMethod, getMethod, searchMethod?, fields[…] }`。插件只管列目录/取文档/解析 Markdown（L2 methods，必须配 `entry.logic`），落库、命名空间隔离、增量、调度由宿主管线负责。样板：`plugins-samples/knowledge-starter` |
 | `themes.tokens` | theme | 公开 token 合同；**theme 禁止 JS**，permissions 必须为空 |
 | `ai.tools[]` | 任意 | `{ name, description, execKind, moduleKey, crossModule, externalExposed, inputSchema }` |
 

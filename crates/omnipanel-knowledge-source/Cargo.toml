@@ -1,0 +1,20 @@
+[package]
+name = "omnipanel-knowledge-source"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "知识源管线宿主 runner：数据源适配器契约（kind=knowledge）+ 通用同步引擎（增量/归档/重建）。插件只读供数，落库由宿主负责。"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+specta.workspace = true
+tracing.workspace = true
+omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-store = { path = "../omnipanel-store" }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+omnipanel-plugin = { path = "../omnipanel-plugin" }
+omnipanel-plugin-js = { path = "../omnipanel-plugin-js" }

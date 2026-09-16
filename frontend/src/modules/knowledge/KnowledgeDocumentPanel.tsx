@@ -31,7 +31,7 @@ import { KnowledgePdfPreview } from "./KnowledgePdfPreview";
 import { ContentPreviewView } from "../../components/ui/content/ContentPreviewView";
 import { parseHeadings } from "./metadata/headings";
 import { resolveTitleToId } from "./metadata/KnowledgeMetadataCache";
-import { useKnowledgeMetadata } from "./metadata/useKnowledgeMetadata";
+import { useKnowledgeMetadata, useUnlinkedMentions } from "./metadata/useKnowledgeMetadata";
 import { knowledgeAssetHref } from "./metadata/wikilink";
 import { normalizeKnowledgeTags } from "./knowledgeTags";
 import {
@@ -68,6 +68,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   const createFolder = useKnowledgeStore((s) => s.createFolder);
   const { openEntry } = useKnowledgeOpenEntry();
   const meta = useKnowledgeMetadata();
+  const unlinked = useUnlinkedMentions(entryId);
 
   const rightRailCollapsed = useKnowledgeWorkspaceStore((s) => s.rightRailCollapsed);
   const rightRailTab = useKnowledgeWorkspaceStore((s) => s.rightRailTab);
@@ -786,7 +787,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
             else setJumpHeadingText(heading.text);
           }}
           linked={meta.backlinks.get(entry.id) ?? []}
-          unlinked={meta.unlinkedMentions.get(entry.id) ?? []}
+          unlinked={unlinked}
           onOpenEntry={(id) => openEntry(id, "preview")}
           entryId={entry.id}
           entryTitle={displayTitle}

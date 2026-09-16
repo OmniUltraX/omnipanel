@@ -85,24 +85,67 @@ export function buildKnowledgeTree(entries: KnowledgeEntry[]): KnowledgeTreeNode
       return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
     });
 
-  const build = (parentId: string): KnowledgeTreeNode[] =>
+  const build = (parentId: string, visiting: Set<string>): KnowledgeTreeNode[] =>
     sortEntries(byParent.get(parentId) ?? []).map((entry) => ({
       entry,
-      children: isKnowledgeFolder(entry) ? build(entry.id) : [],
+      // 防环：用户数据脏（A↔B 互指）时截断，避免无限递归爆栈。
+      // 思源等镜像源允许文档下挂子文档，不再只给 folder 建 children。
+      children: visiting.has(entry.id)
+        ? []
+        : (() => {
+            visiting.add(entry.id);
+            try {
+              return build(entry.id, visiting);
+            } finally {
+              visiting.delete(entry.id);
+            }
+          })(),
     }));
 
-  return build("");
+  return build("", new Set());
+}
+
+export type FlattenedTreeRow = {
+  node: KnowledgeTreeNode;
+  depth: number;
+};
+
+/** 可见行扁平化（虚拟滚动用）：只展开 expandedIds 内的文件夹。 */
+export function flattenVisibleTree(
+  nodes: KnowledgeTreeNode[],
+  expandedIds: readonly string[],
+): FlattenedTreeRow[] {
+  const expanded = new Set(expandedIds);
+  const rows: FlattenedTreeRow[] = [];
+  const walk = (list: KnowledgeTreeNode[], depth: number, visiting: Set<string>) => {
+    for (const node of list) {
+      rows.push({ node, depth });
+      // 文档也可能有子项（思源子文档），有 children 且被展开就深入。
+      if (node.children.length > 0 && expanded.has(node.entry.id)) {
+        // 防环：同 buildKnowledgeTree。
+        if (visiting.has(node.entry.id)) continue;
+        visiting.add(node.entry.id);
+        try {
+          walk(node.children, depth + 1, visiting);
+        } finally {
+          visiting.delete(node.entry.id);
+        }
+      }
+    }
+  };
+  walk(nodes, 0, new Set());
+  return rows;
 }
 
 export function collectDescendantIds(entries: KnowledgeEntry[], rootId: string): string[] {
   const out: string[] = [];
+  const seen = new Set<string>();
   const walk = (parentId: string) => {
     for (const entry of entries) {
-      if (normalizeParentId(entry.parentId) === parentId) {
+      if (normalizeParentId(entry.parentId) === parentId && !seen.has(entry.id)) {
+        seen.add(entry.id);
         out.push(entry.id);
-        if (isKnowledgeFolder(entry)) {
-          walk(entry.id);
-        }
+        walk(entry.id);
       }
     }
   };

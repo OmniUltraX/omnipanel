@@ -98,6 +98,13 @@ function referencedMethods(raw) {
       names.push(importer.fetchMethod.trim());
     }
   }
+  for (const source of raw.contributes?.knowledgeSources ?? []) {
+    for (const key of ["listMethod", "listDocumentsMethod", "getMethod", "searchMethod", "parseMethod"]) {
+      if (typeof source?.[key] === "string" && source[key].trim()) {
+        names.push(source[key].trim());
+      }
+    }
+  }
   for (const tool of raw.contributes?.ai?.tools ?? []) {
     if (tool?.execKind === "plugin" && typeof tool?.name === "string") names.push(tool.name);
   }
@@ -170,6 +177,42 @@ function kindErrors(raw, dir) {
     const importers = raw.contributes?.importers;
     if (!Array.isArray(importers) || importers.length === 0) {
       errors.push("importer 必须声明 contributes.importers[]");
+    }
+  }
+  if (kind === "knowledge") {
+    const sources = raw.contributes?.knowledgeSources;
+    if (!Array.isArray(sources) || sources.length === 0) {
+      errors.push("knowledge 必须声明 contributes.knowledgeSources[]");
+    } else {
+      for (const source of sources) {
+        if (!source || typeof source !== "object") {
+          errors.push("knowledgeSources[] 必须是对象");
+          continue;
+        }
+        if (typeof source.id !== "string" || !source.id.trim()) {
+          errors.push("knowledgeSources[].id required");
+        }
+        if (source.localFiles) {
+          // 本地文件源：宿主遍历 + parseMethod 解析，不调 list/get。
+          if (typeof source.parseMethod !== "string" || !source.parseMethod.trim()) {
+            errors.push(`knowledge source ${source.id || "?"} 声明 localFiles 必须配 parseMethod`);
+          } else {
+            pushMissingMethods(errors, have, [source.parseMethod.trim()], `knowledge source ${source.id || "?"}`);
+          }
+          continue;
+        }
+        const needed = ["listMethod", "listDocumentsMethod", "getMethod"]
+          .map((key) => (typeof source[key] === "string" ? source[key].trim() : ""))
+          .filter(Boolean);
+        if (needed.length < 3) {
+          errors.push(`knowledge source ${source.id || "?"} 远程源必须配齐 listMethod/listDocumentsMethod/getMethod`);
+        }
+        pushMissingMethods(errors, have, needed, `knowledge source ${source.id || "?"}`);
+      }
+    }
+    // L2 方法需要执行器：无 entry.logic 的 knowledge 插件跑不起来。
+    if (!logic) {
+      errors.push("knowledge 必须声明 entry.logic（数据源方法需要 L2 执行器）");
     }
   }
   if (kind === "theme") {

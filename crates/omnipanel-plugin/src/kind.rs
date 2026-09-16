@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-/// 插件身份。七种锁死，不为单一产品新增第八种。
+/// 插件身份。新增 kind 只接受平台级能力（多租户），不为单一产品开口子。
+/// `knowledge`（知识源适配器：思源/Obsidian/Logseq/Notion 只读镜像）即此类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum PluginKind {
@@ -12,6 +13,7 @@ pub enum PluginKind {
     Module,
     Theme,
     Addon,
+    Knowledge,
 }
 
 impl PluginKind {
@@ -24,6 +26,7 @@ impl PluginKind {
             Self::Module => "module",
             Self::Theme => "theme",
             Self::Addon => "addon",
+            Self::Knowledge => "knowledge",
         }
     }
 
@@ -36,7 +39,23 @@ impl PluginKind {
             "module" => Ok(Self::Module),
             "theme" => Ok(Self::Theme),
             "addon" => Ok(Self::Addon),
+            "knowledge" => Ok(Self::Knowledge),
             other => Err(format!("未知插件 kind: {other}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kind_roundtrip_covers_knowledge() {
+        assert_eq!(PluginKind::parse("knowledge"), Ok(PluginKind::Knowledge));
+        assert_eq!(PluginKind::Knowledge.as_str(), "knowledge");
+        // serde 与 specta 共用小写形态。
+        let json = serde_json::to_string(&PluginKind::Knowledge).unwrap();
+        assert_eq!(json, "\"knowledge\"");
+        assert!(PluginKind::parse("wiki").is_err());
     }
 }

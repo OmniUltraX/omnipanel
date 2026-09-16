@@ -4,9 +4,11 @@ import {
   useMemo,
   useRef,
   useState,
+  memo,
   type DragEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { ScopedSearch } from "../../components/ui/ScopedSearch";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/ContextMenu";
@@ -35,6 +37,7 @@ import {
   buildKnowledgeTree,
   filterEntriesForLibrarySection,
   filterKnowledgeTree,
+  flattenVisibleTree,
   isKnowledgeFolder,
   isKnowledgeImported,
   knowledgeLibrarySectionForEntry,
@@ -52,7 +55,7 @@ import {
   KNOWLEDGE_CHUNKS_CHANGED_EVENT,
 } from "./knowledgeVectorize";
 import { exportKnowledgeMarkdown, exportKnowledgePdf } from "./knowledgeExport";
-import { SiyuanSyncDialog } from "./SiyuanSyncDialog";
+import { KnowledgeSourceConsole } from "./KnowledgeSourceConsole";
 import { KnowledgeSearchResults } from "./panels/KnowledgeSearchResults";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
 import { KNOWLEDGE_TAG_KINDS } from "../tags/tagKinds";
@@ -67,6 +70,11 @@ import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
 
 const SECTION_STORAGE_KEY = "omnipanel-knowledge-sidebar-sections";
 const SIZE_STORAGE_KEY = "omnipanel-knowledge-sidebar-sizes";
+
+/** 树行高（min-height 24 + 上下 padding）：固定高度虚拟化不漂移。 */
+const KNOWLEDGE_TREE_ROW_HEIGHT = 30;
+/** 超过该行数启用虚拟滚动（对齐 database schema 树的 200 行阈值）。 */
+const KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD = 200;
 
 type SidebarSectionKey = KnowledgeLibrarySection;
 
@@ -180,7 +188,7 @@ function TreeRow({
       nodeType={isFolder ? "folder" : "document"}
       treeKey={entry.id}
       expanded={expanded}
-      hasChildren={isFolder}
+      hasChildren={isFolder || node.children.length > 0}
       active={active}
       selected={selection?.isSelected(entry.id) ?? selected}
       className={`knowledge-tree-row${active ? " knowledge-tree-row--active" : ""}${
@@ -216,49 +224,62 @@ function TreeRow({
   );
 }
 
+/**
+ * 行级 memo：展开/选中/拖拽提示变化时，只有受影响的行重渲。
+ * 要求调用方传入稳定的 node 引用与回调（见下方 useCallback 化）。
+ */
+const MemoTreeRow = memo(TreeRow);
+
+type RenderTreeRowOpts = Omit<
+  TreeRowProps,
+  "node" | "depth" | "expanded" | "selected" | "active" | "vectorized"
+> & {
+  expandedIds: string[];
+  selectedId: string | null;
+  activeEntryId: string | null;
+  vectorizedIds: ReadonlySet<string>;
+  onToggle: (id: string) => void;
+};
+
+function renderTreeRow(
+  node: KnowledgeTreeNode,
+  depth: number,
+  opts: RenderTreeRowOpts,
+): React.ReactNode {
+  const id = node.entry.id;
+  return (
+    <MemoTreeRow
+      key={id}
+      node={node}
+      depth={depth}
+      expanded={opts.expandedIds.includes(id)}
+      selected={opts.selectedId === id}
+      active={opts.activeEntryId === id}
+      vectorized={Boolean(opts.vectorizedIds?.has(id))}
+      dropHint={opts.dropHint}
+      onPreviewOpen={opts.onPreviewOpen}
+      onActivate={opts.onActivate}
+      onToggle={opts.onToggle}
+      onContextMenu={opts.onContextMenu}
+      onDragStart={opts.onDragStart}
+      onDragOver={opts.onDragOver}
+      onDrop={opts.onDrop}
+      onDragEnd={opts.onDragEnd}
+    />
+  );
+}
+
 function renderTreeNodes(
   nodes: KnowledgeTreeNode[],
-  opts: Omit<TreeRowProps, "node" | "depth" | "expanded" | "selected" | "active" | "vectorized"> & {
-    depth?: number;
-    expandedIds: string[];
-    selectedId: string | null;
-    activeEntryId: string | null;
-    vectorizedIds: ReadonlySet<string>;
-    onToggle: (id: string) => void;
-  },
+  opts: RenderTreeRowOpts & { depth?: number },
 ): React.ReactNode[] {
   const depth = opts.depth ?? 0;
   const rows: React.ReactNode[] = [];
   for (const node of nodes) {
-    const id = node.entry.id;
-    const expanded = opts.expandedIds.includes(id);
-    rows.push(
-      <TreeRow
-        key={id}
-        node={node}
-        depth={depth}
-        expanded={expanded}
-        selected={opts.selectedId === id}
-        active={opts.activeEntryId === id}
-        vectorized={Boolean(opts.vectorizedIds?.has(id))}
-        dropHint={opts.dropHint}
-        onPreviewOpen={opts.onPreviewOpen}
-        onActivate={opts.onActivate}
-        onToggle={opts.onToggle}
-        onContextMenu={opts.onContextMenu}
-        onDragStart={opts.onDragStart}
-        onDragOver={opts.onDragOver}
-        onDrop={opts.onDrop}
-        onDragEnd={opts.onDragEnd}
-      />,
-    );
-    if (isKnowledgeFolder(node.entry) && expanded && node.children.length > 0) {
-      rows.push(
-        ...renderTreeNodes(node.children, {
-          ...opts,
-          depth: depth + 1,
-        }),
-      );
+    rows.push(renderTreeRow(node, depth, opts));
+    // 文档也可能带子项（思源子文档镜像），展开即渲染。
+    if (opts.expandedIds.includes(node.entry.id) && node.children.length > 0) {
+      rows.push(...renderTreeNodes(node.children, { ...opts, depth: depth + 1 }));
     }
   }
   return rows;
@@ -303,7 +324,7 @@ export function KnowledgeSidebar() {
     null,
   );
   const [showNewMenuSection, setShowNewMenuSection] = useState<KnowledgeLibrarySection | null>(null);
-  const [siyuanDialogOpen, setSiyuanDialogOpen] = useState(false);
+  const [ksConsoleOpen, setKsConsoleOpen] = useState(false);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const [vectorizedIds, setVectorizedIds] = useState<ReadonlySet<string>>(() => new Set());
   const allowedEntryIds = useModuleTagFilter("knowledge", KNOWLEDGE_TAG_KINDS);
@@ -433,6 +454,40 @@ export function KnowledgeSidebar() {
     }),
     [sectionTrees, searchQuery, useFts],
   );
+
+  // 大树虚拟滚动（阈值以下走普通渲染，行为零变化）。
+  const selfBuiltFlatRows = useMemo(
+    () => flattenVisibleTree(visibleSectionTrees.selfBuilt, expandedIds),
+    [visibleSectionTrees, expandedIds],
+  );
+  const importedFlatRows = useMemo(
+    () => flattenVisibleTree(visibleSectionTrees.imported, expandedIds),
+    [visibleSectionTrees, expandedIds],
+  );
+  const selfBuiltScrollRef = useRef<HTMLDivElement>(null);
+  const importedScrollRef = useRef<HTMLDivElement>(null);
+  const selfBuiltVirtualizer = useVirtualizer({
+    count:
+      selfBuiltFlatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD
+        ? selfBuiltFlatRows.length
+        : 0,
+    getScrollElement: () => selfBuiltScrollRef.current,
+    estimateSize: () => KNOWLEDGE_TREE_ROW_HEIGHT,
+    getItemKey: (index) => selfBuiltFlatRows[index]?.node.entry.id ?? index,
+    overscan: 32,
+    useFlushSync: false,
+  });
+  const importedVirtualizer = useVirtualizer({
+    count:
+      importedFlatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD
+        ? importedFlatRows.length
+        : 0,
+    getScrollElement: () => importedScrollRef.current,
+    estimateSize: () => KNOWLEDGE_TREE_ROW_HEIGHT,
+    getItemKey: (index) => importedFlatRows[index]?.node.entry.id ?? index,
+    overscan: 32,
+    useFlushSync: false,
+  });
 
   useEffect(() => {
     if (!useFts) {
@@ -817,53 +872,80 @@ export function KnowledgeSidebar() {
     return "inside";
   };
 
-  const handleDragStart = (id: string, e: DragEvent) => {
+  const handleDragStart = useCallback((id: string, e: DragEvent) => {
     dragIdRef.current = id;
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", id);
-  };
+  }, []);
 
-  const handleDragOver = (targetId: string, e: DragEvent) => {
+  const handleDragOver = useCallback((targetId: string, e: DragEvent) => {
     e.preventDefault();
     const row = e.currentTarget as HTMLElement;
     const position = resolveDropPosition(e, row);
     setDropHint({ targetId, position });
-  };
+  }, []);
 
-  const handleDrop = async (targetId: string, e: DragEvent, section: KnowledgeLibrarySection) => {
-    e.preventDefault();
-    const sourceId = dragIdRef.current;
-    setDropHint(null);
+  const handleDrop = useCallback(
+    async (targetId: string, e: DragEvent, section: KnowledgeLibrarySection) => {
+      e.preventDefault();
+      const sourceId = dragIdRef.current;
+      setDropHint(null);
+      dragIdRef.current = null;
+      if (!sourceId || sourceId === targetId) return;
+
+      const sectionEntries =
+        section === "imported" ? importedEntries : selfBuiltEntries;
+      const source = sectionEntries.find((x) => x.id === sourceId);
+      const target = sectionEntries.find((x) => x.id === targetId);
+      if (!source || !target) return;
+
+      const row = e.currentTarget as HTMLElement;
+      const position = resolveDropPosition(e, row);
+
+      if (position === "inside" && isKnowledgeFolder(target)) {
+        await moveEntry(sourceId, targetId, nextSortOrder(sectionEntries, targetId));
+        return;
+      }
+
+      const parentId = normalizeParentId(target.parentId);
+      const siblings = sectionEntries
+        .filter((x) => normalizeParentId(x.parentId) === parentId && x.id !== sourceId)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      const targetIndex = siblings.findIndex((x) => x.id === targetId);
+      const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+      const reordered = [...siblings];
+      reordered.splice(insertIndex, 0, source);
+      for (let i = 0; i < reordered.length; i += 1) {
+        const item = reordered[i];
+        await moveEntry(item.id, parentId, i);
+      }
+    },
+    [importedEntries, selfBuiltEntries, moveEntry],
+  );
+
+  // 按分区分发的稳定回调：memo 行 props 保持引用稳定。
+  const dropForSection = useMemo(
+    () => ({
+      selfBuilt: (id: string, e: DragEvent) => void handleDrop(id, e, "selfBuilt"),
+      imported: (id: string, e: DragEvent) => void handleDrop(id, e, "imported"),
+    }),
+    [handleDrop],
+  );
+
+  const handleDragEnd = useCallback(() => {
     dragIdRef.current = null;
-    if (!sourceId || sourceId === targetId) return;
+    setDropHint(null);
+  }, []);
 
-    const sectionEntries =
-      section === "imported" ? importedEntries : selfBuiltEntries;
-    const source = sectionEntries.find((x) => x.id === sourceId);
-    const target = sectionEntries.find((x) => x.id === targetId);
-    if (!source || !target) return;
-
-    const row = e.currentTarget as HTMLElement;
-    const position = resolveDropPosition(e, row);
-
-    if (position === "inside" && isKnowledgeFolder(target)) {
-      await moveEntry(sourceId, targetId, nextSortOrder(sectionEntries, targetId));
-      return;
-    }
-
-    const parentId = normalizeParentId(target.parentId);
-    const siblings = sectionEntries
-      .filter((x) => normalizeParentId(x.parentId) === parentId && x.id !== sourceId)
-      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    const targetIndex = siblings.findIndex((x) => x.id === targetId);
-    const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
-    const reordered = [...siblings];
-    reordered.splice(insertIndex, 0, source);
-    for (let i = 0; i < reordered.length; i += 1) {
-      const item = reordered[i];
-      await moveEntry(item.id, parentId, i);
-    }
-  };
+  const handleRowContextMenu = useCallback(
+    (entry: KnowledgeEntry, e: ReactMouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setSelectedEntry(entry.id);
+      setCtxMenu({ x: e.clientX, y: e.clientY, entry });
+    },
+    [setSelectedEntry, setCtxMenu],
+  );
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -923,10 +1005,32 @@ export function KnowledgeSidebar() {
 
   const renderSectionTree = (section: KnowledgeLibrarySection) => {
     const visibleTree = visibleSectionTrees[section];
-
+    const flatRows =
+      section === "selfBuilt" ? selfBuiltFlatRows : importedFlatRows;
+    const virtualizer =
+      section === "selfBuilt" ? selfBuiltVirtualizer : importedVirtualizer;
+    const scrollRef =
+      section === "selfBuilt" ? selfBuiltScrollRef : importedScrollRef;
+    const virtualized = flatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD;
+    const rowOpts = {
+      expandedIds,
+      selectedId: selectedEntryId,
+      activeEntryId,
+      vectorizedIds,
+      dropHint,
+      onPreviewOpen: handlePreviewOpen,
+      onActivate: handleActivate,
+      onToggle: toggleExpanded,
+      onContextMenu: handleRowContextMenu,
+      onDragStart: handleDragStart,
+      onDragOver: handleDragOver,
+      onDrop: dropForSection[section],
+      onDragEnd: handleDragEnd,
+    };
     return (
       <div
         className="knowledge-tree"
+        ref={scrollRef}
         onContextMenu={(e) => {
           if ((e.target as HTMLElement).closest(".sidebar-tree-node, .tree-node, .knowledge-tree-row")) return;
           e.preventDefault();
@@ -939,30 +1043,31 @@ export function KnowledgeSidebar() {
           <div className="knowledge-tree-empty">
             {searchQuery.trim() ? t("knowledge.noResults") : t("knowledge.noEntries")}
           </div>
+        ) : virtualized ? (
+          <div
+            style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const row = flatRows[virtualRow.index];
+              if (!row) return null;
+              return (
+                <div
+                  key={row.node.entry.id}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  {renderTreeRow(row.node, row.depth, rowOpts)}
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          renderTreeNodes(visibleTree, {
-            expandedIds,
-            selectedId: selectedEntryId,
-            activeEntryId,
-            vectorizedIds,
-            dropHint,
-            onPreviewOpen: handlePreviewOpen,
-            onActivate: handleActivate,
-            onToggle: toggleExpanded,
-            onContextMenu: (entry, e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setSelectedEntry(entry.id);
-              setCtxMenu({ x: e.clientX, y: e.clientY, entry });
-            },
-            onDragStart: handleDragStart,
-            onDragOver: handleDragOver,
-            onDrop: (id, e) => void handleDrop(id, e, section),
-            onDragEnd: () => {
-              dragIdRef.current = null;
-              setDropHint(null);
-            },
-          })
+          renderTreeNodes(visibleTree, rowOpts)
         )}
       </div>
     );
@@ -1018,10 +1123,10 @@ export function KnowledgeSidebar() {
       <Button
         variant="icon"
         size="sm"
-        title={t("knowledge.siyuan.openButton")}
-        onClick={() => setSiyuanDialogOpen(true)}
+        title={t("knowledge.ks.openButton")}
+        onClick={() => setKsConsoleOpen(true)}
       >
-        ⟳
+        ⇄
       </Button>
     </div>
   );
@@ -1112,9 +1217,9 @@ export function KnowledgeSidebar() {
               onClose={() => setBlankCtx(null)}
             />
           )}
-          <SiyuanSyncDialog
-            open={siyuanDialogOpen}
-            onClose={() => setSiyuanDialogOpen(false)}
+          <KnowledgeSourceConsole
+            open={ksConsoleOpen}
+            onClose={() => setKsConsoleOpen(false)}
           />
         </div>
   );

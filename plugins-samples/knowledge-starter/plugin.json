@@ -1,0 +1,31 @@
+{
+  "id": "omni.sample.knowledge-starter",
+  "version": "0.1.0",
+  "displayName": "知识源样板（knowledge）",
+  "kind": "knowledge",
+  "permissions": [],
+  "entry": {
+    "logic": "logic.js"
+  },
+  "methods": [
+    { "name": "listNotebooks", "permissions": [] },
+    { "name": "listDocuments", "permissions": [] },
+    { "name": "getDocument", "permissions": [] },
+    { "name": "searchNotes", "permissions": [] }
+  ],
+  "minHostApi": 1,
+  "contributes": {
+    "knowledgeSources": [
+      {
+        "id": "demo",
+        "title": "演示知识库",
+        "formats": ["md"],
+        "listMethod": "listNotebooks",
+        "listDocumentsMethod": "listDocuments",
+        "getMethod": "getDocument",
+        "searchMethod": "searchNotes",
+        "fields": []
+      }
+    ]
+  }
+}

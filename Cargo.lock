@@ -5561,13 +5561,13 @@ dependencies = [
  "omnipanel-everything",
  "omnipanel-exec",
  "omnipanel-gateway",
+ "omnipanel-knowledge-source",
  "omnipanel-mcp",
  "omnipanel-plugin",
  "omnipanel-plugin-js",
  "omnipanel-plugin-pkg",
  "omnipanel-plugin-wasm",
  "omnipanel-presence",
- "omnipanel-siyuan",
  "omnipanel-ssh",
  "omnipanel-store",
  "omnipanel-transfer",
@@ -5883,6 +5883,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-knowledge-source"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-error",
+ "omnipanel-plugin",
+ "omnipanel-plugin-js",
+ "omnipanel-store",
+ "serde",
+ "serde_json",
+ "specta",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "omnipanel-mcp"
 version = "0.0.5"
 dependencies = [
@@ -6064,20 +6080,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
-]
-
-[[package]]
-name = "omnipanel-siyuan"
-version = "0.0.5"
-dependencies = [
- "base64 0.22.1",
- "omnipanel-error",
- "omnipanel-store",
- "serde",
- "serde_json",
- "specta",
- "tempfile",
- "tracing",
 ]
 
 [[package]]
