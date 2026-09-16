@@ -29,7 +29,7 @@ pub struct StudioProject {
     pub name: String,
     pub files: Vec<String>,
     pub has_manifest: bool,
-    /// `user` = app_data/plugin-projects；`repo` = 仓库 plugins-custom。
+    /// `user` = app_data/plugin-projects；`repo` = 仓库 plugins-custom；`linked` = 开发导入目录。
     pub location: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
@@ -37,6 +37,9 @@ pub struct StudioProject {
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// 清单 id（行状态“已安装”匹配用；无清单为 None）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -214,7 +217,7 @@ fn load_studio_project(dir: &Path, name: String, location: &str) -> StudioProjec
     });
     let manifest_path = dir.join("plugin.json");
     let has_manifest = manifest_path.is_file();
-    let (kind, version, display_name) = std::fs::read_to_string(&manifest_path)
+    let (kind, version, display_name, plugin_id) = std::fs::read_to_string(&manifest_path)
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .map(|value| {
@@ -222,9 +225,10 @@ fn load_studio_project(dir: &Path, name: String, location: &str) -> StudioProjec
                 json_string_field(&value, "kind"),
                 json_string_field(&value, "version"),
                 json_string_field(&value, "displayName"),
+                json_string_field(&value, "id"),
             )
         })
-        .unwrap_or((None, None, None));
+        .unwrap_or((None, None, None, None));
     StudioProject {
         name,
         files,
@@ -233,6 +237,7 @@ fn load_studio_project(dir: &Path, name: String, location: &str) -> StudioProjec
         kind,
         version,
         display_name,
+        plugin_id,
     }
 }
 
@@ -316,6 +321,7 @@ pub async fn plugin_studio_list_projects(
                 kind: None,
                 version: None,
                 display_name: None,
+                plugin_id: None,
             });
         }
     }

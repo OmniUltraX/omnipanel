@@ -1144,6 +1144,8 @@ export const commands = {
 	pluginDevImport: (path: string) => typedError<DevProjectInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_import", { path })),
 	/**  开启热重载：先装一次当前内容，再注册轮询监听（未链接的目录顺手建链接）。 */
 	pluginDevWatch: (path: string) => typedError<DevWatchInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch", { path })),
+	/**  按工作台工程名开启热重载（user/repo/linked 通吃，目录由工作台解析）。 */
+	pluginDevWatchProject: (project: string) => typedError<DevWatchInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch_project", { project })),
 	/**  关闭指定插件的热重载（保留链接，可再次开启）。 */
 	pluginDevUnwatch: (pluginId: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_unwatch", { pluginId })),
 	/**  取消链接：删链接 + 关监听，不动源码目录，不卸载已装插件。 */
@@ -6063,22 +6065,26 @@ export type StudioProject_Deserialize = {
 	name: string,
 	files: string[],
 	hasManifest: boolean,
-	/**  `user` = app_data/plugin-projects；`repo` = 仓库 plugins-custom。 */
+	/**  `user` = app_data/plugin-projects；`repo` = 仓库 plugins-custom；`linked` = 开发导入目录。 */
 	location: string,
 	kind?: string | null,
 	version?: string | null,
 	displayName?: string | null,
+	/**  清单 id（行状态“已安装”匹配用；无清单为 None）。 */
+	pluginId?: string | null,
 };
 
 export type StudioProject_Serialize = {
 	name: string,
 	files: string[],
 	hasManifest: boolean,
-	/**  `user` = app_data/plugin-projects；`repo` = 仓库 plugins-custom。 */
+	/**  `user` = app_data/plugin-projects；`repo` = 仓库 plugins-custom；`linked` = 开发导入目录。 */
 	location: string,
 	kind?: string | null,
 	version?: string | null,
 	displayName?: string | null,
+	/**  清单 id（行状态“已安装”匹配用；无清单为 None）。 */
+	pluginId?: string | null,
 };
 
 export type StudioRunResult = StudioRunResult_Serialize | StudioRunResult_Deserialize;
