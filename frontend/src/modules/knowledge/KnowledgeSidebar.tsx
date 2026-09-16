@@ -52,6 +52,7 @@ import {
 } from "./knowledgeVectorize";
 import { exportKnowledgeMarkdown, exportKnowledgePdf } from "./knowledgeExport";
 import { SiyuanSyncDialog } from "./SiyuanSyncDialog";
+import { KnowledgeSourceConsole } from "./KnowledgeSourceConsole";
 import { KnowledgeSearchResults } from "./panels/KnowledgeSearchResults";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
 import { KNOWLEDGE_TAG_KINDS } from "../tags/tagKinds";
@@ -303,6 +304,7 @@ export function KnowledgeSidebar() {
   );
   const [showNewMenuSection, setShowNewMenuSection] = useState<KnowledgeLibrarySection | null>(null);
   const [siyuanDialogOpen, setSiyuanDialogOpen] = useState(false);
+  const [ksConsoleOpen, setKsConsoleOpen] = useState(false);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const [vectorizedIds, setVectorizedIds] = useState<ReadonlySet<string>>(() => new Set());
   const allowedEntryIds = useModuleTagFilter("knowledge", KNOWLEDGE_TAG_KINDS);
@@ -1008,6 +1010,14 @@ export function KnowledgeSidebar() {
       >
         ⟳
       </Button>
+      <Button
+        variant="icon"
+        size="sm"
+        title={t("knowledge.ks.openButton")}
+        onClick={() => setKsConsoleOpen(true)}
+      >
+        ⇄
+      </Button>
     </div>
   );
 
@@ -1097,6 +1107,10 @@ export function KnowledgeSidebar() {
           <SiyuanSyncDialog
             open={siyuanDialogOpen}
             onClose={() => setSiyuanDialogOpen(false)}
+          />
+          <KnowledgeSourceConsole
+            open={ksConsoleOpen}
+            onClose={() => setKsConsoleOpen(false)}
           />
         </div>
   );

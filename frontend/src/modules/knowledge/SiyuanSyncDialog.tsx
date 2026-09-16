@@ -5,7 +5,7 @@ import { useI18n } from "../../i18n";
 import {
   commands,
   type SiyuanSyncConfig,
-  type SiyuanSyncReport,
+  type KsReport,
   type SiyuanSyncStatus,
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
@@ -37,7 +37,7 @@ function fillText(
   return out;
 }
 
-const EMPTY_REPORT: SiyuanSyncReport = {
+const EMPTY_REPORT: KsReport = {
   scanned: 0,
   added: 0,
   updated: 0,
@@ -137,7 +137,7 @@ export function SiyuanSyncDialog({
     }
   }, [busy, config, t]);
 
-  const finishSyncReport = (report: SiyuanSyncReport) => {
+  const finishSyncReport = (report: KsReport) => {
     setStatus((prev) =>
       prev
         ? {
@@ -190,7 +190,7 @@ export function SiyuanSyncDialog({
 
   if (!open) return null;
 
-  const report: SiyuanSyncReport = status?.report ?? EMPTY_REPORT;
+  const report: KsReport = status?.report ?? EMPTY_REPORT;
   const isS3 = config?.sourceType === "s3";
 
   return createPortal(

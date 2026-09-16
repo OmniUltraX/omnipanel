@@ -34,6 +34,7 @@ pub mod file_transfer;
 pub mod fileio;
 pub mod grpc;
 pub mod knowledge;
+pub mod knowledge_source;
 pub mod knowledge_vector;
 pub mod local_file_log;
 pub mod local_runtime;

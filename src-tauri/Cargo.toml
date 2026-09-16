@@ -61,6 +61,7 @@ omnipanel-plugin-js = { path = "../crates/omnipanel-plugin-js" }
 omnipanel-everything = { path = "../crates/omnipanel-everything" }
 omnipanel-presence = { path = "../crates/omnipanel-presence" }
 omnipanel-siyuan = { path = "../crates/omnipanel-siyuan" }
+omnipanel-knowledge-source = { path = "../crates/omnipanel-knowledge-source" }
 omnipanel-gateway = { path = "../crates/omnipanel-gateway" }
 omnipanel-transfer = { path = "../crates/omnipanel-transfer", features = ["specta"] }
 tokio.workspace = true

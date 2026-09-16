@@ -33,6 +33,7 @@ members = [
     "crates/omnipanel-everything",
     "crates/omnipanel-presence",
     "crates/omnipanel-siyuan",
+    "crates/omnipanel-knowledge-source",
     "crates/tag-cleanup-tool",
 ]
 

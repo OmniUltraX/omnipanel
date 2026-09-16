@@ -970,14 +970,45 @@ export const commands = {
 	/**  测试连接：Local 扫描计数；S3 返回占位提示（配置可存，执行后置）。 */
 	siyuanTestConnection: (config: SiyuanSyncConfig) => typedError<SiyuanTestResult, OmniError_Serialize>(__TAURI_INVOKE("siyuan_test_connection", { config })),
 	/**  手动同步一次（按已保存配置执行；S3 拒绝并提示）。 */
-	siyuanSyncNow: () => typedError<SiyuanSyncReport, OmniError_Serialize>(__TAURI_INVOKE("siyuan_sync_now")),
+	siyuanSyncNow: () => typedError<KsReport, OmniError_Serialize>(__TAURI_INVOKE("siyuan_sync_now")),
 	/**
 	 *  重建同步：清空文件状态后全量重评（删坏重试/状态漂移的显式恢复路径）。
 	 *  条目 id 稳定可推导，回填覆盖同 id，不产生重复。
 	 */
-	siyuanSyncRebuild: () => typedError<SiyuanSyncReport, OmniError_Serialize>(__TAURI_INVOKE("siyuan_sync_rebuild")),
+	siyuanSyncRebuild: () => typedError<KsReport, OmniError_Serialize>(__TAURI_INVOKE("siyuan_sync_rebuild")),
 	/**  同步状态（上次时间 + 上次报告）。 */
 	siyuanSyncStatus: () => typedError<SiyuanSyncStatus, OmniError_Serialize>(__TAURI_INVOKE("siyuan_sync_status")),
+	/**  列出某插件声明的知识源（控制台用）。 */
+	ksSourcesOf: (pluginId: string) => typedError<KsSourceDecl[], OmniError_Serialize>(__TAURI_INVOKE("ks_sources_of", { pluginId })),
+	/**  读取某源配置（无配置返回 None，由控制台填默认）。 */
+	ksConfigGet: (pluginId: string, sourceId: string) => typedError<{
+	sourceKey: string,
+	displayName: string,
+	/**  适配器种类：`siyuan-local` / `plugin`（后续 `siyuan-s3` 等）。 */
+	adapter: string,
+	/**  适配器配置 JSON（工作空间路径 / S3 / token 引用等；密钥进 Vault）。 */
+	configJson: string,
+	secretRef: string,
+	lastSyncAt: number,
+	lastReportJson: string,
+} | null, OmniError_Serialize>(__TAURI_INVOKE("ks_config_get", { pluginId, sourceId })),
+	/**  保存某源配置（`config_json` 必须为合法 JSON；密钥走 Vault，不落库）。 */
+	ksConfigSave: (pluginId: string, sourceId: string, displayName: string, configJson: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ks_config_save", { pluginId, sourceId, displayName, configJson })),
+	/**
+	 *  保存某源密钥字段（进 Vault；`secret_ref` 存 `{"fieldKey": "vaultKey"}`）。
+	 *  框定键名 `ks-{sourceId}-{fieldKey}`，与 importer 的 secretKeyFor 同构。
+	 */
+	ksSecretSave: (pluginId: string, sourceId: string, fieldKey: string, secret: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("ks_secret_save", { pluginId, sourceId, fieldKey, secret })),
+	/**  某密钥字段是否已存（不回显值）。 */
+	ksSecretHas: (pluginId: string, sourceId: string, fieldKey: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("ks_secret_has", { pluginId, sourceId, fieldKey })),
+	/**  测试连接：local 源走 walk 计数，远程源调 list 方法计数。 */
+	ksTest: (pluginId: string, sourceId: string) => typedError<KsTestResult, OmniError_Serialize>(__TAURI_INVOKE("ks_test", { pluginId, sourceId })),
+	/**  手动同步一次。 */
+	ksSyncNow: (pluginId: string, sourceId: string) => typedError<KsReport, OmniError_Serialize>(__TAURI_INVOKE("ks_sync_now", { pluginId, sourceId })),
+	/**  重建同步：清空该源文件状态后全量重评。 */
+	ksSyncRebuild: (pluginId: string, sourceId: string) => typedError<KsReport, OmniError_Serialize>(__TAURI_INVOKE("ks_sync_rebuild", { pluginId, sourceId })),
+	/**  同步状态（上次时间 + 上次报告）。 */
+	ksStatus: (pluginId: string, sourceId: string) => typedError<KsStatus, OmniError_Serialize>(__TAURI_INVOKE("ks_status", { pluginId, sourceId })),
 	/**  列出所有有观测记录的资源摘要（可按 resource_type 过滤）。 */
 	resourceListProfiles: (resourceType: string | null) => typedError<ResourceProfileSummary[], OmniError_Serialize>(__TAURI_INVOKE("resource_list_profiles", { resourceType })),
 	/**  获取资源最新档案：每类 observation_kind 取最新一条，组装为 JSON 对象。 */
@@ -4308,6 +4339,69 @@ export type KnowledgeVectorizeResult = {
 	embeddedAt: number | null,
 };
 
+/**  单文件失败明细。 */
+export type KsFailure = {
+	fileKey: string,
+	message: string,
+};
+
+/**  一次同步的报告（存 `ks_source_config.last_report_json`，状态页展示）。 */
+export type KsReport = {
+	scanned: number,
+	added: number,
+	updated: number,
+	archived: number,
+	failed: KsFailure[],
+	startedAtMs: number,
+	finishedAtMs: number,
+};
+
+/**  知识源配置。 */
+export type KsSourceConfig = {
+	sourceKey: string,
+	displayName: string,
+	/**  适配器种类：`siyuan-local` / `plugin`（后续 `siyuan-s3` 等）。 */
+	adapter: string,
+	/**  适配器配置 JSON（工作空间路径 / S3 / token 引用等；密钥进 Vault）。 */
+	configJson: string,
+	secretRef: string,
+	lastSyncAt: number,
+	lastReportJson: string,
+};
+
+/**  知识源描述（控制台展示用）。 */
+export type KsSourceDecl = {
+	pluginId: string,
+	sourceId: string,
+	title: string,
+	formats: string[],
+	hasSearch: boolean,
+	fields: KsSourceField[],
+};
+
+/**  源配置表单字段（`importerFieldSchema` 子集，展示用）。 */
+export type KsSourceField = {
+	key: string,
+	kind: string,
+	label: string,
+	placeholder: string,
+	required: boolean,
+};
+
+/**  同步状态。 */
+export type KsStatus = {
+	lastSyncAt: number,
+	report: KsReport | null,
+};
+
+/**  测试连接结果。 */
+export type KsTestResult = {
+	ok: boolean,
+	notebooks: number,
+	docs: number,
+	message: string,
+};
+
 export type LocalHardwareInfo = {
 	totalMemoryMb: number | null,
 	vramMb: number | null,
@@ -4727,8 +4821,11 @@ export type PanelProbeResult = {
 
 export type PluginDistribution = "bundled" | "download";
 
-/**  插件身份。七种锁死，不为单一产品新增第八种。 */
-export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon";
+/**
+ *  插件身份。新增 kind 只接受平台级能力（多租户），不为单一产品开口子。
+ *  `knowledge`（知识源适配器：思源/Obsidian/Logseq/Notion 只读镜像）即此类。
+ */
+export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon" | "knowledge";
 
 /**  前端 / IPC 列表项。 */
 export type PluginListItem = PluginListItem_Serialize | PluginListItem_Deserialize;
@@ -5557,27 +5654,10 @@ export type SiyuanSyncConfig = {
 	lastReportJson: string,
 };
 
-/**  单文件失败明细。 */
-export type SiyuanSyncFailure = {
-	fileKey: string,
-	message: string,
-};
-
-/**  一次同步的报告（存配置 `last_report_json`，状态页展示）。 */
-export type SiyuanSyncReport = {
-	scanned: number,
-	added: number,
-	updated: number,
-	archived: number,
-	failed: SiyuanSyncFailure[],
-	startedAtMs: number,
-	finishedAtMs: number,
-};
-
 /**  同步状态（状态页展示）。 */
 export type SiyuanSyncStatus = {
 	lastSyncAt: number,
-	report: SiyuanSyncReport | null,
+	report: KsReport | null,
 };
 
 /**  测试连接结果（本地：笔记本/文档计数；S3：占位提示）。 */

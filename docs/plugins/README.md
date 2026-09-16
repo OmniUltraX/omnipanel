@@ -34,7 +34,7 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omn
 
 ---
 
-## 七种身份（`kind`）
+## 八种身份（`kind`）
 
 | kind | 进哪套 Host | 你要声明什么 |
 |---|---|---|
@@ -45,6 +45,7 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omn
 | `importer` | 导入向导 | `importers[]` + L2 `fetchMethod` |
 | `theme` | 主题 | `themes.tokens`，禁止 JS |
 | `addon` | Overlay / 菜单 / 启动条 | `overlays` / `menus` / `launcher` |
+| `knowledge` | 知识源管线（宿主侧） | `knowledgeSources[]` + L2（`listMethod` / `getMethod` / 可选 `searchMethod`）；插件只读，落库由宿主负责 |
 
 顶层必填：`id`（反向域名，如 `omni.module.consul`）、`version`、`kind`。建议写 `displayName`。
 
@@ -103,7 +104,7 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 | 写操作走 `dangerAction` + `consume_grant` | 插件自签确认令牌 |
 | Engine sidecar：`entry.driver` + `engineKey` 进启动表 | 第三方写 inproc Rust（Rust 只以 sidecar 进程进来） |
 
-七种 kind 同一条交付标准：出现在对的入口、凭据回源后仍能调、至少一读一写（theme 只读；addon 启动条算 L1）、调用栈不进第一方面板客户端。
+八种 kind 同一条交付标准：出现在对的入口、凭据回源后仍能调、至少一读一写（theme 只读；addon 启动条算 L1；knowledge 只读数据源，落库由宿主负责）、调用栈不进第一方面板客户端。
 
 ```js
 var sig = host.hmac(JSON.stringify({

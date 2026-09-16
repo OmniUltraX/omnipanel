@@ -1,0 +1,45 @@
+{
+  "id": "omni.knowledge.siyuan",
+  "version": "0.1.0",
+  "displayName": "思源笔记",
+  "kind": "knowledge",
+  "permissions": [],
+  "entry": {
+    "logic": "logic.js"
+  },
+  "methods": [
+    { "name": "parseDocument", "permissions": [] },
+    { "name": "listNotebooks", "permissions": [] },
+    { "name": "listDocuments", "permissions": [] },
+    { "name": "getDocument", "permissions": [] }
+  ],
+  "minHostApi": 1,
+  "contributes": {
+    "knowledgeSources": [
+      {
+        "id": "siyuan",
+        "title": "思源笔记",
+        "hint": "本地工作空间 data 目录只读镜像（.sy 解析），写回走思源内核",
+        "formats": ["sy"],
+        "listMethod": "listNotebooks",
+        "listDocumentsMethod": "listDocuments",
+        "getMethod": "getDocument",
+        "localFiles": true,
+        "parseMethod": "parseDocument",
+        "filePatterns": ["sy"],
+        "idPrefix": "siyuan",
+        "sourcePrefix": "import:siyuan",
+        "tag": "siyuan",
+        "fields": [
+          {
+            "key": "rootPath",
+            "kind": "text",
+            "label": "工作空间 data 目录",
+            "placeholder": "例如 D:\\SiYuan\\data",
+            "required": true
+          }
+        ]
+      }
+    ]
+  }
+}

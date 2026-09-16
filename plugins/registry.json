@@ -33,6 +33,34 @@
       ]
     },
     {
+      "id": "omni.knowledge.siyuan",
+      "kind": "knowledge",
+      "name": "SiYuan notes",
+      "description": "Mirror SiYuan notebooks into the knowledge base (read-only, host pipeline).",
+      "version": "0.1.0",
+      "distribution": "download",
+      "artifact": {
+        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-knowledge-siyuan-0.1.0.omni-plugin",
+        "sha256": "",
+        "size": 4561
+      },
+      "permissions": []
+    },
+    {
+      "id": "omni.knowledge.obsidian",
+      "kind": "knowledge",
+      "name": "Obsidian vault",
+      "description": "Mirror a local Obsidian vault into the knowledge base (read-only markdown).",
+      "version": "0.1.0",
+      "distribution": "download",
+      "artifact": {
+        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-knowledge-obsidian-0.1.0.omni-plugin",
+        "sha256": "",
+        "size": 2001
+      },
+      "permissions": []
+    },
+    {
       "id": "omni.cloud.aliyun",
       "kind": "cloud",
       "name": "Alibaba Cloud",

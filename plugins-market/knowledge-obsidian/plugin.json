@@ -1,0 +1,36 @@
+{
+  "id": "omni.knowledge.obsidian",
+  "version": "0.1.0",
+  "displayName": "Obsidian",
+  "kind": "knowledge",
+  "permissions": [],
+  "entry": {
+    "logic": "logic.js"
+  },
+  "methods": [
+    { "name": "parseDocument", "permissions": [] }
+  ],
+  "minHostApi": 1,
+  "contributes": {
+    "knowledgeSources": [
+      {
+        "id": "obsidian",
+        "title": "Obsidian",
+        "hint": "本地 vault 只读镜像（纯 markdown），.obsidian 配置目录自动跳过",
+        "formats": ["md"],
+        "localFiles": true,
+        "parseMethod": "parseDocument",
+        "filePatterns": ["md"],
+        "fields": [
+          {
+            "key": "rootPath",
+            "kind": "text",
+            "label": "Vault 根目录",
+            "placeholder": "例如 D:\\Obsidian\\vault",
+            "required": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -8,6 +8,7 @@ export const pluginKindSchema = z.enum([
   "module",
   "theme",
   "addon",
+  "knowledge",
 ]);
 
 export type PluginKind = z.infer<typeof pluginKindSchema>;
@@ -212,6 +213,48 @@ export type ImporterSourceKind = z.infer<typeof importerSourceKindSchema>;
 
 export type ImporterField = z.infer<typeof importerFieldSchema>;
 export type ImporterContribution = z.infer<typeof importerContributionSchema>;
+
+/**
+ * 知识源贡献（kind=knowledge）：只读数据源适配器。
+ * 插件只管列目录、取文档、解析成 Markdown（L2 methods，经 plugin_invoke 调用）；
+ * 落库、命名空间隔离、增量状态、调度一律由宿主管线负责，插件不直接写知识库。
+ */
+export const knowledgeSourceSchema = z.object({
+  /** 数据源 id，如 siyuan / obsidian / notion。全局唯一（市场审核），条目 id 由此派生。 */
+  id: z.string().min(1),
+  /** 展示名；缺省回退 id。 */
+  title: z.string().min(1).optional(),
+  hint: z.string().optional(),
+  /** 声明能解析的格式标记（展示用），如 sy / md。 */
+  formats: z.array(z.string().min(1)).default([]),
+  /** 列目录/笔记本：() => [{ id, name, parentId? }]，远程源必填，必须在 methods[] 声明。 */
+  listMethod: z.string().min(1).optional(),
+  /** 列文档（扁平，带 parentId/box 归属）：远程源必填，必须在 methods[] 声明。 */
+  listDocumentsMethod: z.string().min(1).optional(),
+  /** 取文档：(id) => { title, markdown, updatedAt? }，远程源必填，必须在 methods[] 声明。 */
+  getMethod: z.string().min(1).optional(),
+  /** 可选全文搜索，必须在 methods[] 声明。 */
+  searchMethod: z.string().min(1).optional(),
+  /** 源配置表单（工作空间路径 / S3 / token 等），字段语义复用 importer。 */
+  fields: z.array(importerFieldSchema).default([]),
+  /**
+   * 本地文件源开关：为 true 时宿主遍历配置根目录，把文件内容喂给
+   * `parseMethod`（单文件契约见下），不再调 list/get。
+   */
+  localFiles: z.boolean().default(false),
+  /** 本地解析入口：({ relPath, content }) => `{ kind: "notebook", id, name } | { kind: "doc", id, title, markdown } | { kind: "skip" }`。 */
+  parseMethod: z.string().min(1).optional(),
+  /** 本地扫描后缀过滤，如 ["sy", "md"]（不带点）；缺省全收（点文件与超大文件宿主恒跳过）。 */
+  filePatterns: z.array(z.string().min(1)).default([]),
+  /** 条目 id 前缀（默认 `ks`）；思源兼容填 `siyuan` 以复用存量条目。 */
+  idPrefix: z.string().min(1).optional(),
+  /** source 前缀（默认 `import:ks`）；思源兼容填 `import:siyuan`。 */
+  sourcePrefix: z.string().min(1).optional(),
+  /** 标签（默认 namespace）；思源兼容填 `siyuan`（本来就一样，仅显式用）。 */
+  tag: z.string().min(1).optional(),
+});
+
+export type KnowledgeSourceContribution = z.infer<typeof knowledgeSourceSchema>;
 
 export type PluginHomeContribution = z.infer<typeof pluginHomeContributionSchema>;
 
@@ -429,6 +472,8 @@ export const pluginManifestSchema = z.object({
       launcher: z.object({ prefix: z.string().min(1) }).nullable().optional(),
       discovery: z.array(z.object({ probeId: z.string() })).optional(),
       importers: z.array(importerContributionSchema).optional(),
+      /** 知识源适配器（kind=knowledge）：只读，落库由宿主管线负责。 */
+      knowledgeSources: z.array(knowledgeSourceSchema).optional(),
       themes: z
         .object({
           tokens: z

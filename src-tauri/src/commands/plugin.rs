@@ -1187,7 +1187,7 @@ async fn require_registered_plugin(
     Ok(())
 }
 
-async fn require_plugin_vault(
+pub(crate) async fn require_plugin_vault(
     state: &State<'_, AppState>,
     plugin_id: &str,
 ) -> Result<(), OmniError> {

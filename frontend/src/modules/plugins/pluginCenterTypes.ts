@@ -71,6 +71,7 @@ export const KIND_FILTERS: KindFilter[] = [
   "module",
   "theme",
   "addon",
+  "knowledge",
 ];
 
 export const KIND_ORDER: PluginKind[] = [
@@ -81,6 +82,7 @@ export const KIND_ORDER: PluginKind[] = [
   "module",
   "theme",
   "addon",
+  "knowledge",
 ];
 
 export type MarketItem = {

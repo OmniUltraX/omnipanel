@@ -18,6 +18,9 @@ pub struct PluginContributes {
     pub discovery: Vec<DiscoveryContribution>,
     #[serde(default)]
     pub importers: Vec<Value>,
+    /// 知识源适配器（kind=knowledge）：只读数据源，落库由宿主管线负责。
+    #[serde(default)]
+    pub knowledge_sources: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub themes: Option<ThemeContribution>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

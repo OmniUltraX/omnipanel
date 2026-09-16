@@ -22,6 +22,7 @@ mod http_proxy;
 mod knowledge;
 mod knowledge_todo;
 mod knowledge_vector;
+mod ks_sync;
 mod paths;
 mod plugin_settings;
 mod plugin_sources;
@@ -107,6 +108,7 @@ pub use knowledge_vector::{
     KnowledgeChunkListResult, KnowledgeChunkPreview, KnowledgeChunkRecord, KnowledgeRecallHit,
     KnowledgeVectorHit, KnowledgeVectorStatus, chunk_text, cosine_similarity,
 };
+pub use ks_sync::{KsFileState, KsSourceConfig};
 pub use paths::default_file_index_storage_dir;
 pub use paths::{
     ai_config_dir, ai_providers_path, cli_providers_path, database_connections_path,

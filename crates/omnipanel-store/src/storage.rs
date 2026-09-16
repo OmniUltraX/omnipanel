@@ -761,6 +761,37 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX IF NOT EXISTS idx_siyuan_file_state_box ON siyuan_file_state(box_id);
     "#,
+    // v40 — 知识源管线通用表（knowledge kind 宿主 runner 用）。
+    // source_key：`plugin:<plugin_id>:<source_id>`，原生思源为 `siyuan`。
+    // 既有 siyuan_file_state 行一次性迁入（见 migrate），旧表留置不再写入。
+    r#"
+    CREATE TABLE IF NOT EXISTS ks_source_config (
+        source_key    TEXT PRIMARY KEY,
+        display_name  TEXT NOT NULL DEFAULT '',
+        adapter       TEXT NOT NULL DEFAULT '',
+        config_json   TEXT NOT NULL DEFAULT '{}',
+        secret_ref    TEXT NOT NULL DEFAULT '',
+        last_sync_at  INTEGER NOT NULL DEFAULT 0,
+        last_report_json TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS ks_file_state (
+        source_key TEXT NOT NULL,
+        file_key   TEXT NOT NULL,
+        box_id     TEXT NOT NULL DEFAULT '',
+        rel_path   TEXT NOT NULL DEFAULT '',
+        fingerprint TEXT NOT NULL DEFAULT '',
+        entry_id   TEXT NOT NULL DEFAULT '',
+        status     TEXT NOT NULL DEFAULT 'synced',
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (source_key, file_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ks_file_state_box ON ks_file_state(source_key, box_id);
+    INSERT OR IGNORE INTO ks_file_state
+        (source_key, file_key, box_id, rel_path, fingerprint, entry_id, status, updated_at)
+        SELECT 'siyuan', file_key, box_id, rel_path,
+               CAST(mtime_ms AS TEXT), entry_id, status, updated_at
+        FROM siyuan_file_state;
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
