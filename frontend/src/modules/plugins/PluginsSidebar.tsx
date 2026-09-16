@@ -12,6 +12,7 @@ type Props = {
   onSelect: (id: string) => void;
   originOf: (item: PluginListItem) => PluginOrigin;
   dbxIds: ReadonlySet<string>;
+  devIds: ReadonlySet<string>;
   installing: boolean;
   onInstallFile: () => void;
 };
@@ -23,6 +24,7 @@ export function PluginsSidebar({
   onSelect,
   originOf,
   dbxIds,
+  devIds,
   installing,
   onInstallFile,
 }: Props) {
@@ -56,6 +58,7 @@ export function PluginsSidebar({
                     selected={selectedId === item.id}
                     fromDbx={isDbxCatalog(item.id, dbxIds)}
                     originLabel={originMetaLabel(originOf(item), t, { dbx: isDbxCatalog(item.id, dbxIds) })}
+                    devBadge={devIds.has(item.id) ? t("plugins.center.devBadge") : null}
                     disabledLabel={t("settings.plugins.disabled")}
                     onSelect={onSelect}
                     tName={pluginDisplayName(item.id, t)}
@@ -70,6 +73,7 @@ export function PluginsSidebar({
                 selected={selectedId === item.id}
                 fromDbx={isDbxCatalog(item.id, dbxIds)}
                 originLabel={originMetaLabel(originOf(item), t, { dbx: isDbxCatalog(item.id, dbxIds) })}
+                devBadge={devIds.has(item.id) ? t("plugins.center.devBadge") : null}
                 disabledLabel={t("settings.plugins.disabled")}
                 onSelect={onSelect}
                 tName={pluginDisplayName(item.id, t)}
@@ -88,6 +92,7 @@ function InstalledRow({
   selected,
   fromDbx,
   originLabel,
+  devBadge,
   disabledLabel,
   onSelect,
   tName,
@@ -96,6 +101,7 @@ function InstalledRow({
   selected: boolean;
   fromDbx: boolean;
   originLabel: string;
+  devBadge: string | null;
   disabledLabel: string;
   onSelect: (id: string) => void;
   tName: string;
@@ -110,7 +116,7 @@ function InstalledRow({
       <span className="plugin-center-row__body">
         <span className="plugin-center-row__name">{tName}</span>
         <span className="plugin-center-row__meta">
-          {originLabel}
+          {devBadge ? `${devBadge} · ${originLabel}` : originLabel}
           {item.enabled ? "" : ` · ${disabledLabel}`}
         </span>
       </span>

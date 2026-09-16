@@ -3,8 +3,7 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent } from "react";
+  useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { invoke } from "@tauri-apps/api/core";
 import type { SchemaDatabaseSelection, SchemaTableSelection, SchemaContextMenuContext } from "../schema/SchemaBrowser";
@@ -24,7 +23,6 @@ import { yieldToMain } from "../../../lib/yieldToMain";
 import {
   applyTablePreviewDataProgressive,
   bumpTablePreviewApplyGeneration } from "../workspace/applyTablePreviewData";
-import type { TabContextMenuAction } from "../../../components/ui/menu";
 import { buildDatabaseSchemaContextMenuItems } from "./buildDatabaseSchemaContextMenu";
 import { useDatabasePanelSql } from "./useDatabasePanelSql";
 import { useDatabasePanelTablePreview } from "./useDatabasePanelTablePreview";
@@ -132,7 +130,6 @@ import { TreeChartPanel } from "../treeChart/TreeChartPanel";
 import { DatabaseToolbox } from "../toolbox/DatabaseToolbox";
 import { TableDesignerDockPane } from "../tableDesigner/TableDesignerDockPane";
 import { supportsTableDesign, resolveTableDesignerDriver } from "../tableDesigner/resolveTableDesignerDriver";
-import type { SyncTask } from "../toolbox/types";
 import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";
 import {
   createDefaultSqlTabState,

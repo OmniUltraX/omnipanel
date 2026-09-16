@@ -225,6 +225,7 @@ export function PluginsPanel() {
               onSelect={center.setSelectedId}
               originOf={center.originOf}
               dbxIds={center.dbxIds}
+              devIds={center.devIds}
               installing={center.installing}
               onInstallFile={() => void center.installFromFile()}
             />

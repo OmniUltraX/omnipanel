@@ -1176,7 +1176,15 @@ pub async fn plugin_update_all(
             let set: std::collections::HashSet<String> = list.into_iter().collect();
             updates.into_iter().filter(|u| set.contains(&u.id)).collect()
         }
-        None => updates,
+        None => {
+            // 本地开发版跳过：市场包会覆盖原地开发的安装（链接落盘，重启依然有效）。
+            // 显式单 id 更新不受影响；前端也不再给开发版出更新行。
+            let dev_ids = super::plugin_dev::dev_linked_plugin_ids(&state.app_handle);
+            updates
+                .into_iter()
+                .filter(|u| !dev_ids.contains(&u.id))
+                .collect()
+        }
     };
     let mut out = Vec::new();
     for item in wanted {
