@@ -1,6 +1,6 @@
 {
   "id": "omni.knowledge.siyuan",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "思源笔记",
   "kind": "knowledge",
   "permissions": [],
@@ -36,6 +36,76 @@
             "kind": "text",
             "label": "工作空间 data 目录",
             "placeholder": "例如 D:\\SiYuan\\data",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "siyuan-s3",
+        "title": "思源笔记 S3",
+        "hint": "S3 对象存储上的 dejavu 加密仓库，端到端解密后只读镜像",
+        "formats": ["sy"],
+        "localFiles": false,
+        "siyuanS3": true,
+        "listMethod": "listNotebooks",
+        "listDocumentsMethod": "listDocuments",
+        "getMethod": "getDocument",
+        "parseMethod": "parseDocument",
+        "idPrefix": "siyuan-s3",
+        "sourcePrefix": "import:siyuan-s3",
+        "tag": "siyuan-s3",
+        "fields": [
+          {
+            "key": "endpoint",
+            "kind": "text",
+            "label": "Endpoint",
+            "placeholder": "例如 https://s3.cn-east-1.qiniucs.com",
+            "required": true
+          },
+          {
+            "key": "bucket",
+            "kind": "text",
+            "label": "Bucket",
+            "placeholder": "例如 siyuan-note",
+            "required": true
+          },
+          {
+            "key": "region",
+            "kind": "text",
+            "label": "Region（可选，自动识别）",
+            "placeholder": "例如 cn-east-1",
+            "required": false
+          },
+          {
+            "key": "provider",
+            "kind": "text",
+            "label": "服务商（可选：aws/aliyun/tencent/qiniu，默认自动）",
+            "placeholder": "留空自动识别",
+            "required": false
+          },
+          {
+            "key": "prefix",
+            "kind": "text",
+            "label": "前缀（可选，repo 所在目录）",
+            "placeholder": "留空为桶根",
+            "required": false
+          },
+          {
+            "key": "accessKey",
+            "kind": "text",
+            "label": "AccessKey",
+            "required": true
+          },
+          {
+            "key": "secretKey",
+            "kind": "secret",
+            "label": "SecretKey（进 Vault）",
+            "required": true
+          },
+          {
+            "key": "repoPassword",
+            "kind": "secret",
+            "label": "数据仓库密钥（端到端解密，进 Vault）",
             "required": true
           }
         ]

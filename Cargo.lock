@@ -5888,16 +5888,23 @@ dependencies = [
 name = "omnipanel-knowledge-source"
 version = "0.0.5"
 dependencies = [
+ "aes-gcm",
+ "base64 0.21.7",
+ "hex",
  "omnipanel-error",
  "omnipanel-plugin",
  "omnipanel-plugin-js",
+ "omnipanel-s3",
  "omnipanel-store",
+ "scrypt",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "specta",
  "tempfile",
  "tokio",
  "tracing",
+ "zstd",
 ]
 
 [[package]]
@@ -8225,6 +8232,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0516a385866c09368f0b5bcd1caff3366aace790fcd46e2bb032697bb172fd1f"
 dependencies = [
+ "password-hash",
  "pbkdf2 0.12.2",
  "salsa20",
  "sha2 0.10.9",

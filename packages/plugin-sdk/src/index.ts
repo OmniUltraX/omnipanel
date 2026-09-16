@@ -242,6 +242,11 @@ export const knowledgeSourceSchema = z.object({
    * `parseMethod`（单文件契约见下），不再调 list/get。
    */
   localFiles: z.boolean().default(false),
+  /**
+   * 思源 S3 源开关：为 true 时宿主原生拉取 dejavu 加密仓库并解密，
+   * 组装出的 `.sy` 明文仍走 `parseMethod`（与本地源同一 JS），不调 list/get。
+   */
+  siyuanS3: z.boolean().default(false),
   /** 本地解析入口：({ relPath, content }) => `{ kind: "notebook", id, name } | { kind: "doc", id, title, markdown } | { kind: "skip" }`。 */
   parseMethod: z.string().min(1).optional(),
   /** 本地扫描后缀过滤，如 ["sy", "md"]（不带点）；缺省全收（点文件与超大文件宿主恒跳过）。 */

@@ -201,6 +201,15 @@ function kindErrors(raw, dir) {
           }
           continue;
         }
+        if (source.siyuanS3) {
+          // 思源 S3 源：宿主原生 dejavu 拉取 + parseMethod 解析，不调 list/get。
+          if (typeof source.parseMethod !== "string" || !source.parseMethod.trim()) {
+            errors.push(`knowledge source ${source.id || "?"} 声明 siyuanS3 必须配 parseMethod`);
+          } else {
+            pushMissingMethods(errors, have, [source.parseMethod.trim()], `knowledge source ${source.id || "?"}`);
+          }
+          continue;
+        }
         const needed = ["listMethod", "listDocumentsMethod", "getMethod"]
           .map((key) => (typeof source[key] === "string" ? source[key].trim() : ""))
           .filter(Boolean);

@@ -131,8 +131,12 @@ fn find_source_methods(
             .get("localFiles")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let namespace = str_field(source, "id");
-        let tag = {
+        // 思源 S3 源：宿主原生 dejavu 拉取 + parseMethod 解析，不调 list/get。
+        let siyuan_s3 = source
+            .get("siyuanS3")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let namespace = str_field(source, "id");        let tag = {
             let tag = str_field(source, "tag");
             if tag.is_empty() {
                 namespace.clone()
@@ -177,6 +181,7 @@ fn find_source_methods(
             list_documents_method: str_field(source, "listDocumentsMethod"),
             get_method: str_field(source, "getMethod"),
             local_files,
+            siyuan_s3,
             parse_method: str_field(source, "parseMethod"),
             file_patterns: source
                 .get("filePatterns")
@@ -214,6 +219,14 @@ fn find_source_methods(
             }
             return Ok(resolved);
         }
+        if siyuan_s3 {
+            if resolved.parse_method.is_empty() {
+                return Err(OmniError::invalid_input(format!(
+                    "知识源声明 siyuanS3 必须配 parseMethod: {source_id}"
+                )));
+            }
+            return Ok(resolved);
+        }
         if resolved.list_method.is_empty()
             || resolved.list_documents_method.is_empty()
             || resolved.get_method.is_empty()
@@ -237,6 +250,7 @@ struct ResolvedSource {
     list_documents_method: String,
     get_method: String,
     local_files: bool,
+    siyuan_s3: bool,
     parse_method: String,
     file_patterns: Vec<String>,
     id_prefix: String,
@@ -505,6 +519,54 @@ pub async fn ks_test(
             }),
         };
     }
+    if resolved.siyuan_s3 {
+        let cfg = s3_config_of(&state, &plugin_id, &source_id).await?;
+        let caller = GatewayCaller {
+            state: &state,
+            plugin_id: plugin_id.clone(),
+        };
+        let adapter = omnipanel_knowledge_source::SiyuanS3Adapter::new(
+            &plugin_id,
+            &resolved.namespace,
+            &resolved.id_prefix,
+            &resolved.source_prefix,
+            &resolved.tag,
+            &resolved.parse_method,
+            cfg,
+            caller,
+        );
+        let notebooks = adapter
+            .list_notebooks()
+            .map_err(|e| OmniError::internal(e).to_string());
+        let docs = adapter
+            .list_documents()
+            .map_err(|e| OmniError::internal(e).to_string());
+        return match (notebooks, docs) {
+            (Ok(notebooks), Ok(docs)) => {
+                let mut message = format!(
+                    "检测到 {} 个笔记本/目录，共 {} 篇文档",
+                    notebooks.len(),
+                    docs.len()
+                );
+                let skipped = adapter.skipped_large();
+                if skipped > 0 {
+                    message.push_str(&format!("（{skipped} 个超大/损坏文件跳过）"));
+                }
+                Ok(KsTestResult {
+                    ok: true,
+                    notebooks: notebooks.len() as i64,
+                    docs: docs.len() as i64,
+                    message,
+                })
+            }
+            (Err(message), _) | (_, Err(message)) => Ok(KsTestResult {
+                ok: false,
+                notebooks: 0,
+                docs: 0,
+                message,
+            }),
+        };
+    }
     let caller = GatewayCaller {
         state: &state,
         plugin_id: plugin_id.clone(),
@@ -633,6 +695,60 @@ async fn local_root_of(
     Ok(path)
 }
 
+/// 思源 S3 源配置（表单值 + Vault 密钥拼装）。
+async fn s3_config_of(
+    state: &State<'_, AppState>,
+    plugin_id: &str,
+    source_id: &str,
+) -> Result<omnipanel_knowledge_source::SiyuanS3Config, OmniError> {
+    let key = source_key_of(plugin_id, source_id);
+    let storage = state.storage.lock().await;
+    let cfg = storage
+        .ks_config_get(&key)?
+        .ok_or_else(|| OmniError::invalid_input("请先在源配置里填写 S3 连接信息并保存".to_string()))?;
+    let values: Value = serde_json::from_str(&cfg.config_json).unwrap_or(Value::Null);
+    let get = |k: &str| {
+        values
+            .get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let secret_map: std::collections::HashMap<String, String> =
+        serde_json::from_str(&cfg.secret_ref).unwrap_or_default();
+    let secret_of = |k: &str| {
+        secret_map
+            .get(k)
+            .and_then(|vault_key| omnipanel_store::Vault::get(vault_key).ok())
+            .unwrap_or_default()
+    };
+    let out = omnipanel_knowledge_source::SiyuanS3Config {
+        endpoint: get("endpoint"),
+        bucket: get("bucket"),
+        region: get("region"),
+        provider: get("provider"),
+        access_key: get("accessKey"),
+        secret_key: secret_of("secretKey"),
+        repo_password: secret_of("repoPassword"),
+        prefix: get("prefix"),
+    };
+    if out.endpoint.trim().is_empty()
+        || out.bucket.trim().is_empty()
+        || out.access_key.trim().is_empty()
+    {
+        return Err(OmniError::invalid_input(
+            "S3 配置不完整：请填写 Endpoint / Bucket / AccessKey".to_string(),
+        ));
+    }
+    if out.secret_key.is_empty() || out.repo_password.is_empty() {
+        return Err(OmniError::invalid_input(
+            "S3 密钥不完整：请填写 SecretKey 与数据仓库密钥".to_string(),
+        ));
+    }
+    Ok(out)
+}
+
 /// 手动同步一次。
 #[tauri::command]
 #[specta::specta]
@@ -695,6 +811,28 @@ async fn run_ks_sync(
             &resolved.parse_method,
             root,
             resolved.file_patterns.clone(),
+            caller,
+        );
+        return if rebuild {
+            omnipanel_knowledge_source::rebuild_source(&storage, &adapter, source_id)
+        } else {
+            omnipanel_knowledge_source::sync_source(&storage, &adapter, source_id)
+        };
+    }
+    if resolved.siyuan_s3 {
+        let cfg = s3_config_of(state, plugin_id, source_id).await?;
+        let caller = GatewayCaller {
+            state,
+            plugin_id: plugin_id.to_string(),
+        };
+        let adapter = omnipanel_knowledge_source::SiyuanS3Adapter::new(
+            plugin_id,
+            &resolved.namespace,
+            &resolved.id_prefix,
+            &resolved.source_prefix,
+            &resolved.tag,
+            &resolved.parse_method,
+            cfg,
             caller,
         );
         return if rebuild {
