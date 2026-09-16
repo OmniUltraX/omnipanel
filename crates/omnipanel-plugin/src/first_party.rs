@@ -122,9 +122,6 @@ pub fn engine_sqlserver() -> PluginManifest {
     first_party_manifest!("db-sqlserver")
 }
 
-/// 可选 module 样板（不进 `first_party_manifests` / 不嵌入 logic.js）。
-/// 源码在独立仓 `OmniUltraX/omni-plugin-nacos`，本仓以 submodule 挂在 `plugins/module-nacos`。
-/// 保留 helper 供单测与 registry 样板装载；运行时需用户安装 `.omni-plugin`。
 pub fn module_nacos() -> PluginManifest {
     first_party_manifest!("module-nacos")
 }
@@ -145,6 +142,14 @@ pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../plugins/importer-warpgate/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_MODULE_NACOS, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/module-nacos/logic.js"
             ))
             .as_bytes()
             .to_vec(),
@@ -279,6 +284,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         engine_redis(),
         engine_sqlite(),
         engine_sqlserver(),
+        module_nacos(),
         importer_warpgate(),
         importer_docker_db(),
     ]
@@ -325,15 +331,6 @@ mod tests {
         assert_eq!(engine_redis().id, PLUGIN_ID_ENGINE_REDIS);
         assert_eq!(engine_sqlite().id, PLUGIN_ID_ENGINE_SQLITE);
         assert_eq!(engine_sqlserver().id, PLUGIN_ID_ENGINE_SQLSERVER);
-        assert_eq!(importer_warpgate().id, PLUGIN_ID_IMPORTER_WARPGATE);
-        assert_eq!(importer_docker_db().id, PLUGIN_ID_IMPORTER_DOCKER_DB);
-        // Nacos 为可选安装插件：不进 first_party 种子，但仍保留 helper 校验仓库样板清单
-        assert!(
-            !first_party_manifests()
-                .iter()
-                .any(|m| m.id == PLUGIN_ID_MODULE_NACOS),
-            "omni.module.nacos 不应出现在 first_party_manifests"
-        );
         assert_eq!(module_nacos().id, PLUGIN_ID_MODULE_NACOS);
         let nacos = module_nacos();
         nacos.validate().expect("nacos 清单应通过校验");
@@ -348,6 +345,8 @@ mod tests {
             .map(|c| c.id.as_str())
             .collect();
         assert_eq!(caps, vec!["namespace", "config", "discovery", "cluster"]);
+        assert_eq!(importer_warpgate().id, PLUGIN_ID_IMPORTER_WARPGATE);
+        assert_eq!(importer_docker_db().id, PLUGIN_ID_IMPORTER_DOCKER_DB);
     }
 
     #[test]
@@ -552,9 +551,13 @@ mod tests {
     }
 
     #[test]
-    fn nacos_is_not_embedded_as_first_party_logic() {
-        // 可选插件：logic.js 随 .omni-plugin / 磁盘安装装载，不再 include_str 进宿主
-        assert!(first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "logic.js").is_none());
+    fn nacos_embeds_logic_js() {
+        let bytes = first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "logic.js")
+            .expect("应嵌入 nacos logic.js");
+        let src = String::from_utf8(bytes).unwrap();
+        assert!(src.contains("publishConfig"));
+        assert!(src.contains("rollbackConfig"));
+        assert!(src.contains("probeHealth"));
         assert!(first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "other.js").is_none());
     }
 

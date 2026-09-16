@@ -51,13 +51,9 @@ function isRelJsonPath(value) {
 const dirs = fs.readdirSync(pluginsDir, { withFileTypes: true }).filter((d) => d.isDirectory());
 const jsonDirs = dirs.map((d) => d.name);
 
-/** 可选插件：源码以 submodule 保留供 pack/publish，但不进 first_party 种子 / 前端 FIRST_PARTY。 */
-const OPTIONAL_PLUGIN_DIRS = new Set(["module-nacos"]);
-
 let failed = 0;
 
 for (const dir of jsonDirs) {
-  if (OPTIONAL_PLUGIN_DIRS.has(dir)) continue;
   if (!rustDirSet.has(dir)) {
     console.error(`[plugin-manifest] plugins/${dir} 未在 first_party.rs 用 first_party_manifest! 登记`);
     failed += 1;
@@ -71,8 +67,6 @@ for (const dir of rustDirSet) {
 }
 
 const jsonIds = [];
-/** 非可选插件 id → 必须出现在 registry bundled 集合中 */
-const bundledRequiredIds = [];
 const engineKeys = [];
 for (const dir of dirs) {
   const file = path.join(pluginsDir, dir.name, "plugin.json");
@@ -90,9 +84,6 @@ for (const dir of dirs) {
     continue;
   }
   jsonIds.push(raw.id);
-  if (!OPTIONAL_PLUGIN_DIRS.has(dir.name)) {
-    bundledRequiredIds.push(raw.id);
-  }
   const errors = [];
   if (typeof raw.id !== "string" || !raw.id.trim()) errors.push("id required");
   if (typeof raw.version !== "string" || !raw.version.trim()) errors.push("version required");
@@ -287,34 +278,14 @@ if (!fs.existsSync(registryPath)) {
 } else {
   try {
     const registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
-    const registryPlugins = Array.isArray(registry.plugins) ? registry.plugins : [];
     const bundledIds = new Set(
-      registryPlugins.filter((p) => p && p.distribution === "bundled").map((p) => p.id),
+      (Array.isArray(registry.plugins) ? registry.plugins : [])
+        .filter((p) => p && p.distribution === "bundled")
+        .map((p) => p.id),
     );
-    const byId = new Map(registryPlugins.filter((p) => p && p.id).map((p) => [p.id, p]));
-    for (const id of bundledRequiredIds) {
+    for (const id of jsonIds) {
       if (!bundledIds.has(id)) {
         console.error(`[plugin-manifest] 官方目录未收录第一方插件: ${id}`);
-        failed += 1;
-      }
-    }
-    for (const dir of OPTIONAL_PLUGIN_DIRS) {
-      const file = path.join(pluginsDir, dir, "plugin.json");
-      if (!fs.existsSync(file)) continue;
-      let optionalId;
-      try {
-        optionalId = JSON.parse(fs.readFileSync(file, "utf8")).id;
-      } catch {
-        continue;
-      }
-      const entry = byId.get(optionalId);
-      if (!entry) {
-        console.error(`[plugin-manifest] 可选插件未出现在 registry.json: ${optionalId}`);
-        failed += 1;
-      } else if (entry.distribution === "bundled") {
-        console.error(
-          `[plugin-manifest] 可选插件 ${optionalId} 应为 distribution=download（或非 bundled），当前为 bundled`,
-        );
         failed += 1;
       }
     }
@@ -336,7 +307,6 @@ if (catalogDirSet.size !== catalogDirs.length) {
   failed += 1;
 }
 for (const dir of jsonDirs) {
-  if (OPTIONAL_PLUGIN_DIRS.has(dir)) continue;
   if (!catalogDirSet.has(dir)) {
     console.error(`[plugin-manifest] plugins/${dir} 未在前端 pluginManifests.ts 登记`);
     failed += 1;
@@ -386,5 +356,5 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log(
-  `plugin manifests ok (${dirs.length}; rust dirs ${rustDirSet.size}; frontend catalog ${catalogDirSet.size}; optional ${OPTIONAL_PLUGIN_DIRS.size})`,
+  `plugin manifests ok (${dirs.length}; rust dirs ${rustDirSet.size}; frontend catalog ${catalogDirSet.size})`,
 );
