@@ -89,12 +89,13 @@ export function buildKnowledgeTree(entries: KnowledgeEntry[]): KnowledgeTreeNode
     sortEntries(byParent.get(parentId) ?? []).map((entry) => ({
       entry,
       // 防环：用户数据脏（A↔B 互指）时截断，避免无限递归爆栈。
+      // 思源等镜像源允许文档下挂子文档，不再只给 folder 建 children。
       children: visiting.has(entry.id)
         ? []
         : (() => {
             visiting.add(entry.id);
             try {
-              return isKnowledgeFolder(entry) ? build(entry.id, visiting) : [];
+              return build(entry.id, visiting);
             } finally {
               visiting.delete(entry.id);
             }
@@ -119,7 +120,8 @@ export function flattenVisibleTree(
   const walk = (list: KnowledgeTreeNode[], depth: number, visiting: Set<string>) => {
     for (const node of list) {
       rows.push({ node, depth });
-      if (isKnowledgeFolder(node.entry) && expanded.has(node.entry.id)) {
+      // 文档也可能有子项（思源子文档），有 children 且被展开就深入。
+      if (node.children.length > 0 && expanded.has(node.entry.id)) {
         // 防环：同 buildKnowledgeTree。
         if (visiting.has(node.entry.id)) continue;
         visiting.add(node.entry.id);
@@ -137,13 +139,13 @@ export function flattenVisibleTree(
 
 export function collectDescendantIds(entries: KnowledgeEntry[], rootId: string): string[] {
   const out: string[] = [];
+  const seen = new Set<string>();
   const walk = (parentId: string) => {
     for (const entry of entries) {
-      if (normalizeParentId(entry.parentId) === parentId) {
+      if (normalizeParentId(entry.parentId) === parentId && !seen.has(entry.id)) {
+        seen.add(entry.id);
         out.push(entry.id);
-        if (isKnowledgeFolder(entry)) {
-          walk(entry.id);
-        }
+        walk(entry.id);
       }
     }
   };

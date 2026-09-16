@@ -187,7 +187,7 @@ function TreeRow({
       nodeType={isFolder ? "folder" : "document"}
       treeKey={entry.id}
       expanded={expanded}
-      hasChildren={isFolder}
+      hasChildren={isFolder || node.children.length > 0}
       active={active}
       selected={selection?.isSelected(entry.id) ?? selected}
       className={`knowledge-tree-row${active ? " knowledge-tree-row--active" : ""}${
@@ -276,11 +276,8 @@ function renderTreeNodes(
   const rows: React.ReactNode[] = [];
   for (const node of nodes) {
     rows.push(renderTreeRow(node, depth, opts));
-    if (
-      isKnowledgeFolder(node.entry) &&
-      opts.expandedIds.includes(node.entry.id) &&
-      node.children.length > 0
-    ) {
+    // 文档也可能带子项（思源子文档镜像），展开即渲染。
+    if (opts.expandedIds.includes(node.entry.id) && node.children.length > 0) {
       rows.push(...renderTreeNodes(node.children, { ...opts, depth: depth + 1 }));
     }
   }

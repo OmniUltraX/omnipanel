@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildKnowledgeTree,
+  collectDescendantIds,
   flattenVisibleTree,
 } from "./knowledgeTree";
 import type { KnowledgeEntry } from "../../ipc/bindings";
@@ -47,9 +48,38 @@ describe("flattenVisibleTree", () => {
     expect(rows.map((r) => r.depth)).toEqual([0, 1, 1, 0]);
   });
 
-  it("文档的 expandedId 被忽略（只有文件夹可展开）", () => {
+  it("文档带子项时也可展开（思源子文档镜像）", () => {
+    const nested = [
+      entry({ id: "box", title: "笔记本", nodeType: "folder", sortOrder: 0 }),
+      entry({ id: "p", title: "父文档", parentId: "box", sortOrder: 0 }),
+      entry({ id: "c", title: "子文档", parentId: "p", sortOrder: 0 }),
+    ];
+    const tree = buildKnowledgeTree(nested);
+    // 父文档节点必须挂住子项，不再被丢弃。
+    expect(tree[0].children[0].children.map((n) => n.entry.id)).toEqual(["c"]);
+    const rows = flattenVisibleTree(tree, ["box", "p"]);
+    expect(rows.map((r) => r.node.entry.id)).toEqual(["box", "p", "c"]);
+    expect(rows.map((r) => r.depth)).toEqual([0, 1, 2]);
+  });
+
+  it("无子项文档的 expandedId 仍无行变化", () => {
     const rows = flattenVisibleTree(buildKnowledgeTree(entries), ["root"]);
     expect(rows.map((r) => r.node.entry.id)).toEqual(["f1", "root"]);
+  });
+
+  it("collectDescendantIds 穿过文档层且环形不死循环", () => {
+    const nested = [
+      entry({ id: "box", title: "笔记本", nodeType: "folder", sortOrder: 0 }),
+      entry({ id: "p", title: "父文档", parentId: "box", sortOrder: 0 }),
+      entry({ id: "c", title: "子文档", parentId: "p", sortOrder: 0 }),
+    ];
+    expect(collectDescendantIds(nested, "box")).toEqual(["p", "c"]);
+    const cyclic = [
+      entry({ id: "a", title: "A", parentId: "b", sortOrder: 0 }),
+      entry({ id: "b", title: "B", parentId: "a", sortOrder: 0 }),
+    ];
+    // 环形时收敛不死循环（a 是 b 的后代、b 也是 a 的后代，各记一次）。
+    expect(collectDescendantIds(cyclic, "a")).toEqual(["b", "a"]);
   });
 
   it("环形 parentId 不爆栈（A↔B 互指时截断）", () => {
