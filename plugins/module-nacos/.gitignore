@@ -1,0 +1,12 @@
+﻿# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Build / pack artifacts
+*.omni-plugin
+dist/
+node_modules/
+*.log

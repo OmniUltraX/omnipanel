@@ -1,0 +1,3 @@
+[submodule "plugins/module-nacos"]
+	path = plugins/module-nacos
+	url = git@github.com:OmniUltraX/omni-plugin-nacos.git

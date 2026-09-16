@@ -1,6 +1,6 @@
 # OmniPanel 插件开发指南
 
-第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** Nacos / 阿里云 / 腾讯云 / 华为云只是第一方样板。
+第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** 阿里云 / 腾讯云 / 华为云等是内置第一方样板；**Nacos**（[`omni-plugin-nacos`](https://github.com/OmniUltraX/omni-plugin-nacos)，本仓库以 submodule 挂在 `plugins/module-nacos`）是可选插件（`distribution: download`），不随客户端 bundled，需经插件中心或本地 `.omni-plugin` 安装。
 
 字段枚举与 schema 单源：`packages/plugin-sdk/src/index.ts`。
 
@@ -410,7 +410,17 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/my-plugin my-plug
 ```
 
 - **第三方包校验**：`node scripts/validate-plugin.mjs <dir>`（清单、kind 合同、入口文件、`logic.js` 可装载）。
-- **第一方仓库门禁**：`npm run check:plugin-manifests`（与 Rust / 前端目录双向）。
-- 第一方 `logic.js` 是 `include_str!`，改完要 **重编 Tauri**。第三方安装包改完重新 pack 再覆盖安装即可。
+- **第一方仓库门禁**：`npm run check:plugin-manifests`（与 Rust / 前端目录双向；`OPTIONAL_PLUGIN_DIRS` 如 `module-nacos` 只校验 schema，不进 bundled 种子）。
+- 内置第一方 `logic.js` 是 `include_str!`，改完要 **重编 Tauri**。可选 / 第三方安装包改完重新 pack 再覆盖安装即可。
 - 常见错误：`UnknownMethod`、缺少权限、`fsRead` 越界、`minHostApi` 高于宿主。
 - Dev 构建接受未签名/开发签名包；release 拒绝。
+
+### 可选样板：Nacos
+
+```bash
+# 打包（仓库样板）
+cargo run -p omnipanel-plugin-pkg --bin pack -- plugins/module-nacos nacos.omni-plugin
+# 安装：设置 → 插件 →「安装本地插件」，或插件中心 registry download
+```
+
+安装并启用后侧栏出现 `/module/nacos`；卸载后面板与工具消失，已有连接保留。

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import { parsePluginManifest } from "@omnipanel/plugin-sdk";
 import {
   FIRST_PARTY_PLUGIN_MANIFESTS,
@@ -6,13 +6,20 @@ import {
   listPluginManifests,
   manifestPanelTabIds,
   resolveLegacyPluginId,
+  setInstalledPluginManifests,
 } from "./pluginManifests";
+import moduleNacosJson from "../../../plugins/module-nacos/plugin.json";
 
 describe("pluginManifests 单源目录", () => {
+  afterEach(() => {
+    setInstalledPluginManifests([]);
+  });
+
   it("解析全部第一方清单且 id 唯一", () => {
     const ids = FIRST_PARTY_PLUGIN_MANIFESTS.map((m) => m.id);
-    expect(ids).toHaveLength(24);
-    expect(new Set(ids).size).toBe(24);
+    expect(ids).toHaveLength(23);
+    expect(new Set(ids).size).toBe(23);
+    expect(ids).not.toContain("omni.module.nacos");
   });
 
   it("kind 分布与仓库样板一致", () => {
@@ -27,7 +34,7 @@ describe("pluginManifests 单源目录", () => {
       "omni.engine.sqlserver",
     ]);
     expect(listPluginManifests("panel")).toHaveLength(3);
-    expect(listPluginManifests("module")).toHaveLength(1);
+    expect(listPluginManifests("module")).toHaveLength(0);
     expect(listPluginManifests("cloud")).toHaveLength(8);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(1);
@@ -258,7 +265,11 @@ describe("pluginManifests 单源目录", () => {
     });
   }
 
-  it("Nacos module 声明 methods、logic 与四种 capability", () => {
+  it("Nacos 未安装时不在清单；注入后暴露 methods 与四种 capability", () => {
+    expect(getPluginManifest("omni.module.nacos")).toBeNull();
+
+    const installed = parsePluginManifest(moduleNacosJson);
+    setInstalledPluginManifests([installed]);
     const manifest = getPluginManifest("omni.module.nacos");
     expect(manifest?.kind).toBe("module");
     expect(manifest?.entry?.logic).toBe("logic.js");
