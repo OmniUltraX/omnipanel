@@ -41,6 +41,8 @@ cargo run -p omnipanel-plugin-pkg --bin publish -- <plugin_dir> https://example.
 - 同 id 重复安装即原子升级；
 - 启用状态持久化，重启保持。
 
+也可从官方 registry 对 `distribution: "download"` 条目（如可选的 [`omni.module.nacos`](https://github.com/OmniUltraX/omni-plugin-nacos)）一键下载安装。
+
 ## 卸载
 
 - **已安装**来源：插件中心「卸载」按钮（删目录 + 清启用记录）；

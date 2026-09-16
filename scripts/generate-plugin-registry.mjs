@@ -98,8 +98,9 @@ const META = {
     description: "First-party SQL Server engine (sidecar).",
   },
   "omni.module.nacos": {
-    name: "Nacos module shell",
-    description: "Host shell for the Nacos console plugin.",
+    name: "Nacos workbench",
+    description:
+      "Optional Nacos console workbench (namespaces, config, discovery, cluster). Install from the plugin center or a local .omni-plugin — not bundled with the client.",
   },
   "omni.importer.warpgate": {
     name: "Warpgate import",
