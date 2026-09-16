@@ -4,13 +4,18 @@
 
 ## 1. 前端缺少“可维护的模块架构”，只有目录
 
-`modules/database` 里单文件已经失控：`DatabasePanel` ~6000 行、`DatabaseToolbox` ~3800、`TableDataGrid` ~3700、`SchemaBrowser` ~2700。这不是“文件大一点”，而是**一个模块吞掉了编排、状态、IPC、菜单、工作区、同步**——评审、回归、并行改动都会撞车。
+`modules/database` 里单文件曾经失控：`DatabasePanel` / `DatabaseToolbox` / `TableDataGrid` / `SchemaBrowser` 各数千行——一个模块吞掉编排、状态、IPC、菜单、工作区、同步。约定说「前端只负责展现」，实际是**厚 UI 编排层**。
 
-约定说「前端只负责展现」，实际是**厚 UI 编排层**：业务规则大量落在 Panel / hooks（如 `useTerminal` 2000+ 行）里，Rust crate 边界再清晰也挡不住前端成为第二套“领域层”。
+**进展（方案 A · Q1 点名四文件已收口）**：组装壳一律 ≤1200，行为不变，`tsc -b` 通过。编排进显式 deps hooks；model 仍可继续手拆（勿用正则脚本），但不阻塞本条关闭。
 
-**进展（方案 A · DatabasePanel 首刀已落地）**：组装壳 `DatabasePanel.tsx` ~263 行（≤1200 已达成）。编排拆到 `panel/`：`useDatabasePanelModel` ~2977、`useDatabasePanelSql` ~680、`useDatabasePanelTablePreview` ~993、`useDatabasePanelDockTabs` ~892、`useDatabasePanelConnections` ~394、`useDatabasePanelMysqlTransfer` ~335、`buildDatabaseSchemaContextMenu` ~273。行为不变，`tsc -b` 通过。model 仍可按切面继续手拆（勿用正则脚本）。`Toolbox` / `TableDataGrid` / `SchemaBrowser` 尚未动。
+| 壳 | 约行数 | 编排中枢（约行） | 已外提切面（摘要） |
+|----|--------|------------------|-------------------|
+| `DatabasePanel.tsx` | ~263 | `useDatabasePanelModel` ~2805 | Sql / TablePreview / DockTabs / Connections / MysqlTransfer / CsvExport / SchemaContextMenu |
+| `DatabaseToolbox.tsx` | ~399 | `useDatabaseToolboxModel` ~698 | Connections / BgAnalysis / TaskLifecycle / Execute；常量模块级 `claimExecuteTaskCompletion` |
+| `SchemaBrowser.tsx` | ~378 | `useSchemaBrowserModel` ~1578 | Types / Helpers / TreeNode / Hotkeys / SelectionSync / ContextMenu / FlatRow |
+| `TableDataGrid.tsx` | ~790 | `useTableDataGridModel` ~2620 | Types / PointerInteraction / ColumnDefs（Selection·CellEdit·Canvas 等仍可续拆） |
 
----
+旁注：`useTerminal` 等其它厚编排不在本条点名四文件范围内，属后续同范式扩展。
 
 ## 2. Store 分层被自己写的规则击穿
 
