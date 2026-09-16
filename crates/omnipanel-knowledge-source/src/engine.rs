@@ -150,6 +150,45 @@ pub fn sync_source<A: SourceAdapter>(
     let docs = adapter.list_documents().map_err(OmniError::internal)?;
     report.scanned = docs.len() as i64;
 
+    // 同盒文档 id → 条目 id（嵌套归属用；parent_id 优先，其次 rel 路径父目录推导）。
+    let doc_entry_ids: HashMap<(&str, &str), String> = docs
+        .iter()
+        .map(|d| {
+            (
+                (d.box_id.as_str(), d.id.as_str()),
+                adapter.doc_entry_id(&d.id),
+            )
+        })
+        .collect();
+    let resolve_parent = |adapter: &A, doc: &KsDocRef| -> String {
+        if let Some(pid) = doc.parent_id.as_deref() {
+            if let Some(fid) = folder_ids.get(pid) {
+                return fid.clone();
+            }
+            if let Some(eid) = doc_entry_ids.get(&(doc.box_id.as_str(), pid)) {
+                let own = adapter.doc_entry_id(&doc.id);
+                if *eid != own {
+                    return eid.clone();
+                }
+            }
+        }
+        // rel 路径父目录名与同盒文档 id 相同 → 视为子文档（思源子目录即父文档 id）。
+        if let Some(slash) = doc.rel_path.rfind('/') {
+            let dir = &doc.rel_path[..slash];
+            if let Some(name) = dir.rsplit('/').next() {
+                if !name.is_empty() {
+                    if let Some(eid) = doc_entry_ids.get(&(doc.box_id.as_str(), name)) {
+                        let own = adapter.doc_entry_id(&doc.id);
+                        if *eid != own {
+                            return eid.clone();
+                        }
+                    }
+                }
+            }
+        }
+        adapter.folder_entry_id(&doc.box_id)
+    };
+
     let states = storage.ks_file_state_list(&source_key)?;
     let state_by_key: HashMap<&str, _> = states.iter().map(|s| (s.file_key.as_str(), s)).collect();
     let scanned_keys: HashSet<String> = docs.iter().map(|d| adapter.file_key(d)).collect();
@@ -158,6 +197,7 @@ pub fn sync_source<A: SourceAdapter>(
     for doc in &docs {
         let key = adapter.file_key(doc);
         let prior = state_by_key.get(key.as_str());
+        let parent_folder_id = resolve_parent(adapter, doc);
         let mut changed = match prior {
             None => true,
             Some(state) => state.fingerprint != doc.fingerprint,
@@ -168,15 +208,17 @@ pub fn sync_source<A: SourceAdapter>(
                 changed = storage.get_knowledge(&state.entry_id)?.is_none();
             }
         }
+        // 父归属漂移也视为变更（平铺→嵌套迁移、对端移动）。
+        if !changed {
+            if let Some(state) = prior {
+                if let Ok(Some(existing)) = storage.get_knowledge(&state.entry_id) {
+                    changed = existing.parent_id != parent_folder_id;
+                }
+            }
+        }
         if !changed {
             continue;
         }
-        let parent_folder_id = doc
-            .parent_id
-            .as_deref()
-            .and_then(|pid| folder_ids.get(pid))
-            .cloned()
-            .unwrap_or_else(|| adapter.folder_entry_id(&doc.box_id));
         let is_new = prior.is_none();
         match sync_one_doc(
             storage,
@@ -590,5 +632,145 @@ mod tests {
             .expect("配置应落库");
         assert!(cfg.last_sync_at > 0);
         assert!(cfg.last_report_json.contains("\"added\":2"));
+    }
+
+    /// 嵌套归属：rel 父目录名命中同盒文档 id 即挂其下；否则回盒子。
+    #[test]
+    fn nested_docs_parent_under_matching_doc() {
+        let storage = mem_storage();
+        struct ThreeDocs;
+        impl SourceAdapter for ThreeDocs {
+            fn namespace(&self) -> &str {
+                "demo"
+            }
+            fn list_notebooks(&self) -> Result<Vec<KsNotebook>, String> {
+                Ok(vec![KsNotebook {
+                    id: "nb1".to_string(),
+                    name: "笔记本".to_string(),
+                    parent_id: None,
+                }])
+            }
+            fn list_documents(&self) -> Result<Vec<KsDocRef>, String> {
+                let mk = |id: &str, rel: &str| KsDocRef {
+                    id: id.to_string(),
+                    title: id.to_string(),
+                    parent_id: None,
+                    box_id: "nb1".to_string(),
+                    rel_path: rel.to_string(),
+                    fingerprint: "1".to_string(),
+                };
+                Ok(vec![
+                    mk("parent", "parent.sy"),
+                    mk("child", "parent/child.sy"),
+                    mk("orphan", "nodir/orphan.sy"),
+                ])
+            }
+            fn get_document(&self, doc: &KsDocRef) -> Result<KsDocContent, String> {
+                Ok(KsDocContent {
+                    title: doc.id.clone(),
+                    markdown: "x".to_string(),
+                    updated_at_ms: None,
+                })
+            }
+        }
+        let report = sync_source(&storage, &ThreeDocs, "演示").expect("同步");
+        assert_eq!(report.added, 3);
+        let child = storage
+            .get_knowledge("ks-doc-child")
+            .expect("读")
+            .expect("子在库");
+        assert_eq!(child.parent_id, "ks-doc-parent", "子挂父文档下");
+        let orphan = storage
+            .get_knowledge("ks-doc-orphan")
+            .expect("读")
+            .expect("孤在库");
+        assert_eq!(orphan.parent_id, "ks-box-nb1", "无命中回盒子");
+        let parent = storage
+            .get_knowledge("ks-doc-parent")
+            .expect("读")
+            .expect("父在库");
+        assert_eq!(parent.parent_id, "ks-box-nb1");
+    }
+
+    #[test]
+    fn parent_move_triggers_update() {
+        // 平铺旧数据 + 新规则重跑 → 父归属漂移计为更新（迁移场景）。
+        let storage = mem_storage();
+        struct NestedAdapter;
+        impl SourceAdapter for NestedAdapter {
+            fn namespace(&self) -> &str {
+                "demo"
+            }
+            fn list_notebooks(&self) -> Result<Vec<KsNotebook>, String> {
+                Ok(vec![KsNotebook {
+                    id: "nb1".to_string(),
+                    name: "笔记本".to_string(),
+                    parent_id: None,
+                }])
+            }
+            fn list_documents(&self) -> Result<Vec<KsDocRef>, String> {
+                let mk = |id: &str, rel: &str| KsDocRef {
+                    id: id.to_string(),
+                    title: id.to_string(),
+                    parent_id: None,
+                    box_id: "nb1".to_string(),
+                    rel_path: rel.to_string(),
+                    fingerprint: "1".to_string(),
+                };
+                Ok(vec![
+                    mk("parent", "parent.sy"),
+                    mk("child", "parent/child.sy"),
+                ])
+            }
+            fn get_document(&self, doc: &KsDocRef) -> Result<KsDocContent, String> {
+                Ok(KsDocContent {
+                    title: doc.id.clone(),
+                    markdown: "x".to_string(),
+                    updated_at_ms: None,
+                })
+            }
+        }
+        // 先手写一条平铺旧条目（parent=盒子）+ 一致的状态。
+        storage
+            .save_knowledge(&omnipanel_store::KnowledgeEntry {
+                id: "ks-doc-child".to_string(),
+                kind: "note".to_string(),
+                title: "child".to_string(),
+                content: "x".to_string(),
+                tags: vec!["demo".to_string()],
+                risk_level: "safe".to_string(),
+                source: "import:ks:demo:doc:nb1/child".to_string(),
+                env_tag: "dev".to_string(),
+                language: String::new(),
+                usage_count: 0,
+                created_at: 1,
+                updated_at: 1,
+                parent_id: "ks-box-nb1".to_string(),
+                node_type: "document".to_string(),
+                sort_order: 0,
+                resource_type: String::new(),
+                resource_id: String::new(),
+            })
+            .expect("写旧条目");
+        storage
+            .ks_file_state_upsert(&omnipanel_store::KsFileState {
+                source_key: "plugin:demo".to_string(),
+                file_key: "nb1:parent/child.sy".to_string(),
+                box_id: "nb1".to_string(),
+                rel_path: "parent/child.sy".to_string(),
+                fingerprint: "1".to_string(),
+                entry_id: "ks-doc-child".to_string(),
+                status: "synced".to_string(),
+                updated_at: 1,
+            })
+            .expect("写旧状态");
+        // parent 文档存在 → rel 推导命中，旧 parent=盒子漂移 → 更新且搬家。
+        let report = sync_source(&storage, &NestedAdapter, "演示").expect("同步");
+        assert_eq!((report.added, report.updated), (1, 1));
+        let child = storage
+            .get_knowledge("ks-doc-child")
+            .expect("读")
+            .expect("子在库");
+        assert_eq!(child.parent_id, "ks-doc-parent");
     }
 }

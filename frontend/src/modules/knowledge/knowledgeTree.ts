@@ -85,13 +85,54 @@ export function buildKnowledgeTree(entries: KnowledgeEntry[]): KnowledgeTreeNode
       return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
     });
 
-  const build = (parentId: string): KnowledgeTreeNode[] =>
+  const build = (parentId: string, visiting: Set<string>): KnowledgeTreeNode[] =>
     sortEntries(byParent.get(parentId) ?? []).map((entry) => ({
       entry,
-      children: isKnowledgeFolder(entry) ? build(entry.id) : [],
+      // 防环：用户数据脏（A↔B 互指）时截断，避免无限递归爆栈。
+      children: visiting.has(entry.id)
+        ? []
+        : (() => {
+            visiting.add(entry.id);
+            try {
+              return isKnowledgeFolder(entry) ? build(entry.id, visiting) : [];
+            } finally {
+              visiting.delete(entry.id);
+            }
+          })(),
     }));
 
-  return build("");
+  return build("", new Set());
+}
+
+export type FlattenedTreeRow = {
+  node: KnowledgeTreeNode;
+  depth: number;
+};
+
+/** 可见行扁平化（虚拟滚动用）：只展开 expandedIds 内的文件夹。 */
+export function flattenVisibleTree(
+  nodes: KnowledgeTreeNode[],
+  expandedIds: readonly string[],
+): FlattenedTreeRow[] {
+  const expanded = new Set(expandedIds);
+  const rows: FlattenedTreeRow[] = [];
+  const walk = (list: KnowledgeTreeNode[], depth: number, visiting: Set<string>) => {
+    for (const node of list) {
+      rows.push({ node, depth });
+      if (isKnowledgeFolder(node.entry) && expanded.has(node.entry.id)) {
+        // 防环：同 buildKnowledgeTree。
+        if (visiting.has(node.entry.id)) continue;
+        visiting.add(node.entry.id);
+        try {
+          walk(node.children, depth + 1, visiting);
+        } finally {
+          visiting.delete(node.entry.id);
+        }
+      }
+    }
+  };
+  walk(nodes, 0, new Set());
+  return rows;
 }
 
 export function collectDescendantIds(entries: KnowledgeEntry[], rootId: string): string[] {

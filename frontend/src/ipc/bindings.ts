@@ -963,21 +963,6 @@ export const commands = {
 	knowledgeSaveAsset: (entryId: string, fileName: string, bytes: number[]) => typedError<KnowledgeAssetSaved, OmniError_Serialize>(__TAURI_INVOKE("knowledge_save_asset", { entryId, fileName, bytes })),
 	/**  解析附件绝对路径。 */
 	knowledgeAssetPath: (entryId: string, fileName: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("knowledge_asset_path", { entryId, fileName })),
-	/**  读取同步配置（无配置返回默认）。 */
-	siyuanConfigGet: () => typedError<SiyuanSyncConfig, OmniError_Serialize>(__TAURI_INVOKE("siyuan_config_get")),
-	/**  保存同步配置（先校验；S3 密钥引用由前端经 Vault 写入）。 */
-	siyuanConfigSave: (config: SiyuanSyncConfig) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("siyuan_config_save", { config })),
-	/**  测试连接：Local 扫描计数；S3 返回占位提示（配置可存，执行后置）。 */
-	siyuanTestConnection: (config: SiyuanSyncConfig) => typedError<SiyuanTestResult, OmniError_Serialize>(__TAURI_INVOKE("siyuan_test_connection", { config })),
-	/**  手动同步一次（按已保存配置执行；S3 拒绝并提示）。 */
-	siyuanSyncNow: () => typedError<KsReport, OmniError_Serialize>(__TAURI_INVOKE("siyuan_sync_now")),
-	/**
-	 *  重建同步：清空文件状态后全量重评（删坏重试/状态漂移的显式恢复路径）。
-	 *  条目 id 稳定可推导，回填覆盖同 id，不产生重复。
-	 */
-	siyuanSyncRebuild: () => typedError<KsReport, OmniError_Serialize>(__TAURI_INVOKE("siyuan_sync_rebuild")),
-	/**  同步状态（上次时间 + 上次报告）。 */
-	siyuanSyncStatus: () => typedError<SiyuanSyncStatus, OmniError_Serialize>(__TAURI_INVOKE("siyuan_sync_status")),
 	/**  列出某插件声明的知识源（控制台用）。 */
 	ksSourcesOf: (pluginId: string) => typedError<KsSourceDecl[], OmniError_Serialize>(__TAURI_INVOKE("ks_sources_of", { pluginId })),
 	/**  读取某源配置（无配置返回 None，由控制台填默认）。 */
@@ -5631,41 +5616,6 @@ export type ShellSpec = {
 	path: string | null,
 	/**  WSL 发行版名称（仅 Wsl kind 生效），如 "Ubuntu-22.04"。None 时用默认发行版。 */
 	wslDistro: string | null,
-};
-
-/**  同步数据源。 */
-export type SiyuanSourceType = "local" | "s3";
-
-/**  思源同步配置（`siyuan_sync_config` 表 `id='default'` 单行）。 */
-export type SiyuanSyncConfig = {
-	sourceType: SiyuanSourceType,
-	/**  本地工作空间 `data/` 目录（Local 数据源用）。 */
-	workspacePath: string,
-	/**  S3 配置占位（S3 数据源用；`s3_secret_ref` 为 Vault credential_ref）。 */
-	s3Endpoint: string,
-	s3Bucket: string,
-	s3Region: string,
-	s3AccessKey: string,
-	s3SecretRef: string,
-	/**  思源云端同步目录名（默认 `main`）。 */
-	s3CloudName: string,
-	lastSyncAt: number,
-	/**  上次同步报告 JSON（状态页展示）。 */
-	lastReportJson: string,
-};
-
-/**  同步状态（状态页展示）。 */
-export type SiyuanSyncStatus = {
-	lastSyncAt: number,
-	report: KsReport | null,
-};
-
-/**  测试连接结果（本地：笔记本/文档计数；S3：占位提示）。 */
-export type SiyuanTestResult = {
-	ok: boolean,
-	notebooks: number,
-	docs: number,
-	message: string,
 };
 
 /**  Skill 应用记录（每次 AI 调用 skill 时追加一条）。 */

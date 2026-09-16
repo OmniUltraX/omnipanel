@@ -62,7 +62,6 @@ pub mod quick_launcher;
 pub mod resource_profile;
 pub(crate) mod s3_list_compat;
 pub mod secrets_vault;
-pub mod siyuan;
 pub mod skills;
 pub mod spring_boot_admin;
 pub mod ssh;

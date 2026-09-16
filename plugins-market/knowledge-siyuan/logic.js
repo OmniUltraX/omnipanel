@@ -5,7 +5,7 @@
 //   { kind: "doc", id, title, markdown }  // *.sy（Spec 2 PascalCase AST 为主，旧格式兼容）
 //   { kind: "skip" }                      // 其他文件
 //
-// 组装规则与 Rust 原生实现（crates/omnipanel-siyuan）逐条对齐：
+// 组装规则与宿主 runner 同格式约定（id/source/tag 见 plugin.json 上游文档）：
 // 行内 Data 拼接、链接/公式标记、代码围栏、表格 | 连接、列表序号、未知块降级。
 
 function asObj(v) {

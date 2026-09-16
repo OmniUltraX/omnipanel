@@ -74,43 +74,55 @@ export function buildKnowledgeMetadata(entries: KnowledgeEntry[]): KnowledgeMeta
     }
   }
 
+  // 注意：未链接提及是 O(文档数 × 全文) 的，禁止在这里全量算
+  // （400+ 文档直接卡死首屏）。按需走 computeUnlinkedMentionsFor。
   const unlinkedMentions = new Map<string, LinkMention[]>();
-  for (const target of documents) {
-    const title = target.title.trim();
-    if (title.length < 2) continue;
-    const titleKey = normalizeTitle(title);
-    const linkedSources = new Set((backlinks.get(target.id) ?? []).map((m) => m.sourceId));
-    const mentions: LinkMention[] = [];
-
-    for (const source of documents) {
-      if (source.id === target.id) continue;
-      if (linkedSources.has(source.id)) continue;
-      const content = source.content ?? "";
-      const idx = content.toLowerCase().indexOf(titleKey);
-      if (idx < 0) continue;
-      // 跳过已在 wikilink 内的匹配
-      const links = outgoing.get(source.id) ?? [];
-      const inLink = links.some(
-        (l) => idx >= l.index && idx < l.index + l.raw.length,
-      );
-      if (inLink) continue;
-      mentions.push({
-        sourceId: source.id,
-        sourceTitle: source.title,
-        link: {
-          raw: title,
-          targetTitle: title,
-          index: idx,
-        },
-        snippet: snippetAround(content, idx),
-      });
-    }
-    if (mentions.length > 0) {
-      unlinkedMentions.set(target.id, mentions);
-    }
-  }
 
   return { titleToId, idToTitle, outgoing, backlinks, unlinkedMentions };
+}
+
+/**
+ * 单文档的未链接提及（懒算：只扫其它文档一次，O(n)）。
+ * `snapshot` 复用全量构建的出链/反链/标题表。
+ */
+export function computeUnlinkedMentionsFor(
+  entries: KnowledgeEntry[],
+  snapshot: Pick<KnowledgeMetadataSnapshot, "outgoing" | "backlinks">,
+  targetId: string,
+): LinkMention[] {
+  const documents = entries.filter((e) => !isKnowledgeFolder(e));
+  const target = documents.find((d) => d.id === targetId);
+  if (!target) return [];
+  const title = target.title.trim();
+  if (title.length < 2) return [];
+  const titleKey = normalizeTitle(title);
+  const linkedSources = new Set((snapshot.backlinks.get(target.id) ?? []).map((m) => m.sourceId));
+  const mentions: LinkMention[] = [];
+
+  for (const source of documents) {
+    if (source.id === target.id) continue;
+    if (linkedSources.has(source.id)) continue;
+    const content = source.content ?? "";
+    const idx = content.toLowerCase().indexOf(titleKey);
+    if (idx < 0) continue;
+    // 跳过已在 wikilink 内的匹配
+    const links = snapshot.outgoing.get(source.id) ?? [];
+    const inLink = links.some(
+      (l) => idx >= l.index && idx < l.index + l.raw.length,
+    );
+    if (inLink) continue;
+    mentions.push({
+      sourceId: source.id,
+      sourceTitle: source.title,
+      link: {
+        raw: title,
+        targetTitle: title,
+        index: idx,
+      },
+      snippet: snippetAround(content, idx),
+    });
+  }
+  return mentions;
 }
 
 export function resolveTitleToId(

@@ -5568,7 +5568,6 @@ dependencies = [
  "omnipanel-plugin-pkg",
  "omnipanel-plugin-wasm",
  "omnipanel-presence",
- "omnipanel-siyuan",
  "omnipanel-ssh",
  "omnipanel-store",
  "omnipanel-transfer",
@@ -6081,21 +6080,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
-]
-
-[[package]]
-name = "omnipanel-siyuan"
-version = "0.0.5"
-dependencies = [
- "base64 0.22.1",
- "omnipanel-error",
- "omnipanel-knowledge-source",
- "omnipanel-store",
- "serde",
- "serde_json",
- "specta",
- "tempfile",
- "tracing",
 ]
 
 [[package]]

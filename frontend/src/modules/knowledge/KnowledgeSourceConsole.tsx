@@ -201,8 +201,7 @@ export function KnowledgeSourceConsole({
           });
         }
       }
-      // 原生思源配置自动播种：ks 无配置且原生有工作空间路径时，一键沿用。
-      await autoSeedFromNative(next);
+      // 原生思源配置播种已随原生同步下线；路径请在各源表单里填写一次。
       setSources(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -450,37 +449,4 @@ export function KnowledgeSourceConsole({
     </div>,
     document.body,
   );
-}
-
-/** 原生思源配置自动播种：ks 无配置且原生有工作空间路径时沿用 rootPath。 */
-async function autoSeedFromNative(
-  sources: Array<{
-    pluginId: string;
-    decl: { sourceId: string };
-    values: Record<string, string>;
-  }>,
-): Promise<void> {
-  try {
-    const target = sources.find(
-      (item) =>
-        item.pluginId === "omni.knowledge.siyuan" &&
-        item.decl.sourceId === "siyuan" &&
-        Object.keys(item.values).length === 0,
-    );
-    if (!target) return;
-    const native = await unwrapCommand(commands.siyuanConfigGet(), { quiet: true });
-    const workspacePath = (native?.workspacePath ?? "").trim();
-    if (!workspacePath) return;
-    await unwrapCommand(
-      commands.ksConfigSave(
-        target.pluginId,
-        target.decl.sourceId,
-        target.pluginId,
-        JSON.stringify({ rootPath: workspacePath }),
-      ),
-    );
-    target.values = { rootPath: workspacePath };
-  } catch {
-    // 播种失败不挡主流程
-  }
 }

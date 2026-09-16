@@ -38,14 +38,28 @@ fn is_hidden(name: &str) -> bool {
 }
 
 /// 后缀过滤（不带点，小写比较）；空列表 = 全收（点文件与超大仍跳过）。
-fn suffix_allowed(file_name: &str, patterns: &[String]) -> bool {
+/// 含 `/` 的 pattern 按完整相对路径后缀匹配（如 `.siyuan/conf.json`），
+/// 让笔记本元数据这类固定路径文件总能进来；纯后缀只看文件名。
+fn suffix_allowed(rel_slash: &str, file_name: &str, patterns: &[String]) -> bool {
     if patterns.is_empty() {
         return true;
     }
-    let lower = file_name.to_ascii_lowercase();
-    patterns.iter().any(|p| {
-        let p = p.trim().trim_start_matches('.').to_ascii_lowercase();
-        !p.is_empty() && (lower == p || lower.ends_with(&format!(".{p}")))
+    let lower_name = file_name.to_ascii_lowercase();
+    let lower_rel = rel_slash.to_ascii_lowercase();
+    patterns.iter().any(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+        // 含 `/` 的按完整相对路径后缀匹配（点号保留，如 `.siyuan/conf.json`）。
+        if trimmed.contains('/') {
+            let p = trimmed.to_ascii_lowercase();
+            let stripped: String = p.trim_start_matches('.').to_string();
+            return lower_rel.ends_with(&p)
+                || (!stripped.is_empty() && lower_rel.ends_with(&format!("/{stripped}")));
+        }
+        let p = trimmed.trim_start_matches('.').to_ascii_lowercase();
+        !p.is_empty() && (lower_name == p || lower_name.ends_with(&format!(".{p}")))
     })
 }
 
@@ -62,22 +76,30 @@ fn walk_dir(
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if is_hidden(&name) {
-            continue;
-        }
         let file_type = match entry.file_type() {
             Ok(t) => t,
             Err(_) => continue,
         };
         if file_type.is_dir() {
+            // 点目录默认跳过，但 `.siyuan` 是笔记本元数据目录，必须进去
+            // （里面的 conf.json 由 filePatterns 决定是否收）。
+            if is_hidden(&name) && name != ".siyuan" {
+                continue;
+            }
             walk_dir(root, &entry.path(), &rel_dir.join(&name), patterns, out);
             continue;
         }
-        if !file_type.is_file() || !suffix_allowed(&name, patterns) {
+        if is_hidden(&name) {
+            continue;
+        }
+        if !file_type.is_file() {
             continue;
         }
         let rel = rel_dir.join(&name);
         let rel_slash = rel.to_string_lossy().replace('\\', "/");
+        if !suffix_allowed(&rel_slash, &name, patterns) {
+            continue;
+        }
         let abs_path = root.join(&rel);
         let (mtime_ms, size) = std::fs::metadata(&abs_path)
             .map(|m| {
@@ -466,6 +488,23 @@ mod tests {
         let files = walk_local_files(dir.path(), &["md".to_string()]);
         let rels: Vec<_> = files.iter().map(|f| f.rel_path.as_str()).collect();
         assert_eq!(rels, vec!["a.md", "sub/c.md"]);
+    }
+
+    #[test]
+    fn walk_reaches_siyuan_conf_but_not_other_dotdirs() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        write_file(
+            &dir.path().join("box1").join(".siyuan").join("conf.json"),
+            r#"{"name":"工作笔记"}"#,
+        );
+        write_file(&dir.path().join("box1").join("doc.sy"), "{}");
+        write_file(&dir.path().join("box1").join(".git").join("x"), "no");
+        let files = walk_local_files(
+            dir.path(),
+            &["sy".to_string(), ".siyuan/conf.json".to_string()],
+        );
+        let rels: Vec<_> = files.iter().map(|f| f.rel_path.as_str()).collect();
+        assert_eq!(rels, vec!["box1/.siyuan/conf.json", "box1/doc.sy"]);
     }
 
     #[test]
