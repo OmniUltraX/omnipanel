@@ -40,6 +40,10 @@
 - crate 边界形同虚设（“该进 crate 的还在壳里”）  
 - `Result<T, String>` 与 `OmniError` 并存（database/protocol 等仍大量 String），错误模型未收敛
 
+**进展（Q3 第一刀 · panel 已下沉；第二刀 · protocol grpc/modbus 已下沉）**：
+- 新建 `crates/omnipanel-panel`（`btpanel` + `onepanel`），以原 `src-tauri/src/panel/` 为权威源迁入；`omnipanel-app` 与 `omnipanel-server` 改为依赖该 crate，删除两边本地 `panel/` 源文件。命令层（`commands/panel.rs` / `panel_cmds.rs`）仅改 import，IPC 语义不变。
+- 新建 `crates/omnipanel-protocol`（`grpc` + `modbus`），以桌面 `src-tauri/src/protocol/{grpc,modbus}.rs` 为权威源合并；会话表仍在命令层 / `AppState`·`ServerState`。桌面删除本地副本，server 删除整个仅含这两文件的 `protocol/` 模块。**其余协议（http/ws/mqtt/sse/serial/redis/sniffer）仍在壳里，待后续下沉。**
+
 ---
 
 ## 4. AI 能力是“产品三条线”，不是清晰子系统

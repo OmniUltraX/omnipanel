@@ -14,6 +14,8 @@ members = [
     "crates/omnipanel-engine-mysql",
     "crates/omnipanel-engine-postgres",
     "crates/omnipanel-docker",
+    "crates/omnipanel-panel",
+    "crates/omnipanel-protocol",
     "crates/omnipanel-assistant",
     "crates/omnipanel-core",
     "crates/omnipanel-ai",

@@ -1,0 +1,19 @@
+[package]
+name = "omnipanel-panel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "宝塔 / 1Panel 通用 HTTP 客户端（从 src-tauri 与 omnipanel-server 下沉复用）"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest = { workspace = true }
+specta.workspace = true
+omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-docker = { path = "../omnipanel-docker" }
+base64 = { workspace = true }
+md5 = "0.7"
+hmac = "0.12"
+sha2 = "0.10"

@@ -50,6 +50,8 @@ omnipanel-ssh = { path = "../crates/omnipanel-ssh" }
 omnipanel-db = { path = "../crates/omnipanel-db" }
 omnipanel-db-sync = { path = "../crates/omnipanel-db-sync" }
 omnipanel-docker = { path = "../crates/omnipanel-docker" }
+omnipanel-panel = { path = "../crates/omnipanel-panel" }
+omnipanel-protocol = { path = "../crates/omnipanel-protocol" }
 omnipanel-assistant = { path = "../crates/omnipanel-assistant" }
 omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
 omnipanel-cloud = { path = "../crates/omnipanel-cloud" }

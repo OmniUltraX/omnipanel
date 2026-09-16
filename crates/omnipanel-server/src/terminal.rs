@@ -78,9 +78,9 @@ pub struct ServerState {
     /// 运行中的工作流取消标志（按 execution_id）。
     pub running_workflows: Arc<Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>>,
     /// gRPC 调试会话。
-    pub grpc_sessions: Arc<Mutex<HashMap<String, crate::protocol::grpc::GrpcSession>>>,
+    pub grpc_sessions: Arc<Mutex<HashMap<String, omnipanel_protocol::grpc::GrpcSession>>>,
     /// Modbus 调试会话。
-    pub modbus_sessions: Arc<Mutex<HashMap<String, crate::protocol::modbus::ModbusSession>>>,
+    pub modbus_sessions: Arc<Mutex<HashMap<String, omnipanel_protocol::modbus::ModbusSession>>>,
     /// SSH tmux 会话管理（Web 端与桌面端同构，使用 EventBus）。
     pub tmux: Arc<crate::ssh_tmux::TmuxManager>,
     /// 终端 tmux 模式偏好：auto / always / never。

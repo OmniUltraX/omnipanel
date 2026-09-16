@@ -98,7 +98,7 @@ pub async fn panel_1panel_request(
         _ => None,
     };
 
-    let result = crate::panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
+    let result = omnipanel_panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
     serde_json::to_string(&result)
         .map_err(|e| OmniError::internal("序列化 1Panel 响应失败").with_cause(e.to_string()))
 }
@@ -110,7 +110,7 @@ pub async fn panel_1panel_test_connection(
     host: String,
     api_key: String,
 ) -> Result<bool, OmniError> {
-    crate::panel::onepanel::test_connection(&host, &api_key).await?;
+    omnipanel_panel::onepanel::test_connection(&host, &api_key).await?;
     Ok(true)
 }
 
@@ -122,7 +122,7 @@ pub async fn panel_1panel_app_icon(
     api_key: String,
     app_key: String,
 ) -> Result<String, OmniError> {
-    crate::panel::onepanel::fetch_app_icon(&host, &api_key, &app_key).await
+    omnipanel_panel::onepanel::fetch_app_icon(&host, &api_key, &app_key).await
 }
 
 /// 1Panel 原始文本请求（用于日志下载等）。
@@ -153,7 +153,7 @@ pub async fn panel_1panel_request_text(
         _ => None,
     };
 
-    crate::panel::onepanel::request_text(&host, &api_key, &method, &path, body_val).await
+    omnipanel_panel::onepanel::request_text(&host, &api_key, &method, &path, body_val).await
 }
 
 /// 1Panel 二进制请求（证书 zip 等）。返回 Base64，避免 IPC 损坏。
@@ -167,7 +167,7 @@ pub async fn panel_1panel_request_bytes(
     path: String,
     body: Option<String>,
     presence_token: Option<String>,
-) -> Result<crate::panel::onepanel::OnePanelBinaryPayload, OmniError> {
+) -> Result<omnipanel_panel::onepanel::OnePanelBinaryPayload, OmniError> {
     consume_panel_delete(
         &state,
         &host,
@@ -184,7 +184,7 @@ pub async fn panel_1panel_request_bytes(
         _ => None,
     };
 
-    crate::panel::onepanel::request_bytes(&host, &api_key, &method, &path, body_val).await
+    omnipanel_panel::onepanel::request_bytes(&host, &api_key, &method, &path, body_val).await
 }
 
 /// 1Panel 文件上传（multipart：/files/upload 或分块 /files/chunkupload）。
@@ -199,7 +199,7 @@ pub async fn panel_1panel_upload_file(
     content_base64: String,
     overwrite: Option<bool>,
 ) -> Result<(), OmniError> {
-    crate::panel::onepanel::upload_file(
+    omnipanel_panel::onepanel::upload_file(
         &host,
         &api_key,
         &path,
@@ -245,7 +245,7 @@ pub async fn panel_bt_request(
         _ => None,
     };
 
-    let result = crate::panel::btpanel::request(&host, &api_sk, &path, body_map).await?;
+    let result = omnipanel_panel::btpanel::request(&host, &api_sk, &path, body_map).await?;
     serde_json::to_string(&result)
         .map_err(|e| OmniError::internal("序列化宝塔面板响应失败").with_cause(e.to_string()))
 }
@@ -287,7 +287,7 @@ pub async fn panel_bt_request_get(
         _ => None,
     };
 
-    let result = crate::panel::btpanel::request_get(&host, &api_sk, &path, query_map).await?;
+    let result = omnipanel_panel::btpanel::request_get(&host, &api_sk, &path, query_map).await?;
     serde_json::to_string(&result)
         .map_err(|e| OmniError::internal("序列化宝塔面板响应失败").with_cause(e.to_string()))
 }
@@ -296,7 +296,7 @@ pub async fn panel_bt_request_get(
 #[tauri::command]
 #[specta::specta]
 pub async fn panel_bt_test_connection(host: String, api_sk: String) -> Result<bool, OmniError> {
-    crate::panel::btpanel::test_connection(&host, &api_sk).await?;
+    omnipanel_panel::btpanel::test_connection(&host, &api_sk).await?;
     Ok(true)
 }
 
@@ -310,6 +310,6 @@ pub async fn panel_bt_app_icon(
     app_name: String,
     icon_file: Option<String>,
 ) -> Result<String, OmniError> {
-    crate::panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name, icon_file.as_deref())
+    omnipanel_panel::btpanel::fetch_docker_app_icon(&host, &api_sk, &app_name, icon_file.as_deref())
         .await
 }

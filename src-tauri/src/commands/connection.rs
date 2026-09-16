@@ -464,11 +464,11 @@ pub async fn conn_test(
             match cfg.service_type.as_str() {
                 "1panel" => {
                     let data =
-                        crate::panel::onepanel::test_connection(&cfg.address, &cfg.key).await?;
+                        omnipanel_panel::onepanel::test_connection(&cfg.address, &cfg.key).await?;
                     Ok(panel_success_message(&data))
                 }
                 "bt" => {
-                    crate::panel::btpanel::test_connection(&cfg.address, &cfg.key).await?;
+                    omnipanel_panel::btpanel::test_connection(&cfg.address, &cfg.key).await?;
                     Ok("连接成功：宝塔面板".to_string())
                 }
                 other => Err(OmniError::invalid_input(format!(
