@@ -2,15 +2,13 @@ import { useEffect, useState } from "react";
 
 import { commands, type AiSessionRecord } from "../../ipc/bindings";
 import { canUseIpcBackend } from "../../lib/isTauriRuntime";
+import { useI18n } from "../../i18n";
 import { TraceDetailView } from "./TraceDetailView";
 
-const SOURCES = [
-  { id: "internal", label: "内置 AI" },
-  { id: "gateway", label: "Agent Router" },
-  { id: "mcp_external", label: "外部 MCP" },
-] as const;
+const SOURCES = ["internal", "gateway", "mcp_external"] as const;
 
 export function TraceListView() {
+  const { t } = useI18n();
   const [source, setSource] = useState<string>("internal");
   const [sessions, setSessions] = useState<AiSessionRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -32,29 +30,35 @@ export function TraceListView() {
       .finally(() => setLoading(false));
   }, [source]);
 
+  const sourceLabel = (id: (typeof SOURCES)[number]) => {
+    if (id === "internal") return t("settings.aiServices.traces.sourceInternal");
+    if (id === "gateway") return t("settings.aiServices.traces.sourceGateway");
+    return t("settings.aiServices.traces.sourceMcpExternal");
+  };
+
   return (
     <div className="ai-trace-layout">
       <div className="ai-trace-sources">
         {SOURCES.map((item) => (
           <button
-            key={item.id}
+            key={item}
             type="button"
-            className={`settings-tab${source === item.id ? " is-active" : ""}`}
+            className={`settings-tab${source === item ? " is-active" : ""}`}
             onClick={() => {
-              setSource(item.id);
+              setSource(item);
               setSelectedId(null);
             }}
           >
-            {item.label}
+            {sourceLabel(item)}
           </button>
         ))}
       </div>
 
       <div className="ai-trace-split">
         <ul className="ai-trace-session-list">
-          {loading ? <li className="section-desc">加载中…</li> : null}
+          {loading ? <li className="section-desc">{t("settings.aiServices.traces.loading")}</li> : null}
           {!loading && sessions.length === 0 ? (
-            <li className="section-desc">暂无 session</li>
+            <li className="section-desc">{t("settings.aiServices.traces.empty")}</li>
           ) : null}
           {sessions.map((session) => (
             <li key={session.id}>

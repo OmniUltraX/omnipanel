@@ -123,6 +123,8 @@ export default {
     aiServices: {
       title: "Services",
       desc: "Independent Agent Router and OmniMCP settings (dev defaults :8766 / :12757, release :8765 / :12756)",
+      appChatHint:
+        "In-app chat uses the built-in orchestrator (ai_chat_stream), not this page. Configure only Agent Router / OmniMCP here.",
       tabRouter: "Agent Router",
       tabOmniMcp: "OmniMCP",
       tabTraces: "Trace Analysis",
@@ -150,6 +152,14 @@ export default {
         liveToolsTitle: "Live Tools",
         liveToolsDesc: "Tools currently registered with OmniMCP.",
         toolsUiDelegatedHint: "Some tool exposure is delegated to module settings.",
+      },
+      traces: {
+        desc: "Sessions by source: internal = built-in orchestrator (ai_chat_stream), gateway = Agent Router ingress, mcp_external = external MCP.",
+        sourceInternal: "internal (orchestrator)",
+        sourceGateway: "gateway (Agent Router)",
+        sourceMcpExternal: "mcp_external (external MCP)",
+        loading: "Loading…",
+        empty: "No sessions",
       },
     },
     builtinTools: {

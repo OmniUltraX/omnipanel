@@ -2,7 +2,6 @@ import { withOptionalBearerAuth, fetchWithNetworkHint } from "../fetchHeaders";
 import {
   firstModelSelectionId,
   resolveModelSelection,
-  resolveProviderApiKey,
   useAiModelsStore,
 } from "../../stores/aiModelsStore";
 import { resolveTerminalModelSelectionId } from "../terminalScenarioModels";
@@ -141,6 +140,10 @@ export interface RequestAiCompletionOnceOptions {
   pureText?: boolean;
 }
 
+/**
+ * 仅当无法走 IPC（无 Tauri / 无 omnipanel-server）时才允许前端直连。
+ * 禁止新代码再调这条路径：`/chat/completions` fetch 会绕开 Vault、审计与 `ai_chat_stream`。
+ */
 async function requestViaHttp(
   config: AiModelConfig,
   options: RequestAiCompletionOnceOptions,
@@ -272,32 +275,32 @@ async function requestViaInternalBackend(
   return { ok: true, content: text };
 }
 
-/** 一次性非流式 AI 补全（会话命名、历史摘要等共用） */
+/**
+ * 一次性非流式 AI 补全（会话命名、历史摘要等共用）。
+ *
+ * 有 IPC 时（即使内存里有 API key）一律走 `runInternalAiChat`（pureText），
+ * 与 Dock 对话同路：密钥由 Rust 读 Vault，不再前端直连 `/chat/completions`。
+ * 禁止新开前端 fetch：那是第四条推理路径（与编排 / Agent Router / OmniMCP 并列）。
+ */
 export async function requestAiCompletionOnce(
   options: RequestAiCompletionOnceOptions,
 ): Promise<AiCompletionOnceResult> {
-  const httpConfig = resolveHttpAiModelConfig();
-  if (httpConfig) {
-    return requestViaHttp(httpConfig, options);
+  const backend = resolveOneShotBackend();
+  if (backend && canUseAiBackend()) {
+    return requestViaInternalBackend(backend, options);
   }
 
-  // 无 HTTP 模型时：CLI / ACP 兜底（终端场景若配置了 CLI 仍可命名）
-  const backend = resolveOneShotBackend();
-  if (!backend) return { ok: false, reason: "no-provider" };
-  if (backend.kind === "http") {
-    // 内存明文写入 Vault 后会被清空：前端直连前先经 IPC 取回 key；
-    // 取不到则降级走 Rust 内后端（由 Rust 自行读 Vault），与对话抽屉同路。
-    // 否则前端带着空 key 直连必 401，这正是插件翻译"AI 请求失败"的根因。
-    const providers = useAiModelsStore.getState().providers;
-    const provider = providers.find((p) => p.id === backend.httpProvider.providerId);
-    const apiKey = provider
-      ? await resolveProviderApiKey(provider)
-      : backend.httpProvider.apiKey;
-    if (apiKey.trim()) {
+  // 白名单：明确无法走 IPC 时才直连 HTTP（纯浏览器、无 omnipanel-server）。
+  if (!canUseAiBackend()) {
+    const httpConfig = resolveHttpAiModelConfig();
+    if (httpConfig) {
+      return requestViaHttp(httpConfig, options);
+    }
+    if (backend?.kind === "http" && backend.httpProvider.apiKey.trim()) {
       return requestViaHttp(
         {
           baseUrl: backend.httpProvider.baseUrl,
-          apiKey: apiKey.trim(),
+          apiKey: backend.httpProvider.apiKey.trim(),
           name: backend.backendId.includes("::")
             ? backend.backendId.slice(backend.backendId.lastIndexOf("::") + 2)
             : backend.httpProvider.providerId,
@@ -305,8 +308,7 @@ export async function requestAiCompletionOnce(
         options,
       );
     }
-    return requestViaInternalBackend(backend, options);
   }
 
-  return requestViaInternalBackend(backend, options);
+  return { ok: false, reason: "no-provider" };
 }

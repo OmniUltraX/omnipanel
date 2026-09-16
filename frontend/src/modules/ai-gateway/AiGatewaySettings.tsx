@@ -75,6 +75,7 @@ export function AiGatewaySettings() {
         <div>
           <h2>{t("settings.aiServices.title")}</h2>
           <p className="section-desc">{t("settings.aiServices.desc")}</p>
+          <p className="section-desc">{t("settings.aiServices.appChatHint")}</p>
         </div>
       </div>
 
@@ -215,7 +216,14 @@ export function AiGatewaySettings() {
         </div>
       ) : null}
 
-      {tab === "traces" ? <TraceListView /> : null}
+      {tab === "traces" ? (
+        <div className="settings-subsection">
+          <p className="setting-hint settings-subsection-desc">
+            {t("settings.aiServices.traces.desc")}
+          </p>
+          <TraceListView />
+        </div>
+      ) : null}
     </div>
   );
 }

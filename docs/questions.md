@@ -50,6 +50,15 @@
 
 Rust：`omnipanel-ai` / `mcp` / `gateway`（再加前端 `lib/ai` 近 90 文件 + assistant / ai-gateway 模块）。路由、编排、工具、会话状态分散在 **crate + store + lib + UI**。对用户是“一个 AI”，对工程是**多入口、多生命周期、多端口**——认知成本与回归面都被放大。
 
+**进展（Q4 第一刀 · 产品切面保留、工程入口收敛）**：
+- 三条线作为**产品切面**保留，**不合并** crate（受众不同：in-app / OpenAI 网关 / MCP）
+- `CLAUDE.md` 增加「AI 能力矩阵」：职责 / 端口 / 前端该怎么用；旁系（assistant 同步、遗留 SSE）标明
+- `lib/ai/index.ts` 公开 barrel：仅 `runInternalAiChat` / `requestAiCompletionOnce` / `submitAiPrompt` / gateway·ports；不导出 `runSimpleChat` / `streamOpenAI`
+- oneshot：有 IPC 时**即使有 API key**也走 `runInternalAiChat`（`pureText`）；禁止新开前端 `/chat/completions` fetch
+- 设置页文案对齐：App 内对话不在此页；Trace 标注 `internal` / `gateway` / `mcp_external`
+- 白名单：快捷启动页内流式仍用 `streamModelChat`（须与 Dock 会话隔离）
+- 后置：抽出共享 `build_http_provider`、对齐 Desktop/Web 编排差、Traces 按 source 分栏
+
 ---
 
 ## 5. 平台层在复制，而不是收敛
