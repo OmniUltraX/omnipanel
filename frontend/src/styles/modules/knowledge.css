@@ -3210,6 +3210,42 @@
         overflow: auto;
     }
 
+    /* 数据源 Tabs：多源时横排切换，单源不渲染 */
+    .knowledge-siyuan-dialog__tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 8px;
+    }
+
+    .knowledge-siyuan-dialog__tab {
+        appearance: none;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: var(--r-sm);
+        color: var(--meta);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+
+    .knowledge-siyuan-dialog__tab:hover {
+        color: var(--fg);
+    }
+
+    .knowledge-siyuan-dialog__tab.is-active {
+        background: var(--bg-deeper);
+        border-color: var(--border);
+        color: var(--fg);
+    }
+
+    .knowledge-siyuan-dialog__source {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
     .knowledge-hover-preview__title {
         font-size: 13px;
         font-weight: 600;

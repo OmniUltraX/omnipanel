@@ -116,6 +116,7 @@ export function KnowledgeSourceConsole({
   const { t } = useI18n();
   const loadEntries = useKnowledgeStore((s) => s.loadEntries);
   const [sources, setSources] = useState<SourceState[]>([]);
+  const [activeKey, setActiveKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -203,6 +204,14 @@ export function KnowledgeSourceConsole({
       }
       // 原生思源配置播种已随原生同步下线；路径请在各源表单里填写一次。
       setSources(next);
+      // 选中态保持：还存在的留着，没了回落第一个。
+      setActiveKey((prev) =>
+        next.some((item) => `${item.pluginId}:${item.decl.sourceId}` === prev)
+          ? prev
+          : next.length > 0
+            ? `${next[0].pluginId}:${next[0].decl.sourceId}`
+            : "",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -330,6 +339,96 @@ export function KnowledgeSourceConsole({
 
   if (!open) return null;
 
+  const active =
+    sources.find((item) => `${item.pluginId}:${item.decl.sourceId}` === activeKey) ??
+    sources[0] ??
+    null;
+
+  const renderSource = (item: SourceState) => {
+    const status = item.status;
+    return (
+      <section key={`${item.pluginId}:${item.decl.sourceId}`} className="knowledge-siyuan-dialog__source">
+        {item.decl.fields.map((field) =>
+          renderFieldInput(
+            field.key,
+            field,
+            field.kind === "secret"
+              ? (item.secrets[field.key] ?? "")
+              : (item.values[field.key] ?? ""),
+            field.kind === "secret" && Boolean(item.secretsSaved[field.key]),
+            item.busy !== null,
+            t("knowledge.ks.secretSaved"),
+            (value) =>
+              setFieldValue(
+                item.pluginId,
+                item.decl.sourceId,
+                field.key,
+                value,
+                field.kind === "secret",
+              ),
+          ),
+        )}
+        <div className="knowledge-siyuan-dialog__row">
+          <WorkbenchActionButton
+            onClick={() => void handleSave(item)}
+            disabled={item.busy !== null}
+          >
+            {t("knowledge.ks.save")}
+          </WorkbenchActionButton>
+          <WorkbenchActionButton
+            onClick={() => void runCommand(item, "test")}
+            disabled={item.busy !== null}
+          >
+            {item.busy === "test"
+              ? t("knowledge.ks.testing")
+              : t("knowledge.ks.test")}
+          </WorkbenchActionButton>
+          <WorkbenchActionButton
+            onClick={() => void runCommand(item, "sync")}
+            disabled={item.busy !== null}
+          >
+            {item.busy === "sync"
+              ? t("knowledge.ks.syncing")
+              : t("knowledge.ks.syncNow")}
+          </WorkbenchActionButton>
+          <WorkbenchActionButton
+            onClick={() => void runCommand(item, "rebuild")}
+            disabled={item.busy !== null}
+            title={t("knowledge.ks.rebuildHint")}
+          >
+            {item.busy === "rebuild"
+              ? t("knowledge.ks.syncing")
+              : t("knowledge.ks.rebuild")}
+          </WorkbenchActionButton>
+        </div>
+        {item.message && (
+          <p className="knowledge-siyuan-dialog__message">{item.message}</p>
+        )}
+        <div className="knowledge-siyuan-dialog__status">
+          <span>
+            {status && status.lastSyncAt
+              ? fillText(t("knowledge.ks.lastSync"), {
+                  time: formatTime(status.lastSyncAt),
+                })
+              : t("knowledge.ks.neverSynced")}
+          </span>
+          {status?.report && status.report.failed.length > 0 && (
+            <div className="knowledge-siyuan-dialog__failed">
+              <span>{t("knowledge.ks.failedList")}</span>
+              <ul>
+                {status.report.failed.slice(0, 20).map((failure) => (
+                  <li key={failure.fileKey}>
+                    {failure.fileKey}：{failure.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  };
+
   return createPortal(
     <div className="knowledge-switcher-backdrop" onClick={onClose}>
       <div
@@ -355,95 +454,27 @@ export function KnowledgeSourceConsole({
           {!loading && sources.length === 0 && !error && (
             <p className="knowledge-siyuan-dialog__hint">{t("knowledge.ks.empty")}</p>
           )}
-          {sources.map((item) => {
-            const key = `${item.pluginId}:${item.decl.sourceId}`;
-            const status = item.status;
-            return (
-              <section key={key} className="knowledge-siyuan-dialog__source">
-                <header className="knowledge-siyuan-dialog__source-head">
-                  <strong>{item.decl.title || item.decl.sourceId}</strong>
-                  <span className="knowledge-siyuan-dialog__hint">{item.pluginId}</span>
-                </header>
-                {item.decl.fields.map((field) =>
-                  renderFieldInput(
-                    field.key,
-                    field,
-                    field.kind === "secret"
-                      ? (item.secrets[field.key] ?? "")
-                      : (item.values[field.key] ?? ""),
-                    field.kind === "secret" && Boolean(item.secretsSaved[field.key]),
-                    item.busy !== null,
-                    t("knowledge.ks.secretSaved"),
-                    (value) =>
-                      setFieldValue(
-                        item.pluginId,
-                        item.decl.sourceId,
-                        field.key,
-                        value,
-                        field.kind === "secret",
-                      ),
-                  ),
-                )}
-                <div className="knowledge-siyuan-dialog__row">
-                  <WorkbenchActionButton
-                    onClick={() => void handleSave(item)}
-                    disabled={item.busy !== null}
+          {sources.length > 1 && (
+            <div className="knowledge-siyuan-dialog__tabs" role="tablist">
+              {sources.map((item) => {
+                const key = `${item.pluginId}:${item.decl.sourceId}`;
+                const selected = active && `${active.pluginId}:${active.decl.sourceId}` === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    className={`knowledge-siyuan-dialog__tab${selected ? " is-active" : ""}`}
+                    onClick={() => setActiveKey(key)}
                   >
-                    {t("knowledge.ks.save")}
-                  </WorkbenchActionButton>
-                  <WorkbenchActionButton
-                    onClick={() => void runCommand(item, "test")}
-                    disabled={item.busy !== null}
-                  >
-                    {item.busy === "test"
-                      ? t("knowledge.ks.testing")
-                      : t("knowledge.ks.test")}
-                  </WorkbenchActionButton>
-                  <WorkbenchActionButton
-                    onClick={() => void runCommand(item, "sync")}
-                    disabled={item.busy !== null}
-                  >
-                    {item.busy === "sync"
-                      ? t("knowledge.ks.syncing")
-                      : t("knowledge.ks.syncNow")}
-                  </WorkbenchActionButton>
-                  <WorkbenchActionButton
-                    onClick={() => void runCommand(item, "rebuild")}
-                    disabled={item.busy !== null}
-                    title={t("knowledge.ks.rebuildHint")}
-                  >
-                    {item.busy === "rebuild"
-                      ? t("knowledge.ks.syncing")
-                      : t("knowledge.ks.rebuild")}
-                  </WorkbenchActionButton>
-                </div>
-                {item.message && (
-                  <p className="knowledge-siyuan-dialog__message">{item.message}</p>
-                )}
-                <div className="knowledge-siyuan-dialog__status">
-                  <span>
-                    {status && status.lastSyncAt
-                      ? fillText(t("knowledge.ks.lastSync"), {
-                          time: formatTime(status.lastSyncAt),
-                        })
-                      : t("knowledge.ks.neverSynced")}
-                  </span>
-                  {status?.report && status.report.failed.length > 0 && (
-                    <div className="knowledge-siyuan-dialog__failed">
-                      <span>{t("knowledge.ks.failedList")}</span>
-                      <ul>
-                        {status.report.failed.slice(0, 20).map((failure) => (
-                          <li key={failure.fileKey}>
-                            {failure.fileKey}：{failure.message}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </section>
-            );
-          })}
+                    {item.decl.title || item.decl.sourceId}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {active && renderSource(active)}
         </div>
       </div>
     </div>,

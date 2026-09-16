@@ -5,12 +5,14 @@
 pub mod adapter;
 pub mod engine;
 pub mod local;
+pub mod siyuan_s3;
 
 pub use adapter::{
     AdapterOptions, KsDocContent, KsDocRef, KsNotebook, MethodCaller, PluginAdapter, SourceAdapter,
 };
 pub use engine::{KsFailure, KsReport, rebuild_source, sync_source};
 pub use local::{MAX_PARSE_BYTES, PluginLocalAdapter, read_local_file, walk_local_files};
+pub use siyuan_s3::{SiyuanS3Adapter, SiyuanS3Config};
 
 /// 当前毫秒时间戳.
 pub fn now_millis() -> i64 {
