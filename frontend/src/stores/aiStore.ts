@@ -34,13 +34,15 @@ import {
   isAgentId,
   type AgentId,
 } from "../lib/ai/agents";
-import { recordConversationTombstones } from "../modules/clientSync/tombstones";
+import { recordConversationTombstones } from "./clientSyncTombstoneStore";
+import { notifyAssistantSnapshotSync } from "../lib/assistantSnapshotSyncBridge";
+import { notifyClientConversationSync } from "../lib/clientConversationSyncBridge";
 
 /**
  * 会话列表结构变更后：
  * 1) 助手端脱敏快照（device 路径）
  * 2) 客户端间会话同步（账号级 sync/ 路径）
- * 两套逻辑独立；动态 import 避免与 autoSync 环依赖。
+ * 两套逻辑独立；经 lib bridge 通知，避免与 autoSync 环依赖。
  */
 function scheduleConversationListSnapshotSync(options?: {
   immediate?: boolean;
@@ -50,12 +52,8 @@ function scheduleConversationListSnapshotSync(options?: {
   if (options?.deletedIds?.length) {
     recordConversationTombstones(options.deletedIds);
   }
-  void import("../modules/assistant").then((m) => {
-    m.scheduleAssistantSnapshotSync(options);
-  });
-  void import("../modules/clientSync").then((m) => {
-    m.scheduleClientConversationSync();
-  });
+  notifyAssistantSnapshotSync(options);
+  notifyClientConversationSync();
 }
 
 export type {

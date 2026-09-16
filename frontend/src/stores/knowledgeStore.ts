@@ -9,11 +9,12 @@ import {
   newKnowledgeId,
   nextSortOrder,
   normalizeParentId,
-} from "../modules/knowledge/knowledgeTree";
-import { normalizeKnowledgeTags } from "../modules/knowledge/knowledgeTags";
+} from "../lib/knowledge/knowledgeTree";
+import { normalizeKnowledgeTags } from "../lib/knowledge/knowledgeTags";
 import { isNameOnlyChange } from "../lib/nameOnlyChange";
 import { notifyAssistantSnapshotSync } from "../lib/assistantSnapshotSyncBridge";
-import { scheduleClientModuleSync, recordModuleTombstones } from "../modules/clientSync";
+import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
+import { recordModuleTombstones } from "./clientSyncTombstoneStore";
 import { useSkillPromptStore } from "./skillPromptStore";
 
 interface KnowledgeStore {
@@ -103,7 +104,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
             }
             notifyAssistantSnapshotSync();
             if (!isNameOnlyChange(normalized, existing, "title")) {
-              scheduleClientModuleSync();
+              notifyClientModuleSync();
             }
             return true;
           }
@@ -126,7 +127,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
             }));
             recordModuleTombstones("knowledge", [id]);
             notifyAssistantSnapshotSync();
-            scheduleClientModuleSync();
+            notifyClientModuleSync();
           } else {
             set({ error: res.error.message });
           }

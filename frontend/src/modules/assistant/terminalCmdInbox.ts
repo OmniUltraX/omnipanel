@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ASSISTANT_TERMINAL_OPEN_OR_FOCUS } from "../../ipc/events";
 import { openSshTerminalSession } from "../../lib/terminalSession";
+import { setAssistantTerminalCmdInboxHooks } from "../../lib/assistantInboxBridge";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { safeTauriUnlisten } from "../../lib/safeTauriUnlisten";
 import { useBlocksStore } from "../../stores/blocksStore";
@@ -173,3 +174,9 @@ export async function stopAssistantTerminalCmdInbox(): Promise<void> {
   safeTauriUnlisten(unlisten);
   unlisten = null;
 }
+
+// 注册到桥接模块，供 authStore 解耦启停（切断 stores ↔ assistant 的循环依赖）。
+setAssistantTerminalCmdInboxHooks(
+  startAssistantTerminalCmdInbox,
+  stopAssistantTerminalCmdInbox,
+);

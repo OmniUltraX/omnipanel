@@ -6,11 +6,12 @@ import {
   normalizeControllableProtocolStatus,
   type ControllableProtocolTabKey,
 } from "../lib/protocolLabConfig";
-import type { SqlKeywordCase } from "../modules/database/sqlIntel/sqlKeywordCase";
+import type { SqlKeywordCase } from "../lib/sqlKeywordCase";
 import {
   DEFAULT_SQL_KEYWORD_CASE,
   normalizeSqlKeywordCase,
-} from "../modules/database/sqlIntel/sqlKeywordCase";
+} from "../lib/sqlKeywordCase";
+import type { TerminalApprovalMode } from "../lib/terminalApprovalTypes";
 import { restoreDockWindowChromeAfterLayout } from "../lib/restoreDockWindowChromeAfterLayout";
 
 export type Locale = "zh-CN" | "en-US";
@@ -358,7 +359,7 @@ interface SettingsState {
   /** 外部 MCP 调用终端工具是否需审批 */
   mcpExternalRequireApproval: boolean;
   /** 终端命令审批档位：严格 / 查看 / 宽松 */
-  terminalApprovalMode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode;
+  terminalApprovalMode: TerminalApprovalMode;
   /** AI 终端命令永久白名单（审批键，如 du / docker ps） */
   terminalCommandWhitelist: string[];
   databaseQueryPageSize: DatabaseQueryPageSize;
@@ -423,7 +424,7 @@ interface SettingsState {
     "aiGatewayEnabled" | "aiGatewayPort" | "aiGatewayApiKey" | "aiGatewayBindLan" | "mcpExternalRequireApproval"
   >>) => void;
   setTerminalApprovalMode: (
-    mode: import("../modules/terminal/terminalApprovalPolicy").TerminalApprovalMode,
+    mode: TerminalApprovalMode,
   ) => void;
   setTerminalCommandWhitelist: (keys: string[]) => void;
   setDatabaseSettings: (patch: Partial<Pick<SettingsState,

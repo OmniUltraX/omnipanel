@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
-import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
+import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
 
 export type ProtocolHttpFolder = {
   id: string;
@@ -148,7 +148,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
             expandedFolderIds,
           };
         });
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
         return folder;
       },
 
@@ -161,7 +161,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
         set((state) => ({
           folders: state.folders.map((f) => (f.id === folderId ? { ...f, name: nextName } : f)),
         }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
         return true;
       },
 
@@ -208,7 +208,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
             expandedFolderIds: state.expandedFolderIds.filter((id) => !descendantIds.has(id)),
           };
         });
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
       },
 
       moveFolder: (folderId, newParentId) => {
@@ -222,7 +222,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
             f.id === folderId ? { ...f, parentId: newParentId } : f,
           ),
         }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
         return true;
       },
 
@@ -230,21 +230,21 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
         set((state) => ({
           collectionParents: { ...state.collectionParents, [collectionId]: parentId },
         }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
       },
 
       setRequestParent: (requestId, parentId) => {
         set((state) => ({
           requestParents: { ...state.requestParents, [requestId]: parentId },
         }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
       },
 
       setEntryParent: (entryId, parentId) => {
         set((state) => ({
           entryParents: { ...state.entryParents, [entryId]: parentId },
         }));
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
       },
 
       reorderSibling: (sourceKey, target, beforeKey = null) => {
@@ -268,7 +268,7 @@ export const useProtocolHttpLayoutStore = create<ProtocolHttpLayoutState>()(
           nextOrder[key] = siblings;
           return { siblingOrder: nextOrder };
         });
-        scheduleClientModuleSync();
+        notifyClientModuleSync();
       },
 
       moveNode: (sourceKey, target) => get().placeNode(sourceKey, target, null),

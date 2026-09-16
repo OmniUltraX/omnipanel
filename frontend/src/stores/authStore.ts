@@ -3,17 +3,17 @@ import { persist } from "zustand/middleware";
 import { logoutSession } from "../lib/auth/loginApi";
 import { stopPresenceHeartbeat } from "../lib/auth/presenceHeartbeat";
 import {
-  cancelAssistantSnapshotSync,
-  scheduleAssistantSnapshotSync,
-  startAssistantChatInbox,
-  stopAssistantChatInbox,
-  startAssistantTerminalCmdInbox,
-  stopAssistantTerminalCmdInbox,
-} from "../modules/assistant";
+  cancelAssistantSnapshotSyncViaBridge,
+  notifyAssistantSnapshotSync,
+} from "../lib/assistantSnapshotSyncBridge";
 import {
-  cancelClientConversationSync,
-  cancelClientModuleSync,
-} from "../modules/clientSync";
+  startAssistantChatInboxViaBridge,
+  startAssistantTerminalCmdInboxViaBridge,
+  stopAssistantChatInboxViaBridge,
+  stopAssistantTerminalCmdInboxViaBridge,
+} from "../lib/assistantInboxBridge";
+import { cancelClientConversationSyncViaBridge } from "../lib/clientConversationSyncBridge";
+import { cancelClientModuleSyncViaBridge } from "../lib/clientModuleSyncBridge";
 import { useCurrentSyncTeamStore } from "./currentSyncTeamStore";
 
 interface AuthState {
@@ -32,18 +32,18 @@ export const useAuthStore = create<AuthState>()(
       setSession: ({ token, openid }) => {
         set({ token, openid });
         // 登录后尽快推一次，便于助手端拿到初始快照
-        scheduleAssistantSnapshotSync({ immediate: true });
-        void startAssistantChatInbox();
-        void startAssistantTerminalCmdInbox();
+        notifyAssistantSnapshotSync({ immediate: true });
+        void startAssistantChatInboxViaBridge();
+        void startAssistantTerminalCmdInboxViaBridge();
       },
       logout: (opts) => {
         const token = get().token?.trim() || null;
         stopPresenceHeartbeat();
-        cancelAssistantSnapshotSync();
-        cancelClientConversationSync();
-        cancelClientModuleSync();
-        void stopAssistantChatInbox();
-        void stopAssistantTerminalCmdInbox();
+        cancelAssistantSnapshotSyncViaBridge();
+        cancelClientConversationSyncViaBridge();
+        cancelClientModuleSyncViaBridge();
+        void stopAssistantChatInboxViaBridge();
+        void stopAssistantTerminalCmdInboxViaBridge();
         // 清空当前同步团队，避免下次登录串到上一个账号的团队
         useCurrentSyncTeamStore.getState().resetCurrentSyncTeam();
         void import("../lib/auth/teamMesh")

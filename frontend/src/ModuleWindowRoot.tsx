@@ -59,6 +59,7 @@ import {
   initAppearanceSyncSubscriber,
   requestAppearanceSync,
 } from "./lib/appearanceSync";
+import "./lib/registerSyncBridges";
 
 /** 模块窗内：注册 follow 导航 + 接收快捷启动 SOLO 动作。 */
 function ModuleWindowIpcBridge({ moduleKey }: { moduleKey: ModuleKey }) {

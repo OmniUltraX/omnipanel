@@ -1,4 +1,8 @@
 import { checkCommand } from "../../lib/commandGuard";
+import type { TerminalApprovalMode } from "../../lib/terminalApprovalTypes";
+import {
+  DEFAULT_TERMINAL_APPROVAL_MODE,
+} from "../../lib/terminalApprovalTypes";
 import {
   segmentTokens,
   splitCommandSegments,
@@ -10,9 +14,8 @@ import {
 } from "./terminalCommandWhitelist";
 import { resolveTerminalApprovalMode } from "./terminalApprovalSettings";
 
-export type TerminalApprovalMode = "strict" | "view" | "loose";
-
-export const DEFAULT_TERMINAL_APPROVAL_MODE: TerminalApprovalMode = "view";
+export type { TerminalApprovalMode };
+export { DEFAULT_TERMINAL_APPROVAL_MODE };
 
 export {
   commandApprovalKey,

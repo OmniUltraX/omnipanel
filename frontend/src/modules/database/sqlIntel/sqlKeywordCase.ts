@@ -1,6 +1,11 @@
-export type SqlKeywordCase = "upper" | "lower";
+import type { SqlKeywordCase } from "../../../lib/sqlKeywordCase";
+import {
+  DEFAULT_SQL_KEYWORD_CASE,
+  normalizeSqlKeywordCase,
+} from "../../../lib/sqlKeywordCase";
 
-export const DEFAULT_SQL_KEYWORD_CASE: SqlKeywordCase = "upper";
+export type { SqlKeywordCase };
+export { DEFAULT_SQL_KEYWORD_CASE, normalizeSqlKeywordCase };
 
 /** 补全/片段中需统一大小写的 SQL 关键字与常用函数名（长关键字优先匹配）。 */
 const SQL_KEYWORD_TOKENS = [
@@ -108,8 +113,4 @@ export function applySqlKeywordCase(sql: string, keywordCase: SqlKeywordCase): s
     return sql.replace(SQL_KEYWORD_PATTERN, (match) => match.toUpperCase());
   }
   return sql.replace(SQL_KEYWORD_PATTERN, (match) => match.toLowerCase());
-}
-
-export function normalizeSqlKeywordCase(value: unknown): SqlKeywordCase {
-  return value === "lower" ? "lower" : "upper";
 }

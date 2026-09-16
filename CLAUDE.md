@@ -195,7 +195,7 @@ cargo test
 - **Context continuity:** Terminal, SSH, database, Docker, and AI share context — no copy-paste between modules.
 - **AI safety:** AI suggests but never executes without user confirmation. Dangerous commands require explicit approval. All high-risk operations are auditable.
 - **Environment tagging:** All resources tagged as dev/test/staging/prod. Production operations get strong warnings.
-- **禁止循环依赖（前端）：** store 与模块双向 import 会打乱 ESM 求值顺序，表现为运行期 store 是 `undefined`（如 `useTerminalStore.subscribe` 报 "Cannot read properties of undefined"），且**让出一个微任务也不够**——要等整条同步加载链走完。需要"反向通知"时用回调注册，参考 `frontend/src/lib/assistantSnapshotSyncBridge.ts`（`modules/assistant` ↔ `stores/terminalStore` 就是这么解开的）。
+- **禁止循环依赖（前端）：** store 与模块双向 import 会打乱 ESM 求值顺序，表现为运行期 store 是 `undefined`（如 `useTerminalStore.subscribe` 报 "Cannot read properties of undefined"），且**让出一个微任务也不够**——要等整条同步加载链走完。**新 store 禁止 import modules；反向通知用 `lib/*Bridge`。** 参考 `frontend/src/lib/assistantSnapshotSyncBridge.ts`（`modules/assistant` ↔ `stores/terminalStore` 就是这么解开的）。
 
 ## 模块现状（原 Development Phases 已作废）
 

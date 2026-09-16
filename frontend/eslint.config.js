@@ -67,4 +67,30 @@ export default defineConfig([
       'react-refresh/only-export-components': 'warn',
     },
   },
+  // stores 禁止反向 import modules（切断 ESM 环）；反向通知用 lib/*Bridge
+  {
+    files: ['src/stores/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@tauri-apps/plugin-dialog',
+              importNames: ['confirm', 'message', 'ask'],
+              message:
+                '禁止使用 Tauri 原生 confirm/message/ask。请用 appConfirm / appAlert / appPrompt；文件选择请 import open 或 save。',
+            },
+          ],
+          patterns: [
+            {
+              group: ['**/modules/**', '@/modules/**'],
+              message:
+                '新 store 禁止 import modules；反向通知用 lib/*Bridge（见 CLAUDE.md）。',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ])

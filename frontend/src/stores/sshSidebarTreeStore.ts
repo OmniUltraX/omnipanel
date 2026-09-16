@@ -5,7 +5,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createIndexedDBStorage } from "@/lib/indexedDbStorage";
-import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
+import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
 import { normalizeSshGroup, OPENSSH_CONFIG_GROUP } from "../lib/sshGroups";
 
 export type SshSidebarFolder = {
@@ -87,7 +87,7 @@ function parentStorageKey(parentId: string | null): string {
 }
 
 function notifySshSidebarTreeChanged(): void {
-  scheduleClientModuleSync();
+  notifyClientModuleSync();
 }
 
 function isDescendantFolder(

@@ -23,6 +23,13 @@
 
 后果很具体：ESM 求值顺序问题（你们已经用 bridge 修过一次）、类型与生命周期纠缠、测试只能 mock 半个应用。这是架构债里最贵的一类——**原则在，执行口子开了，就会持续扩大**。
 
+**进展（Q2 第一刀 · assistant / clientSync 硬环已切断）**：
+- 扩展 / 新建 `lib/*Bridge`：`assistantSnapshotSync`（含 options + cancel）、`clientModuleSync`、`clientConversationSync`、`assistantInbox`（Chat + TerminalCmd）
+- tombstones 下沉 `stores/clientSyncTombstoneStore`；`SqlKeywordCase` / `TerminalApprovalMode` / knowledgeTree·Tags / `sshAuthHold` 纯逻辑下沉 `lib/`，modules 侧 re-export
+- `authStore` / `aiStore` / `aiModelsStore` / `connectionStore` / `workspaceStore` / `knowledgeStore` / 若干 layout·sidebar store 不再 import `modules/assistant|clientSync`
+- eslint：`src/stores/**` 增加 `no-restricted-imports` 禁止 `**/modules/**`（存量其它域边未清，后续分批）
+- 约定写入 CLAUDE.md / AGENTS.md：**新 store 禁止 import modules；反向通知用 lib/*Bridge**
+
 ---
 
 ## 3. `src-tauri` “薄编排”名存实亡
