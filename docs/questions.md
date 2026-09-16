@@ -101,7 +101,6 @@ Rust：`omnipanel-ai` / `mcp` / `gateway`（再加前端 `lib/ai` 近 90 文件 
 - 新增 `frontend/src/lib/protocol/protocolCapability.ts`（`ProtocolCapability` 类型：id / labelKey / sidebar? / panel? / enabledByDefault? / devLocked? 等）
 - 新增 `frontend/src/lib/protocol/protocolCapabilityRegistry.ts`：内置注册表包装现有 `protocolLabConfig` tab 列表与可见性规则；`ProtocolPanel` 小步改读 registry 判断可见 tab，**未**把大 switch 改成全动态填槽
 - 后端协议实现已进 `omnipanel-protocol`（见 §3 第三刀）；开放 `kind=protocol` 插件仍后置
-- **Nacos**：已从 bundled 第一方种子降为可选安装；源码独立仓 [`OmniUltraX/omni-plugin-nacos`](https://github.com/OmniUltraX/omni-plugin-nacos)，本仓以 submodule 挂在 `plugins/module-nacos`（`distribution: download`）；默认新客户端侧栏无 `/module/nacos`，需插件中心或本地 `.omni-plugin` 安装启用
 
 ---
 
