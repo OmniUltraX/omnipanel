@@ -321,6 +321,44 @@ pub async fn plugin_dev_import(
     })
 }
 
+/// 监听内核：链接（user/repo 工程也会建同名链接，驱动徽标与更新保护）
+/// → 安装 → 注册轮询。
+async fn watch_inner(
+    state: &State<'_, AppState>,
+    project: String,
+    dir: &Path,
+) -> Result<DevWatchInfo, OmniError> {
+    let manifest = read_dev_manifest(dir)?;
+    let mut links = load_dev_links(&state.app_handle);
+    links.insert(
+        project.clone(),
+        DevLink {
+            dir: dir.to_string_lossy().into_owned(),
+            plugin_id: manifest.id.clone(),
+        },
+    );
+    let _ = save_dev_links(&state.app_handle, &links);
+    let item = install_dir_inner(state, dir).await?;
+    if let Ok(mut map) = dev_entries().lock() {
+        map.insert(
+            item.id.clone(),
+            DevEntry {
+                project: project.clone(),
+                dir: dir.to_path_buf(),
+                fingerprint: fingerprint_dir(dir),
+                changed_at: None,
+                watching: true,
+                last_reload_ms: now_ms(),
+                last_error: String::new(),
+            },
+        );
+    }
+    ensure_dev_loop(&state.app_handle);
+    dev_status_inner(state, &item.id)
+        .await
+        .ok_or_else(|| OmniError::not_found(format!("未知插件: {}", item.id)))
+}
+
 /// 开启热重载：先装一次当前内容，再注册轮询监听（未链接的目录顺手建链接）。
 #[tauri::command]
 #[specta::specta]
@@ -331,7 +369,7 @@ pub async fn plugin_dev_watch(
     let dir = std::fs::canonicalize(Path::new(&path))
         .map_err(|e| OmniError::not_found(format!("目录不存在: {path} ({e})")))?;
     let manifest = read_dev_manifest(&dir)?;
-    let mut links = load_dev_links(&state.app_handle);
+    let links = load_dev_links(&state.app_handle);
     // 已链接该目录的工程名优先复用，否则新建。
     let dir_str = dir.to_string_lossy().into_owned();
     let project = links
@@ -341,33 +379,23 @@ pub async fn plugin_dev_watch(
         .unwrap_or_else(|| {
             unique_link_name(&state.app_handle, &dir, &links).unwrap_or_else(|_| manifest.id.clone())
         });
-    links.insert(
-        project.clone(),
-        DevLink {
-            dir: dir_str,
-            plugin_id: manifest.id.clone(),
-        },
-    );
-    let _ = save_dev_links(&state.app_handle, &links);
-    let item = install_dir_inner(&state, &dir).await?;
-    if let Ok(mut map) = dev_entries().lock() {
-        map.insert(
-            item.id.clone(),
-            DevEntry {
-                project: project.clone(),
-                dir: dir.clone(),
-                fingerprint: fingerprint_dir(&dir),
-                changed_at: None,
-                watching: true,
-                last_reload_ms: now_ms(),
-                last_error: String::new(),
-            },
-        );
+    watch_inner(&state, project, &dir).await
+}
+
+/// 按工作台工程名开启热重载（user/repo/linked 通吃，目录由工作台解析）。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_dev_watch_project(
+    state: State<'_, AppState>,
+    project: String,
+) -> Result<DevWatchInfo, OmniError> {
+    let name = project.trim().to_string();
+    let roots = super::plugin_studio::studio_roots(&state.app_handle)?;
+    let dir = super::plugin_studio::resolve_project_dir_linked(&state.app_handle, &roots, &name)?;
+    if !dir.is_dir() {
+        return Err(OmniError::not_found(format!("工程不存在: {name}")));
     }
-    ensure_dev_loop(&state.app_handle);
-    dev_status_inner(&state, &item.id)
-        .await
-        .ok_or_else(|| OmniError::not_found(format!("未知插件: {}", item.id)))
+    watch_inner(&state, name, &dir).await
 }
 
 /// 关闭指定插件的热重载（保留链接，可再次开启）。

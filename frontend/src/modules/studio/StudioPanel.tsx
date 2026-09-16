@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parsePluginManifest } from "@omnipanel/plugin-sdk";
 import { CodeEditor, codeEditorLanguageFromPath } from "../../components/ui/content";
+import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu";
 import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { Select } from "../../components/ui/form/Select";
@@ -93,9 +94,14 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
   const [repo, setRepo] = useState("OmniUltraX/omnipanel");
   const [tokenDraft, setTokenDraft] = useState("");
   const [installing, setInstalling] = useState<string>("");
-  // 本地目录安装 + 热重载（开发期）：devDir 为上次安装的源码目录。
-  const [devDir, setDevDir] = useState("");
+  // 本地开发：监听条目 + 已安装 id（行状态徽标用）。
   const [devList, setDevList] = useState<DevWatchInfo[]>([]);
+  const [installedIds, setInstalledIds] = useState<ReadonlySet<string>>(new Set());
+  // 运行态归属：行“运行中”徽标 + 构件归属（安装按钮对应工程）。
+  const [runningProject, setRunningProject] = useState("");
+  const [artifactProject, setArtifactProject] = useState("");
+  // 工程行右键菜单。
+  const [projCtx, setProjCtx] = useState<{ x: number; y: number; name: string } | null>(null);
 
   const dirty = content !== savedContent;
   const current = projects.find((item) => item.name === project);
@@ -359,7 +365,9 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
       if (!project || running) return;
       if (dirty && file) await saveFile();
       setRunning(op);
+      setRunningProject(project);
       setArtifact("");
+      setArtifactProject("");
       setPerms([]);
       setLogOpen(true);
       try {
@@ -372,6 +380,7 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
         }
         if (ret.success && ret.artifactPath) {
           setArtifact(ret.artifactPath);
+          setArtifactProject(project);
           try {
             const manifestJson = await unwrapCommand(commands.pluginPeekManifest(ret.artifactPath));
             const manifest = parsePluginManifest(JSON.parse(manifestJson) as unknown);
@@ -385,6 +394,7 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
         appendLog(setLog, String(err));
       } finally {
         setRunning("");
+        setRunningProject("");
         void reloadProjects(project);
       }
     },
@@ -394,19 +404,22 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
   const installArtifact = useCallback(async () => {
     if (!artifact || running) return;
     setRunning("install");
+    setRunningProject(artifactProject);
     setLogOpen(true);
     try {
       await unwrapCommand(commands.pluginInstallFromFile(artifact));
       appendLog(setLog, t("plugins.studio.installOk"));
       setLastStatus(t("plugins.studio.installOk"));
       setArtifact("");
+      setArtifactProject("");
       setPerms([]);
     } catch (err) {
       appendLog(setLog, String(err));
     } finally {
       setRunning("");
+      setRunningProject("");
     }
-  }, [artifact, running, t]);
+  }, [artifact, artifactProject, running, t]);
 
   const reloadDev = useCallback(async () => {
     try {
@@ -414,7 +427,42 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
     } catch {
       // 旧二进制无开发命令时静默
     }
+    try {
+      const list = await unwrapCommand(commands.pluginList(), { quiet: true });
+      setInstalledIds(new Set(list.map((item) => item.id)));
+    } catch {
+      // 同上
+    }
   }, []);
+
+  /** 打包并安装（右键菜单用，一步到位）。 */
+  const packAndInstall = useCallback(async () => {
+    if (!project || running) return;
+    if (dirty && file) await saveFile();
+    setRunning("pack-install");
+    setRunningProject(project);
+    setLogOpen(true);
+    try {
+      const ret = await unwrapCommand(commands.pluginStudioRun(project, "pack"), { quiet: true });
+      appendLog(setLog, ret.output);
+      if (!ret.success || !ret.artifactPath) {
+        setLastStatus(t("plugins.studio.packFail"));
+        return;
+      }
+      await unwrapCommand(commands.pluginInstallFromFile(ret.artifactPath));
+      appendLog(setLog, t("plugins.studio.installOk"));
+      setLastStatus(t("plugins.studio.installOk"));
+    } catch (err) {
+      appendLog(setLog, String(err));
+    } finally {
+      setRunning("");
+      setRunningProject("");
+      void reloadProjects(project);
+      void reloadDev();
+    }
+  }, [dirty, file, project, reloadDev, reloadProjects, running, saveFile, t]);
+
+  /** 目录导入：注册为链接工程（原地编辑）+ 安装 + 默认热重载。 */
 
   /** 目录导入：注册为链接工程（原地编辑）+ 安装 + 默认热重载。 */
   const importDir = useCallback(async () => {
@@ -422,10 +470,10 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
     const picked = await openDirDialog({ directory: true, multiple: false });
     if (!picked || Array.isArray(picked)) return;
     setRunning("dev-import");
+    setRunningProject("");
     setLogOpen(true);
     try {
       const info = await unwrapCommand(commands.pluginDevImport(picked));
-      setDevDir(info.dir);
       appendLog(setLog, t("plugins.studio.devImported", { project: info.project, id: info.pluginId }));
       setLastStatus(t("plugins.studio.devImported", { project: info.project, id: info.pluginId }));
       await reloadProjects(info.project);
@@ -434,22 +482,24 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
       appendLog(setLog, String(err));
     } finally {
       setRunning("");
+      setRunningProject("");
       void reloadDev();
     }
   }, [openFile, reloadDev, reloadProjects, running, t]);
 
-  /** 热重载开关：监听上次安装的源码目录，保存静置后自动重装。 */
+  /** 热重载开关：以当前工程为准（user/repo/linked 通吃），保存静置后自动重装。 */
   const toggleWatch = useCallback(async () => {
-    if (running || !devDir) return;
-    const watchingId = devList.find((d) => d.dir === devDir && d.watching)?.pluginId;
+    if (running || !project) return;
+    const entry = devList.find((d) => d.project === project);
     setRunning("dev-watch");
+    setRunningProject(project);
     setLogOpen(true);
     try {
-      if (watchingId) {
-        await unwrapCommand(commands.pluginDevUnwatch(watchingId));
-        appendLog(setLog, t("plugins.studio.devUnwatched", { id: watchingId }));
+      if (entry?.watching) {
+        await unwrapCommand(commands.pluginDevUnwatch(entry.pluginId));
+        appendLog(setLog, t("plugins.studio.devUnwatched", { id: entry.pluginId }));
       } else {
-        const info = await unwrapCommand(commands.pluginDevWatch(devDir));
+        const info = await unwrapCommand(commands.pluginDevWatchProject(project));
         appendLog(setLog, t("plugins.studio.devWatching", { id: info.pluginId }));
         if (!info.enabled) appendLog(setLog, t("plugins.studio.devNotEnabled"));
       }
@@ -457,11 +507,73 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
       appendLog(setLog, String(err));
     } finally {
       setRunning("");
+      setRunningProject("");
       void reloadDev();
     }
-  }, [devDir, devList, reloadDev, running, t]);
+  }, [devList, project, reloadDev, running, t]);
 
-  const devWatching = devDir !== "" && devList.some((d) => d.dir === devDir && d.watching);
+  const projectWatching = project !== "" && devList.some((d) => d.project === project && d.watching);
+
+  /** 工程行右键：先选中（脏检查），再弹菜单；菜单动作都对已选中的工程生效。 */
+  const handleProjContextMenu = useCallback(
+    (name: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (name !== project) {
+        if (dirty && !confirmLeave()) return;
+        setProject(name);
+        setArtifact("");
+        setArtifactProject("");
+        setPerms([]);
+        setLastStatus("");
+      }
+      setProjCtx({ x: e.clientX, y: e.clientY, name });
+    },
+    [confirmLeave, dirty, project],
+  );
+
+  const projMenuItems = useCallback((): ContextMenuItem[] => {
+    if (!projCtx) return [];
+    const name = projCtx.name;
+    const item = projects.find((entry) => entry.name === name);
+    const watching = devList.some((d) => d.project === name && d.watching);
+    const items: ContextMenuItem[] = [];
+    if (item?.hasManifest) {
+      items.push({
+        id: "proj-open-manifest",
+        label: t("plugins.studio.projOpenManifest"),
+        onClick: () => void openFile(name, "plugin.json", true),
+      });
+    }
+    items.push(
+      {
+        id: "proj-validate",
+        label: t("plugins.studio.validate"),
+        onClick: () => void runOp("validate"),
+      },
+      {
+        id: "proj-pack-install",
+        label: t("plugins.studio.projPackInstall"),
+        onClick: () => void packAndInstall(),
+      },
+      {
+        id: "proj-watch",
+        label: watching ? t("plugins.studio.unwatch") : t("plugins.studio.watch"),
+        onClick: () => void toggleWatch(),
+      },
+      { id: "proj-sep", separator: true, label: "" } as ContextMenuItem,
+      {
+        id: "proj-delete",
+        label:
+          item?.location === "linked"
+            ? t("plugins.studio.unlinkProject")
+            : t("plugins.studio.deleteProject"),
+        danger: true,
+        onClick: () => setRemoveOpen(true),
+      },
+    );
+    return items;
+  }, [devList, openFile, packAndInstall, projCtx, projects, runOp, t, toggleWatch]);
 
   useEffect(() => {
     void reloadDev();
@@ -475,13 +587,6 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
       unlisten?.();
     };
   }, [reloadDev]);
-
-  // 选中链接工程时，监听开关自动对准它的源码目录。
-  useEffect(() => {
-    if (current?.location !== "linked") return;
-    const hit = devList.find((d) => d.project === current.name);
-    if (hit && hit.dir !== devDir) setDevDir(hit.dir);
-  }, [current, devList, devDir]);
 
   const createProject = useCallback(async () => {
     if (!newName.trim() || running) return;
@@ -523,7 +628,6 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
       await reloadProjects();
       // 链接工程删除 = 取消链接：源码不动，已装插件保留。
       if (removedLinked) {
-        setDevDir("");
         appendLog(setLog, t("plugins.studio.devUnlinked", { name: removedName }));
       }
       void reloadDev();
@@ -672,12 +776,9 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
                 {t("plugins.studio.install")}
               </WorkbenchActionButton>
             ) : null}
-            <WorkbenchActionButton disabled={busy} onClick={() => void importDir()}>
-              {t("plugins.studio.importDir")}
-            </WorkbenchActionButton>
-            {devDir ? (
+            {project ? (
               <WorkbenchActionButton disabled={busy} onClick={() => void toggleWatch()}>
-                {devWatching ? t("plugins.studio.unwatch") : t("plugins.studio.watch")}
+                {projectWatching ? t("plugins.studio.unwatch") : t("plugins.studio.watch")}
               </WorkbenchActionButton>
             ) : null}
             <WorkbenchActionButton
@@ -709,31 +810,43 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
                 >
                   {t("plugins.studio.add")}
                 </WorkbenchActionButton>
+                <WorkbenchActionButton disabled={busy} onClick={() => void importDir()}>
+                  {t("plugins.studio.importDir")}
+                </WorkbenchActionButton>
               </span>
             </div>
             <div className="plugin-center-list">
               {projects.length === 0 ? (
                 <p className="plugin-center-empty">{t("plugins.studio.emptyProjects")}</p>
               ) : (
-                projects.map((item) => (
-                  <button
-                    key={item.name}
-                    type="button"
-                    className={`plugin-center-row${project === item.name ? " is-active" : ""}`}
-                    onClick={() => void selectProject(item.name)}
-                  >
-                    <span className="plugin-center-row__name">{item.displayName || item.name}</span>
-                    <span className="plugin-center-row__meta">
-                      {item.kind ? t(`plugins.studio.kindLabels.${item.kind}`) : item.name}
-                      {item.version ? ` · ${item.version}` : ""}
-                      {item.location === "repo"
-                        ? ` · ${t("plugins.studio.locationRepo")}`
-                        : item.location === "linked"
-                          ? ` · ${t("plugins.studio.locationLinked")}`
-                          : ` · ${t("plugins.studio.locationUser")}`}
-                    </span>
-                  </button>
-                ))
+                projects.map((item) => {
+                  const watching = devList.some((d) => d.project === item.name && d.watching);
+                  const installed = item.pluginId ? installedIds.has(item.pluginId) : false;
+                  const runningHere = busy && runningProject === item.name;
+                  return (
+                    <button
+                      key={item.name}
+                      type="button"
+                      className={`plugin-center-row${project === item.name ? " is-active" : ""}`}
+                      onClick={() => void selectProject(item.name)}
+                      onContextMenu={(e) => handleProjContextMenu(item.name, e)}
+                    >
+                      <span className="plugin-center-row__name">{item.displayName || item.name}</span>
+                      <span className="plugin-center-row__meta">
+                        {item.kind ? t(`plugins.studio.kindLabels.${item.kind}`) : item.name}
+                        {item.version ? ` · ${item.version}` : ""}
+                        {item.location === "repo"
+                          ? ` · ${t("plugins.studio.locationRepo")}`
+                          : item.location === "linked"
+                            ? ` · ${t("plugins.studio.locationLinked")}`
+                            : ` · ${t("plugins.studio.locationUser")}`}
+                        {watching ? ` · ${t("plugins.studio.watchingBadge")}` : ""}
+                        {installed ? ` · ${t("plugins.studio.installedBadge")}` : ""}
+                        {runningHere ? ` · ${t("plugins.studio.runningBadge")}` : ""}
+                      </span>
+                    </button>
+                  );
+                })
               )}
             </div>
           </section>
@@ -940,6 +1053,13 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
           </FormField>
         ) : null}
       </FormDialog>
+      {projCtx && (
+        <ContextMenu
+          items={projMenuItems()}
+          position={{ x: projCtx.x, y: projCtx.y }}
+          onClose={() => setProjCtx(null)}
+        />
+      )}
       <FormDialog
         open={removeOpen}
         onClose={() => setRemoveOpen(false)}

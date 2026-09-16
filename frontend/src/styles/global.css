@@ -29395,6 +29395,13 @@ body.quick-launcher-body {
   position: relative;
 }
 
+/* CodeMirror 根节点默认随内容增高，会被上层 overflow:hidden 裁掉：
+   锁死为容器高度，滚动走内部 scroller（与 server-create 同方案）。 */
+.plugin-studio-editor .code-editor__host,
+.plugin-studio-editor .cm-editor {
+  height: 100%;
+}
+
 .plugin-studio-empty {
   display: flex;
   flex-direction: column;
