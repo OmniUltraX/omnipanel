@@ -33,6 +33,8 @@ export function usePluginCenter() {
   const [items, setItems] = useState<PluginListItem[]>([]);
   const [marketCatalog, setMarketCatalog] = useState<MarketplaceItem[]>([]);
   const [updates, setUpdates] = useState<PluginUpdateInfo[]>([]);
+  // 本地开发版 id：徽标 + 更新列表过滤（市场更新不再覆盖原地开发）。
+  const [devIds, setDevIds] = useState<ReadonlySet<string>>(new Set());
   const [sources, setSources] = useState<RegistrySourceDto[]>([]);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [sourceBusyId, setSourceBusyId] = useState<string | null>(null);
@@ -80,6 +82,12 @@ export function usePluginCenter() {
     } catch (err) {
       setError(String(err));
     }
+    try {
+      const status = await unwrapCommand(commands.pluginDevStatus(), { quiet: true });
+      setDevIds(new Set(status.map((s) => s.pluginId)));
+    } catch {
+      // 旧二进制无开发命令时静默：无徽标、无过滤
+    }
   }, [syncRuntime]);
 
   const reloadOfficial = useCallback(async (force = false) => {
@@ -110,6 +118,27 @@ export function usePluginCenter() {
     void reloadInstalled();
     void reloadMarket(false);
   }, [reloadInstalled, reloadMarket]);
+
+  // 开发态变更（导入/监听重装）后刷新徽标；更新列表随 devIds 自动过滤。
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("plugin://changed", () => {
+      void reloadInstalled();
+    }).then((fn) => {
+      if (disposed) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [reloadInstalled]);
+
+  const visibleUpdates = useMemo(() => updates.filter((u) => !devIds.has(u.id)), [updates, devIds]);
 
   // Rubick 源开关：种子合并、自动拉全量、npm 按钮一律跟随（默认关）
   const rubickEnabled = useMemo(
@@ -673,8 +702,9 @@ export function usePluginCenter() {
     homeHiddenIds,
     setHomePinned,
     setError,
-    updates,
+    updates: visibleUpdates,
     updatePlugins,
+    devIds,
     sources,
     sourcesOpen,
     setSourcesOpen,

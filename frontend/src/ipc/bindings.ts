@@ -1140,13 +1140,15 @@ export const commands = {
 	pluginSecretHas: (pluginId: string, key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_has", { pluginId, key })),
 	pluginSecretGet: (pluginId: string, key: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_get", { pluginId, key })),
 	pluginSecretDelete: (pluginId: string, key: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_delete", { pluginId, key })),
-	/**  从本地源码目录安装/覆盖安装（不开启监听，纯一次性）。 */
-	pluginInstallFromDir: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_dir", { path })),
-	/**  开启热重载：先装一次当前内容，再注册轮询监听。 */
+	/**  目录导入：注册为链接工程（原地编辑）+ 安装 + 默认热重载。 */
+	pluginDevImport: (path: string) => typedError<DevProjectInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_import", { path })),
+	/**  开启热重载：先装一次当前内容，再注册轮询监听（未链接的目录顺手建链接）。 */
 	pluginDevWatch: (path: string) => typedError<DevWatchInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch", { path })),
-	/**  关闭指定插件的热重载（保留来源目录记录，可再次开启）。 */
+	/**  关闭指定插件的热重载（保留链接，可再次开启）。 */
 	pluginDevUnwatch: (pluginId: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_unwatch", { pluginId })),
-	/**  开发期条目一览（含监听中/仅装过目录两种）。 */
+	/**  取消链接：删链接 + 关监听，不动源码目录，不卸载已装插件。 */
+	pluginDevUnlinkProject: (project: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_unlink_project", { project })),
+	/**  开发期条目一览：会话监听 ∪ 已链接（重启后链接仍在，监听可一键恢复）。 */
 	pluginDevStatus: () => typedError<DevWatchInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_status")),
 	/**  列出用户目录 + 开发态仓库目录（同名以用户目录为准）。 */
 	pluginStudioListProjects: () => typedError<StudioProject_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
@@ -2988,9 +2990,28 @@ export type DiskStats_Serialize = {
 	writeBytes?: number | null,
 };
 
+export type DevProjectInfo = DevProjectInfo_Serialize | DevProjectInfo_Deserialize;
+
+export type DevProjectInfo_Deserialize = {
+	project: string,
+	pluginId: string,
+	version: string,
+	dir: string,
+	watching: boolean,
+};
+
+export type DevProjectInfo_Serialize = {
+	project: string,
+	pluginId: string,
+	version: string,
+	dir: string,
+	watching: boolean,
+};
+
 export type DevWatchInfo = DevWatchInfo_Serialize | DevWatchInfo_Deserialize;
 
 export type DevWatchInfo_Deserialize = {
+	project: string,
 	pluginId: string,
 	version: string,
 	dir: string,
@@ -3002,6 +3023,7 @@ export type DevWatchInfo_Deserialize = {
 };
 
 export type DevWatchInfo_Serialize = {
+	project: string,
 	pluginId: string,
 	version: string,
 	dir: string,

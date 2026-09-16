@@ -416,26 +416,27 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
     }
   }, []);
 
-  /** 从本地源码目录安装/覆盖安装（dev 签名打包，走正式安装链路）。 */
-  const installFromDir = useCallback(async () => {
+  /** 目录导入：注册为链接工程（原地编辑）+ 安装 + 默认热重载。 */
+  const importDir = useCallback(async () => {
     if (running) return;
     const picked = await openDirDialog({ directory: true, multiple: false });
     if (!picked || Array.isArray(picked)) return;
-    setDevDir(picked);
-    setRunning("dev-install");
+    setRunning("dev-import");
     setLogOpen(true);
     try {
-      const item = await unwrapCommand(commands.pluginInstallFromDir(picked));
-      appendLog(setLog, t("plugins.studio.devInstalled", { id: item.id, version: item.version }));
-      setLastStatus(t("plugins.studio.devInstalled", { id: item.id, version: item.version }));
-      if (!item.enabled) appendLog(setLog, t("plugins.studio.devNotEnabled"));
+      const info = await unwrapCommand(commands.pluginDevImport(picked));
+      setDevDir(info.dir);
+      appendLog(setLog, t("plugins.studio.devImported", { project: info.project, id: info.pluginId }));
+      setLastStatus(t("plugins.studio.devImported", { project: info.project, id: info.pluginId }));
+      await reloadProjects(info.project);
+      await openFile(info.project, "plugin.json", true);
     } catch (err) {
       appendLog(setLog, String(err));
     } finally {
       setRunning("");
       void reloadDev();
     }
-  }, [reloadDev, running, t]);
+  }, [openFile, reloadDev, reloadProjects, running, t]);
 
   /** 热重载开关：监听上次安装的源码目录，保存静置后自动重装。 */
   const toggleWatch = useCallback(async () => {
@@ -475,6 +476,13 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
     };
   }, [reloadDev]);
 
+  // 选中链接工程时，监听开关自动对准它的源码目录。
+  useEffect(() => {
+    if (current?.location !== "linked") return;
+    const hit = devList.find((d) => d.project === current.name);
+    if (hit && hit.dir !== devDir) setDevDir(hit.dir);
+  }, [current, devList, devDir]);
+
   const createProject = useCallback(async () => {
     if (!newName.trim() || running) return;
     setRunning("create");
@@ -500,6 +508,8 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
 
   const removeProject = useCallback(async () => {
     if (!project || running) return;
+    const removedName = project;
+    const removedLinked = current?.name === project && current?.location === "linked";
     setRunning("remove");
     try {
       await unwrapCommand(commands.pluginStudioRemoveProject(project), { quiet: true });
@@ -511,12 +521,18 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
       setArtifact("");
       setPerms([]);
       await reloadProjects();
+      // 链接工程删除 = 取消链接：源码不动，已装插件保留。
+      if (removedLinked) {
+        setDevDir("");
+        appendLog(setLog, t("plugins.studio.devUnlinked", { name: removedName }));
+      }
+      void reloadDev();
     } catch (err) {
       appendLog(setLog, String(err));
     } finally {
       setRunning("");
     }
-  }, [project, reloadProjects, running]);
+  }, [current, project, reloadDev, reloadProjects, running, t]);
 
   const askStudio = useCallback(
     async (kind: "ask" | "generate" | "explain") => {
@@ -656,8 +672,8 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
                 {t("plugins.studio.install")}
               </WorkbenchActionButton>
             ) : null}
-            <WorkbenchActionButton disabled={busy} onClick={() => void installFromDir()}>
-              {t("plugins.studio.dirInstall")}
+            <WorkbenchActionButton disabled={busy} onClick={() => void importDir()}>
+              {t("plugins.studio.importDir")}
             </WorkbenchActionButton>
             {devDir ? (
               <WorkbenchActionButton disabled={busy} onClick={() => void toggleWatch()}>
@@ -712,7 +728,9 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
                       {item.version ? ` · ${item.version}` : ""}
                       {item.location === "repo"
                         ? ` · ${t("plugins.studio.locationRepo")}`
-                        : ` · ${t("plugins.studio.locationUser")}`}
+                        : item.location === "linked"
+                          ? ` · ${t("plugins.studio.locationLinked")}`
+                          : ` · ${t("plugins.studio.locationUser")}`}
                     </span>
                   </button>
                 ))
@@ -934,7 +952,11 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
           onClick: () => void removeProject(),
         }}
       >
-        <p>{t("plugins.studio.deleteConfirm", { name: project })}</p>
+        <p>
+          {current?.location === "linked"
+            ? t("plugins.studio.unlinkConfirm", { name: project })
+            : t("plugins.studio.deleteConfirm", { name: project })}
+        </p>
       </FormDialog>
       <StudioSubmitDialog
         open={submitOpen}

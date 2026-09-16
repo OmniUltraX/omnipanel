@@ -104,7 +104,8 @@ fn valid_project_name(name: &str) -> Result<&str, OmniError> {
     Ok(name)
 }
 
-/// 已存在则优先用户目录，否则仓库目录；都不存在时指向用户目录（供新建/写入）。
+/// 已存在则优先用户目录，否则仓库目录，再次之开发链接目录；
+/// 都不存在时指向用户目录（供新建/写入）。
 pub(crate) fn resolve_project_dir(roots: &StudioRoots, name: &str) -> Result<PathBuf, OmniError> {
     let name = valid_project_name(name)?;
     let user = roots.user.join(name);
@@ -118,6 +119,21 @@ pub(crate) fn resolve_project_dir(roots: &StudioRoots, name: &str) -> Result<Pat
         }
     }
     Ok(user)
+}
+
+/// 链接工程感知版：实体目录优先，落空时才回落到开发链接目录（原地编辑，不拷贝）。
+pub(crate) fn resolve_project_dir_linked(
+    app: &AppHandle,
+    roots: &StudioRoots,
+    name: &str,
+) -> Result<PathBuf, OmniError> {
+    let dir = resolve_project_dir(roots, name)?;
+    if !dir.is_dir() {
+        if let Some(linked) = super::plugin_dev::linked_project_dir(app, name) {
+            return Ok(linked);
+        }
+    }
+    Ok(dir)
 }
 
 fn jail_rel(rel: &str) -> Result<String, OmniError> {
@@ -141,8 +157,8 @@ fn jail_path_in(base: &Path, rel: &str) -> Result<PathBuf, OmniError> {
     Ok(target)
 }
 
-fn jail_path(roots: &StudioRoots, project: &str, rel: &str) -> Result<PathBuf, OmniError> {
-    let base = resolve_project_dir(roots, project)?;
+fn jail_path(app: &AppHandle, roots: &StudioRoots, project: &str, rel: &str) -> Result<PathBuf, OmniError> {
+    let base = resolve_project_dir_linked(app, roots, project)?;
     jail_path_in(&base, rel)
 }
 
@@ -269,7 +285,7 @@ fn scan_root(root: &Path, location: &str, seen: &mut std::collections::HashSet<S
     }
 }
 
-/// 列出用户目录 + 开发态仓库目录（同名以用户目录为准）。
+/// 列出用户目录 + 开发态仓库目录 + 开发链接工程（同名以用户目录为准）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_list_projects(
@@ -282,6 +298,26 @@ pub async fn plugin_studio_list_projects(
     scan_root(&roots.user, "user", &mut seen, &mut out);
     if let Some(repo) = &roots.repo {
         scan_root(repo, "repo", &mut seen, &mut out);
+    }
+    // 链接工程：原地编辑，不拷贝；目录已删的仍列出（可在工作台取消链接）。
+    for (name, link) in super::plugin_dev::load_dev_links(&app) {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let dir = PathBuf::from(&link.dir);
+        if dir.is_dir() {
+            out.push(load_studio_project(&dir, name, "linked"));
+        } else {
+            out.push(StudioProject {
+                name,
+                files: Vec::new(),
+                has_manifest: false,
+                location: "linked".into(),
+                kind: None,
+                version: None,
+                display_name: None,
+            });
+        }
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
@@ -297,7 +333,7 @@ pub async fn plugin_studio_read_file(
     path: String,
 ) -> Result<String, OmniError> {
     let roots = studio_roots(&app)?;
-    let target = jail_path(&roots, &project, &path)?;
+    let target = jail_path(&app, &roots, &project, &path)?;
     let meta = std::fs::metadata(&target)
         .map_err(|_| OmniError::not_found(format!("文件不存在: {path}")))?;
     if meta.len() > MAX_READ_BYTES {
@@ -321,7 +357,7 @@ pub async fn plugin_studio_write_file(
         return Err(OmniError::invalid_input("内容超过 1MB 上限"));
     }
     let roots = studio_roots(&app)?;
-    let target = jail_path(&roots, &project, &path)?;
+    let target = jail_path(&app, &roots, &project, &path)?;
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| OmniError::internal(e.to_string()))?;
     }
@@ -703,6 +739,9 @@ pub async fn plugin_studio_scaffold(
     {
         return Err(OmniError::invalid_input(format!("工程已存在: {name}")));
     }
+    if super::plugin_dev::linked_project_dir(&app, &name).is_some() {
+        return Err(OmniError::invalid_input(format!("工程已存在: {name}")));
+    }
     std::fs::create_dir_all(&roots.user).map_err(|e| OmniError::internal(e.to_string()))?;
 
     let used_script = if let Some(repo) = repo_root() {
@@ -766,7 +805,7 @@ pub async fn plugin_studio_audit_scaffold(
     Ok(())
 }
 
-/// 删除工程目录（用户目录或仓库 plugins-custom，禁锢与读写相同）。
+/// 删除工程：用户/仓库目录按禁锢删除；链接工程只取消链接（不动源码目录，不卸载已装插件）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_studio_remove_project(
@@ -775,6 +814,18 @@ pub async fn plugin_studio_remove_project(
     name: String,
 ) -> Result<(), OmniError> {
     let roots = studio_roots(&app)?;
+    let name = valid_project_name(name.trim())?.to_string();
+    let user_exists = roots.user.join(&name).is_dir();
+    let repo_exists = roots
+        .repo
+        .as_ref()
+        .is_some_and(|repo| repo.join(&name).is_dir());
+    if !user_exists && !repo_exists {
+        if super::plugin_dev::linked_project_dir(&app, &name).is_some() {
+            super::plugin_dev::unlink_project(&app, &name)?;
+            return Ok(());
+        }
+    }
     let dir = resolve_project_dir(&roots, &name)?;
     if !dir.is_dir() {
         return Err(OmniError::not_found(format!("工程不存在: {name}")));
@@ -794,6 +845,11 @@ pub async fn plugin_studio_remove_project(
         return Err(OmniError::invalid_input("路径越界"));
     }
     std::fs::remove_dir_all(&canon).map_err(|e| OmniError::internal(e.to_string()))?;
+    // 实体删了，同名陈旧链接一并清理（避免影子工程）。
+    let mut links = super::plugin_dev::load_dev_links(&app);
+    if links.remove(&name).is_some() {
+        let _ = super::plugin_dev::save_dev_links(&app, &links);
+    }
     Ok(())
 }
 

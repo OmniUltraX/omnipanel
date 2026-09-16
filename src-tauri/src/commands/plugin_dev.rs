@@ -1,14 +1,19 @@
-//! 本地目录安装 + 热重载（开发期工作流）。
+//! 本地目录导入 + 热重载（开发期工作流）。
 //!
-//! - `plugin_install_from_dir`：校验目录内 `plugin.json` → dev 签名 pack 到临时包 →
-//!   复用 [`super::plugin::install_plugin_from_path`]（验签/原子 swap/回滚/重建/`plugin://changed`
-//!   全走正式链路，与“从文件安装”同等安全）。
+//! 概念：**目录导入**——把任意插件源码目录（如 `plugins-market/knowledge-siyuan`）
+//! 注册为工作台工程（`location = "linked"`，原地编辑不拷贝），同时安装到本机并默认
+//! 开启热重载。插件中心把这类安装标注为本地开发版，市场“更新全部”会自动跳过它们。
+//!
+//! - `plugin_dev_import`：校验 `plugin.json` → 写链接 → dev 签名 pack 到临时包 → 复用
+//!   [`super::plugin::install_plugin_from_path`]（验签/原子 swap/回滚/重建/`plugin://changed`
+//!   全走正式链路）→ 注册轮询监听。
 //! - `plugin_dev_watch` / `plugin_dev_unwatch` / `plugin_dev_status`：会话级热重载。
 //!   tokio 轮询（1s）比对源码目录指纹，变化静置 2s 后自动重装（防保存半截包）。
-//!   零新依赖；监听不落盘，重启 App 后需重新开启；监听失败只记 `last_error` 不摘除。
+//!   零新依赖；监听不落盘（重启后在工作台点一下监听即恢复），链接落盘持久。
+//! - `plugin_dev_unlink_project`：只删链接 + 关监听，不动源码目录，不卸载已装插件。
 //!
 //! 签名说明：dev 签名公钥在官方验签列表内（`official_list_contains_dev_pubkey` 单测兜底），
-//! 因此目录安装在 debug/release 均可装载；release 下同样走正式验签，无放宽。
+//! 因此目录导入在 debug/release 均可装载；release 下同样走正式验签，无放宽。
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -39,6 +44,8 @@ const DEV_SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "dist", ".sta
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DevWatchInfo {
+    /// 链接工程名（工作台工程列表用；纯会话条目为空）。
+    pub project: String,
     pub plugin_id: String,
     pub version: String,
     pub dir: String,
@@ -49,7 +56,27 @@ pub struct DevWatchInfo {
     pub last_error: String,
 }
 
+/// 目录导入结果：链接工程名 + 安装信息（监听已默认开启）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DevProjectInfo {
+    pub project: String,
+    pub plugin_id: String,
+    pub version: String,
+    pub dir: String,
+    pub watching: bool,
+}
+
+/// 链接文件条目：工程名 → 源码目录 + 插件 id（id 变了监听循环会迁移修正）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DevLink {
+    pub(crate) dir: String,
+    pub(crate) plugin_id: String,
+}
+
 struct DevEntry {
+    project: String,
     dir: PathBuf,
     fingerprint: u64,
     changed_at: Option<Instant>,
@@ -152,6 +179,50 @@ async fn pack_dev_dir(dir: &Path) -> Result<PathBuf, OmniError> {
     .map_err(|e| OmniError::internal(e.to_string()))?
 }
 
+/// 链接文件：`app_data/plugin-dev-links.json`，工程名 → 源码目录（重启持久）。
+fn dev_links_path(app: &AppHandle) -> Result<PathBuf, OmniError> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| OmniError::internal(format!("无法定位应用数据目录: {e}")))?
+        .join("plugin-dev-links.json"))
+}
+
+/// 读链接表（文件缺失/损坏按空表处理，不阻断）。
+pub(crate) fn load_dev_links(app: &AppHandle) -> HashMap<String, DevLink> {
+    dev_links_path(app)
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+pub(crate) fn save_dev_links(app: &AppHandle, links: &HashMap<String, DevLink>) -> Result<(), OmniError> {
+    let path = dev_links_path(app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| OmniError::internal(e.to_string()))?;
+    }
+    let text = serde_json::to_string_pretty(links).map_err(|e| OmniError::internal(e.to_string()))?;
+    std::fs::write(&path, text).map_err(|e| OmniError::internal(e.to_string()))?;
+    Ok(())
+}
+
+/// 链接工程名对应的源码目录（工作台读写禁锢用）。
+pub(crate) fn linked_project_dir(app: &AppHandle, name: &str) -> Option<PathBuf> {
+    let link = load_dev_links(app).get(name)?.dir.clone();
+    let dir = PathBuf::from(link);
+    dir.is_dir().then_some(dir)
+}
+
+/// 供市场“更新全部”跳过本地开发版（读链接表，重启后依然有效）。
+pub(crate) fn dev_linked_plugin_ids(app: &AppHandle) -> std::collections::HashSet<String> {
+    load_dev_links(app)
+        .into_values()
+        .map(|link| link.plugin_id)
+        .filter(|id| !id.trim().is_empty())
+        .collect()
+}
+
 /// 目录安装内核：pack → 正式安装链路 → 清临时包。
 pub(crate) async fn install_dir_inner(
     state: &State<'_, AppState>,
@@ -164,35 +235,93 @@ pub(crate) async fn install_dir_inner(
     ret
 }
 
-/// 从本地源码目录安装/覆盖安装（不开启监听，纯一次性）。
+/// 由源码目录名派生链接工程名（与现有 user/repo/链接工程去重）。
+fn unique_link_name(
+    app: &AppHandle,
+    dir: &Path,
+    links: &HashMap<String, DevLink>,
+) -> Result<String, OmniError> {
+    let base = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .ok_or_else(|| OmniError::invalid_input("目录名非法，无法建工程"))?;
+    // 工程名禁锢与工作台一致：不含路径分隔与上级引用。
+    if base.contains(['/', '\\']) || base.contains("..") || base.contains(':') {
+        return Err(OmniError::invalid_input(format!("目录名不适合做工程名: {base}")));
+    }
+    let taken = |name: &str| -> bool {
+        if links.contains_key(name) {
+            return true;
+        }
+        let Ok(roots) = super::plugin_studio::studio_roots(app) else {
+            return false;
+        };
+        roots.user.join(name).exists()
+            || roots
+                .repo
+                .as_ref()
+                .is_some_and(|repo| repo.join(name).exists())
+    };
+    if !taken(base) {
+        return Ok(base.to_string());
+    }
+    for i in 2..100 {
+        let candidate = format!("{base}-{i}");
+        if !taken(&candidate) {
+            return Ok(candidate);
+        }
+    }
+    Err(OmniError::invalid_input(format!("工程名冲突过多: {base}")))
+}
+
+/// 目录导入：注册为工作台链接工程（原地编辑）+ 安装到本机 + 默认开启热重载。
 #[tauri::command]
 #[specta::specta]
-pub async fn plugin_install_from_dir(
+pub async fn plugin_dev_import(
     state: State<'_, AppState>,
     path: String,
-) -> Result<PluginListItem, OmniError> {
+) -> Result<DevProjectInfo, OmniError> {
     let dir = std::fs::canonicalize(Path::new(&path))
         .map_err(|e| OmniError::not_found(format!("目录不存在: {path} ({e})")))?;
+    let manifest = read_dev_manifest(&dir)?;
+    let mut links = load_dev_links(&state.app_handle);
+    let project = unique_link_name(&state.app_handle, &dir, &links)?;
+    links.insert(
+        project.clone(),
+        DevLink {
+            dir: dir.to_string_lossy().into_owned(),
+            plugin_id: manifest.id.clone(),
+        },
+    );
+    save_dev_links(&state.app_handle, &links)?;
     let item = install_dir_inner(&state, &dir).await?;
-    // 记录来源目录：工作台“监听”按钮可直接沿用，不用再选一次。
     if let Ok(mut map) = dev_entries().lock() {
-        map.entry(item.id.clone())
-            .and_modify(|e| {
-                e.dir = dir.clone();
-            })
-            .or_insert(DevEntry {
+        map.insert(
+            item.id.clone(),
+            DevEntry {
+                project: project.clone(),
                 dir: dir.clone(),
                 fingerprint: fingerprint_dir(&dir),
                 changed_at: None,
-                watching: false,
+                watching: true,
                 last_reload_ms: now_ms(),
                 last_error: String::new(),
-            });
+            },
+        );
     }
-    Ok(item)
+    ensure_dev_loop(&state.app_handle);
+    Ok(DevProjectInfo {
+        project,
+        plugin_id: item.id,
+        version: item.version,
+        dir: dir.to_string_lossy().into_owned(),
+        watching: true,
+    })
 }
 
-/// 开启热重载：先装一次当前内容，再注册轮询监听。
+/// 开启热重载：先装一次当前内容，再注册轮询监听（未链接的目录顺手建链接）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_dev_watch(
@@ -201,11 +330,31 @@ pub async fn plugin_dev_watch(
 ) -> Result<DevWatchInfo, OmniError> {
     let dir = std::fs::canonicalize(Path::new(&path))
         .map_err(|e| OmniError::not_found(format!("目录不存在: {path} ({e})")))?;
+    let manifest = read_dev_manifest(&dir)?;
+    let mut links = load_dev_links(&state.app_handle);
+    // 已链接该目录的工程名优先复用，否则新建。
+    let dir_str = dir.to_string_lossy().into_owned();
+    let project = links
+        .iter()
+        .find(|(_, link)| link.dir == dir_str)
+        .map(|(name, _)| name.clone())
+        .unwrap_or_else(|| {
+            unique_link_name(&state.app_handle, &dir, &links).unwrap_or_else(|_| manifest.id.clone())
+        });
+    links.insert(
+        project.clone(),
+        DevLink {
+            dir: dir_str,
+            plugin_id: manifest.id.clone(),
+        },
+    );
+    let _ = save_dev_links(&state.app_handle, &links);
     let item = install_dir_inner(&state, &dir).await?;
     if let Ok(mut map) = dev_entries().lock() {
         map.insert(
             item.id.clone(),
             DevEntry {
+                project: project.clone(),
                 dir: dir.clone(),
                 fingerprint: fingerprint_dir(&dir),
                 changed_at: None,
@@ -221,7 +370,7 @@ pub async fn plugin_dev_watch(
         .ok_or_else(|| OmniError::not_found(format!("未知插件: {}", item.id)))
 }
 
-/// 关闭指定插件的热重载（保留来源目录记录，可再次开启）。
+/// 关闭指定插件的热重载（保留链接，可再次开启）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_dev_unwatch(plugin_id: String) -> Result<bool, OmniError> {
@@ -241,7 +390,32 @@ pub async fn plugin_dev_unwatch(plugin_id: String) -> Result<bool, OmniError> {
     Ok(removed)
 }
 
-/// 开发期条目一览（含监听中/仅装过目录两种）。
+/// 取消链接：删链接 + 关监听，不动源码目录，不卸载已装插件。
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_dev_unlink_project(
+    state: State<'_, AppState>,
+    project: String,
+) -> Result<String, OmniError> {
+    unlink_project(&state.app_handle, &project)
+}
+
+/// 取消链接内核（工作台删除链接工程时复用）。
+pub(crate) fn unlink_project(app: &AppHandle, project: &str) -> Result<String, OmniError> {
+    let mut links = load_dev_links(app);
+    let Some(link) = links.remove(project.trim()) else {
+        return Err(OmniError::not_found(format!("未链接的工程: {project}")));
+    };
+    let _ = save_dev_links(app, &links);
+    if let Ok(mut map) = dev_entries().lock() {
+        map.remove(&link.plugin_id);
+        // 监听键可能已随改 id 迁移：按目录兜底清掉。
+        map.retain(|_, entry| entry.dir.to_string_lossy() != link.dir);
+    }
+    Ok(link.plugin_id)
+}
+
+/// 开发期条目一览：会话监听 ∪ 已链接（重启后链接仍在，监听可一键恢复）。
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_dev_status(
@@ -267,25 +441,51 @@ pub async fn plugin_dev_status(
         .collect();
     drop(registry);
     let map = dev_entries().lock().unwrap();
-    let mut out: Vec<DevWatchInfo> = map
-        .iter()
-        .map(|(id, entry)| {
-            let (enabled, activated, version) = states
-                .get(id)
-                .cloned()
-                .unwrap_or((false, false, String::new()));
-            DevWatchInfo {
-                plugin_id: id.clone(),
-                version,
-                dir: entry.dir.to_string_lossy().into_owned(),
-                watching: entry.watching,
-                enabled,
-                activated,
-                last_reload_ms: entry.last_reload_ms,
-                last_error: entry.last_error.clone(),
-            }
-        })
-        .collect();
+    let mut out: Vec<DevWatchInfo> = Vec::new();
+    let mut covered_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (id, entry) in map.iter() {
+        covered_dirs.insert(entry.dir.to_string_lossy().into_owned());
+        let (enabled, activated, version) = states
+            .get(id)
+            .cloned()
+            .unwrap_or((false, false, String::new()));
+        out.push(DevWatchInfo {
+            project: entry.project.clone(),
+            plugin_id: id.clone(),
+            version,
+            dir: entry.dir.to_string_lossy().into_owned(),
+            watching: entry.watching,
+            enabled,
+            activated,
+            last_reload_ms: entry.last_reload_ms,
+            last_error: entry.last_error.clone(),
+        });
+    }
+    // 已链接但本会话未监听：补一行 watching=false，工作台可一键恢复。
+    for (name, link) in load_dev_links(&state.app_handle) {
+        if covered_dirs.contains(&link.dir) {
+            continue;
+        }
+        let dir = PathBuf::from(&link.dir);
+        if !dir.is_dir() {
+            continue;
+        }
+        let (enabled, activated, version) = states
+            .get(&link.plugin_id)
+            .cloned()
+            .unwrap_or((false, false, String::new()));
+        out.push(DevWatchInfo {
+            project: name,
+            plugin_id: link.plugin_id,
+            version,
+            dir: link.dir,
+            watching: false,
+            enabled,
+            activated,
+            last_reload_ms: 0,
+            last_error: String::new(),
+        });
+    }
     out.sort_by(|a, b| a.plugin_id.cmp(&b.plugin_id));
     Ok(out)
 }
@@ -310,6 +510,7 @@ async fn dev_status_inner(state: &State<'_, AppState>, plugin_id: &str) -> Optio
         })
         .unwrap_or((false, false, String::new()));
     Some(DevWatchInfo {
+        project: entry.project.clone(),
         plugin_id: plugin_id.to_string(),
         version,
         dir: entry.dir.to_string_lossy().into_owned(),
@@ -378,10 +579,22 @@ async fn dev_tick(app: &AppHandle) {
         match install_dir_inner(&state, &dir).await {
             Ok(item) => {
                 if let Ok(mut map) = dev_entries().lock() {
-                    // 极端情况：开发中改了 plugin.json 的 id，键随之迁移。
+                    // 极端情况：开发中改了 plugin.json 的 id，键与链接随之迁移。
                     if item.id != id {
                         if let Some(entry) = map.remove(&id) {
                             map.insert(item.id.clone(), entry);
+                        }
+                        let mut links = load_dev_links(app);
+                        let dir_str = dir.to_string_lossy().into_owned();
+                        let mut touched = false;
+                        for link in links.values_mut() {
+                            if link.dir == dir_str && link.plugin_id != item.id {
+                                link.plugin_id = item.id.clone();
+                                touched = true;
+                            }
+                        }
+                        if touched {
+                            let _ = save_dev_links(app, &links);
                         }
                     }
                     if let Some(entry) = map.get_mut(&item.id) {
