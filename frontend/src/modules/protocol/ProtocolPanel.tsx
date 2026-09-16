@@ -4,7 +4,7 @@ import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../i18n";
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
-import { getVisibleProtocolTabs } from "../../lib/protocolLabConfig";
+import { getVisibleProtocolCapabilityIds } from "../../lib/protocol/protocolCapabilityRegistry";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { useProtocolWorkspaceStore } from "../../stores/protocolWorkspaceStore";
@@ -40,8 +40,9 @@ function ProtocolPanelInner() {
 
   const { selectableProtocols } = useProtocolAddMenu();
 
+  // Host 合同草图：可见性走 capability 注册表（实现仍委托 protocolLabConfig 规则）
   const visibleProtocols = useMemo(
-    () => getVisibleProtocolTabs(protocolLabTabs),
+    () => getVisibleProtocolCapabilityIds(protocolLabTabs),
     [protocolLabTabs],
   );
 

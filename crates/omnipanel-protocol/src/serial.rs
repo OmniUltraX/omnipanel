@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::sync::Arc;
 use std::time::Duration;
 
+use omnipanel_error::{OmniError, OmniResult};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -33,7 +35,7 @@ pub struct SerialSession {
 }
 
 impl SerialSession {
-    pub fn open(config: &SerialConfig) -> Result<Self, String> {
+    pub fn open(config: &SerialConfig) -> OmniResult<Self> {
         use serialport::{DataBits, FlowControl, Parity, StopBits};
 
         let data_bits = match config.data_bits {
@@ -41,27 +43,47 @@ impl SerialSession {
             6 => DataBits::Six,
             7 => DataBits::Seven,
             8 => DataBits::Eight,
-            _ => return Err(format!("Invalid data bits: {}", config.data_bits)),
+            _ => {
+                return Err(OmniError::invalid_input(format!(
+                    "Invalid data bits: {}",
+                    config.data_bits
+                )));
+            }
         };
 
         let stop_bits = match config.stop_bits {
             1 => StopBits::One,
             2 => StopBits::Two,
-            _ => return Err(format!("Invalid stop bits: {}", config.stop_bits)),
+            _ => {
+                return Err(OmniError::invalid_input(format!(
+                    "Invalid stop bits: {}",
+                    config.stop_bits
+                )));
+            }
         };
 
         let parity = match config.parity.as_str() {
             "None" => Parity::None,
             "Even" => Parity::Even,
             "Odd" => Parity::Odd,
-            _ => return Err(format!("Invalid parity: {}", config.parity)),
+            _ => {
+                return Err(OmniError::invalid_input(format!(
+                    "Invalid parity: {}",
+                    config.parity
+                )));
+            }
         };
 
         let flow_control = match config.flow_control.as_str() {
             "None" => FlowControl::None,
             "RTS/CTS" => FlowControl::Hardware,
             "XON/XOFF" => FlowControl::Software,
-            _ => return Err(format!("Invalid flow control: {}", config.flow_control)),
+            _ => {
+                return Err(OmniError::invalid_input(format!(
+                    "Invalid flow control: {}",
+                    config.flow_control
+                )));
+            }
         };
 
         let port = serialport::new(&config.port_name, config.baud_rate)
@@ -71,39 +93,40 @@ impl SerialSession {
             .flow_control(flow_control)
             .timeout(Duration::from_millis(100))
             .open()
-            .map_err(|e| format!("Failed to open serial port: {e}"))?;
+            .map_err(|e| OmniError::connection(format!("Failed to open serial port: {e}")))?;
 
         Ok(Self { port })
     }
 
-    pub fn write(&mut self, data: &[u8]) -> Result<usize, String> {
+    pub fn write(&mut self, data: &[u8]) -> OmniResult<usize> {
         self.port
             .write(data)
-            .map_err(|e| format!("Serial write failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Serial write failed: {e}")))
     }
 
-    pub fn read_into(&mut self, buf: &mut [u8]) -> Result<usize, String> {
+    pub fn read_into(&mut self, buf: &mut [u8]) -> OmniResult<usize> {
         self.port
             .read(buf)
-            .map_err(|e| format!("Serial read failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Serial read failed: {e}")))
     }
 
-    pub fn set_dtr(&mut self, level: bool) -> Result<(), String> {
+    pub fn set_dtr(&mut self, level: bool) -> OmniResult<()> {
         self.port
             .write_data_terminal_ready(level)
-            .map_err(|e| format!("Set DTR failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Set DTR failed: {e}")))
     }
 
-    pub fn set_rts(&mut self, level: bool) -> Result<(), String> {
+    pub fn set_rts(&mut self, level: bool) -> OmniResult<()> {
         self.port
             .write_request_to_send(level)
-            .map_err(|e| format!("Set RTS failed: {e}"))
+            .map_err(|e| OmniError::connection(format!("Set RTS failed: {e}")))
     }
 }
 
 /// Scan for available serial ports on the system.
-pub fn scan_ports() -> Result<Vec<PortInfo>, String> {
-    let ports = serialport::available_ports().map_err(|e| format!("Port scan failed: {e}"))?;
+pub fn scan_ports() -> OmniResult<Vec<PortInfo>> {
+    let ports = serialport::available_ports()
+        .map_err(|e| OmniError::internal(format!("Port scan failed: {e}")))?;
 
     let result: Vec<PortInfo> = ports
         .into_iter()

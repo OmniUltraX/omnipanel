@@ -5,7 +5,6 @@ mod commands;
 mod log_store;
 mod media_stream;
 mod output_buffer;
-mod protocol;
 mod ssh_tmux;
 mod state;
 mod transfer_bridge;
