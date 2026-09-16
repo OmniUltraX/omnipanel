@@ -1140,6 +1140,14 @@ export const commands = {
 	pluginSecretHas: (pluginId: string, key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_has", { pluginId, key })),
 	pluginSecretGet: (pluginId: string, key: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_get", { pluginId, key })),
 	pluginSecretDelete: (pluginId: string, key: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_delete", { pluginId, key })),
+	/**  从本地源码目录安装/覆盖安装（不开启监听，纯一次性）。 */
+	pluginInstallFromDir: (path: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_from_dir", { path })),
+	/**  开启热重载：先装一次当前内容，再注册轮询监听。 */
+	pluginDevWatch: (path: string) => typedError<DevWatchInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch", { path })),
+	/**  关闭指定插件的热重载（保留来源目录记录，可再次开启）。 */
+	pluginDevUnwatch: (pluginId: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_unwatch", { pluginId })),
+	/**  开发期条目一览（含监听中/仅装过目录两种）。 */
+	pluginDevStatus: () => typedError<DevWatchInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_status")),
 	/**  列出用户目录 + 开发态仓库目录（同名以用户目录为准）。 */
 	pluginStudioListProjects: () => typedError<StudioProject_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
 	/**  脚手架：新建一律写用户目录。有仓库+node 时复用 create-plugin.mjs；否则写内置 JS/L1 骨架。 */
@@ -2978,6 +2986,30 @@ export type DiskStats_Serialize = {
 	disks: DiskDeviceStats[],
 	readBytes?: number | null,
 	writeBytes?: number | null,
+};
+
+export type DevWatchInfo = DevWatchInfo_Serialize | DevWatchInfo_Deserialize;
+
+export type DevWatchInfo_Deserialize = {
+	pluginId: string,
+	version: string,
+	dir: string,
+	watching: boolean,
+	enabled: boolean,
+	activated: boolean,
+	lastReloadMs: number,
+	lastError: string,
+};
+
+export type DevWatchInfo_Serialize = {
+	pluginId: string,
+	version: string,
+	dir: string,
+	watching: boolean,
+	enabled: boolean,
+	activated: boolean,
+	lastReloadMs: number,
+	lastError: string,
 };
 
 /**  Docker auto-detection result. */

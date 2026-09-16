@@ -8,8 +8,10 @@ import { LogViewer } from "../../components/ui/content";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { WorkbenchPanelHeader } from "../../components/ui/primitives/WorkbenchPanelHeader";
 import { useI18n } from "../../i18n";
-import { commands, type StudioEnv, type StudioProject, type SubmitPreview } from "../../ipc/bindings";
+import { commands, type DevWatchInfo, type StudioEnv, type StudioProject, type SubmitPreview } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
+import { open as openDirDialog } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { askAiFromSurface } from "../../lib/ai/surfaces";
 import { useAiStore } from "../../stores/aiStore";
 import {
@@ -91,6 +93,9 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
   const [repo, setRepo] = useState("OmniUltraX/omnipanel");
   const [tokenDraft, setTokenDraft] = useState("");
   const [installing, setInstalling] = useState<string>("");
+  // 本地目录安装 + 热重载（开发期）：devDir 为上次安装的源码目录。
+  const [devDir, setDevDir] = useState("");
+  const [devList, setDevList] = useState<DevWatchInfo[]>([]);
 
   const dirty = content !== savedContent;
   const current = projects.find((item) => item.name === project);
@@ -403,6 +408,73 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
     }
   }, [artifact, running, t]);
 
+  const reloadDev = useCallback(async () => {
+    try {
+      setDevList(await unwrapCommand(commands.pluginDevStatus(), { quiet: true }));
+    } catch {
+      // 旧二进制无开发命令时静默
+    }
+  }, []);
+
+  /** 从本地源码目录安装/覆盖安装（dev 签名打包，走正式安装链路）。 */
+  const installFromDir = useCallback(async () => {
+    if (running) return;
+    const picked = await openDirDialog({ directory: true, multiple: false });
+    if (!picked || Array.isArray(picked)) return;
+    setDevDir(picked);
+    setRunning("dev-install");
+    setLogOpen(true);
+    try {
+      const item = await unwrapCommand(commands.pluginInstallFromDir(picked));
+      appendLog(setLog, t("plugins.studio.devInstalled", { id: item.id, version: item.version }));
+      setLastStatus(t("plugins.studio.devInstalled", { id: item.id, version: item.version }));
+      if (!item.enabled) appendLog(setLog, t("plugins.studio.devNotEnabled"));
+    } catch (err) {
+      appendLog(setLog, String(err));
+    } finally {
+      setRunning("");
+      void reloadDev();
+    }
+  }, [reloadDev, running, t]);
+
+  /** 热重载开关：监听上次安装的源码目录，保存静置后自动重装。 */
+  const toggleWatch = useCallback(async () => {
+    if (running || !devDir) return;
+    const watchingId = devList.find((d) => d.dir === devDir && d.watching)?.pluginId;
+    setRunning("dev-watch");
+    setLogOpen(true);
+    try {
+      if (watchingId) {
+        await unwrapCommand(commands.pluginDevUnwatch(watchingId));
+        appendLog(setLog, t("plugins.studio.devUnwatched", { id: watchingId }));
+      } else {
+        const info = await unwrapCommand(commands.pluginDevWatch(devDir));
+        appendLog(setLog, t("plugins.studio.devWatching", { id: info.pluginId }));
+        if (!info.enabled) appendLog(setLog, t("plugins.studio.devNotEnabled"));
+      }
+    } catch (err) {
+      appendLog(setLog, String(err));
+    } finally {
+      setRunning("");
+      void reloadDev();
+    }
+  }, [devDir, devList, reloadDev, running, t]);
+
+  const devWatching = devDir !== "" && devList.some((d) => d.dir === devDir && d.watching);
+
+  useEffect(() => {
+    void reloadDev();
+    let unlisten: (() => void) | undefined;
+    void listen("plugin://changed", () => {
+      void reloadDev();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [reloadDev]);
+
   const createProject = useCallback(async () => {
     if (!newName.trim() || running) return;
     setRunning("create");
@@ -558,6 +630,9 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
     ...(dirty ? [{ text: t("plugins.studio.unsaved") }] : []),
     ...(lastStatus ? [{ text: lastStatus }] : []),
     ...(running ? [{ text: t("plugins.studio.running") }] : []),
+    ...devList
+      .filter((d) => d.watching)
+      .map((d) => ({ text: t("plugins.studio.watchingTag", { id: d.pluginId }) })),
   ];
 
   return (
@@ -579,6 +654,14 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
             {artifact ? (
               <WorkbenchActionButton disabled={busy} onClick={() => void installArtifact()}>
                 {t("plugins.studio.install")}
+              </WorkbenchActionButton>
+            ) : null}
+            <WorkbenchActionButton disabled={busy} onClick={() => void installFromDir()}>
+              {t("plugins.studio.dirInstall")}
+            </WorkbenchActionButton>
+            {devDir ? (
+              <WorkbenchActionButton disabled={busy} onClick={() => void toggleWatch()}>
+                {devWatching ? t("plugins.studio.unwatch") : t("plugins.studio.watch")}
               </WorkbenchActionButton>
             ) : null}
             <WorkbenchActionButton
