@@ -298,7 +298,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   }, [displayTitle, entry, isFolder, t]);
 
   const handleVectorize = useCallback(async () => {
-    if (!entry || isFolder || isImported) return;
+    if (!entry || isFolder) return;
     if (!embeddingProvider) {
       publishModuleStatusLog("knowledge", t("knowledge.vectorize.noModel"), "error");
       return;
@@ -316,7 +316,6 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
     embeddingProvider,
     entry,
     isFolder,
-    isImported,
     knowledgeChunkOverlap,
     knowledgeChunkSize,
     t,
@@ -589,25 +588,96 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
 
   if (isReadonlyMirror && entry) {
     return (
-      <div className="knowledge-workspace knowledge-workspace--imported knowledge-workspace--note">
-        <div className="knowledge-note-chrome">
-          <div className="knowledge-note-chrome__left">
-            <span className="knowledge-note-chip">
-              {isSiyuanMirror
-                ? t("knowledge.siyuan.mirrorBadge")
-                : t("knowledge.importPreview.importedBadge")}
-            </span>
+      <div className="knowledge-workspace knowledge-workspace--imported knowledge-workspace--note knowledge-workspace--split">
+        <div className="knowledge-note-main">
+          <div className="knowledge-note-chrome">
+            <div className="knowledge-note-chrome__left">
+              <span className="knowledge-note-chip">
+                {isSiyuanMirror
+                  ? t("knowledge.siyuan.mirrorBadge")
+                  : t("knowledge.importPreview.importedBadge")}
+              </span>
+            </div>
+            <div className="knowledge-note-chrome__right">
+              {charCount > 0 && (
+                <span
+                  className="knowledge-note-meta"
+                  title={t("knowledge.doc.charCount", { count: charCount })}
+                >
+                  {t("knowledge.doc.charCount", { count: charCount })}
+                </span>
+              )}
+              {vectorStatus ? (
+                <span className="knowledge-note-meta" title={vectorStatusLabel}>
+                  {vectorStatusLabel}
+                </span>
+              ) : null}
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-sm"
+                title={t("knowledge.vectorize.parse")}
+                aria-label={t("knowledge.vectorize.parse")}
+                disabled={!embeddingProvider || vectorizing}
+                onClick={() => void handleVectorize()}
+              >
+                {contextMenuIcons.vectorize}
+              </Button>
+              <Button
+                type="button"
+                variant="icon"
+                size="icon-sm"
+                title={
+                  rightRailCollapsed ? t("knowledge.rail.expand") : t("knowledge.rail.collapse")
+                }
+                aria-label={
+                  rightRailCollapsed ? t("knowledge.rail.expand") : t("knowledge.rail.collapse")
+                }
+                aria-pressed={!rightRailCollapsed}
+                className={!rightRailCollapsed ? "is-active" : undefined}
+                onClick={() => setRightRailCollapsed(!rightRailCollapsed)}
+              >
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                  <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+                  <path d="M10 2.5v11" />
+                </svg>
+              </Button>
+            </div>
+          </div>
+          <div className="knowledge-note-scroll">
+            <h1 className="knowledge-note-title knowledge-note-title--readonly">{displayTitle}</h1>
+            {displayTags.length > 0 ? (
+              <div className="knowledge-tag-readonly" aria-label={t("knowledge.tagsUi.add")}>
+                {displayTags.map((tag) => (
+                  <span key={tag} className="knowledge-tag-chip">
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <ContentPreviewView
+              status="ready"
+              content={{ kind: "text", text: previewContent }}
+              defaultTextMode="markdown"
+              showTextModeToolbar
+            />
           </div>
         </div>
-        <div className="knowledge-note-scroll">
-          <h1 className="knowledge-note-title knowledge-note-title--readonly">{displayTitle}</h1>
-          <ContentPreviewView
-            status="ready"
-            content={{ kind: "text", text: previewContent }}
-            defaultTextMode="markdown"
-            showTextModeToolbar={false}
+        {!rightRailCollapsed ? (
+          <KnowledgeNoteRightRail
+            tab={rightRailTab}
+            onTabChange={setRightRailTab}
+            onCollapse={() => setRightRailCollapsed(true)}
+            headings={headings}
+            onJumpHeading={() => {}}
+            linked={meta.backlinks.get(entry.id) ?? []}
+            unlinked={unlinked}
+            onOpenEntry={(id) => openEntry(id, "preview")}
+            entryId={entry.id}
+            entryTitle={displayTitle}
+            meta={meta}
           />
-        </div>
+        ) : null}
       </div>
     );
   }
