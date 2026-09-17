@@ -20,6 +20,15 @@ export async function ensureSyncTeamKey(teamId?: number | null) {
   return unwrapCommand(commands.syncTeamKeyGetOrCreate(id));
 }
 
+/** 导出明文密钥供小程序扫码（QR 含 team_id + key）。 */
+export async function exportSyncTeamKeyForMiniapp(teamId?: number | null) {
+  const id = teamId ?? getCurrentSyncTeamId();
+  if (!id || id <= 0) {
+    throw new Error("无法解析当前同步团队");
+  }
+  return unwrapCommand(commands.syncTeamKeyExportForMiniapp(id));
+}
+
 export async function clearSyncTeamKey(teamId?: number | null) {
   const id = teamId ?? getCurrentSyncTeamId();
   if (!id || id <= 0) {

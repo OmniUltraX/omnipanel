@@ -1,23 +1,18 @@
-//! 云厂商 Host 薄桥：解连接、Vault、prod 闸、audit；业务经 `omnipanel-cloud` 分发。
+//! 云厂商 Host 薄桥：解连接、Vault、prod 闸、audit；业务经插件 L2（`invoke_cloud_plugin`）。
 
 use omnipanel_cloud::{
-    default_region, get_account, get_metrics, get_resource, http_probe_url, invoke_action,
-    is_first_party_cloud, is_write_action, list_regions, list_resources, query_logs, test_account,
-    CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
-    CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail, CloudResourceFilter,
-    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_HUAWEI, PLUGIN_ID_TENCENT,
-};
-use serde_json::{json, Value};
-use omnipanel_cloud_aliyun::{
-    AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
-    CloudSwasInstance,
+    default_region, is_write_action, AliyunCredentials, CloudAccountSnapshot, CloudAction,
+    CloudActionResult, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudLogPage,
+    CloudLogQuery, CloudMetricQuery, CloudMetricSeries, CloudOssBucket, CloudRegion,
+    CloudResourceDetail, CloudResourceFilter, CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN,
+    PLUGIN_ID_HUAWEI, PLUGIN_ID_TENCENT,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{AuditEntry, Connection, ConnectionKind, Vault};
 use serde::Deserialize;
+use serde_json::{json, Value};
 use tauri::State;
 
-use crate::commands::proxy::build_http_client_for_url;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -277,12 +272,6 @@ async fn load_connection(state: &AppState, connection_id: &str) -> Result<Connec
         .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "云账户不存在"))
 }
 
-async fn http_for_aliyun(state: &AppState, endpoint: &str) -> Result<reqwest::Client, OmniError> {
-    let proxy = state.proxy_config.lock().await.clone();
-    build_http_client_for_url(endpoint, &proxy, std::time::Duration::from_secs(30))
-        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))
-}
-
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -337,6 +326,36 @@ fn require_write_presence(
     )
 }
 
+fn field(row: &CloudResourceRow, key: &str) -> String {
+    row.fields.get(key).cloned().unwrap_or_default()
+}
+
+async fn list_resources_l2(
+    state: &AppState,
+    connection_id: &str,
+    capability: &str,
+    regions: Vec<String>,
+) -> Result<Vec<CloudResourceRow>, OmniError> {
+    let conn = load_connection(state, connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "listResources",
+        cloud_plugin_args(
+            connection_id,
+            &creds,
+            &cfg,
+            json!({
+                "capability": capability,
+                "filter": { "regions": regions },
+            }),
+        ),
+    )
+    .await?;
+    l2_items(value)
+}
+
 /// 编辑云账户表单：从 Vault 回显 AccessKey Secret（config 永不存明文）。
 #[tauri::command]
 #[specta::specta]
@@ -383,24 +402,20 @@ pub async fn cloud_test(
     secret: Option<String>,
 ) -> Result<String, OmniError> {
     let (plugin_id, creds, cfg) = resolve_credentials(&connection, secret.as_deref())?;
-    if !is_first_party_cloud(&plugin_id) {
-        let value = invoke_cloud_plugin(
-            &state,
-            &plugin_id,
-            "testAccount",
-            cloud_plugin_args(&connection.id, &creds, &cfg, json!({})),
-        )
-        .await?;
-        if let Some(msg) = value.as_str() {
-            return Ok(msg.to_string());
-        }
-        if let Some(msg) = value.get("message").and_then(|v| v.as_str()) {
-            return Ok(msg.to_string());
-        }
-        return Ok(value.to_string());
+    let value = invoke_cloud_plugin(
+        &state,
+        &plugin_id,
+        "testAccount",
+        cloud_plugin_args(&connection.id, &creds, &cfg, json!({})),
+    )
+    .await?;
+    if let Some(msg) = value.as_str() {
+        return Ok(msg.to_string());
     }
-    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    test_account(&plugin_id, &creds, &http).await
+    if let Some(msg) = value.get("message").and_then(|v| v.as_str()) {
+        return Ok(msg.to_string());
+    }
+    Ok(value.to_string())
 }
 
 #[tauri::command]
@@ -412,18 +427,14 @@ pub async fn cloud_list_regions(
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let configured = normalize_regions(&cfg.regions, &cfg.region);
-    if !is_first_party_cloud(&plugin_id) {
-        let value = invoke_cloud_plugin(
-            &state,
-            &plugin_id,
-            "listRegions",
-            cloud_plugin_args(&connection_id, &creds, &cfg, json!({ "configured": configured })),
-        )
-        .await?;
-        return l2_items(value);
-    }
-    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    list_regions(&plugin_id, &creds, &http, &configured).await
+    let value = invoke_cloud_plugin(
+        &state,
+        &plugin_id,
+        "listRegions",
+        cloud_plugin_args(&connection_id, &creds, &cfg, json!({ "configured": configured })),
+    )
+    .await?;
+    l2_items(value)
 }
 
 #[tauri::command]
@@ -434,20 +445,16 @@ pub async fn cloud_get_account(
 ) -> Result<CloudAccountSnapshot, OmniError> {
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
-    if !is_first_party_cloud(&plugin_id) {
-        let value = invoke_cloud_plugin(
-            &state,
-            &plugin_id,
-            "getAccount",
-            cloud_plugin_args(&connection_id, &creds, &cfg, json!({})),
-        )
-        .await?;
-        return serde_json::from_value(value).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "插件账户结果无法解析").with_cause(e.to_string())
-        });
-    }
-    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    get_account(&plugin_id, &creds, &http).await
+    let value = invoke_cloud_plugin(
+        &state,
+        &plugin_id,
+        "getAccount",
+        cloud_plugin_args(&connection_id, &creds, &cfg, json!({})),
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "插件账户结果无法解析").with_cause(e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -461,23 +468,19 @@ pub async fn cloud_list_resources(
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let filter = filter.unwrap_or_default();
-    if !is_first_party_cloud(&plugin_id) {
-        let value = invoke_cloud_plugin(
-            &state,
-            &plugin_id,
-            "listResources",
-            cloud_plugin_args(
-                &connection_id,
-                &creds,
-                &cfg,
-                json!({ "capability": capability, "filter": filter }),
-            ),
-        )
-        .await?;
-        return l2_items(value);
-    }
-    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    list_resources(&plugin_id, &creds, &http, &capability, &filter).await
+    let value = invoke_cloud_plugin(
+        &state,
+        &plugin_id,
+        "listResources",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({ "capability": capability, "filter": filter }),
+        ),
+    )
+    .await?;
+    l2_items(value)
 }
 
 #[tauri::command]
@@ -492,29 +495,25 @@ pub async fn cloud_get_resource(
     let conn = load_connection(&state, &connection_id).await?;
     let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let region = region_id.as_deref().unwrap_or("");
-    if !is_first_party_cloud(&plugin_id) {
-        let value = invoke_cloud_plugin(
-            &state,
-            &plugin_id,
-            "getResource",
-            cloud_plugin_args(
-                &connection_id,
-                &creds,
-                &cfg,
-                json!({
-                    "capability": capability,
-                    "resourceId": resource_id,
-                    "regionId": region,
-                }),
-            ),
-        )
-        .await?;
-        return serde_json::from_value(value).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "插件详情结果无法解析").with_cause(e.to_string())
-        });
-    }
-    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    get_resource(&plugin_id, &creds, &http, &capability, &resource_id, region).await
+    let value = invoke_cloud_plugin(
+        &state,
+        &plugin_id,
+        "getResource",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({
+                "capability": capability,
+                "resourceId": resource_id,
+                "regionId": region,
+            }),
+        ),
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "插件详情结果无法解析").with_cause(e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -537,22 +536,15 @@ pub async fn cloud_invoke_action(
         );
         return Err(err);
     }
-    if !is_first_party_cloud(&plugin_id) {
-        let value = invoke_cloud_plugin(
-            &state,
-            &plugin_id,
-            "invokeAction",
-            cloud_plugin_args(&connection_id, &creds, &cfg, json!({ "action": action })),
-        )
-        .await?;
-        return serde_json::from_value(value).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "插件动作结果无法解析").with_cause(e.to_string())
-        });
-    }
-    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    match invoke_action(&plugin_id, &creds, &http, &action).await
+    match invoke_cloud_plugin(
+        &state,
+        &plugin_id,
+        "invokeAction",
+        cloud_plugin_args(&connection_id, &creds, &cfg, json!({ "action": action })),
+    )
+    .await
     {
-        Ok(result) => {
+        Ok(value) => {
             audit_cloud_action(
                 &state,
                 &conn,
@@ -561,7 +553,9 @@ pub async fn cloud_invoke_action(
                 &action.resource_id,
                 "success",
             );
-            Ok(result)
+            serde_json::from_value(value).map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "插件动作结果无法解析").with_cause(e.to_string())
+            })
         }
         Err(err) => {
             audit_cloud_action(
@@ -591,37 +585,24 @@ pub async fn cloud_get_metrics(
     let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let region = region_id.as_deref().unwrap_or("");
     let query = query.unwrap_or_default();
-    if !is_first_party_cloud(&plugin_id) {
-        let value = invoke_cloud_plugin(
-            &state,
-            &plugin_id,
-            "getMetrics",
-            cloud_plugin_args(
-                &connection_id,
-                &creds,
-                &cfg,
-                json!({
-                    "capability": capability,
-                    "resourceId": resource_id,
-                    "regionId": region,
-                    "query": query,
-                }),
-            ),
-        )
-        .await?;
-        return l2_items(value);
-    }
-    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    get_metrics(
+    let value = invoke_cloud_plugin(
+        &state,
         &plugin_id,
-        &creds,
-        &http,
-        &capability,
-        &resource_id,
-        region,
-        &query,
+        "getMetrics",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({
+                "capability": capability,
+                "resourceId": resource_id,
+                "regionId": region,
+                "query": query,
+            }),
+        ),
     )
-    .await
+    .await?;
+    l2_items(value)
 }
 
 #[tauri::command]
@@ -638,42 +619,29 @@ pub async fn cloud_query_logs(
     let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
     let region = region_id.as_deref().unwrap_or("");
     let query = query.unwrap_or_default();
-    if !is_first_party_cloud(&plugin_id) {
-        let value = invoke_cloud_plugin(
-            &state,
-            &plugin_id,
-            "queryLogs",
-            cloud_plugin_args(
-                &connection_id,
-                &creds,
-                &cfg,
-                json!({
-                    "capability": capability,
-                    "resourceId": resource_id,
-                    "regionId": region,
-                    "query": query,
-                }),
-            ),
-        )
-        .await?;
-        return serde_json::from_value(value).map_err(|e| {
-            OmniError::new(ErrorCode::Internal, "插件日志结果无法解析").with_cause(e.to_string())
-        });
-    }
-    let http = http_for_aliyun(&state, http_probe_url(&plugin_id)).await?;
-    query_logs(
+    let value = invoke_cloud_plugin(
+        &state,
         &plugin_id,
-        &creds,
-        &http,
-        &capability,
-        &resource_id,
-        region,
-        &query,
+        "queryLogs",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({
+                "capability": capability,
+                "resourceId": resource_id,
+                "regionId": region,
+                "query": query,
+            }),
+        ),
     )
-    .await
+    .await?;
+    serde_json::from_value(value).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "插件日志结果无法解析").with_cause(e.to_string())
+    })
 }
 
-/// 过渡：产品级列表，内部仍走同一客户端。前端主路径请用 `cloud_list_resources`。
+/// 过渡：产品级列表，内部走 `listResources`。前端主路径请用 `cloud_list_resources`。
 #[tauri::command]
 #[specta::specta]
 pub async fn cloud_list_oss(
@@ -681,13 +649,25 @@ pub async fn cloud_list_oss(
     connection_id: String,
     region: Option<String>,
 ) -> Result<Vec<CloudOssBucket>, OmniError> {
-    let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, mut creds, _) = resolve_credentials(&conn, None)?;
-    if let Some(r) = region.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        creds.region = r.to_string();
-    }
-    let http = http_for_aliyun(&state, "https://oss.aliyuncs.com/").await?;
-    creds.list_oss_buckets(&http).await
+    let regions = region
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| vec![s.to_string()])
+        .unwrap_or_default();
+    let rows = list_resources_l2(&state, &connection_id, "objectStorage", regions).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudOssBucket {
+            name: row.name.clone(),
+            location: field(&row, "location"),
+            creation_date: field(&row, "creationDate"),
+            storage_class: field(&row, "storageClass"),
+            extranet_endpoint: field(&row, "endpoint"),
+            intranet_endpoint: String::new(),
+            region: row.region_id,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -697,13 +677,31 @@ pub async fn cloud_list_swas(
     connection_id: String,
     region: Option<String>,
 ) -> Result<Vec<CloudSwasInstance>, OmniError> {
-    let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, mut creds, _) = resolve_credentials(&conn, None)?;
-    if let Some(r) = region.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        creds.region = r.to_string();
-    }
-    let http = http_for_aliyun(&state, "https://swas.aliyuncs.com/").await?;
-    creds.list_swas_instances(&http).await
+    let regions = region
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| vec![s.to_string()])
+        .unwrap_or_default();
+    let rows = list_resources_l2(&state, &connection_id, "compute.lite", regions).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudSwasInstance {
+            instance_id: row.id.clone(),
+            instance_name: row.name.clone(),
+            status: row.status.clone(),
+            region_id: row.region_id.clone(),
+            public_ip_address: field(&row, "publicIp"),
+            private_ip_address: field(&row, "privateIp"),
+            image_id: field(&row, "imageId"),
+            instance_plan: field(&row, "plan"),
+            creation_time: field(&row, "creationTime"),
+            expired_time: field(&row, "expiredTime"),
+            charge_type: field(&row, "chargeType"),
+            bandwidth: field(&row, "bandwidth"),
+            disk_size: field(&row, "diskSize"),
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -712,10 +710,18 @@ pub async fn cloud_list_domains(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<CloudDomainItem>, OmniError> {
-    let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, creds, _) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(&state, "https://domain.aliyuncs.com/").await?;
-    creds.list_domains(&http).await
+    let rows = list_resources_l2(&state, &connection_id, "domains", Vec::new()).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudDomainItem {
+            domain_name: row.name.clone(),
+            instance_id: row.id.clone(),
+            registration_date: field(&row, "registrationDate"),
+            expiration_date: field(&row, "expirationDate"),
+            domain_status: row.status.clone(),
+            domain_type: field(&row, "type"),
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -725,13 +731,38 @@ pub async fn cloud_list_ecs(
     connection_id: String,
     region: Option<String>,
 ) -> Result<Vec<CloudEcsInstance>, OmniError> {
-    let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, mut creds, _) = resolve_credentials(&conn, None)?;
-    if let Some(r) = region.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        creds.region = r.to_string();
-    }
-    let http = http_for_aliyun(&state, "https://ecs.aliyuncs.com/").await?;
-    creds.list_ecs_instances(&http).await
+    let regions = region
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| vec![s.to_string()])
+        .unwrap_or_default();
+    let rows = list_resources_l2(&state, &connection_id, "compute", regions).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudEcsInstance {
+            instance_id: row.id.clone(),
+            instance_name: row.name.clone(),
+            status: row.status.clone(),
+            region_id: row.region_id.clone(),
+            zone_id: field(&row, "zone"),
+            instance_type: field(&row, "instanceType"),
+            public_ip_address: field(&row, "publicIp"),
+            private_ip_address: field(&row, "privateIp"),
+            os_name: field(&row, "os"),
+            creation_time: field(&row, "creationTime"),
+            expired_time: field(&row, "expiredTime"),
+            auto_release_time: String::new(),
+            charge_type: field(&row, "chargeType"),
+            security_group_ids: field(&row, "securityGroups"),
+            cpu: field(&row, "cpu"),
+            memory: field(&row, "memory"),
+            hostname: field(&row, "hostname"),
+            bandwidth: field(&row, "bandwidth"),
+            vpc_id: field(&row, "vpcId"),
+            key_pair_name: String::new(),
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -740,10 +771,20 @@ pub async fn cloud_list_certs(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<CloudCertificateItem>, OmniError> {
-    let conn = load_connection(&state, &connection_id).await?;
-    let (_plugin_id, creds, _) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(&state, "https://cas.aliyuncs.com/").await?;
-    creds.list_certificates(&http).await
+    let rows = list_resources_l2(&state, &connection_id, "certs", Vec::new()).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudCertificateItem {
+            order_id: row.id.clone(),
+            name: row.name.clone(),
+            domain: field(&row, "domain"),
+            status: row.status.clone(),
+            product_name: field(&row, "product"),
+            cert_type: field(&row, "certType"),
+            buy_date: String::new(),
+            end_date: field(&row, "endDate"),
+        })
+        .collect())
 }
 
 #[cfg(test)]

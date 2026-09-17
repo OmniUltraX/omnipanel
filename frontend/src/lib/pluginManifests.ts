@@ -4,14 +4,6 @@ import {
   type PluginManifest,
 } from "@omnipanel/plugin-sdk";
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
-import cloudAliyunJson from "../../../plugins/cloud-aliyun/plugin.json";
-import cloudAwsJson from "../../../plugins/cloud-aws/plugin.json";
-import cloudAzureJson from "../../../plugins/cloud-azure/plugin.json";
-import cloudBandwagonJson from "../../../plugins/cloud-bandwagon/plugin.json";
-import cloudDigitaloceanJson from "../../../plugins/cloud-digitalocean/plugin.json";
-import cloudGcpJson from "../../../plugins/cloud-gcp/plugin.json";
-import cloudHuaweiJson from "../../../plugins/cloud-huawei/plugin.json";
-import cloudTencentJson from "../../../plugins/cloud-tencent/plugin.json";
 import dbClickhouseJson from "../../../plugins/db-clickhouse/plugin.json";
 import dbMongodbJson from "../../../plugins/db-mongodb/plugin.json";
 import dbMysqlJson from "../../../plugins/db-mysql/plugin.json";
@@ -22,27 +14,19 @@ import dbSqliteJson from "../../../plugins/db-sqlite/plugin.json";
 import dbSqlserverJson from "../../../plugins/db-sqlserver/plugin.json";
 import importerDockerDbJson from "../../../plugins/importer-docker-db/plugin.json";
 import importerWarpgateJson from "../../../plugins/importer-warpgate/plugin.json";
-import moduleNacosJson from "../../../plugins/module-nacos/plugin.json";
 import panel1panelJson from "../../../plugins/panel-1panel/plugin.json";
 import panelBtJson from "../../../plugins/panel-bt/plugin.json";
 import panelHestiaJson from "../../../plugins/panel-hestia/plugin.json";
 import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
 
 /**
- * 第一方清单唯一前端事实源：与仓库 `plugins/` 目录一一对应，
+ * 第一方清单唯一前端事实源：与仓库 `plugins/` 中 bundled 目录一一对应，
  * 完整性由 `scripts/check-plugin-manifests.mjs` 校验。
+ * `module-nacos` / 全部 `cloud-*` 等 download-only 插件不在此表（安装后经 Runtime Store 灌入）。
  * 消费方 MUST 从此处按 kind/id 查询，禁止直接 import `plugins/*`。
  */
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
-  parsePluginManifest(cloudAliyunJson),
-  parsePluginManifest(cloudAwsJson),
-  parsePluginManifest(cloudAzureJson),
-  parsePluginManifest(cloudBandwagonJson),
-  parsePluginManifest(cloudDigitaloceanJson),
-  parsePluginManifest(cloudGcpJson),
-  parsePluginManifest(cloudHuaweiJson),
-  parsePluginManifest(cloudTencentJson),
   parsePluginManifest(dbClickhouseJson),
   parsePluginManifest(dbMongodbJson),
   parsePluginManifest(dbMysqlJson),
@@ -53,7 +37,6 @@ export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(dbSqlserverJson),
   parsePluginManifest(importerDockerDbJson),
   parsePluginManifest(importerWarpgateJson),
-  parsePluginManifest(moduleNacosJson),
   parsePluginManifest(panel1panelJson),
   parsePluginManifest(panelBtJson),
   parsePluginManifest(panelHestiaJson),
@@ -128,5 +111,9 @@ export function resolveLegacyPluginId(raw: string | null | undefined): string | 
   const value = (raw ?? "").trim().toLowerCase();
   if (!value) return null;
   if (getPluginManifest(value)) return value;
-  return LEGACY_PLUGIN_ALIASES[value] ?? null;
+  const aliased = LEGACY_PLUGIN_ALIASES[value];
+  if (aliased) return aliased;
+  // download-only 云厂商可能尚未灌入静态表，但已是标准插件 id
+  if (value.startsWith("omni.")) return value;
+  return null;
 }

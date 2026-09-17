@@ -187,6 +187,18 @@ export function CloudResourceListPanel({
                 {t("cloud.actions.reboot")}
               </WorkbenchActionButton>
             ) : null}
+            {capabilityHasDeclaredAction(cap?.actions, "delete") ? (
+              <WorkbenchActionButton
+                danger
+                disabled={busyId === row.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void invokePluginAction(row, "delete");
+                }}
+              >
+                {t("cloud.actions.delete")}
+              </WorkbenchActionButton>
+            ) : null}
             {capabilityHasDeclaredAction(cap?.actions, "addSsh") ? (
               <WorkbenchActionButton
                 disabled={Boolean(sshLinked) || busyId === row.id}

@@ -78,8 +78,8 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 | Area | Highlights |
 |------|------------|
 | **Plugin platform** | Signed `.omni-plugin` install; Plugin Center + studio pack/install; official verify & submissions; L1 / L2 / L3 |
-| **Cloud vendors** | Capability workbench (account → capability → instance); Aliyun / Tencent Cloud / Huawei Cloud / AWS / Azure / GCP / DigitalOcean / BandwagonHost; Aliyun also covers SG / EIP / SLB / RDS / Redis / disk / DNS |
-| **Module plugins** | Nacos: namespace switch, service online/offline, resizable split, Ctrl+F config search |
+| **Cloud vendors** | Capability workbench (account → capability → instance); eight vendors as **download-only** L2 plugins from Plugin Center (Aliyun / Tencent / Huawei / AWS / Azure / GCP / DigitalOcean / BandwagonHost); Aliyun SG delete + EIP / SLB / RDS / Redis / disk / DNS |
+| **Module plugins** | Nacos (download-only): namespace switch, service online/offline, resizable split, Ctrl+F config search |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
 | **Presence guard** | Dangerous ops require Windows Hello / Touch ID or short-lived type-issued token; consumed once per action across DB / Docker / cloud / SSH |
 | **Team sync** | Module snapshots use v2 key derivation; folder trees; wait layout hydration before push/pull |

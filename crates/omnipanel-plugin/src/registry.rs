@@ -442,7 +442,12 @@ mod tests {
     #[test]
     fn module_seeds_from_kind_module() {
         let mut reg = PluginRegistry::new();
-        reg.register(crate::first_party::module_nacos()).unwrap();
+        let nacos = PluginManifest::from_json(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/module-nacos/plugin.json"
+        )))
+        .expect("nacos plugin.json");
+        reg.register(nacos).unwrap();
         let seeds = reg.module_seeds();
         assert_eq!(seeds, vec![("nacos".to_string(), 80)]);
         assert!(reg.activated_module_seeds().is_empty());

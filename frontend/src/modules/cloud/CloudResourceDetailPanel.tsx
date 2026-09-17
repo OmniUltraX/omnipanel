@@ -7,7 +7,7 @@ import { showToast } from "../../stores/toastStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { cloudCapabilityLabel, cloudRegionLabel, formatCloudFieldValue, type CloudAccount } from "./cloudForm";
 import { cloudCapabilityById } from "./cloudCapabilities";
-import { capabilityHasDeclaredAction } from "./cloudWorkspaceTabs";
+import { capabilityHasDeclaredAction, makeCloudResourceTabId } from "./cloudWorkspaceTabs";
 import {
   addCloudInstanceToSsh,
   addCloudOssToFile,
@@ -355,8 +355,11 @@ export function CloudResourceDetailPanel({
         }),
       );
       showToast(t("cloud.actions.submitted", { action: t(`cloud.actions.${action}`) }));
-      await reload(true);
       setActionDialog(null);
+      // 删除后资源已不存在，跳过详情刷新
+      if (action !== "delete") {
+        await reload(true);
+      }
       return true;
     } catch (err) {
       showToast(formatIpcError(err));
@@ -489,6 +492,7 @@ export function CloudResourceDetailPanel({
     id: string;
     label: string;
     disabled?: boolean;
+    danger?: boolean;
     onClick: () => void;
   };
   const headerActions: HeaderAction[] = [];
@@ -547,6 +551,26 @@ export function CloudResourceDetailPanel({
       label: t("cloud.actions.createSnapshot"),
       disabled: busy,
       onClick: () => setActionDialog("createSnapshot"),
+    });
+  }
+  if (capabilityHasDeclaredAction(cap?.actions, "delete")) {
+    headerActions.push({
+      id: "delete",
+      label: t("cloud.actions.delete"),
+      disabled: busy,
+      danger: true,
+      onClick: () => {
+        void (async () => {
+          const ok = await invoke("delete");
+          if (!ok) return;
+          useCloudDockStore.getState().closeTab(makeCloudResourceTabId(account.id, capability, resourceId));
+          useCloudDockStore.getState().selectResources(account.id, capability);
+          void useCloudInventoryStore
+            .getState()
+            .ensureList(account.id, capability, account.regions ?? [], { force: true })
+            .catch(() => {});
+        })();
+      },
     });
   }
   if (capabilityHasDeclaredAction(cap?.actions, "addSsh")) {
@@ -684,7 +708,7 @@ export function CloudResourceDetailPanel({
                   <button
                     key={item.id}
                     type="button"
-                    className="cloud-detail__action"
+                    className={`cloud-detail__action${item.danger ? " cloud-detail__action--danger" : ""}`}
                     disabled={item.disabled}
                     title={item.label}
                     onClick={item.onClick}

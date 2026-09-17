@@ -1,21 +1,17 @@
-//! 云厂商 Host 命令：经 `omnipanel-cloud` 分发到各厂商 Driver。
+//! 云厂商 Host 命令（Web）：连接规范化 / Secret 回显仍可用。
+//! 业务调用（测连、列表、动作）依赖桌面端插件 L2；Web 暂无 QuickJS 运行时。
 
 use omnipanel_cloud::{
     CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
     CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail, CloudResourceFilter,
-    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT, default_region, get_account,
-    get_metrics, get_resource, http_probe_url, invoke_action, is_write_action, list_regions,
-    list_resources, query_logs, test_account,
-};
-use omnipanel_cloud_aliyun::{
+    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT, default_region,
     AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
     CloudSwasInstance,
 };
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{AuditEntry, Connection, ConnectionKind, Vault};
+use omnipanel_store::{Connection, ConnectionKind, Vault};
 use serde::Deserialize;
 
-use crate::http_client::{build_http_client_for_url, proxy_config};
 use crate::state::ServerState;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -68,6 +64,13 @@ fn effective_region(cfg: &CloudConfig, plugin_id: &str, override_region: Option<
 
 pub(crate) fn cloud_secret_ref(connection_id: &str) -> String {
     format!("cloud-secret-{connection_id}")
+}
+
+fn web_cloud_unsupported() -> OmniError {
+    OmniError::new(
+        ErrorCode::Internal,
+        "Web 版暂不支持云厂商插件（需桌面端 L2 QuickJS 运行时）",
+    )
 }
 
 #[allow(dead_code)]
@@ -125,6 +128,7 @@ pub(crate) fn normalize_cloud_connection(
     Ok(connection)
 }
 
+#[allow(dead_code)]
 fn resolve_credentials(
     connection: &Connection,
     secret_override: Option<&str>,
@@ -189,12 +193,6 @@ async fn load_connection(
         .ok_or_else(|| OmniError::new(ErrorCode::NotFound, "云账户不存在"))
 }
 
-async fn http_for_aliyun(endpoint: &str) -> Result<reqwest::Client, OmniError> {
-    let proxy = proxy_config();
-    build_http_client_for_url(endpoint, &proxy, std::time::Duration::from_secs(30))
-        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))
-}
-
 /// 编辑云账户表单：从 Vault 回显 AccessKey Secret（config 永不存明文）。
 pub async fn cloud_resolve_secret(
     state: &ServerState,
@@ -227,313 +225,109 @@ pub async fn cloud_resolve_secret(
 
 pub async fn cloud_test(
     _state: &ServerState,
-    connection: Connection,
-    secret: Option<String>,
+    _connection: Connection,
+    _secret: Option<String>,
 ) -> Result<String, OmniError> {
-    let (plugin_id, creds) = resolve_credentials(&connection, secret.as_deref())?;
-    let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    test_account(&plugin_id, &creds, &http).await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_list_oss(
-    state: &ServerState,
-    connection_id: String,
-    region: Option<String>,
+    _state: &ServerState,
+    _connection_id: String,
+    _region: Option<String>,
 ) -> Result<Vec<CloudOssBucket>, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (_, mut creds) = resolve_credentials(&conn, None)?;
-    if let Some(r) = region.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        creds.region = r.to_string();
-    }
-    let http = http_for_aliyun("https://oss.aliyuncs.com/").await?;
-    creds.list_oss_buckets(&http).await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_list_swas(
-    state: &ServerState,
-    connection_id: String,
-    region: Option<String>,
+    _state: &ServerState,
+    _connection_id: String,
+    _region: Option<String>,
 ) -> Result<Vec<CloudSwasInstance>, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (_, mut creds) = resolve_credentials(&conn, None)?;
-    if let Some(r) = region.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        creds.region = r.to_string();
-    }
-    let region = if creds.region.is_empty() {
-        "cn-hangzhou"
-    } else {
-        creds.region.as_str()
-    };
-    let endpoint = format!("https://swas.{region}.aliyuncs.com/");
-    let http = http_for_aliyun(&endpoint).await?;
-    creds.list_swas_instances(&http).await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_list_domains(
-    state: &ServerState,
-    connection_id: String,
+    _state: &ServerState,
+    _connection_id: String,
 ) -> Result<Vec<CloudDomainItem>, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (_plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun("https://domain.aliyuncs.com/").await?;
-    creds.list_domains(&http).await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_list_ecs(
-    state: &ServerState,
-    connection_id: String,
-    region: Option<String>,
+    _state: &ServerState,
+    _connection_id: String,
+    _region: Option<String>,
 ) -> Result<Vec<CloudEcsInstance>, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (_, mut creds) = resolve_credentials(&conn, None)?;
-    if let Some(r) = region.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        creds.region = r.to_string();
-    }
-    let region = if creds.region.is_empty() {
-        "cn-hangzhou"
-    } else {
-        creds.region.as_str()
-    };
-    let endpoint = format!("https://ecs.{region}.aliyuncs.com/");
-    let http = http_for_aliyun(&endpoint).await?;
-    creds.list_ecs_instances(&http).await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_list_regions(
-    state: &ServerState,
-    connection_id: String,
+    _state: &ServerState,
+    _connection_id: String,
 ) -> Result<Vec<CloudRegion>, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let cfg: CloudConfig = serde_json::from_str(&conn.config).unwrap_or(CloudConfig {
-        provider: default_provider(),
-        plugin_id: String::new(),
-        region: String::new(),
-        regions: Vec::new(),
-        access_key_id: String::new(),
-        access_key_secret: String::new(),
-    });
-    let configured = normalize_regions(&cfg.regions, &cfg.region);
-    let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    list_regions(&plugin_id, &creds, &http, &configured).await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_get_account(
-    state: &ServerState,
-    connection_id: String,
+    _state: &ServerState,
+    _connection_id: String,
 ) -> Result<CloudAccountSnapshot, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    get_account(&plugin_id, &creds, &http).await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_list_certs(
-    state: &ServerState,
-    connection_id: String,
+    _state: &ServerState,
+    _connection_id: String,
 ) -> Result<Vec<CloudCertificateItem>, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (_plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun("https://cas.aliyuncs.com/").await?;
-    creds.list_certificates(&http).await
-}
-
-fn plugin_id_of(cfg: &CloudConfig) -> Result<String, OmniError> {
-    let raw = if !cfg.plugin_id.trim().is_empty() {
-        cfg.plugin_id.as_str()
-    } else {
-        cfg.provider.as_str()
-    };
-    omnipanel_cloud::resolve_plugin_id(raw)
-}
-
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn require_write_presence(
-    state: &ServerState,
-    connection_id: &str,
-    action: &CloudAction,
-) -> Result<(), OmniError> {
-    if !is_write_action(&action.name) {
-        return Ok(());
-    }
-    let target =
-        omnipanel_presence::pipe_target(&[connection_id, &action.resource_id, &action.name]);
-    omnipanel_presence::require_grant(
-        &state.presence_tokens,
-        action.presence_token.as_deref(),
-        omnipanel_presence::ACTION_CLOUD_LIFECYCLE,
-        &target,
-    )
-}
-
-fn audit_cloud_action(
-    state: &ServerState,
-    conn: &Connection,
-    plugin_id: &str,
-    action: &str,
-    resource_id: &str,
-    status: &str,
-) {
-    let entry = AuditEntry {
-        ts: now_ms(),
-        action: "cloud.invoke".into(),
-        target: conn.id.clone(),
-        env_tag: conn.env_tag.clone(),
-        risk: if is_write_action(action) {
-            "high".into()
-        } else {
-            "medium".into()
-        },
-        status: status.into(),
-        detail: format!("pluginId={plugin_id} action={action} resource={resource_id}"),
-    };
-    if let Ok(store) = state.storage.try_lock() {
-        let _ = store.append_audit(&entry);
-    }
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_list_resources(
-    state: &ServerState,
-    connection_id: String,
-    capability: String,
-    filter: Option<CloudResourceFilter>,
+    _state: &ServerState,
+    _connection_id: String,
+    _capability: String,
+    _filter: Option<CloudResourceFilter>,
 ) -> Result<Vec<CloudResourceRow>, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    list_resources(
-        &plugin_id,
-        &creds,
-        &http,
-        &capability,
-        &filter.unwrap_or_default(),
-    )
-    .await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_get_resource(
-    state: &ServerState,
-    connection_id: String,
-    capability: String,
-    resource_id: String,
-    region_id: Option<String>,
+    _state: &ServerState,
+    _connection_id: String,
+    _capability: String,
+    _resource_id: String,
+    _region_id: Option<String>,
 ) -> Result<CloudResourceDetail, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    get_resource(
-        &plugin_id,
-        &creds,
-        &http,
-        &capability,
-        &resource_id,
-        region_id.as_deref().unwrap_or(""),
-    )
-    .await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_invoke_action(
-    state: &ServerState,
-    connection_id: String,
-    action: CloudAction,
+    _state: &ServerState,
+    _connection_id: String,
+    _action: CloudAction,
 ) -> Result<CloudActionResult, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let cfg = serde_json::from_str(&conn.config).unwrap_or(CloudConfig {
-        provider: default_provider(),
-        plugin_id: String::new(),
-        region: String::new(),
-        regions: Vec::new(),
-        access_key_id: String::new(),
-        access_key_secret: String::new(),
-    });
-    let plugin_id = plugin_id_of(&cfg).unwrap_or_else(|_| PLUGIN_ID_ALIYUN.to_string());
-    if let Err(err) = require_write_presence(state, &connection_id, &action) {
-        audit_cloud_action(
-            state,
-            &conn,
-            &plugin_id,
-            &action.name,
-            &action.resource_id,
-            "blocked",
-        );
-        return Err(err);
-    }
-    let (plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    match invoke_action(&plugin_id, &creds, &http, &action).await {
-        Ok(result) => {
-            audit_cloud_action(
-                state,
-                &conn,
-                &plugin_id,
-                &action.name,
-                &action.resource_id,
-                "success",
-            );
-            Ok(result)
-        }
-        Err(err) => {
-            audit_cloud_action(
-                state,
-                &conn,
-                &plugin_id,
-                &action.name,
-                &action.resource_id,
-                "failed",
-            );
-            Err(err)
-        }
-    }
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_get_metrics(
-    state: &ServerState,
-    connection_id: String,
-    capability: String,
-    resource_id: String,
-    region_id: Option<String>,
-    query: Option<CloudMetricQuery>,
+    _state: &ServerState,
+    _connection_id: String,
+    _capability: String,
+    _resource_id: String,
+    _region_id: Option<String>,
+    _query: Option<CloudMetricQuery>,
 ) -> Result<Vec<CloudMetricSeries>, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    get_metrics(
-        &plugin_id,
-        &creds,
-        &http,
-        &capability,
-        &resource_id,
-        region_id.as_deref().unwrap_or(""),
-        &query.unwrap_or_default(),
-    )
-    .await
+    Err(web_cloud_unsupported())
 }
 
 pub async fn cloud_query_logs(
-    state: &ServerState,
-    connection_id: String,
-    capability: String,
-    resource_id: String,
-    region_id: Option<String>,
-    query: Option<CloudLogQuery>,
+    _state: &ServerState,
+    _connection_id: String,
+    _capability: String,
+    _resource_id: String,
+    _region_id: Option<String>,
+    _query: Option<CloudLogQuery>,
 ) -> Result<CloudLogPage, OmniError> {
-    let conn = load_connection(state, &connection_id).await?;
-    let (plugin_id, creds) = resolve_credentials(&conn, None)?;
-    let http = http_for_aliyun(http_probe_url(&plugin_id)).await?;
-    query_logs(
-        &plugin_id,
-        &creds,
-        &http,
-        &capability,
-        &resource_id,
-        region_id.as_deref().unwrap_or(""),
-        &query.unwrap_or_default(),
-    )
-    .await
+    Err(web_cloud_unsupported())
 }

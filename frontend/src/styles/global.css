@@ -7173,6 +7173,33 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     align-items: center;
     gap: 12px;
     padding: 4px 0;
+    max-height: min(80vh, 640px);
+    overflow: auto;
+}
+
+.sidebar-miniapp-bound-section {
+    width: 100%;
+    min-width: 240px;
+    margin-top: 4px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sidebar-miniapp-bound-title {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted, var(--fg-muted));
+    text-align: left;
+}
+
+.sidebar-miniapp-assistant-list--below-qr {
+    width: 100%;
+    min-width: 0;
+    padding: 0;
 }
 
 .sidebar-miniapp-assistant-item {
@@ -7192,6 +7219,17 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.sidebar-miniapp-assistant-online {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--success, #34c759);
 }
 
 .sidebar-miniapp-assistant-unbind {

@@ -85,6 +85,7 @@ export default {
       start: "Start",
       stop: "Stop",
       reboot: "Reboot",
+      delete: "Delete",
       authorizeRule: "Add rule",
       revokeRule: "Delete rule",
       modifyRule: "Modify rule",

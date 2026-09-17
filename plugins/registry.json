@@ -1,13 +1,16 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "plugins": [
     {
       "id": "omni.addon.everything",
       "kind": "addon",
       "name": "Everything local search",
       "description": "Search local file paths via Everything (Windows, metadata only).",
-      "version": "0.1.0",
-      "distribution": "bundled",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
       "permissions": [
         "ai:tools",
         "fs:read"
@@ -33,18 +36,350 @@
       ]
     },
     {
-      "id": "omni.knowledge.siyuan",
-      "kind": "knowledge",
-      "name": "SiYuan notes",
-      "description": "Mirror SiYuan notebooks into the knowledge base (read-only, host pipeline).",
-      "version": "0.4.0",
-      "distribution": "download",
-      "artifact": {
-        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-knowledge-siyuan-0.4.0.omni-plugin",
-        "sha256": "",
-        "size": 4561
-      },
-      "permissions": []
+      "id": "omni.cloud.aliyun",
+      "kind": "cloud",
+      "name": "Alibaba Cloud",
+      "description": "Manage ECS, security groups, RDS, metrics, and other Alibaba Cloud resources.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-aliyun-0.1.0.omni-plugin",
+            "sha256": "488389dfdaf4e4b4c21051859dc8396ff1db130985544d37bee79deee40ad49f",
+            "size": 8895
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-09-03T18:20:17+08:00"
+    },
+    {
+      "id": "omni.cloud.aws",
+      "kind": "cloud",
+      "name": "AWS",
+      "description": "Manage EC2, EBS, S3, RDS, ElastiCache, and other Amazon Web Services resources.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-aws-0.1.0.omni-plugin",
+            "sha256": "03bc08c1b82d3bc0bd11d137da367333e798173d3bc951c0ca9d4b7b51566229",
+            "size": 12914
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-02T19:04:34+08:00",
+      "updatedAt": "2026-09-10T13:38:43+08:00"
+    },
+    {
+      "id": "omni.cloud.azure",
+      "kind": "cloud",
+      "name": "Microsoft Azure",
+      "description": "Manage Azure VMs, disks, storage accounts, SQL, Redis, and other Microsoft Azure resources.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-azure-0.1.0.omni-plugin",
+            "sha256": "bf26793e3059bff45462594cd9128f605636543ac10420ddc5bc9354a50761bc",
+            "size": 9522
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-02T19:04:34+08:00",
+      "updatedAt": "2026-09-10T13:38:43+08:00"
+    },
+    {
+      "id": "omni.cloud.bandwagon",
+      "kind": "cloud",
+      "name": "BandwagonHost",
+      "description": "Manage BandwagonHost (搬瓦工) KVM VPS via KiwiVM API.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-bandwagon-0.1.0.omni-plugin",
+            "sha256": "b55126ee022c69f488e8e3d925937e7ece7b2ff4a1aa8f9a4a2f52f1bd43f280",
+            "size": 7814
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-10T13:38:43+08:00",
+      "updatedAt": "2026-09-10T13:38:43+08:00"
+    },
+    {
+      "id": "omni.cloud.digitalocean",
+      "kind": "cloud",
+      "name": "DigitalOcean",
+      "description": "Manage Droplets, volumes, load balancers, managed databases, and other DigitalOcean resources.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-digitalocean-0.1.0.omni-plugin",
+            "sha256": "ef0169a86889b05a158594ffcaab33bcd3718082f027ff372048c1b32f71a6af",
+            "size": 8876
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-02T19:04:34+08:00",
+      "updatedAt": "2026-09-10T13:38:43+08:00"
+    },
+    {
+      "id": "omni.cloud.gcp",
+      "kind": "cloud",
+      "name": "Google Cloud",
+      "description": "Manage Compute Engine, disks, GCS, Cloud SQL, firewalls, and other Google Cloud resources.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-gcp-0.1.0.omni-plugin",
+            "sha256": "7d17995e34ce08582de982f188ff99254150454fd98e2afd2a1f2109c4b611f6",
+            "size": 11569
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-02T19:04:34+08:00",
+      "updatedAt": "2026-09-10T13:38:43+08:00"
+    },
+    {
+      "id": "omni.cloud.huawei",
+      "kind": "cloud",
+      "name": "Huawei Cloud",
+      "description": "Manage ECS, Flexus L, VPC, RDS, DCS, OBS, DNS, and other Huawei Cloud resources.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-huawei-0.1.0.omni-plugin",
+            "sha256": "948a78a97609378da8f059131414ec94dfc36757d045f824e3a428ef2ee895c7",
+            "size": 15992
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-02T19:04:34+08:00",
+      "updatedAt": "2026-09-09T17:33:38+08:00"
+    },
+    {
+      "id": "omni.cloud.tencent",
+      "kind": "cloud",
+      "name": "Tencent Cloud",
+      "description": "Manage CVM, Lighthouse, security groups, TencentDB, COS, DNSPod, and other Tencent Cloud resources.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-tencent-0.1.0.omni-plugin",
+            "sha256": "df49702c028ffaf5baf58b47e1aff38735402d6adf798894c205baf7d0299836",
+            "size": 16880
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-02T19:04:34+08:00",
+      "updatedAt": "2026-09-09T17:33:38+08:00"
+    },
+    {
+      "id": "omni.engine.clickhouse",
+      "kind": "engine",
+      "name": "ClickHouse",
+      "description": "First-party ClickHouse engine (sidecar).",
+      "versions": [
+        {
+          "version": "0.2.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-08-26T14:21:07+08:00"
+    },
+    {
+      "id": "omni.engine.mongodb",
+      "kind": "engine",
+      "name": "MongoDB",
+      "description": "First-party MongoDB engine (sidecar).",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-08-26T14:21:07+08:00"
+    },
+    {
+      "id": "omni.engine.mysql",
+      "kind": "engine",
+      "name": "MySQL",
+      "description": "First-party MySQL / MariaDB engine.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-08-26T14:21:07+08:00"
+    },
+    {
+      "id": "omni.engine.postgres",
+      "kind": "engine",
+      "name": "PostgreSQL",
+      "description": "First-party PostgreSQL engine.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-08-26T14:21:07+08:00"
+    },
+    {
+      "id": "omni.engine.qdrant",
+      "kind": "engine",
+      "name": "Qdrant",
+      "description": "First-party Qdrant vector database engine.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-08-26T14:21:07+08:00"
+    },
+    {
+      "id": "omni.engine.redis",
+      "kind": "engine",
+      "name": "Redis",
+      "description": "First-party Redis engine.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-08-27T16:38:49+08:00"
+    },
+    {
+      "id": "omni.engine.sqlite",
+      "kind": "engine",
+      "name": "SQLite",
+      "description": "First-party SQLite engine.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "fs:read"
+      ],
+      "createdAt": "2026-08-26T14:21:07+08:00",
+      "updatedAt": "2026-08-26T14:21:07+08:00"
+    },
+    {
+      "id": "omni.engine.sqlserver",
+      "kind": "engine",
+      "name": "SQL Server",
+      "description": "First-party SQL Server engine (sidecar).",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-08-26T14:21:07+08:00"
+    },
+    {
+      "id": "omni.importer.docker-db",
+      "kind": "importer",
+      "name": "Docker database scan",
+      "description": "Scan published database ports on existing Docker engines.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "connections:write"
+      ],
+      "createdAt": "2026-08-28T18:51:46+08:00",
+      "updatedAt": "2026-08-28T18:51:46+08:00"
+    },
+    {
+      "id": "omni.importer.warpgate",
+      "kind": "importer",
+      "name": "Warpgate import",
+      "description": "Import SSH and database targets from a Warpgate bastion.",
+      "versions": [
+        {
+          "version": "0.2.1"
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-08-21T19:08:54+08:00",
+      "updatedAt": "2026-08-28T18:51:46+08:00"
     },
     {
       "id": "omni.knowledge.obsidian",
@@ -61,250 +396,34 @@
       "permissions": []
     },
     {
-      "id": "omni.cloud.aliyun",
-      "kind": "cloud",
-      "name": "Alibaba Cloud",
-      "description": "Manage ECS, security groups, RDS, metrics, and other Alibaba Cloud resources.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-30T10:16:35+08:00"
-    },
-    {
-      "id": "omni.cloud.tencent",
-      "kind": "cloud",
-      "name": "Tencent Cloud",
-      "description": "Manage CVM, Lighthouse, security groups, TencentDB, COS, DNSPod, and other Tencent Cloud resources.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ]
-    },
-    {
-      "id": "omni.cloud.huawei",
-      "kind": "cloud",
-      "name": "Huawei Cloud",
-      "description": "Manage ECS, Flexus L, VPC, RDS, DCS, OBS, DNS, and other Huawei Cloud resources.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ]
-    },
-    {
-      "id": "omni.cloud.aws",
-      "kind": "cloud",
-      "name": "AWS",
-      "description": "Manage EC2, EBS, S3, RDS, ElastiCache, and other Amazon Web Services resources.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ]
-    },
-    {
-      "id": "omni.cloud.azure",
-      "kind": "cloud",
-      "name": "Microsoft Azure",
-      "description": "Manage Azure VMs, disks, storage accounts, SQL, Redis, and other Microsoft Azure resources.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ]
-    },
-    {
-      "id": "omni.cloud.digitalocean",
-      "kind": "cloud",
-      "name": "DigitalOcean",
-      "description": "Manage Droplets, volumes, load balancers, managed databases, and other DigitalOcean resources.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ]
-    },
-    {
-      "id": "omni.cloud.gcp",
-      "kind": "cloud",
-      "name": "Google Cloud",
-      "description": "Manage Compute Engine, disks, GCS, Cloud SQL, firewalls, and other Google Cloud resources.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ]
-    },
-    {
-      "id": "omni.cloud.bandwagon",
-      "kind": "cloud",
-      "name": "BandwagonHost",
-      "description": "Manage BandwagonHost (搬瓦工) KVM VPS via KiwiVM API.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ]
-    },
-    {
-      "id": "omni.engine.clickhouse",
-      "kind": "engine",
-      "name": "ClickHouse",
-      "description": "First-party ClickHouse engine (sidecar).",
-      "version": "0.2.0",
-      "distribution": "bundled",
-      "permissions": [
-        "net:connect"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-26T14:21:07+08:00"
-    },
-    {
-      "id": "omni.engine.mongodb",
-      "kind": "engine",
-      "name": "MongoDB",
-      "description": "First-party MongoDB engine (sidecar).",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "net:connect"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-26T14:21:07+08:00"
-    },
-    {
-      "id": "omni.engine.mysql",
-      "kind": "engine",
-      "name": "MySQL",
-      "description": "First-party MySQL / MariaDB engine.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "net:connect"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-26T14:21:07+08:00"
-    },
-    {
-      "id": "omni.engine.postgres",
-      "kind": "engine",
-      "name": "PostgreSQL",
-      "description": "First-party PostgreSQL engine.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "net:connect"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-26T14:21:07+08:00"
-    },
-    {
-      "id": "omni.engine.qdrant",
-      "kind": "engine",
-      "name": "Qdrant",
-      "description": "First-party Qdrant vector database engine.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "net:connect"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-26T14:21:07+08:00"
-    },
-    {
-      "id": "omni.engine.redis",
-      "kind": "engine",
-      "name": "Redis",
-      "description": "First-party Redis engine.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "net:connect"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-27T16:38:49+08:00"
-    },
-    {
-      "id": "omni.engine.sqlite",
-      "kind": "engine",
-      "name": "SQLite",
-      "description": "First-party SQLite engine.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "fs:read"
-      ],
-      "createdAt": "2026-08-26T14:21:07+08:00",
-      "updatedAt": "2026-08-26T14:21:07+08:00"
-    },
-    {
-      "id": "omni.engine.sqlserver",
-      "kind": "engine",
-      "name": "SQL Server",
-      "description": "First-party SQL Server engine (sidecar).",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "net:connect"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-26T14:21:07+08:00"
-    },
-    {
-      "id": "omni.importer.docker-db",
-      "kind": "importer",
-      "name": "Docker database scan",
-      "description": "Scan published database ports on existing Docker engines.",
-      "version": "0.1.0",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write"
-      ],
-      "createdAt": "2026-08-28T18:51:46+08:00",
-      "updatedAt": "2026-08-28T18:51:46+08:00"
-    },
-    {
-      "id": "omni.importer.warpgate",
-      "kind": "importer",
-      "name": "Warpgate import",
-      "description": "Import SSH and database targets from a Warpgate bastion.",
-      "version": "0.2.1",
-      "distribution": "bundled",
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-28T18:51:46+08:00"
+      "id": "omni.knowledge.siyuan",
+      "kind": "knowledge",
+      "name": "SiYuan notes",
+      "description": "Mirror SiYuan notebooks into the knowledge base (read-only, host pipeline).",
+      "version": "0.4.0",
+      "distribution": "download",
+      "artifact": {
+        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-knowledge-siyuan-0.4.0.omni-plugin",
+        "sha256": "",
+        "size": 4561
+      },
+      "permissions": []
     },
     {
       "id": "omni.module.nacos",
       "kind": "module",
-      "name": "Nacos module shell",
-      "description": "Host shell for the Nacos console plugin.",
-      "version": "0.2.0",
-      "distribution": "bundled",
+      "name": "Nacos",
+      "description": "Nacos console workbench (namespaces, configs, discovery). Install from the plugin market.",
+      "versions": [
+        {
+          "version": "0.2.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-module-nacos-0.2.0.omni-plugin",
+            "sha256": "db8368ae2a020f06b27774b56a6a59c35c898c1cd45ec4679ae0ed0dc641a2aa",
+            "size": 9445
+          }
+        }
+      ],
       "permissions": [
         "ui:sidebar",
         "net:connect",
@@ -314,63 +433,75 @@
         "ai:tools"
       ],
       "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-21T19:08:54+08:00"
+      "updatedAt": "2026-09-07T16:50:38+08:00"
     },
     {
       "id": "omni.panel.1panel",
       "kind": "panel",
       "name": "1Panel",
       "description": "Connect to 1Panel hosts for sites, apps, and certificates.",
-      "version": "0.1.0",
-      "distribution": "bundled",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
       "permissions": [
         "connections:write",
         "net:connect",
         "vault:read"
       ],
       "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-21T19:08:54+08:00"
+      "updatedAt": "2026-09-02T19:04:34+08:00"
     },
     {
       "id": "omni.panel.bt",
       "kind": "panel",
       "name": "BT Panel",
       "description": "Connect to BT (Baota) panel hosts.",
-      "version": "0.1.0",
-      "distribution": "bundled",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
       "permissions": [
         "connections:write",
         "net:connect",
         "vault:read"
       ],
       "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-21T19:08:54+08:00"
+      "updatedAt": "2026-09-02T19:04:34+08:00"
     },
     {
       "id": "omni.panel.hestia",
       "kind": "panel",
       "name": "HestiaCP",
       "description": "Connect to HestiaCP hosts for sites, databases, certificates, and cron jobs.",
-      "version": "0.1.0",
-      "distribution": "bundled",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
       "permissions": [
         "connections:write",
         "net:connect",
         "vault:read"
       ],
-      "createdAt": "2026-09-09T16:58:00+08:00",
-      "updatedAt": "2026-09-09T16:58:00+08:00"
+      "createdAt": "2026-09-03T18:20:17+08:00",
+      "updatedAt": "2026-09-09T17:33:38+08:00"
     },
     {
       "id": "omni.theme.default",
       "kind": "theme",
       "name": "Default theme",
       "description": "Built-in color tokens for the OmniPanel shell.",
-      "version": "0.1.0",
-      "distribution": "bundled",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
       "permissions": [],
       "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-08-21T19:08:54+08:00"
+      "updatedAt": "2026-09-09T17:33:38+08:00"
     }
   ]
 }

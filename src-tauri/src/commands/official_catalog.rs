@@ -590,6 +590,25 @@ mod tests {
     }
 
     #[test]
+    fn nacos_is_market_download_not_bundled() {
+        let seed = seed_registry();
+        let nacos = seed
+            .plugins
+            .iter()
+            .find(|p| p.id == "omni.module.nacos")
+            .expect("种子目录应含 Nacos");
+        assert_eq!(nacos.distribution, PluginDistribution::Download);
+        let artifact = nacos.artifact.as_ref().expect("Nacos 应有下载地址");
+        assert!(artifact.url.ends_with(".omni-plugin"));
+        assert!(artifact.size > 0);
+        assert!(
+            !omnipanel_plugin::first_party_manifests()
+                .iter()
+                .any(|m| m.id == "omni.module.nacos")
+        );
+    }
+
+    #[test]
     fn translator_is_market_download_not_bundled() {
         let seed = seed_registry();
         let translator = seed

@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { parsePluginManifest } from "@omnipanel/plugin-sdk";
+import nacosPluginJson from "../../../plugins/module-nacos/plugin.json";
 
 const { appModuleListMock } = vi.hoisted(() => ({
   appModuleListMock: vi.fn(),
@@ -13,10 +15,12 @@ vi.mock("../ipc/bindings", () => ({
 
 import { getNavVisibleModuleKeys, useAppModuleStore } from "./appModuleStore";
 import { usePluginRuntimeStore } from "./pluginRuntimeStore";
+import { setInstalledPluginManifests } from "../lib/pluginManifests";
 
 describe("appModuleStore 插件模块侧栏", () => {
   beforeEach(() => {
     appModuleListMock.mockReset();
+    setInstalledPluginManifests([parsePluginManifest(nacosPluginJson)]);
     useAppModuleStore.setState({ modules: [], hydrated: false });
     usePluginRuntimeStore.setState({
       items: [
@@ -26,12 +30,16 @@ describe("appModuleStore 插件模块侧栏", () => {
           kind: "module",
           enabled: true,
           activated: true,
-          source: "builtin",
+          source: "installed",
           unsupportedReason: null,
         },
       ],
       hydrated: true,
     });
+  });
+
+  afterEach(() => {
+    setInstalledPluginManifests([]);
   });
 
   it("已启用的 module 插件在尚未入库时出现在侧栏", () => {

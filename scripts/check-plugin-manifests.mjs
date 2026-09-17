@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DOWNLOAD_ONLY_PLUGIN_DIRS } from "./plugin-download-only.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginsDir = path.join(root, "plugins");
@@ -50,12 +51,23 @@ function isRelJsonPath(value) {
 
 const dirs = fs.readdirSync(pluginsDir, { withFileTypes: true }).filter((d) => d.isDirectory());
 const jsonDirs = dirs.map((d) => d.name);
+const bundledDirs = jsonDirs.filter((d) => !DOWNLOAD_ONLY_PLUGIN_DIRS.has(d));
 
 let failed = 0;
 
-for (const dir of jsonDirs) {
+for (const dir of bundledDirs) {
   if (!rustDirSet.has(dir)) {
     console.error(`[plugin-manifest] plugins/${dir} 未在 first_party.rs 用 first_party_manifest! 登记`);
+    failed += 1;
+  }
+}
+for (const dir of DOWNLOAD_ONLY_PLUGIN_DIRS) {
+  if (rustDirSet.has(dir)) {
+    console.error(`[plugin-manifest] download-only plugins/${dir} 不应再走 first_party_manifest!`);
+    failed += 1;
+  }
+  if (!jsonDirs.includes(dir)) {
+    console.error(`[plugin-manifest] download-only plugins/${dir} 目录缺失（submodule 未检出？）`);
     failed += 1;
   }
 }
@@ -67,6 +79,8 @@ for (const dir of rustDirSet) {
 }
 
 const jsonIds = [];
+const bundledJsonIds = [];
+const downloadJsonIds = [];
 const engineKeys = [];
 for (const dir of dirs) {
   const file = path.join(pluginsDir, dir.name, "plugin.json");
@@ -84,6 +98,11 @@ for (const dir of dirs) {
     continue;
   }
   jsonIds.push(raw.id);
+  if (DOWNLOAD_ONLY_PLUGIN_DIRS.has(dir.name)) {
+    downloadJsonIds.push(raw.id);
+  } else {
+    bundledJsonIds.push(raw.id);
+  }
   const errors = [];
   if (typeof raw.id !== "string" || !raw.id.trim()) errors.push("id required");
   if (typeof raw.version !== "string" || !raw.version.trim()) errors.push("version required");
@@ -278,14 +297,46 @@ if (!fs.existsSync(registryPath)) {
 } else {
   try {
     const registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
+    function entryHasDownloadArtifact(p) {
+      if (!p) return false;
+      if (p.distribution === "download") return true;
+      if (p.artifact?.url) return true;
+      if (Array.isArray(p.versions)) {
+        return p.versions.some((v) => v?.artifact?.url);
+      }
+      return false;
+    }
+    function entryIsBundled(p) {
+      if (!p || !p.id) return false;
+      if (entryHasDownloadArtifact(p)) return false;
+      if (p.distribution === "bundled") return true;
+      // v2 无 artifact 的 versions 条目 = bundled
+      if (Array.isArray(p.versions) && p.versions.length > 0) return true;
+      return false;
+    }
     const bundledIds = new Set(
       (Array.isArray(registry.plugins) ? registry.plugins : [])
-        .filter((p) => p && p.distribution === "bundled")
+        .filter(entryIsBundled)
         .map((p) => p.id),
     );
-    for (const id of jsonIds) {
+    const downloadIds = new Set(
+      (Array.isArray(registry.plugins) ? registry.plugins : [])
+        .filter(entryHasDownloadArtifact)
+        .map((p) => p.id),
+    );
+    for (const id of bundledJsonIds) {
       if (!bundledIds.has(id)) {
-        console.error(`[plugin-manifest] 官方目录未收录第一方插件: ${id}`);
+        console.error(`[plugin-manifest] 官方目录未收录第一方 bundled 插件: ${id}`);
+        failed += 1;
+      }
+    }
+    for (const id of downloadJsonIds) {
+      if (!downloadIds.has(id)) {
+        console.error(`[plugin-manifest] 官方目录未收录 download-only 插件: ${id}`);
+        failed += 1;
+      }
+      if (bundledIds.has(id)) {
+        console.error(`[plugin-manifest] download-only 插件不应再标 bundled: ${id}`);
         failed += 1;
       }
     }
@@ -306,15 +357,25 @@ if (catalogDirSet.size !== catalogDirs.length) {
   console.error("[plugin-manifest] 前端 pluginManifests.ts 存在重复的 plugin.json import");
   failed += 1;
 }
-for (const dir of jsonDirs) {
+for (const dir of bundledDirs) {
   if (!catalogDirSet.has(dir)) {
     console.error(`[plugin-manifest] plugins/${dir} 未在前端 pluginManifests.ts 登记`);
+    failed += 1;
+  }
+}
+for (const dir of DOWNLOAD_ONLY_PLUGIN_DIRS) {
+  if (catalogDirSet.has(dir)) {
+    console.error(`[plugin-manifest] download-only plugins/${dir} 不应再进入前端 FIRST_PARTY 清单`);
     failed += 1;
   }
 }
 for (const dir of catalogDirSet) {
   if (!jsonDirs.includes(dir)) {
     console.error(`[plugin-manifest] 前端 pluginManifests.ts 引用不存在的 plugins/${dir}`);
+    failed += 1;
+  }
+  if (DOWNLOAD_ONLY_PLUGIN_DIRS.has(dir)) {
+    console.error(`[plugin-manifest] 前端 pluginManifests.ts 不应 import download-only plugins/${dir}`);
     failed += 1;
   }
 }
@@ -356,5 +417,5 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log(
-  `plugin manifests ok (${dirs.length}; rust dirs ${rustDirSet.size}; frontend catalog ${catalogDirSet.size})`,
+  `plugin manifests ok (${dirs.length}; bundled ${bundledDirs.length}; download-only ${DOWNLOAD_ONLY_PLUGIN_DIRS.size}; rust dirs ${rustDirSet.size}; frontend catalog ${catalogDirSet.size})`,
 );

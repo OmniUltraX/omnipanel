@@ -31,7 +31,6 @@ omnipanel-protocol = { path = "../omnipanel-protocol" }
 omnipanel-error = { path = "../omnipanel-error" }
 omnipanel-presence = { path = "../omnipanel-presence" }
 omnipanel-cloud = { path = "../omnipanel-cloud" }
-omnipanel-cloud-aliyun = { path = "../omnipanel-cloud-aliyun" }
 omnipanel-ssh = { path = "../omnipanel-ssh" }
 omnipanel-store = { path = "../omnipanel-store" }
 omnipanel-ai = { path = "../omnipanel-ai" }

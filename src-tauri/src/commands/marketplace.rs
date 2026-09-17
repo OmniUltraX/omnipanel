@@ -8,8 +8,9 @@ use omnipanel_plugin::{
     VersionEntry, DependencyReq, first_party_manifests, resolve_install, update_available,
 };
 use omnipanel_plugin_pkg::{
-    OFFICIAL_VERIFY_PUBKEYS_HEX, PkgError, RegistryFile, RegistryPlugin, RegistryVersion,
-    hex_to_verifying_key, parse_registry, verify_registry, verify_registry_allow_unsigned,
+    OFFICIAL_VERIFY_PUBKEYS_HEX, PkgError, RegistryArtifact, RegistryFile, RegistryPlugin,
+    RegistryVersion, hex_to_verifying_key, parse_registry, verify_registry,
+    verify_registry_allow_unsigned,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,6 +19,7 @@ use tauri::State;
 
 use crate::commands::plugin::install_plugin_from_path;
 use crate::commands::external::{RUBICK_SOURCE_ID, refuse_external_artifact};
+use crate::commands::official_catalog::PluginDistribution;
 use crate::state::AppState;
 
 pub(crate) const OFFICIAL_SOURCE_ID: &str = "official";
@@ -60,6 +62,8 @@ pub struct MarketplaceItem {
     pub update_available: bool,
     pub source_id: String,
     pub download_size: u64,
+    /// 与 install 闸一致：空 artifact url → bundled；勿用 size 推断。
+    pub distribution: PluginDistribution,
     pub permissions: Vec<String>,
     /// 外部来源包名（Rubick npm 名）；官方/内置为空，前端转换安装用。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -374,6 +378,52 @@ fn fill_bundled_official_gaps(
                 publisher_key: None,
             },
         ));
+    }
+    files
+}
+
+/// 远程已有同 id，但版本缺可下载 artifact 时，用仓库本地种子补 URL。
+/// 典型坑：`plugins-latest` 只写了 `versions: [{ version }]`，导致 download 被当成 bundled。
+fn enrich_missing_artifacts_from_seed(
+    mut files: Vec<(String, RegistryFile)>,
+) -> Vec<(String, RegistryFile)> {
+    let Some(seed) = bundled_official_registry() else {
+        return files;
+    };
+    let mut by_id_ver: HashMap<(String, String), RegistryArtifact> = HashMap::new();
+    let mut by_id: HashMap<String, RegistryArtifact> = HashMap::new();
+    for plugin in seed.plugins {
+        for ver in plugin.versions {
+            let Some(art) = ver.artifact else { continue };
+            if art.url.trim().is_empty() {
+                continue;
+            }
+            by_id_ver.insert((plugin.id.clone(), ver.version.clone()), art.clone());
+            by_id.entry(plugin.id.clone()).or_insert(art);
+        }
+    }
+    if by_id.is_empty() {
+        return files;
+    }
+    for (_, file) in &mut files {
+        for plugin in &mut file.plugins {
+            for ver in &mut plugin.versions {
+                let has_url = ver
+                    .artifact
+                    .as_ref()
+                    .is_some_and(|a| !a.url.trim().is_empty());
+                if has_url {
+                    continue;
+                }
+                let art = by_id_ver
+                    .get(&(plugin.id.clone(), ver.version.clone()))
+                    .cloned()
+                    .or_else(|| by_id.get(&plugin.id).cloned());
+                if let Some(art) = art {
+                    ver.artifact = Some(art);
+                }
+            }
+        }
     }
     files
 }
@@ -724,6 +774,7 @@ async fn merged_view(
         files = seed_official_if_empty(files, &errors)?;
     }
     files = fill_bundled_official_gaps(files);
+    files = enrich_missing_artifacts_from_seed(files);
     if rubick_seed_wanted(&cfgs) {
         files = fill_bundled_rubick_seed(files);
     }
@@ -978,6 +1029,15 @@ pub async fn plugin_registry_confirm_key(
     storage.registry_source_confirm_key(id.trim())
 }
 
+fn marketplace_distribution(top: &MergedVersion) -> PluginDistribution {
+    // 与 install_merged_version 闸一致：空 url 视为 bundled，勿用 size 推断。
+    if top.url.trim().is_empty() {
+        PluginDistribution::Bundled
+    } else {
+        PluginDistribution::Download
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_market_catalog(
@@ -1015,6 +1075,7 @@ pub async fn plugin_market_catalog(
             update_available,
             source_id: plugin.source_id.clone(),
             download_size: top.size,
+            distribution: marketplace_distribution(top),
             permissions: plugin.permissions.clone(),
             external_npm: plugin.external_npm.clone(),
         });
@@ -1363,6 +1424,73 @@ mod tests {
         })]);
         let plugin = &merged["omni.addon.everything"];
         assert!(plugin.versions.iter().all(|v| v.url.is_empty()));
+        assert_eq!(
+            marketplace_distribution(&plugin.versions[0]),
+            PluginDistribution::Bundled
+        );
+    }
+
+    #[test]
+    fn download_distribution_ignores_zero_size() {
+        let merged = merge_registries(vec![("official".into(), RegistryFile {
+            schema_version: 2,
+            plugins: vec![RegistryPlugin {
+                id: "omni.module.nacos".into(),
+                kind: "module".into(),
+                name: "Nacos".into(),
+                description: String::new(),
+                external_npm: None,
+                versions: vec![RegistryVersion {
+                    version: "0.2.0".into(),
+                    changelog: None,
+                    min_host_api: None,
+                    artifact: Some(RegistryArtifact {
+                        url: "https://example.com/nacos.omni-plugin".into(),
+                        sha256: "abc".into(),
+                        size: 0,
+                        integrity: String::new(),
+                    }),
+                    dependencies: vec![],
+                }],
+            }],
+            signature: None,
+            publisher_key: None,
+        })]);
+        let top = &merged["omni.module.nacos"].versions[0];
+        assert_eq!(top.size, 0);
+        assert_eq!(marketplace_distribution(top), PluginDistribution::Download);
+    }
+
+    #[test]
+    fn enrich_artifacts_fills_nacos_when_remote_omits_url() {
+        let remote = RegistryFile {
+            schema_version: 2,
+            plugins: vec![RegistryPlugin {
+                id: "omni.module.nacos".into(),
+                kind: "module".into(),
+                name: "Nacos".into(),
+                description: "remote stub".into(),
+                external_npm: None,
+                versions: vec![RegistryVersion {
+                    version: "0.2.0".into(),
+                    changelog: None,
+                    min_host_api: None,
+                    artifact: None,
+                    dependencies: vec![],
+                }],
+            }],
+            signature: None,
+            publisher_key: None,
+        };
+        let files = enrich_missing_artifacts_from_seed(vec![(OFFICIAL_SOURCE_ID.into(), remote)]);
+        let plugin = &files[0].1.plugins[0];
+        let art = plugin.versions[0]
+            .artifact
+            .as_ref()
+            .expect("seed 应回填 nacos artifact");
+        assert!(!art.url.trim().is_empty());
+        assert!(art.url.contains("omni-module-nacos"));
+        assert!(art.size > 0);
     }
 
     fn sample_cfg(builtin: bool, pinned: Vec<String>) -> SourceCfg {

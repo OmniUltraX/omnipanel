@@ -1,8 +1,8 @@
 # OmniPanel 插件开发指南
 
-第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** Nacos / 阿里云 / 腾讯云 / 华为云只是第一方样板。
+第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** 云厂商与 Nacos 均为官方市场可下载插件（download-only）。
 
-> Nacos 源码现以 submodule 挂在 `plugins/module-nacos`（远端 [`omni-plugin-nacos`](https://github.com/OmniUltraX/omni-plugin-nacos) 保留，供后续独立插件交付实验）；**当前仍随客户端 bundled**，不走市场 download 安装。
+> Nacos / 全部 `cloud-*` 源码以 submodule 挂在 `plugins/`（远端 `omni-plugin-*`）。**不随客户端 bundled**；`registry.json` 中为 `distribution: download`，经 `plugins-latest` 发布 `.omni-plugin`，用户从插件中心安装启用后才出现对应入口（Nacos → `/module/nacos`；云 → 共用 `/module/cloud` 工作台按已激活厂商过滤）。
 
 字段枚举与 schema 单源：`packages/plugin-sdk/src/index.ts`。
 
@@ -100,7 +100,7 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 | Host 保证 | 插件禁止 |
 |---|---|
 | Panel：`plugin_invoke` 前注入 `apiKey`（存盘后从 `panel-key-{id}` 回源） | `vaultGet` 读 `panel-key-*` / 云 AK；插件 vault 只有 `plugin:{id}:*` |
-| Cloud：后端 `cloud_plugin_args` 注入 AccessKey | 自己拼阿里云 crate；腾讯云 / 华为云走 L2 `logic.js` |
+| Cloud：后端 `cloud_plugin_args` 注入 AccessKey | 自写厂商 SDK；统一走 L2 `logic.js` + `host.hmac` / `host.netFetch` |
 | Module：`pluginSecretPut` + `host.vaultGet(connectionId)` | 读其它插件的 vault 命名空间 |
 | 按清单槽渲染固定壳；入口按已激活插件列出 | 按插件 ID 特判；第三方路径调用 `createOnePanelClient` / `createBtPanelClient` |
 | 写操作走 `dangerAction` + `consume_grant` | 插件自签确认令牌 |
@@ -261,7 +261,7 @@ L2 方法（宿主注入 `connectionId`、`accessKeyId`、`accessKeySecret`、`r
 | `getMetrics` | `{ items:[{ id, label, unit, points }] }` |
 | `queryLogs` | `{ items, nextToken? }` |
 
-`omni.cloud.aliyun` / `omni.cloud.tencent` 走 Rust crate；其它带 `.` 的 `pluginId` 走 L2。签厂商 API 用 `host.hmac`。服务端没有插件运行时，第三方云调用不会在服务端落地。
+`omni.cloud.*` 全部走 L2（`logic.js` + `host.hmac` / `host.netFetch`）；升级后需从插件中心安装所需云厂商，已有连接的 `pluginId` 不变。服务端（Web）暂无 QuickJS 运行时，云能力仅桌面端可用。
 
 ---
 

@@ -193,7 +193,7 @@ export function marketplaceToMarketItem(item: MarketplaceItem, name: string): Ma
     kind: item.kind,
     version: item.version,
     origin: official ? "official" : "thirdParty",
-    distribution: item.downloadSize > 0 ? "download" : "bundled",
+    distribution: item.distribution,
     installed: item.installed,
     installedVersion: item.installedVersion ?? null,
     size: item.downloadSize,

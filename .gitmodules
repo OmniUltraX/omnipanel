@@ -1,3 +1,27 @@
 [submodule "plugins/module-nacos"]
 	path = plugins/module-nacos
 	url = git@github.com:OmniUltraX/omni-plugin-nacos.git
+[submodule "plugins/cloud-aliyun"]
+	path = plugins/cloud-aliyun
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-aliyun.git
+[submodule "plugins/cloud-tencent"]
+	path = plugins/cloud-tencent
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-tencent.git
+[submodule "plugins/cloud-huawei"]
+	path = plugins/cloud-huawei
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-huawei.git
+[submodule "plugins/cloud-aws"]
+	path = plugins/cloud-aws
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-aws.git
+[submodule "plugins/cloud-azure"]
+	path = plugins/cloud-azure
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-azure.git
+[submodule "plugins/cloud-digitalocean"]
+	path = plugins/cloud-digitalocean
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-digitalocean.git
+[submodule "plugins/cloud-gcp"]
+	path = plugins/cloud-gcp
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-gcp.git
+[submodule "plugins/cloud-bandwagon"]
+	path = plugins/cloud-bandwagon
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-bandwagon.git
