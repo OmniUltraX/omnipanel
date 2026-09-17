@@ -58,6 +58,8 @@ export const commands = {
 	syncMasterKeyValidate: (key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_validate", { key })),
 	syncTeamKeyStatus: (teamId: number) => typedError<SyncTeamKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_status", { teamId })),
 	syncTeamKeyGetOrCreate: (teamId: number) => typedError<SyncTeamKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_get_or_create", { teamId })),
+	/** 导出明文密钥供小程序扫码落库（含 teamId + keyB64）。 */
+	syncTeamKeyExportForMiniapp: (teamId: number) => typedError<SyncTeamKeyExportForMiniappResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_export_for_miniapp", { teamId })),
 	syncTeamKeyClear: (teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_clear", { teamId })),
 	syncTeamKeyExportFile: (teamId: number, path: string, passphrase: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_export_file", { teamId, path, passphrase })),
 	syncTeamKeyImportFile: (teamId: number, path: string, passphrase: string | null) => typedError<SyncTeamKeyImportResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_import_file", { teamId, path, passphrase })),
@@ -6141,6 +6143,12 @@ export type SyncTeamKeyGetOrCreateResult = {
 	fingerprint: string,
 	/**  true = 本次新生成，应提示备份 */
 	created: boolean,
+};
+
+export type SyncTeamKeyExportForMiniappResult = {
+	teamId: number,
+	keyB64: string,
+	fingerprint: string,
 };
 
 export type SyncTeamKeyImportResult = {

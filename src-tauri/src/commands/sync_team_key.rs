@@ -29,6 +29,14 @@ pub struct SyncTeamKeyGetOrCreateResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct SyncTeamKeyExportForMiniappResult {
+    pub team_id: i64,
+    pub key_b64: String,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncTeamKeyImportResult {
     pub fingerprint: String,
 }
@@ -63,6 +71,23 @@ pub fn sync_team_key_get_or_create(
     Ok(SyncTeamKeyGetOrCreateResult {
         fingerprint: sync_team_key_fingerprint(&key),
         created,
+    })
+}
+
+/// 导出明文密钥供小程序扫码（QR：`omnipanel://sync-key?team_id=&key=`）。
+#[tauri::command]
+#[specta::specta]
+pub fn sync_team_key_export_for_miniapp(
+    team_id: i64,
+) -> Result<SyncTeamKeyExportForMiniappResult, OmniError> {
+    if team_id <= 0 {
+        return Err(OmniError::invalid_input("团队 ID 无效"));
+    }
+    let (key, _) = get_or_create_sync_team_key(team_id)?;
+    Ok(SyncTeamKeyExportForMiniappResult {
+        team_id,
+        key_b64: base64::engine::general_purpose::STANDARD.encode(key),
+        fingerprint: sync_team_key_fingerprint(&key),
     })
 }
 

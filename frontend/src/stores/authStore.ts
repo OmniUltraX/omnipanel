@@ -14,6 +14,7 @@ import {
 } from "../lib/assistantInboxBridge";
 import { cancelClientConversationSyncViaBridge } from "../lib/clientConversationSyncBridge";
 import { cancelClientModuleSyncViaBridge } from "../lib/clientModuleSyncBridge";
+import { useAssistantTeamBindingStore } from "./assistantTeamBindingStore";
 import { useCurrentSyncTeamStore } from "./currentSyncTeamStore";
 
 interface AuthState {
@@ -44,8 +45,9 @@ export const useAuthStore = create<AuthState>()(
         cancelClientModuleSyncViaBridge();
         void stopAssistantChatInboxViaBridge();
         void stopAssistantTerminalCmdInboxViaBridge();
-        // 清空当前同步团队，避免下次登录串到上一个账号的团队
+        // 清空当前同步团队与助手组织授权表，避免下次登录串到上一个账号
         useCurrentSyncTeamStore.getState().resetCurrentSyncTeam();
+        useAssistantTeamBindingStore.getState().reset();
         void import("../lib/auth/teamMesh")
           .then((m) => m.stopTeamMesh())
           .catch(() => {
