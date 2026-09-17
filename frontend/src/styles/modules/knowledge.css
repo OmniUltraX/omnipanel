@@ -792,8 +792,20 @@
     .knowledge-sidebar-sections {
         flex: 1;
         min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
         /* 与 module-left-column / 数据库 schema 侧栏一致 */
         background: var(--bg);
+    }
+
+    /* 单树头：新建菜单 + 同步入口（替代旧双分区头） */
+    .knowledge-sidebar-treehead {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-shrink: 0;
+        padding: 2px 4px;
     }
 
     .knowledge-sidebar-sections .vsplit-sidebar-section__body {

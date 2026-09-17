@@ -6,6 +6,8 @@ import {
   collectDescendantIds,
   createEmptyEntry,
   isKnowledgeFolder,
+  isMirrorLocked,
+  mirrorNamespaceOf,
   newKnowledgeId,
   nextSortOrder,
   normalizeParentId,
@@ -137,6 +139,9 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
       },
 
       deleteEntryRecursive: async (id: string) => {
+        // 镜像锁定：删了下次同步会复活，直接拒绝（调用方负责提示）。
+        const root = get().entries.find((e) => e.id === id);
+        if (root && isMirrorLocked(root)) return;
         const { entries, deleteEntry } = get();
         const descendants = collectDescendantIds(entries, id);
         for (const childId of [...descendants].reverse()) {
@@ -148,6 +153,9 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
       duplicateEntry: async (id: string) => {
         const source = get().entries.find((e) => e.id === id);
         if (!source) return null;
+        // 镜像复制 = 转为自建：source 洗 manual、去命名空间标签，同步永不碰副本。
+        const locked = isMirrorLocked(source);
+        const ns = locked ? mirrorNamespaceOf(source) : null;
         const copy: KnowledgeEntry = {
           ...source,
           id: newKnowledgeId(),
@@ -156,6 +164,12 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           sortOrder: nextSortOrder(get().entries, normalizeParentId(source.parentId)),
           createdAt: Date.now(),
           updatedAt: Date.now(),
+          ...(locked
+            ? {
+                source: "manual",
+                tags: (source.tags ?? []).filter((tag) => tag !== ns),
+              }
+            : {}),
         };
         const ok = await get().saveEntry(copy);
         return ok ? copy.id : null;
@@ -164,7 +178,20 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
       moveEntry: async (id: string, parentId: string, sortOrder: number) => {
         const entry = get().entries.find((e) => e.id === id);
         if (!entry) return;
+        // 镜像锁定：拖走下次同步会被搬回，直接拒绝。
+        if (isMirrorLocked(entry)) return;
         const normalizedParent = normalizeParentId(parentId);
+        // 不可移入镜像子树（手动条目进去会污染只读闭环）。
+        if (normalizedParent) {
+          const byId = new Map(get().entries.map((e) => [e.id, e]));
+          const seen = new Set<string>();
+          let current: KnowledgeEntry | undefined = byId.get(normalizedParent);
+          while (current && !seen.has(current.id)) {
+            seen.add(current.id);
+            if (isMirrorLocked(current)) return;
+            current = byId.get(normalizeParentId(current.parentId));
+          }
+        }
         if (isKnowledgeFolder(entry)) {
           const descendants = collectDescendantIds(get().entries, id);
           if (descendants.includes(normalizedParent) || normalizedParent === id) {

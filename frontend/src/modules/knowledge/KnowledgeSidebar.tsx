@@ -15,10 +15,19 @@ import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu";
 import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { Button } from "../../components/ui/Button";
 import {
-  usePersistedVerticalSplitSections,
-  VerticalSplitSidebar,
-  VerticalSplitSidebarSection,
-} from "../../components/ui/VerticalSplitSidebar";
+  buildKnowledgeTree,
+  expandAncestorIds,
+  filterKnowledgeTree,
+  flattenVisibleTree,
+  isInsideMirrorSubtree,
+  isKnowledgeFolder,
+  isMirrorLocked,
+  isMirrorSourceRoot,
+  mirrorNamespaceOf,
+  nextSortOrder,
+  normalizeParentId,
+  type KnowledgeTreeNode,
+} from "./knowledgeTree";
 import { useKnowledgeEmbeddingProviderConfig } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
 import { useI18n } from "../../i18n";
 import { commands, type KnowledgeSearchResult } from "../../ipc/bindings";
@@ -33,19 +42,6 @@ import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMe
 import { buildKnowledgeEntrySharePayload } from "../share/resourceShare";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { KnowledgeEntry } from "../../ipc/bindings";
-import {
-  buildKnowledgeTree,
-  filterEntriesForLibrarySection,
-  filterKnowledgeTree,
-  flattenVisibleTree,
-  isKnowledgeFolder,
-  isKnowledgeImported,
-  knowledgeLibrarySectionForEntry,
-  nextSortOrder,
-  normalizeParentId,
-  type KnowledgeLibrarySection,
-  type KnowledgeTreeNode,
-} from "./knowledgeTree";
 import {
   loadKnowledgeVectorStatus,
   submitKnowledgeVectorize,
@@ -68,40 +64,10 @@ import {
 } from "@/components/ui/sidebar-tree";
 import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
 
-const SECTION_STORAGE_KEY = "omnipanel-knowledge-sidebar-sections";
-const SIZE_STORAGE_KEY = "omnipanel-knowledge-sidebar-sizes";
-
 /** 树行高（min-height 24 + 上下 padding）：固定高度虚拟化不漂移。 */
 const KNOWLEDGE_TREE_ROW_HEIGHT = 30;
 /** 超过该行数启用虚拟滚动（对齐 database schema 树的 200 行阈值）。 */
 const KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD = 200;
-
-type SidebarSectionKey = KnowledgeLibrarySection;
-
-function resolveParentForNew(
-  sectionEntries: KnowledgeEntry[],
-  section: KnowledgeLibrarySection,
-  ctxEntry: KnowledgeEntry | null,
-  selectedEntryId: string | null,
-  allEntries: KnowledgeEntry[],
-): string {
-  const sectionIds = new Set(sectionEntries.map((entry) => entry.id));
-  const entryInSection = (entry: KnowledgeEntry) =>
-    section === "imported" ? isKnowledgeImported(entry) : !isKnowledgeImported(entry);
-
-  const pick = (entry: KnowledgeEntry | undefined) => {
-    if (!entry || !entryInSection(entry)) return "";
-    if (isKnowledgeFolder(entry) && sectionIds.has(entry.id)) return entry.id;
-    const parent = normalizeParentId(entry.parentId);
-    return sectionIds.has(parent) ? parent : "";
-  };
-
-  if (ctxEntry) return pick(ctxEntry);
-  if (selectedEntryId) {
-    return pick(allEntries.find((entry) => entry.id === selectedEntryId));
-  }
-  return "";
-}
 
 type TreeCtx = {
   x: number;
@@ -140,6 +106,8 @@ type TreeRowProps = {
   /** 右侧工作区当前打开的条目 */
   active: boolean;
   vectorized?: boolean;
+  /** 来源根徽标（思源/Obsidian 等），非根为 null */
+  mirrorLabel?: string | null;
   dropHint: DropHint | null;
   /** 单击：选中 + 打开预览 Tab（对齐数据库） */
   onPreviewOpen: (id: string) => void;
@@ -160,6 +128,7 @@ function TreeRow({
   selected,
   active,
   vectorized,
+  mirrorLabel,
   dropHint,
   onPreviewOpen,
   onActivate,
@@ -172,6 +141,8 @@ function TreeRow({
 }: TreeRowProps) {
   const { entry } = node;
   const isFolder = isKnowledgeFolder(entry);
+  // 镜像锁定条目不可拖拽（拖走下次同步会被搬回）。
+  const draggable = !isMirrorLocked(entry);
   const selection = useSidebarTreeSelection();
 
   const handleSelect = (event: TreeRowMouseEvent) => {
@@ -207,11 +178,18 @@ function TreeRow({
       icon={isFolder ? <FolderIcon /> : <DocIcon />}
       label={entry.title}
       afterLabel={
-        !isFolder && vectorized ? (
-          <span className="knowledge-tree-vector-dot" title="已向量化" aria-hidden />
-        ) : null
+        <>
+          {mirrorLabel ? (
+            <span className="knowledge-import-badge" title={mirrorLabel}>
+              {mirrorLabel}
+            </span>
+          ) : null}
+          {!isFolder && vectorized ? (
+            <span className="knowledge-tree-vector-dot" title="已向量化" aria-hidden />
+          ) : null}
+        </>
       }
-      draggable
+      draggable={draggable}
       onDragStart={(event) => onDragStart(entry.id, event)}
       onDragOver={(event) => onDragOver(entry.id, event)}
       onDrop={(event) => onDrop(entry.id, event)}
@@ -232,12 +210,13 @@ const MemoTreeRow = memo(TreeRow);
 
 type RenderTreeRowOpts = Omit<
   TreeRowProps,
-  "node" | "depth" | "expanded" | "selected" | "active" | "vectorized"
+  "node" | "depth" | "expanded" | "selected" | "active" | "vectorized" | "mirrorLabel"
 > & {
   expandedIds: string[];
   selectedId: string | null;
   activeEntryId: string | null;
   vectorizedIds: ReadonlySet<string>;
+  getMirrorLabel: (entry: KnowledgeEntry) => string | null;
   onToggle: (id: string) => void;
 };
 
@@ -256,6 +235,7 @@ function renderTreeRow(
       selected={opts.selectedId === id}
       active={opts.activeEntryId === id}
       vectorized={Boolean(opts.vectorizedIds?.has(id))}
+      mirrorLabel={opts.getMirrorLabel(node.entry)}
       dropHint={opts.dropHint}
       onPreviewOpen={opts.onPreviewOpen}
       onActivate={opts.onActivate}
@@ -320,10 +300,8 @@ export function KnowledgeSidebar() {
 
   const [ctxMenu, setCtxMenu] = useState<TreeCtx | null>(null);
   const [ctxVectorized, setCtxVectorized] = useState(false);
-  const [blankCtx, setBlankCtx] = useState<{ x: number; y: number; section: KnowledgeLibrarySection } | null>(
-    null,
-  );
-  const [showNewMenuSection, setShowNewMenuSection] = useState<KnowledgeLibrarySection | null>(null);
+  const [blankCtx, setBlankCtx] = useState<{ x: number; y: number } | null>(null);
+  const [showNewMenu, setShowNewMenu] = useState(false);
   const [ksConsoleOpen, setKsConsoleOpen] = useState(false);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
   const [vectorizedIds, setVectorizedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -354,13 +332,26 @@ export function KnowledgeSidebar() {
         filter: (id) => entries.some((entry) => entry.id === id),
       });
       if (ids.length === 0) return;
+      // 镜像锁定条目删了会复活：提前滤掉并提示，只删自建部分。
+      const locked = ids.filter((id) =>
+        entries.some((entry) => entry.id === id && isMirrorLocked(entry)),
+      );
+      const deletable = ids.filter((id) => !locked.includes(id));
+      if (locked.length > 0) {
+        publishModuleStatusLog(
+          "knowledge",
+          t("knowledge.tree.deleteMirrorDenied", { count: String(locked.length) }),
+          "info",
+        );
+      }
+      if (deletable.length === 0) return;
       const confirmed = await appConfirm(
-        ids.length === 1
+        deletable.length === 1 && locked.length === 0
           ? t("knowledge.confirmDelete")
-          : t("sidebarTree.confirmDeleteSelected", { count: String(ids.length) }),
+          : t("sidebarTree.confirmDeleteSelected", { count: String(deletable.length) }),
       );
       if (!confirmed) return;
-      for (const id of ids) {
+      for (const id of deletable) {
         await deleteEntryRecursive(id);
       }
     },
@@ -415,12 +406,6 @@ export function KnowledgeSidebar() {
     return () => window.removeEventListener(KNOWLEDGE_VECTORIZED_EVENT, onVectorized);
   }, [markVectorized]);
 
-  const { sections, toggleSection, setSectionExpanded } =
-    usePersistedVerticalSplitSections<SidebarSectionKey>(SECTION_STORAGE_KEY, {
-      selfBuilt: true,
-      imported: true,
-    });
-
   const taggedEntries = useMemo(() => {
     if (!allowedEntryIds) return entries;
     return entries.filter((entry) => {
@@ -429,62 +414,26 @@ export function KnowledgeSidebar() {
     });
   }, [allowedEntryIds, entries]);
 
-  const selfBuiltEntries = useMemo(
-    () => filterEntriesForLibrarySection(taggedEntries, "selfBuilt"),
-    [taggedEntries],
-  );
-  const importedEntries = useMemo(
-    () => filterEntriesForLibrarySection(taggedEntries, "imported"),
-    [taggedEntries],
-  );
-
-  const sectionTrees = useMemo(
-    () => ({
-      selfBuilt: buildKnowledgeTree(selfBuiltEntries),
-      imported: buildKnowledgeTree(importedEntries),
-    }),
-    [selfBuiltEntries, importedEntries],
-  );
+  // 单树：一份 entries 建一棵树（标签/搜索天然跨自建与镜像）。
+  const sectionTree = useMemo(() => buildKnowledgeTree(taggedEntries), [taggedEntries]);
 
   const useFts = searchQuery.trim().length >= 2;
-  const visibleSectionTrees = useMemo(
-    () => ({
-      selfBuilt: useFts ? sectionTrees.selfBuilt : filterKnowledgeTree(sectionTrees.selfBuilt, searchQuery),
-      imported: useFts ? sectionTrees.imported : filterKnowledgeTree(sectionTrees.imported, searchQuery),
-    }),
-    [sectionTrees, searchQuery, useFts],
+  const visibleTree = useMemo(
+    () => (useFts ? sectionTree : filterKnowledgeTree(sectionTree, searchQuery)),
+    [sectionTree, searchQuery, useFts],
   );
 
   // 大树虚拟滚动（阈值以下走普通渲染，行为零变化）。
-  const selfBuiltFlatRows = useMemo(
-    () => flattenVisibleTree(visibleSectionTrees.selfBuilt, expandedIds),
-    [visibleSectionTrees, expandedIds],
+  const flatRows = useMemo(
+    () => flattenVisibleTree(visibleTree, expandedIds),
+    [visibleTree, expandedIds],
   );
-  const importedFlatRows = useMemo(
-    () => flattenVisibleTree(visibleSectionTrees.imported, expandedIds),
-    [visibleSectionTrees, expandedIds],
-  );
-  const selfBuiltScrollRef = useRef<HTMLDivElement>(null);
-  const importedScrollRef = useRef<HTMLDivElement>(null);
-  const selfBuiltVirtualizer = useVirtualizer({
-    count:
-      selfBuiltFlatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD
-        ? selfBuiltFlatRows.length
-        : 0,
-    getScrollElement: () => selfBuiltScrollRef.current,
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: flatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD ? flatRows.length : 0,
+    getScrollElement: () => scrollRef.current,
     estimateSize: () => KNOWLEDGE_TREE_ROW_HEIGHT,
-    getItemKey: (index) => selfBuiltFlatRows[index]?.node.entry.id ?? index,
-    overscan: 32,
-    useFlushSync: false,
-  });
-  const importedVirtualizer = useVirtualizer({
-    count:
-      importedFlatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD
-        ? importedFlatRows.length
-        : 0,
-    getScrollElement: () => importedScrollRef.current,
-    estimateSize: () => KNOWLEDGE_TREE_ROW_HEIGHT,
-    getItemKey: (index) => importedFlatRows[index]?.node.entry.id ?? index,
+    getItemKey: (index) => flatRows[index]?.node.entry.id ?? index,
     overscan: 32,
     useFlushSync: false,
   });
@@ -565,19 +514,36 @@ export function KnowledgeSidebar() {
     };
   }, [ctxEntry?.id]);
 
-  const parentForNew = useCallback(
-    (section: KnowledgeLibrarySection) => {
-      const sectionEntries = section === "imported" ? importedEntries : selfBuiltEntries;
-      return resolveParentForNew(
-        sectionEntries,
-        section,
-        ctxEntry,
-        selectedEntryId,
-        entries,
-      );
-    },
-    [ctxEntry, entries, importedEntries, selectedEntryId, selfBuiltEntries],
-  );
+  /** 新建落点：选中的自建文件夹（或其所在目录），镜像内回落根目录。 */
+  const parentForNew = useCallback(() => {
+    const pick = (entry: KnowledgeEntry | undefined): string => {
+      if (!entry || isMirrorLocked(entry)) {
+        // 镜像内不新建：找最近的自建祖先文件夹，没有则根。
+        if (entry) {
+          const byId = new Map(entries.map((e) => [e.id, e]));
+          let current: KnowledgeEntry | undefined = entry;
+          const seen = new Set<string>();
+          while (current && !seen.has(current.id)) {
+            seen.add(current.id);
+            const parent = byId.get(normalizeParentId(current.parentId));
+            if (parent && !isMirrorLocked(parent) && isKnowledgeFolder(parent)) {
+              return parent.id;
+            }
+            current = parent;
+          }
+        }
+        return "";
+      }
+      if (isKnowledgeFolder(entry)) return entry.id;
+      const parent = entries.find((e) => e.id === normalizeParentId(entry.parentId));
+      return parent && !isMirrorLocked(parent) && isKnowledgeFolder(parent) ? parent.id : "";
+    };
+    if (ctxMenu?.entry) return pick(ctxMenu.entry);
+    if (selectedEntryId) {
+      return pick(entries.find((entry) => entry.id === selectedEntryId));
+    }
+    return "";
+  }, [ctxMenu, entries, selectedEntryId]);
 
   const handleRename = useCallback(
     async (entry: KnowledgeEntry) => {
@@ -716,26 +682,26 @@ export function KnowledgeSidebar() {
 
   const buildMenuItems = useCallback((): ContextMenuItem[] => {
     if (!ctxEntry) return [];
-    const section = knowledgeLibrarySectionForEntry(ctxEntry);
-    const parentId = parentForNew(section);
+    const parentId = parentForNew();
     const isFolder = isKnowledgeFolder(ctxEntry);
-    const creationItems: ContextMenuItem[] =
-      section === "selfBuilt"
-        ? [
-            {
-              id: "new-folder",
-              label: t("knowledge.tree.newFolder"),
-              icon: contextMenuIcons.folder,
-              onClick: () => void createFolder(parentId),
-            },
-            {
-              id: "new-doc",
-              label: t("knowledge.tree.newDocument"),
-              icon: contextMenuIcons.file,
-              onClick: () => void handleCreateDocument(parentId),
-            },
-          ]
-        : [];
+    const locked = isMirrorLocked(ctxEntry);
+    // 镜像只读闭环：只留打开/导出/复制标题/向量化/分享；重命名/删除下次同步会还原·复活。
+    const creationItems: ContextMenuItem[] = locked
+      ? []
+      : [
+          {
+            id: "new-folder",
+            label: t("knowledge.tree.newFolder"),
+            icon: contextMenuIcons.folder,
+            onClick: () => void createFolder(parentId),
+          },
+          {
+            id: "new-doc",
+            label: t("knowledge.tree.newDocument"),
+            icon: contextMenuIcons.file,
+            onClick: () => void handleCreateDocument(parentId),
+          },
+        ];
 
     const openItems: ContextMenuItem[] = [
       {
@@ -763,12 +729,16 @@ export function KnowledgeSidebar() {
       ...openItems,
       { id: "sep-open", separator: true, label: "" },
       ...creationItems,
-      {
-        id: "import-pdf",
-        label: t("knowledge.tree.importPdf"),
-        icon: contextMenuIcons.import,
-        onClick: () => void handleImportPdf(parentId),
-      },
+      ...(!locked
+        ? [
+            {
+              id: "import-pdf",
+              label: t("knowledge.tree.importPdf"),
+              icon: contextMenuIcons.import,
+              onClick: () => void handleImportPdf(parentId),
+            },
+          ]
+        : []),
       ...(!isFolder
         ? [
             { id: "sep-export", separator: true, label: "" } as ContextMenuItem,
@@ -816,31 +786,44 @@ export function KnowledgeSidebar() {
         icon: contextMenuIcons.copy,
         onClick: () => void handleCopyTitle(ctxEntry),
       },
-      {
-        id: "rename",
-        label: t("knowledge.tree.rename"),
-        icon: contextMenuIcons.rename,
-        shortcut: "F2",
-        onClick: () => void handleRename(ctxEntry),
-      },
-      {
-        id: "copy",
-        label: t("knowledge.tree.duplicate"),
-        icon: contextMenuIcons.duplicate,
-        shortcut: "Ctrl+D",
-        onClick: () => void duplicateEntry(ctxEntry.id),
-      },
-      { id: "sep2", separator: true, label: "" },
-      {
-        id: "delete",
-        label: t("knowledge.delete"),
-        icon: contextMenuIcons.delete,
-        shortcut: "Del",
-        danger: true,
-        onClick: () => {
-          void deleteEntries(ctxEntry.id);
-        },
-      },
+      ...(!locked
+        ? [
+            {
+              id: "rename",
+              label: t("knowledge.tree.rename"),
+              icon: contextMenuIcons.rename,
+              shortcut: "F2",
+              onClick: () => void handleRename(ctxEntry),
+            },
+            {
+              id: "copy",
+              label: t("knowledge.tree.duplicate"),
+              icon: contextMenuIcons.duplicate,
+              shortcut: "Ctrl+D",
+              onClick: () => void duplicateEntry(ctxEntry.id),
+            },
+            { id: "sep2", separator: true, label: "" } as ContextMenuItem,
+            {
+              id: "delete",
+              label: t("knowledge.delete"),
+              icon: contextMenuIcons.delete,
+              shortcut: "Del",
+              danger: true,
+              onClick: () => {
+                void deleteEntries(ctxEntry.id);
+              },
+            },
+          ]
+        : !isFolder
+          ? [
+              {
+                id: "convert-local",
+                label: t("knowledge.tree.convertToLocal"),
+                icon: contextMenuIcons.duplicate,
+                onClick: () => void duplicateEntry(ctxEntry.id),
+              },
+            ]
+          : []),
     ];
   }, [
     ctxEntry,
@@ -886,29 +869,39 @@ export function KnowledgeSidebar() {
   }, []);
 
   const handleDrop = useCallback(
-    async (targetId: string, e: DragEvent, section: KnowledgeLibrarySection) => {
+    async (targetId: string, e: DragEvent) => {
       e.preventDefault();
       const sourceId = dragIdRef.current;
       setDropHint(null);
       dragIdRef.current = null;
       if (!sourceId || sourceId === targetId) return;
 
-      const sectionEntries =
-        section === "imported" ? importedEntries : selfBuiltEntries;
-      const source = sectionEntries.find((x) => x.id === sourceId);
-      const target = sectionEntries.find((x) => x.id === targetId);
+      const source = entries.find((x) => x.id === sourceId);
+      const target = entries.find((x) => x.id === targetId);
       if (!source || !target) return;
+      // 镜像锁定：拖走下次同步会被搬回，直接拒绝并提示。
+      if (isMirrorLocked(source)) {
+        publishModuleStatusLog("knowledge", t("knowledge.tree.dragMirrorDenied"), "info");
+        return;
+      }
 
       const row = e.currentTarget as HTMLElement;
       const position = resolveDropPosition(e, row);
+      // 落点最终父级在镜像子树内 → 拒绝（根级在镜像根前后排序除外）。
+      const finalParent =
+        position === "inside" ? targetId : normalizeParentId(target.parentId);
+      if (finalParent && isInsideMirrorSubtree(finalParent, entries)) {
+        publishModuleStatusLog("knowledge", t("knowledge.tree.dropMirrorDenied"), "info");
+        return;
+      }
 
       if (position === "inside" && isKnowledgeFolder(target)) {
-        await moveEntry(sourceId, targetId, nextSortOrder(sectionEntries, targetId));
+        await moveEntry(sourceId, targetId, nextSortOrder(entries, targetId));
         return;
       }
 
       const parentId = normalizeParentId(target.parentId);
-      const siblings = sectionEntries
+      const siblings = entries
         .filter((x) => normalizeParentId(x.parentId) === parentId && x.id !== sourceId)
         .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
       const targetIndex = siblings.findIndex((x) => x.id === targetId);
@@ -920,16 +913,7 @@ export function KnowledgeSidebar() {
         await moveEntry(item.id, parentId, i);
       }
     },
-    [importedEntries, selfBuiltEntries, moveEntry],
-  );
-
-  // 按分区分发的稳定回调：memo 行 props 保持引用稳定。
-  const dropForSection = useMemo(
-    () => ({
-      selfBuilt: (id: string, e: DragEvent) => void handleDrop(id, e, "selfBuilt"),
-      imported: (id: string, e: DragEvent) => void handleDrop(id, e, "imported"),
-    }),
-    [handleDrop],
+    [entries, moveEntry, t],
   );
 
   const handleDragEnd = useCallback(() => {
@@ -959,9 +943,21 @@ export function KnowledgeSidebar() {
 
       if (e.key === "F2") {
         e.preventDefault();
+        if (isMirrorLocked(entry)) {
+          publishModuleStatusLog("knowledge", t("knowledge.tree.renameMirrorDenied"), "info");
+          return;
+        }
         void handleRename(entry);
       } else if (e.key === "Delete") {
         e.preventDefault();
+        if (isMirrorLocked(entry)) {
+          publishModuleStatusLog(
+            "knowledge",
+            t("knowledge.tree.deleteMirrorDenied", { count: "1" }),
+            "info",
+          );
+          return;
+        }
         void deleteEntries(entry.id);
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
         e.preventDefault();
@@ -987,36 +983,44 @@ export function KnowledgeSidebar() {
   ]);
 
   useEffect(() => {
-    if (!showNewMenuSection) return;
+    if (!showNewMenu) return;
     const onDoc = (e: MouseEvent) => {
       if (newMenuRef.current?.contains(e.target as Node)) return;
-      setShowNewMenuSection(null);
+      setShowNewMenu(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [showNewMenuSection]);
+  }, [showNewMenu]);
 
   useEffect(() => {
     if (!selectedEntryId) return;
-    const entry = entries.find((item) => item.id === selectedEntryId);
-    if (!entry) return;
-    setSectionExpanded(knowledgeLibrarySectionForEntry(entry), true);
-  }, [entries, selectedEntryId, setSectionExpanded]);
+    // 选中即展开祖先链（替代旧分区展开）。
+    for (const ancestor of expandAncestorIds(entries, selectedEntryId)) {
+      setExpanded(ancestor, true);
+    }
+  }, [entries, selectedEntryId, setExpanded]);
 
-  const renderSectionTree = (section: KnowledgeLibrarySection) => {
-    const visibleTree = visibleSectionTrees[section];
-    const flatRows =
-      section === "selfBuilt" ? selfBuiltFlatRows : importedFlatRows;
-    const virtualizer =
-      section === "selfBuilt" ? selfBuiltVirtualizer : importedVirtualizer;
-    const scrollRef =
-      section === "selfBuilt" ? selfBuiltScrollRef : importedScrollRef;
+  /** 来源根徽标文案（思源/Obsidian 等；未知命名空间回落原文）。 */
+  const getMirrorLabel = useCallback(
+    (entry: KnowledgeEntry): string | null => {
+      if (!isMirrorSourceRoot(entry)) return null;
+      const ns = mirrorNamespaceOf(entry);
+      if (!ns) return null;
+      const key = `knowledge.tree.mirrorSources.${ns}`;
+      const label = t(key);
+      return label === key ? ns : label;
+    },
+    [t],
+  );
+
+  const renderTree = () => {
     const virtualized = flatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD;
     const rowOpts = {
       expandedIds,
       selectedId: selectedEntryId,
       activeEntryId,
       vectorizedIds,
+      getMirrorLabel,
       dropHint,
       onPreviewOpen: handlePreviewOpen,
       onActivate: handleActivate,
@@ -1024,7 +1028,7 @@ export function KnowledgeSidebar() {
       onContextMenu: handleRowContextMenu,
       onDragStart: handleDragStart,
       onDragOver: handleDragOver,
-      onDrop: dropForSection[section],
+      onDrop: (id: string, e: DragEvent) => void handleDrop(id, e),
       onDragEnd: handleDragEnd,
     };
     return (
@@ -1034,7 +1038,7 @@ export function KnowledgeSidebar() {
         onContextMenu={(e) => {
           if ((e.target as HTMLElement).closest(".sidebar-tree-node, .tree-node, .knowledge-tree-row")) return;
           e.preventDefault();
-          setBlankCtx({ x: e.clientX, y: e.clientY, section });
+          setBlankCtx({ x: e.clientX, y: e.clientY });
         }}
       >
         {isLoading && entries.length === 0 ? (
@@ -1073,25 +1077,23 @@ export function KnowledgeSidebar() {
     );
   };
 
-  const renderSelfBuiltActions = () => (
+  const renderTreeActions = () => (
     <div className="schema-toolbar schema-toolbar--inline knowledge-sidebar-section-actions" ref={newMenuRef}>
       <Button
         variant="icon"
         size="sm"
         title={t("knowledge.tree.new")}
-        onClick={() =>
-          setShowNewMenuSection((current) => (current === "selfBuilt" ? null : "selfBuilt"))
-        }
+        onClick={() => setShowNewMenu((current) => !current)}
       >
         +
       </Button>
-      {showNewMenuSection === "selfBuilt" && (
+      {showNewMenu && (
         <div className="knowledge-new-menu">
           <button
             type="button"
             onClick={() => {
-              setShowNewMenuSection(null);
-              void createFolder(parentForNew("selfBuilt"));
+              setShowNewMenu(false);
+              void createFolder(parentForNew());
             }}
           >
             {t("knowledge.tree.newFolder")}
@@ -1099,27 +1101,23 @@ export function KnowledgeSidebar() {
           <button
             type="button"
             onClick={() => {
-              setShowNewMenuSection(null);
-              void handleCreateDocument(parentForNew("selfBuilt"));
+              setShowNewMenu(false);
+              void handleCreateDocument(parentForNew());
             }}
           >
             {t("knowledge.tree.newDocument")}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowNewMenu(false);
+              void handleImportPdf(parentForNew());
+            }}
+          >
+            {t("knowledge.tree.importPdf")}
+          </button>
         </div>
       )}
-    </div>
-  );
-
-  const renderImportedActions = () => (
-    <div className="schema-toolbar schema-toolbar--inline knowledge-sidebar-section-actions">
-      <Button
-        variant="icon"
-        size="sm"
-        title={t("knowledge.tree.importPdf")}
-        onClick={() => void handleImportPdf(parentForNew("imported"))}
-      >
-        +
-      </Button>
       <Button
         variant="icon"
         size="sm"
@@ -1153,26 +1151,10 @@ export function KnowledgeSidebar() {
               </div>
             ) : (
               <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
-                <VerticalSplitSidebar className="knowledge-sidebar-sections">
-                  <VerticalSplitSidebarSection
-                    title={t("knowledge.sidebar.selfBuilt")}
-                    expanded={sections.selfBuilt}
-                    onToggle={() => toggleSection("selfBuilt")}
-                    actions={renderSelfBuiltActions()}
-                  >
-                    {renderSectionTree("selfBuilt")}
-                  </VerticalSplitSidebarSection>
-                  <VerticalSplitSidebarSection
-                    title={t("knowledge.sidebar.imported")}
-                    expanded={sections.imported}
-                    onToggle={() => toggleSection("imported")}
-                    actions={renderImportedActions()}
-                    autoSize
-                    autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "imported-v2" }}
-                  >
-                    {renderSectionTree("imported")}
-                  </VerticalSplitSidebarSection>
-                </VerticalSplitSidebar>
+                <div className="knowledge-sidebar-sections">
+                  <div className="knowledge-sidebar-treehead">{renderTreeActions()}</div>
+                  {renderTree()}
+                </div>
               </SidebarTreeSelectionProvider>
             )}
           </ScopedSearch>
@@ -1188,31 +1170,26 @@ export function KnowledgeSidebar() {
 
           {blankCtx && (
             <ContextMenu
-              items={
-                blankCtx.section === "selfBuilt"
-                  ? [
-                      {
-                        id: "blank-folder",
-                        label: t("knowledge.tree.newFolder"),
-                        icon: contextMenuIcons.folder,
-                        onClick: () => void createFolder(parentForNew("selfBuilt")),
-                      },
-                      {
-                        id: "blank-doc",
-                        label: t("knowledge.tree.newDocument"),
-                        icon: contextMenuIcons.file,
-                        onClick: () => void handleCreateDocument(parentForNew("selfBuilt")),
-                      },
-                    ]
-                  : [
-                      {
-                        id: "blank-import-pdf",
-                        label: t("knowledge.tree.importPdf"),
-                        icon: contextMenuIcons.import,
-                        onClick: () => void handleImportPdf(parentForNew("imported")),
-                      },
-                    ]
-              }
+              items={[
+                {
+                  id: "blank-folder",
+                  label: t("knowledge.tree.newFolder"),
+                  icon: contextMenuIcons.folder,
+                  onClick: () => void createFolder(parentForNew()),
+                },
+                {
+                  id: "blank-doc",
+                  label: t("knowledge.tree.newDocument"),
+                  icon: contextMenuIcons.file,
+                  onClick: () => void handleCreateDocument(parentForNew()),
+                },
+                {
+                  id: "blank-import-pdf",
+                  label: t("knowledge.tree.importPdf"),
+                  icon: contextMenuIcons.import,
+                  onClick: () => void handleImportPdf(parentForNew()),
+                },
+              ]}
               position={blankCtx}
               onClose={() => setBlankCtx(null)}
             />
