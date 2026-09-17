@@ -39,6 +39,7 @@ import {
   isKnowledgeFolder,
   isKnowledgeImported,
   isPdfImportEntry,
+  isReadonlyMirrorEntry,
   isSiyuanMirrorEntry,
   normalizeParentId,
   nextSortOrder,
@@ -107,6 +108,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   const isImported = entry ? isKnowledgeImported(entry) : false;
   // 思源镜像（import:siyuan:）是 markdown 文档，只读展示；PDF 判定只认 import:pdf:。
   const isSiyuanMirror = entry ? isSiyuanMirrorEntry(entry) : false;
+  const isReadonlyMirror = entry ? isReadonlyMirrorEntry(entry) : false;
   const isPdfImport = entry ? isPdfImportEntry(entry) : false;
   const pdfPath = entry && isPdfImport ? parseKnowledgeImportPdfPath(entry.source) : null;
 
@@ -180,7 +182,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   useEffect(() => {
     let cancelled = false;
     setResolvedContent(null);
-    if (!isSiyuanMirror && !isPdfImport) return;
+    if (!isReadonlyMirror) return;
     const text = displayContent;
     if (!text.includes("knowledge-asset://")) return;
     void (async () => {
@@ -203,7 +205,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
     return () => {
       cancelled = true;
     };
-  }, [displayContent, entry?.id, isSiyuanMirror, isPdfImport]);
+  }, [displayContent, entry?.id, isReadonlyMirror]);
   const previewContent = resolvedContent ?? displayContent;
   const charCount = useMemo(() => countKnowledgeChars(displayContent), [displayContent]);
   const headings = useMemo(() => parseHeadings(displayContent), [displayContent]);
@@ -585,12 +587,16 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
     );
   }
 
-  if (isSiyuanMirror && entry) {
+  if (isReadonlyMirror && entry) {
     return (
       <div className="knowledge-workspace knowledge-workspace--imported knowledge-workspace--note">
         <div className="knowledge-note-chrome">
           <div className="knowledge-note-chrome__left">
-            <span className="knowledge-note-chip">{t("knowledge.siyuan.mirrorBadge")}</span>
+            <span className="knowledge-note-chip">
+              {isSiyuanMirror
+                ? t("knowledge.siyuan.mirrorBadge")
+                : t("knowledge.importPreview.importedBadge")}
+            </span>
           </div>
         </div>
         <div className="knowledge-note-scroll">

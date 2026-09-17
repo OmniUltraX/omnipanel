@@ -11,49 +11,89 @@ export function isKnowledgeFolder(entry: Pick<KnowledgeEntry, "nodeType">): bool
   return entry.nodeType === "folder";
 }
 
-export type KnowledgeLibrarySection = "selfBuilt" | "imported";
+export function normalizeParentId(parentId: string | null | undefined): string {
+  return parentId?.trim() ?? "";
+}
 
 export function isKnowledgeImported(entry: Pick<KnowledgeEntry, "source">): boolean {
   return entry.source.startsWith("import:");
 }
 
-/** 思源镜像：markdown 文档，只读展示（区别于 PDF 导入）。 */
+/** 思源镜像：markdown 文档，只读展示（本地 import:siyuan: 与 S3 import:siyuan-s3:）。 */
 export function isSiyuanMirrorEntry(entry: Pick<KnowledgeEntry, "source">): boolean {
-  return entry.source.startsWith("import:siyuan:");
+  return (
+    entry.source.startsWith("import:siyuan:") || entry.source.startsWith("import:siyuan-s3:")
+  );
 }
 
-/** PDF 导入：`import:` 族中除思源镜像外的条目。 */
+/** Obsidian 镜像：markdown 文档，只读展示（默认 import:ks: 前缀）。 */
+export function isObsidianMirrorEntry(entry: Pick<KnowledgeEntry, "source">): boolean {
+  return entry.source.startsWith("import:ks:obsidian:");
+}
+
+/** PDF 导入：仅 `import:pdf:` 前缀（精确匹配，镜像源不再误入）。 */
 export function isPdfImportEntry(entry: Pick<KnowledgeEntry, "source">): boolean {
-  return isKnowledgeImported(entry) && !isSiyuanMirrorEntry(entry);
+  return entry.source.startsWith("import:pdf:");
 }
 
-export function knowledgeLibrarySectionForEntry(
-  entry: Pick<KnowledgeEntry, "source">,
-): KnowledgeLibrarySection {
-  return isKnowledgeImported(entry) ? "imported" : "selfBuilt";
+/**
+ * 镜像锁定：`import:` 来源一律只读闭环，唯 PDF 导入（用户自建行为）除外。
+ * 未来新同步源默认锁定；锁定条目不可重命名/删除/移动。
+ */
+export function isMirrorLocked(entry: Pick<KnowledgeEntry, "source">): boolean {
+  return isKnowledgeImported(entry) && !isPdfImportEntry(entry);
 }
 
-/** 按侧栏分区过滤条目；跨区父节点会被提升为根级展示。 */
-export function filterEntriesForLibrarySection(
-  entries: KnowledgeEntry[],
-  section: KnowledgeLibrarySection,
-): KnowledgeEntry[] {
-  const inSection = (entry: KnowledgeEntry) =>
-    section === "imported" ? isKnowledgeImported(entry) : !isKnowledgeImported(entry);
-  const filtered = entries.filter(inSection);
-  const allowedIds = new Set(filtered.map((entry) => entry.id));
-
-  return filtered.map((entry) => {
-    const parent = normalizeParentId(entry.parentId);
-    if (!parent || allowedIds.has(parent)) {
-      return entry;
-    }
-    return { ...entry, parentId: "" };
-  });
+/** 只读镜像：与 isMirrorLocked 同义，文档面板预览分支用。 */
+export function isReadonlyMirrorEntry(entry: Pick<KnowledgeEntry, "source">): boolean {
+  return isMirrorLocked(entry);
 }
 
-export function normalizeParentId(parentId: string | null | undefined): string {
-  return parentId?.trim() ?? "";
+/** 镜像来源命名空间：`import:siyuan:…` → `"siyuan"`；自建返回 null。 */
+export function mirrorNamespaceOf(entry: Pick<KnowledgeEntry, "source">): string | null {
+  if (!isKnowledgeImported(entry)) return null;
+  const ns = entry.source.slice("import:".length).split(":")[0]?.trim() ?? "";
+  return ns === "" ? null : ns;
+}
+
+/** 来源根：被导入的顶级文件夹（各同步源的根，统一树里打徽标）。 */
+export function isMirrorSourceRoot(
+  entry: Pick<KnowledgeEntry, "source" | "nodeType" | "parentId">,
+): boolean {
+  return (
+    isKnowledgeFolder(entry) &&
+    isKnowledgeImported(entry) &&
+    normalizeParentId(entry.parentId) === ""
+  );
+}
+
+/** 祖先链 id（选中 reveals 用；防环）。 */
+export function expandAncestorIds(entries: KnowledgeEntry[], id: string): string[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const out: string[] = [];
+  const seen = new Set<string>([id]);
+  let current = byId.get(id);
+  while (current) {
+    const parent = normalizeParentId(current.parentId);
+    if (!parent || seen.has(parent)) break;
+    seen.add(parent);
+    out.push(parent);
+    current = byId.get(parent);
+  }
+  return out;
+}
+
+/** 该条目是否在镜像子树内（含自身；手动误入镜像目录也算）。 */
+export function isInsideMirrorSubtree(entryId: string, entries: KnowledgeEntry[]): boolean {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const seen = new Set<string>();
+  let current: KnowledgeEntry | undefined = byId.get(entryId);
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    if (isMirrorLocked(current)) return true;
+    current = byId.get(normalizeParentId(current.parentId));
+  }
+  return false;
 }
 
 export function newKnowledgeId(): string {

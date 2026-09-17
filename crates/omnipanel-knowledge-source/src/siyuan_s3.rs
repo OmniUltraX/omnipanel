@@ -618,7 +618,7 @@ impl<C: MethodCaller> SourceAdapter for SiyuanS3Adapter<C> {
     }
 
     fn fetch_asset(&self, doc: &KsDocRef, rel: &str) -> Result<Option<(String, Vec<u8>)>, String> {
-        // 禁锢：只允许盒子内 assets/ 下文件。
+        // 禁锢：只允许 assets/ 下文件。
         let clean = rel.replace('\\', "/");
         let clean = clean.trim().trim_start_matches('/');
         if clean.is_empty() || clean.contains("..") || !clean.starts_with("assets/") {
@@ -627,19 +627,27 @@ impl<C: MethodCaller> SourceAdapter for SiyuanS3Adapter<C> {
         self.ensure_cache()?;
         let key = derive_repo_key(&self.cfg.repo_password)?;
         let store = SiyuanS3Store::new(&self.cfg)?;
-        let full_rel = format!("{}/{}", doc.box_id, clean);
-        let meta = {
-            let cache = self.cache.lock().unwrap();
-            match cache.files.get(&full_rel).cloned() {
-                Some(meta) => meta,
-                None => return Ok(None),
+        // 盒内优先，找不到回落仓库根共享 assets/（与本地源一致）。
+        let candidates = [
+            format!("{}/{}", doc.box_id, clean),
+            clean.to_string(),
+        ];
+        for full_rel in &candidates {
+            let meta = {
+                let cache = self.cache.lock().unwrap();
+                match cache.files.get(full_rel).cloned() {
+                    Some(meta) => meta,
+                    None => continue,
+                }
+            };
+            let bytes = block_on_s3(Self::assemble_file(&store, &key, &meta))?;
+            if bytes.len() as u64 > MAX_ASSET_BYTES {
+                return Ok(None);
             }
-        };
-        let bytes = block_on_s3(Self::assemble_file(&store, &key, &meta))?;
-        if bytes.len() as u64 > MAX_ASSET_BYTES {
-            return Ok(None);
+            return Ok(Some((clean.replace('/', "__"), bytes)));
         }
-        Ok(Some((clean.replace('/', "__"), bytes)))
+        tracing::warn!("思源 S3 镜像资源缺失（同步跳过）: {}/{}", doc.box_id, clean);
+        Ok(None)
     }
 
     fn list_notebooks(&self) -> Result<Vec<KsNotebook>, String> {
