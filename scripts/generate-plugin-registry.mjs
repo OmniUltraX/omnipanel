@@ -213,14 +213,19 @@ for (const dir of [...DOWNLOAD_ONLY_PLUGIN_DIRS].sort()) {
     // size 必须 >0，否则前端会把 downloadSize=0 误判为 bundled
     size: Number(prevArt?.size) > 0 ? Number(prevArt.size) : 8234,
   };
+  // 必须写真 v2 `versions[]`：自称 schemaVersion:2 却用扁平 version/artifact
+  // 时，市场 parse 会得到空 versions，刷新后 download-only 插件整条消失。
   plugins.push({
     id: raw.id,
     kind: raw.kind,
     name: meta.name,
     description: meta.description,
-    version: raw.version,
-    distribution: "download",
-    artifact,
+    versions: [
+      {
+        version: raw.version,
+        artifact,
+      },
+    ],
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
     ...dates,
   });

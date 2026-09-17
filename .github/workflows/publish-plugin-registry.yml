@@ -94,9 +94,11 @@ jobs:
                 entry.versions[0].version = manifest.version;
                 entry.versions[0].artifact = artifact;
               } else {
-                entry.version = manifest.version;
-                entry.distribution = "download";
-                entry.artifact = artifact;
+                // 禁止再写扁平 v1：市场 parse 在 schemaVersion:2 下会丢掉无 versions 的条目
+                entry.versions = [{ version: manifest.version, artifact }];
+                delete entry.version;
+                delete entry.distribution;
+                delete entry.artifact;
               }
               console.log(`[market-artifact] ${manifest.id} v${manifest.version} sha256/size 回填完成`);
             }

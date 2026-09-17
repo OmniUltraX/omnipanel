@@ -112,6 +112,10 @@ struct RegistryPluginV1 {
 }
 
 /// 解析 registry 文本（v2 优先，v1 兼容），并校验版本号全部合法 semver。
+///
+/// 线上偶发「schemaVersion:2 但个别插件仍是 v1 扁平 `version`/`artifact`」
+///（download-only 生成脚本历史形态）。按纯 v2 反序列化会得到空 `versions`，
+/// 市场刷新后整条消失——此处把这类条目提升为单 version。
 pub fn parse_registry(text: &str) -> Result<RegistryFile, PkgError> {
     let value: serde_json::Value =
         serde_json::from_str(text).map_err(|e| PkgError::Registry(format!("JSON 非法: {e}")))?;
@@ -124,9 +128,18 @@ pub fn parse_registry(text: &str) -> Result<RegistryFile, PkgError> {
         .get("schemaVersion")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    let mut file = if schema_version >= 2 || has_versions {
-        serde_json::from_value::<RegistryFile>(value)
-            .map_err(|e| PkgError::Registry(format!("v2 解析失败: {e}")))?
+    let mut file = if has_versions {
+        let mut file = serde_json::from_value::<RegistryFile>(value.clone())
+            .map_err(|e| PkgError::Registry(format!("v2 解析失败: {e}")))?;
+        lift_v1_shaped_plugins(&mut file, &value);
+        file
+    } else if schema_version >= 2 {
+        // 自称 v2 但没有任何 versions[]（全是扁平条目）→ 按 v1 提升
+        let v1: RegistryFileV1 = serde_json::from_value(value)
+            .map_err(|e| PkgError::Registry(format!("v1 解析失败: {e}")))?;
+        let mut file = from_v1(v1);
+        file.schema_version = 2;
+        file
     } else {
         let v1: RegistryFileV1 = serde_json::from_value(value)
             .map_err(|e| PkgError::Registry(format!("v1 解析失败: {e}")))?;
@@ -146,6 +159,59 @@ pub fn parse_registry(text: &str) -> Result<RegistryFile, PkgError> {
         }
     }
     Ok(file)
+}
+
+/// 混排目录：已有 `versions` 的条目保持不动；仅有扁平 `version` 的补成单 version。
+fn lift_v1_shaped_plugins(file: &mut RegistryFile, value: &serde_json::Value) {
+    let Some(arr) = value.get("plugins").and_then(|p| p.as_array()) else {
+        return;
+    };
+    let raw_by_id: std::collections::HashMap<&str, &serde_json::Value> = arr
+        .iter()
+        .filter_map(|item| item.get("id").and_then(|v| v.as_str()).map(|id| (id, item)))
+        .collect();
+    for plugin in &mut file.plugins {
+        if !plugin.versions.is_empty() {
+            continue;
+        }
+        let Some(raw) = raw_by_id.get(plugin.id.as_str()) else {
+            continue;
+        };
+        let Some(version) = raw
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        let artifact = raw
+            .get("artifact")
+            .cloned()
+            .and_then(|v| serde_json::from_value::<RegistryArtifact>(v).ok());
+        if plugin.name.trim().is_empty() {
+            if let Some(name) = raw.get("name").and_then(|v| v.as_str()) {
+                plugin.name = name.to_string();
+            }
+        }
+        if plugin.description.is_empty() {
+            if let Some(desc) = raw.get("description").and_then(|v| v.as_str()) {
+                plugin.description = desc.to_string();
+            }
+        }
+        if plugin.kind.is_empty() {
+            if let Some(kind) = raw.get("kind").and_then(|v| v.as_str()) {
+                plugin.kind = kind.to_string();
+            }
+        }
+        plugin.versions.push(RegistryVersion {
+            version: version.to_string(),
+            changelog: None,
+            min_host_api: None,
+            artifact,
+            dependencies: vec![],
+        });
+    }
 }
 
 fn from_v1(v1: RegistryFileV1) -> RegistryFile {
@@ -338,6 +404,38 @@ mod tests {
         assert_eq!(file.plugins.len(), 1);
         assert_eq!(file.plugins[0].versions.len(), 1);
         assert_eq!(file.plugins[0].versions[0].version, "0.1.0");
+    }
+
+    #[test]
+    fn schema2_with_only_flat_plugins_lifts_to_versions() {
+        // 历史 download-only：schemaVersion=2 但条目仍是 v1 扁平字段
+        let text = r#"{"schemaVersion":2,"plugins":[{"id":"omni.module.nacos","kind":"module","name":"Nacos","version":"0.2.0","distribution":"download","artifact":{"url":"https://example.com/n.omni-plugin","sha256":"abc","size":9}}]}"#;
+        let file = parse_registry(text).unwrap();
+        assert_eq!(file.plugins.len(), 1);
+        assert_eq!(file.plugins[0].versions.len(), 1);
+        assert_eq!(file.plugins[0].versions[0].version, "0.2.0");
+        let art = file.plugins[0].versions[0].artifact.as_ref().unwrap();
+        assert_eq!(art.url, "https://example.com/n.omni-plugin");
+        assert_eq!(art.sha256, "abc");
+        assert_eq!(art.size, 9);
+    }
+
+    #[test]
+    fn mixed_v2_and_flat_plugins_lifts_orphan_rows() {
+        let text = r#"{"schemaVersion":2,"plugins":[{"id":"omni.engine.redis","kind":"engine","versions":[{"version":"0.1.0"}]},{"id":"omni.module.nacos","kind":"module","name":"Nacos","version":"0.2.0","distribution":"download","artifact":{"url":"https://example.com/n.omni-plugin","sha256":"dead","size":3}}]}"#;
+        let file = parse_registry(text).unwrap();
+        assert_eq!(file.plugins.len(), 2);
+        let nacos = file
+            .plugins
+            .iter()
+            .find(|p| p.id == "omni.module.nacos")
+            .expect("nacos");
+        assert_eq!(nacos.versions.len(), 1);
+        assert_eq!(nacos.versions[0].version, "0.2.0");
+        assert_eq!(
+            nacos.versions[0].artifact.as_ref().unwrap().sha256,
+            "dead"
+        );
     }
 
     #[test]
