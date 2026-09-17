@@ -612,6 +612,12 @@ button.cloud-overview__fact-value:disabled {
     background: var(--surface);
 }
 
+.cloud-detail__action--danger:hover:not(:disabled) {
+    color: var(--danger, #dc2626);
+    border-color: color-mix(in srgb, var(--danger, #dc2626) 35%, var(--border));
+    background: var(--surface);
+}
+
 .cloud-detail__action:disabled {
     opacity: 0.35;
     cursor: not-allowed;

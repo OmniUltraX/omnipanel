@@ -62,6 +62,9 @@ describe("cloud capabilities contract", () => {
       expect(caps.find((c) => c.id === "domains")?.scope).toBe("global");
       expect(caps.find((c) => c.id === "domains")?.detailSlots).toContain("records");
       expect(caps.find((c) => c.id === "network.securityGroup")?.detailSlots).toContain("members");
+      expect(
+        caps.find((c) => c.id === "network.securityGroup")?.actions?.some((a) => a.id === "delete"),
+      ).toBe(true);
       expect(caps.find((c) => c.id === "objectStorage")?.detailSlots).toContain("overview");
       expect(caps.find((c) => c.id === "certs")?.detailSlots).toContain("overview");
       expect(caps.find((c) => c.id === "compute")?.scope).toBe("region");

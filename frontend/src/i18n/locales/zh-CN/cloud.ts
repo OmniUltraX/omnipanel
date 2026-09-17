@@ -85,6 +85,7 @@ export default {
       start: "开机",
       stop: "关机",
       reboot: "重启",
+      delete: "删除",
       authorizeRule: "添加规则",
       revokeRule: "删除规则",
       modifyRule: "修改规则",
