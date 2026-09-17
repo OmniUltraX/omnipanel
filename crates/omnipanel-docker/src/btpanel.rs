@@ -18,7 +18,9 @@ use reqwest::cookie::Jar;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::compose::compose_fields_from_label_map;
 use crate::ssh::SshDockerAdapter;
+use crate::ssh_docker_api::SshDockerApi;
 use crate::{
     ContainerFilter, DockerAdapter, DockerBuildContext, DockerBuildResult, DockerComposeAction,
     DockerComposeProject, DockerComposeProjectFiles, DockerComposeReadFilesRequest,
@@ -736,6 +738,8 @@ fn parse_container_item(v: &Value) -> Option<DockerContainerSummary> {
         .or_else(|| v.get("created_at"))
         .and_then(json_i64)
         .unwrap_or(0);
+    let (compose_project, compose_service, compose_working_dir, compose_config_files) =
+        extract_compose_fields_from_container_json(v);
 
     Some(DockerContainerSummary {
         id: id.clone(),
@@ -750,11 +754,403 @@ fn parse_container_item(v: &Value) -> Option<DockerContainerSummary> {
         ip_address: None,
         network_attachments: Vec::new(),
         created_at,
-        compose_project: None,
-        compose_service: None,
-        compose_working_dir: None,
-        compose_config_files: None,
+        compose_project,
+        compose_service,
+        compose_working_dir,
+        compose_config_files,
     })
+}
+
+/// 宝塔 `get_list` 文档字段不含 labels；若实际响应带了 labels / project 字段则直接解析。
+fn extract_compose_fields_from_container_json(
+    v: &Value,
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    let mut project = v
+        .get("compose_project")
+        .or_else(|| v.get("project_name"))
+        .or_else(|| v.get("project"))
+        .or_else(|| v.get("server_name"))
+        .and_then(json_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let mut service = v
+        .get("compose_service")
+        .or_else(|| v.get("service_name"))
+        .or_else(|| v.get("service"))
+        .and_then(json_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let mut working_dir = v
+        .get("compose_working_dir")
+        .or_else(|| v.get("working_dir"))
+        .and_then(json_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let mut config_files = v
+        .get("compose_config_files")
+        .or_else(|| v.get("config_files"))
+        .or_else(|| v.get("compose_file"))
+        .and_then(json_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    if let Some(labels_val) = v.get("labels").or_else(|| v.get("Labels")) {
+        if let Some(map) = labels_to_string_map(labels_val) {
+            let (p, s, w, c) = compose_fields_from_label_map(&map);
+            if project.is_none() {
+                project = p;
+            }
+            if service.is_none() {
+                service = s;
+            }
+            if working_dir.is_none() {
+                working_dir = w;
+            }
+            if config_files.is_none() {
+                config_files = c;
+            }
+        }
+    }
+
+    (project, service, working_dir, config_files)
+}
+
+fn labels_to_string_map(v: &Value) -> Option<std::collections::HashMap<String, String>> {
+    match v {
+        Value::Object(map) => {
+            let mut out = std::collections::HashMap::new();
+            for (k, val) in map {
+                if let Some(s) = json_str(val) {
+                    out.insert(k.clone(), s.to_string());
+                }
+            }
+            Some(out)
+        }
+        Value::Array(arr) => {
+            let mut out = std::collections::HashMap::new();
+            for item in arr {
+                if let Some(s) = item.as_str() {
+                    if let Some((k, val)) = s.split_once('=') {
+                        out.insert(k.to_string(), val.to_string());
+                    }
+                    continue;
+                }
+                let key = item
+                    .get("key")
+                    .or_else(|| item.get("Key"))
+                    .or_else(|| item.get("name"))
+                    .and_then(json_str)?;
+                let value = item
+                    .get("value")
+                    .or_else(|| item.get("Value"))
+                    .and_then(json_str)
+                    .unwrap_or("");
+                out.insert(key.to_string(), value.to_string());
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// 宝塔容器列表通常不带 Compose labels；优先用绑定 SSH Engine labels，再用项目列表兜底。
+async fn enrich_bt_containers_compose(
+    client: &BtPanelClient,
+    session: &SshSession,
+    containers: &mut [DockerContainerSummary],
+) {
+    if containers.is_empty() || containers.iter().all(|c| c.compose_project.is_some()) {
+        return;
+    }
+
+    // Engine labels 最准（与侧栏分组、本地/SSH Docker 一致）；HTTP 项目列表常只有 server_name。
+    if let Err(e) = enrich_containers_compose_from_ssh_labels(session, containers).await {
+        tracing::warn!(
+            target: "btpanel",
+            error = %e.user_message(),
+            "宝塔 Compose 标签回填（SSH Engine）失败"
+        );
+    }
+
+    if containers.iter().all(|c| c.compose_project.is_some()) {
+        return;
+    }
+
+    if let Ok(payload) = client
+        .post_form_payload("/btdocker/project/get_project_list", Map::new())
+        .await
+    {
+        let raw = extract_array_payload(&payload);
+        enrich_containers_from_bt_project_list(containers, raw);
+    }
+}
+
+/// 从宝塔 `get_project_list` 回填：优先按项目内容器 id/name；否则按 Compose 命名前缀匹配。
+fn enrich_containers_from_bt_project_list(
+    containers: &mut [DockerContainerSummary],
+    projects: &[Value],
+) {
+    use std::collections::HashMap;
+
+    struct ComposeMeta {
+        project: String,
+        service: Option<String>,
+        working_dir: Option<String>,
+        config_files: Option<String>,
+    }
+
+    let mut by_id: HashMap<String, ComposeMeta> = HashMap::new();
+    let mut by_name: HashMap<String, ComposeMeta> = HashMap::new();
+    let mut project_names: Vec<String> = Vec::new();
+
+    for project in projects {
+        let Some(name) = project
+            .get("server_name")
+            .or_else(|| project.get("name"))
+            .or_else(|| project.get("project"))
+            .or_else(|| project.get("Name"))
+            .and_then(json_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        project_names.push(name.clone());
+
+        let working_dir = project
+            .get("working_dir")
+            .or_else(|| project.get("dir"))
+            .and_then(json_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let config_files = project
+            .get("path")
+            .or_else(|| project.get("compose_file"))
+            .or_else(|| project.get("config_files"))
+            .or_else(|| project.get("ConfigFiles"))
+            .and_then(json_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        let container_arr = project
+            .get("containers")
+            .or_else(|| project.get("container_list"))
+            .or_else(|| project.get("container"))
+            .and_then(|x| x.as_array());
+        if let Some(arr) = container_arr {
+            for c in arr {
+                let service = c
+                    .get("service")
+                    .or_else(|| c.get("service_name"))
+                    .and_then(json_str)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string);
+                let meta = ComposeMeta {
+                    project: name.clone(),
+                    service,
+                    working_dir: working_dir.clone(),
+                    config_files: config_files.clone(),
+                };
+                if let Some(id) = c
+                    .get("container_id")
+                    .or_else(|| c.get("id"))
+                    .or_else(|| c.get("Id"))
+                    .and_then(json_id_string)
+                    .filter(|s| !s.is_empty())
+                {
+                    by_id.insert(
+                        id,
+                        ComposeMeta {
+                            project: meta.project.clone(),
+                            service: meta.service.clone(),
+                            working_dir: meta.working_dir.clone(),
+                            config_files: meta.config_files.clone(),
+                        },
+                    );
+                }
+                if let Some(cname) = c
+                    .get("name")
+                    .or_else(|| c.get("Names"))
+                    .and_then(json_str)
+                    .map(|s| s.trim_start_matches('/').to_string())
+                    .filter(|s| !s.is_empty())
+                {
+                    by_name.insert(cname, meta);
+                }
+            }
+        }
+    }
+
+    let apply_meta = |container: &mut DockerContainerSummary, meta: &ComposeMeta| {
+        if container.compose_project.is_none() {
+            container.compose_project = Some(meta.project.clone());
+        }
+        if container.compose_service.is_none() {
+            container.compose_service = meta.service.clone();
+        }
+        if container.compose_working_dir.is_none() {
+            container.compose_working_dir = meta.working_dir.clone();
+        }
+        if container.compose_config_files.is_none() {
+            container.compose_config_files = meta.config_files.clone();
+        }
+    };
+
+    if !by_id.is_empty() || !by_name.is_empty() {
+        for container in containers.iter_mut() {
+            if container.compose_project.is_some() {
+                continue;
+            }
+            if let Some(meta) = by_id.get(&container.id) {
+                apply_meta(container, meta);
+                continue;
+            }
+            if let Some((_, meta)) = by_id.iter().find(|(id, _)| {
+                container.id.starts_with(id.as_str()) || id.starts_with(container.id.as_str())
+            }) {
+                apply_meta(container, meta);
+                continue;
+            }
+            let name = container.name.trim_start_matches('/');
+            if let Some(meta) = by_name.get(name) {
+                apply_meta(container, meta);
+            }
+        }
+    }
+
+    // 文档样例只有 server_name，无容器明细：按 Compose 命名约定前缀匹配（长名优先）。
+    if containers.iter().any(|c| c.compose_project.is_none()) && !project_names.is_empty() {
+        project_names.sort_by_key(|n| std::cmp::Reverse(n.len()));
+        for container in containers.iter_mut() {
+            if container.compose_project.is_some() {
+                continue;
+            }
+            let cname = container.name.trim_start_matches('/');
+            if let Some(project) = project_names
+                .iter()
+                .find(|p| container_name_belongs_to_compose_project(cname, p))
+            {
+                container.compose_project = Some(project.clone());
+            }
+        }
+    }
+}
+
+fn container_name_belongs_to_compose_project(container_name: &str, project: &str) -> bool {
+    let name = container_name.trim_start_matches('/');
+    let project = project.trim();
+    if project.is_empty() {
+        return false;
+    }
+    if name == project {
+        return true;
+    }
+    name.starts_with(&format!("{project}-")) || name.starts_with(&format!("{project}_"))
+}
+
+/// 经绑定 SSH 读 Engine `/containers/json` 的 Compose labels，按 id/name 回填侧栏分组字段。
+async fn enrich_containers_compose_from_ssh_labels(
+    session: &SshSession,
+    containers: &mut [DockerContainerSummary],
+) -> OmniResult<()> {
+    use std::collections::HashMap;
+
+    let api = SshDockerApi::new(session);
+    let raw: Vec<bollard::models::ContainerSummary> =
+        api.get_json("/containers/json?all=1").await?;
+
+    struct LabelMeta {
+        project: String,
+        service: Option<String>,
+        working_dir: Option<String>,
+        config_files: Option<String>,
+    }
+
+    let mut by_id: HashMap<String, LabelMeta> = HashMap::new();
+    let mut by_name: HashMap<String, LabelMeta> = HashMap::new();
+
+    for item in raw {
+        let labels = item.labels.clone().unwrap_or_default();
+        let (project, service, working_dir, config_files) = compose_fields_from_label_map(&labels);
+        let Some(project) = project else {
+            continue;
+        };
+        let meta = LabelMeta {
+            project,
+            service,
+            working_dir,
+            config_files,
+        };
+        if let Some(id) = item.id.clone() {
+            by_id.insert(id, LabelMeta {
+                project: meta.project.clone(),
+                service: meta.service.clone(),
+                working_dir: meta.working_dir.clone(),
+                config_files: meta.config_files.clone(),
+            });
+        }
+        for n in item.names.unwrap_or_default() {
+            let n = n.trim_start_matches('/').to_string();
+            if !n.is_empty() {
+                by_name.insert(
+                    n,
+                    LabelMeta {
+                        project: meta.project.clone(),
+                        service: meta.service.clone(),
+                        working_dir: meta.working_dir.clone(),
+                        config_files: meta.config_files.clone(),
+                    },
+                );
+            }
+        }
+    }
+
+    if by_id.is_empty() && by_name.is_empty() {
+        return Ok(());
+    }
+
+    let apply = |container: &mut DockerContainerSummary, meta: &LabelMeta| {
+        if container.compose_project.is_none() {
+            container.compose_project = Some(meta.project.clone());
+        }
+        if container.compose_service.is_none() {
+            container.compose_service = meta.service.clone();
+        }
+        if container.compose_working_dir.is_none() {
+            container.compose_working_dir = meta.working_dir.clone();
+        }
+        if container.compose_config_files.is_none() {
+            container.compose_config_files = meta.config_files.clone();
+        }
+    };
+
+    for container in containers.iter_mut() {
+        if container.compose_project.is_some() {
+            continue;
+        }
+        if let Some(meta) = by_id.get(&container.id) {
+            apply(container, meta);
+            continue;
+        }
+        if let Some((_, meta)) = by_id
+            .iter()
+            .find(|(id, _)| container.id.starts_with(id.as_str()) || id.starts_with(&container.id))
+        {
+            apply(container, meta);
+            continue;
+        }
+        let name = container.name.trim_start_matches('/');
+        if let Some(meta) = by_name.get(name) {
+            apply(container, meta);
+        }
+    }
+
+    Ok(())
 }
 
 fn extract_container_list(payload: &Value) -> Vec<DockerContainerSummary> {
@@ -1322,6 +1718,7 @@ impl DockerAdapter for BtPanelAdapter {
             "BtPanelAdapter::list_containers"
         );
         let mut out = fetch_containers(&self.client).await?;
+        enrich_bt_containers_compose(&self.client, &self.ssh, &mut out).await;
         if !filter.include_all() {
             out.retain(|c| filter.matches(c.running));
         }
@@ -1329,6 +1726,7 @@ impl DockerAdapter for BtPanelAdapter {
             target: "btpanel",
             connection_id = %self.connection_id,
             after_filter = out.len(),
+            compose_tagged = out.iter().filter(|c| c.compose_project.is_some()).count(),
             "BtPanelAdapter::list_containers 完成"
         );
         Ok(out)
@@ -1456,7 +1854,15 @@ impl DockerAdapter for BtPanelAdapter {
                     parsed_count = projects.len(),
                     "list_compose_projects HTTP 解析结果"
                 );
-                Ok(projects)
+                if !projects.is_empty() {
+                    return Ok(projects);
+                }
+                // HTTP 成功但空列表：常见于面板仅登记应用商店项目、Compose 实为 Engine labels。
+                tracing::info!(
+                    target: "btpanel",
+                    "宝塔 HTTP Compose 项目为空，回退绑定 SSH labels"
+                );
+                self.ssh().list_compose_projects().await
             }
             Err(e) => {
                 tracing::warn!(
@@ -1809,5 +2215,146 @@ mod tests {
         assert_eq!(c.id, "ead805da4545");
         assert!(c.running);
         assert_eq!(c.state, "running");
+        assert!(c.compose_project.is_none());
+    }
+
+    #[test]
+    fn parse_container_reads_compose_labels() {
+        let v = serde_json::json!({
+            "container_id": "abc123",
+            "name": "nextcloud-app-1",
+            "status": "running",
+            "image": "nextcloud:latest",
+            "labels": {
+                "com.docker.compose.project": "nextcloud",
+                "com.docker.compose.service": "app",
+                "com.docker.compose.project.working_dir": "/www/dk_project/nextcloud",
+                "com.docker.compose.project.config_files": "/www/dk_project/nextcloud/docker-compose.yml"
+            }
+        });
+        let c = parse_container_item(&v).expect("parse");
+        assert_eq!(c.compose_project.as_deref(), Some("nextcloud"));
+        assert_eq!(c.compose_service.as_deref(), Some("app"));
+        assert_eq!(
+            c.compose_working_dir.as_deref(),
+            Some("/www/dk_project/nextcloud")
+        );
+    }
+
+    #[test]
+    fn enrich_from_project_list_matches_name_prefix() {
+        let mut containers = vec![
+            DockerContainerSummary {
+                id: "ead805da4545".into(),
+                short_id: "ead805da".into(),
+                name: "allinssl_m3xm-allinssl_M3xm-1".into(),
+                image: "allinssl/allinssl:latest".into(),
+                state: "running".into(),
+                status_text: "running".into(),
+                running: true,
+                ports: vec![],
+                networks: vec![],
+                ip_address: None,
+                network_attachments: vec![],
+                created_at: 0,
+                compose_project: None,
+                compose_service: None,
+                compose_working_dir: None,
+                compose_config_files: None,
+            },
+            DockerContainerSummary {
+                id: "bbbbbbbbbbbb".into(),
+                short_id: "bbbbbbbb".into(),
+                name: "standalone".into(),
+                image: "nginx:latest".into(),
+                state: "running".into(),
+                status_text: "running".into(),
+                running: true,
+                ports: vec![],
+                networks: vec![],
+                ip_address: None,
+                network_attachments: vec![],
+                created_at: 0,
+                compose_project: None,
+                compose_service: None,
+                compose_working_dir: None,
+                compose_config_files: None,
+            },
+        ];
+        let projects = vec![serde_json::json!({
+            "id": 1,
+            "server_name": "allinssl_m3xm",
+            "template_id": 1
+        })];
+        enrich_containers_from_bt_project_list(&mut containers, &projects);
+        assert_eq!(
+            containers[0].compose_project.as_deref(),
+            Some("allinssl_m3xm")
+        );
+        assert!(containers[1].compose_project.is_none());
+    }
+
+    #[test]
+    fn enrich_from_project_list_matches_nested_containers() {
+        let mut containers = vec![DockerContainerSummary {
+            id: "cid-1".into(),
+            short_id: "cid-1".into(),
+            name: "weird-name".into(),
+            image: "img".into(),
+            state: "running".into(),
+            status_text: "running".into(),
+            running: true,
+            ports: vec![],
+            networks: vec![],
+            ip_address: None,
+            network_attachments: vec![],
+            created_at: 0,
+            compose_project: None,
+            compose_service: None,
+            compose_working_dir: None,
+            compose_config_files: None,
+        }];
+        let projects = vec![serde_json::json!({
+            "server_name": "blog",
+            "path": "/www/dk_project/blog/docker-compose.yml",
+            "containers": [
+                {"id": "cid-1", "name": "weird-name", "service": "web"}
+            ]
+        })];
+        enrich_containers_from_bt_project_list(&mut containers, &projects);
+        assert_eq!(containers[0].compose_project.as_deref(), Some("blog"));
+        assert_eq!(containers[0].compose_service.as_deref(), Some("web"));
+        assert_eq!(
+            containers[0].compose_config_files.as_deref(),
+            Some("/www/dk_project/blog/docker-compose.yml")
+        );
+    }
+
+    #[test]
+    fn enrich_prefers_longer_project_name() {
+        let mut containers = vec![DockerContainerSummary {
+            id: "x1".into(),
+            short_id: "x1".into(),
+            name: "foo-bar-web-1".into(),
+            image: "img".into(),
+            state: "running".into(),
+            status_text: "running".into(),
+            running: true,
+            ports: vec![],
+            networks: vec![],
+            ip_address: None,
+            network_attachments: vec![],
+            created_at: 0,
+            compose_project: None,
+            compose_service: None,
+            compose_working_dir: None,
+            compose_config_files: None,
+        }];
+        let projects = vec![
+            serde_json::json!({"server_name": "foo"}),
+            serde_json::json!({"server_name": "foo-bar"}),
+        ];
+        enrich_containers_from_bt_project_list(&mut containers, &projects);
+        assert_eq!(containers[0].compose_project.as_deref(), Some("foo-bar"));
     }
 }
