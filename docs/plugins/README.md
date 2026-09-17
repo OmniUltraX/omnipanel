@@ -1,8 +1,8 @@
 # OmniPanel 插件开发指南
 
-第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** Nacos / 阿里云 / 腾讯云 / 华为云只是第一方样板。
+第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** 阿里云 / 腾讯云 / 华为云等是第一方样板；Nacos 已改为官方市场可下载插件。
 
-> Nacos 源码现以 submodule 挂在 `plugins/module-nacos`（远端 [`omni-plugin-nacos`](https://github.com/OmniUltraX/omni-plugin-nacos) 保留，供后续独立插件交付实验）；**当前仍随客户端 bundled**，不走市场 download 安装。
+> Nacos 源码以 submodule 挂在 `plugins/module-nacos`（远端 [`omni-plugin-nacos`](https://github.com/OmniUltraX/omni-plugin-nacos)）。**不随客户端 bundled**；`registry.json` 中为 `distribution: download`，经 `plugins-latest` 发布 `.omni-plugin`，用户从插件中心安装启用后侧栏才出现 `/module/nacos`。
 
 字段枚举与 schema 单源：`packages/plugin-sdk/src/index.ts`。
 

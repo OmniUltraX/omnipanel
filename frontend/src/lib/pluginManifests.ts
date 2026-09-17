@@ -22,15 +22,15 @@ import dbSqliteJson from "../../../plugins/db-sqlite/plugin.json";
 import dbSqlserverJson from "../../../plugins/db-sqlserver/plugin.json";
 import importerDockerDbJson from "../../../plugins/importer-docker-db/plugin.json";
 import importerWarpgateJson from "../../../plugins/importer-warpgate/plugin.json";
-import moduleNacosJson from "../../../plugins/module-nacos/plugin.json";
 import panel1panelJson from "../../../plugins/panel-1panel/plugin.json";
 import panelBtJson from "../../../plugins/panel-bt/plugin.json";
 import panelHestiaJson from "../../../plugins/panel-hestia/plugin.json";
 import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
 
 /**
- * 第一方清单唯一前端事实源：与仓库 `plugins/` 目录一一对应，
+ * 第一方清单唯一前端事实源：与仓库 `plugins/` 中 bundled 目录一一对应，
  * 完整性由 `scripts/check-plugin-manifests.mjs` 校验。
+ * `module-nacos` 等 download-only 插件不在此表（安装后经 Runtime Store 灌入）。
  * 消费方 MUST 从此处按 kind/id 查询，禁止直接 import `plugins/*`。
  */
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
@@ -53,7 +53,6 @@ export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(dbSqlserverJson),
   parsePluginManifest(importerDockerDbJson),
   parsePluginManifest(importerWarpgateJson),
-  parsePluginManifest(moduleNacosJson),
   parsePluginManifest(panel1panelJson),
   parsePluginManifest(panelBtJson),
   parsePluginManifest(panelHestiaJson),

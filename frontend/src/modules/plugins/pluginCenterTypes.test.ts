@@ -107,6 +107,7 @@ describe("marketplaceToMarketItem", () => {
         updateAvailable: true,
         sourceId: "official",
         downloadSize: 12,
+        distribution: "download",
         permissions: ["net:connect"],
       },
       "演示",
@@ -117,7 +118,27 @@ describe("marketplaceToMarketItem", () => {
     expect(row.distribution).toBe("download");
   });
 
-  it("maps zero downloadSize to bundled", () => {
+  it("uses distribution field even when downloadSize is 0", () => {
+    const row = marketplaceToMarketItem(
+      {
+        id: "omni.module.nacos",
+        kind: "module",
+        name: "Nacos",
+        description: "",
+        version: "0.2.0",
+        installed: false,
+        sourceId: "official",
+        downloadSize: 0,
+        distribution: "download",
+        permissions: [],
+        updateAvailable: false,
+      },
+      "Nacos",
+    );
+    expect(row.distribution).toBe("download");
+  });
+
+  it("maps bundled distribution", () => {
     const row = marketplaceToMarketItem(
       {
         id: "omni.addon.everything",
@@ -128,6 +149,7 @@ describe("marketplaceToMarketItem", () => {
         installed: true,
         sourceId: "official",
         downloadSize: 0,
+        distribution: "bundled",
         permissions: [],
         updateAvailable: false,
       },
@@ -181,6 +203,7 @@ describe("marketplaceToMarketItem external", () => {
         updateAvailable: false,
         sourceId: "rubick",
         downloadSize: 0,
+        distribution: "download",
         permissions: [],
         externalNpm: "ip-config-rubick-plugin",
       },
@@ -203,6 +226,7 @@ describe("marketplaceToMarketItem external", () => {
         updateAvailable: false,
         sourceId: "official",
         downloadSize: 0,
+        distribution: "bundled",
         permissions: [],
       },
       "Everything",

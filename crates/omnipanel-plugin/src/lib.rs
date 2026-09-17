@@ -51,7 +51,7 @@ pub use first_party::{
     cloud_tencent, engine_clickhouse, engine_mongodb, engine_mysql,
     engine_postgres, engine_qdrant, engine_redis, engine_sqlite, engine_sqlserver,
     first_party_asset_bytes, first_party_logic_bytes, first_party_manifests, importer_docker_db,
-    importer_warpgate, module_nacos, panel_1panel, panel_bt, panel_hestia, theme_default,
+    importer_warpgate, panel_1panel, panel_bt, panel_hestia, theme_default,
 };
 pub use installed::{InstalledPlugin, load_installed};
 pub use invoke::{InvokeFuture, InvokeGateway, InvokeHandler};

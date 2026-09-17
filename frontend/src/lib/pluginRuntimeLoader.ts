@@ -4,7 +4,6 @@ import { syncModuleLauncherProviders } from "./moduleLauncher";
 import everythingAddon from "../../../plugins/addon-everything/src/index";
 import panel1Panel from "../../../plugins/panel-1panel/src/index";
 import panelBt from "../../../plugins/panel-bt/src/index";
-import moduleNacos from "../../../plugins/module-nacos/src/index";
 
 /**
  * 第一方插件运行时装载器 + 第三方磁盘包动态装载（双源）。
@@ -14,6 +13,7 @@ import moduleNacos from "../../../plugins/module-nacos/src/index";
  * 生命周期：`syncPluginLifecycles` 按 enabled+activated 差量驱动
  * activate/deactivate（先卸后启）。需要 TS 登记的贡献（面板探测、L2 driver 等）
  * 在 activate 内完成；importer 只读清单 `contributes.importers[]`，不必进入本表。
+ * download-only 模块（如 Nacos）无 entry.ui 时走纯 L1/L2，不进本表。
  */
 
 type LifecycleItem = { id: string; enabled: boolean; activated: boolean };
@@ -22,7 +22,6 @@ const PLUGIN_MODULES: Record<string, PluginModule> = {
   "omni.addon.everything": everythingAddon,
   "omni.panel.1panel": panel1Panel,
   "omni.panel.bt": panelBt,
-  "omni.module.nacos": moduleNacos,
 };
 
 /** 第三方动态模块缓存（磁盘包 ui/main.js 求值结果）。 */

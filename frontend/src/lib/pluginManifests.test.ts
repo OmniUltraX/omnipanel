@@ -1,18 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { parsePluginManifest } from "@omnipanel/plugin-sdk";
+import nacosPluginJson from "../../../plugins/module-nacos/plugin.json";
 import {
   FIRST_PARTY_PLUGIN_MANIFESTS,
   getPluginManifest,
   listPluginManifests,
   manifestPanelTabIds,
   resolveLegacyPluginId,
+  setInstalledPluginManifests,
 } from "./pluginManifests";
 
 describe("pluginManifests 单源目录", () => {
   it("解析全部第一方清单且 id 唯一", () => {
     const ids = FIRST_PARTY_PLUGIN_MANIFESTS.map((m) => m.id);
-    expect(ids).toHaveLength(24);
-    expect(new Set(ids).size).toBe(24);
+    expect(ids).toHaveLength(23);
+    expect(new Set(ids).size).toBe(23);
+    expect(ids).not.toContain("omni.module.nacos");
   });
 
   it("kind 分布与仓库样板一致", () => {
@@ -27,7 +30,7 @@ describe("pluginManifests 单源目录", () => {
       "omni.engine.sqlserver",
     ]);
     expect(listPluginManifests("panel")).toHaveLength(3);
-    expect(listPluginManifests("module")).toHaveLength(1);
+    expect(listPluginManifests("module")).toHaveLength(0);
     expect(listPluginManifests("cloud")).toHaveLength(8);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(1);
@@ -258,7 +261,10 @@ describe("pluginManifests 单源目录", () => {
     });
   }
 
-  it("Nacos module 声明 methods、logic 与四种 capability", () => {
+  it("Nacos module 声明 methods、logic 与四种 capability（download-only，经 Runtime 灌入）", () => {
+    expect(getPluginManifest("omni.module.nacos")).toBeNull();
+    const installed = parsePluginManifest(nacosPluginJson);
+    setInstalledPluginManifests([installed]);
     const manifest = getPluginManifest("omni.module.nacos");
     expect(manifest?.kind).toBe("module");
     expect(manifest?.entry?.logic).toBe("logic.js");
@@ -291,6 +297,7 @@ describe("pluginManifests 单源目录", () => {
     const writeTools = (manifest?.contributes.ai?.tools ?? []).map((item) => item.name);
     expect(writeTools).not.toEqual(expect.arrayContaining(["publishConfig", "rollbackConfig"]));
     expect(writeTools).toHaveLength(4);
+    setInstalledPluginManifests([]);
   });
 
   it("dependencies 非法声明被拒绝（重复/自依赖/坏约束）", () => {

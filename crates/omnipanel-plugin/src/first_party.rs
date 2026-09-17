@@ -21,6 +21,7 @@ pub const PLUGIN_ID_ENGINE_POSTGRES: &str = "omni.engine.postgres";
 pub const PLUGIN_ID_ENGINE_REDIS: &str = "omni.engine.redis";
 pub const PLUGIN_ID_ENGINE_SQLITE: &str = "omni.engine.sqlite";
 pub const PLUGIN_ID_ENGINE_SQLSERVER: &str = "omni.engine.sqlserver";
+/// 独立交付插件（不进 first_party_manifests）；仅作 id 常量供测试 / 文档引用。
 pub const PLUGIN_ID_MODULE_NACOS: &str = "omni.module.nacos";
 pub const PLUGIN_ID_IMPORTER_WARPGATE: &str = "omni.importer.warpgate";
 pub const PLUGIN_ID_IMPORTER_DOCKER_DB: &str = "omni.importer.docker-db";
@@ -122,10 +123,6 @@ pub fn engine_sqlserver() -> PluginManifest {
     first_party_manifest!("db-sqlserver")
 }
 
-pub fn module_nacos() -> PluginManifest {
-    first_party_manifest!("module-nacos")
-}
-
 pub fn importer_warpgate() -> PluginManifest {
     first_party_manifest!("importer-warpgate")
 }
@@ -142,14 +139,6 @@ pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../plugins/importer-warpgate/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
-        (PLUGIN_ID_MODULE_NACOS, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/module-nacos/logic.js"
             ))
             .as_bytes()
             .to_vec(),
@@ -284,7 +273,6 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         engine_redis(),
         engine_sqlite(),
         engine_sqlserver(),
-        module_nacos(),
         importer_warpgate(),
         importer_docker_db(),
     ]
@@ -331,22 +319,12 @@ mod tests {
         assert_eq!(engine_redis().id, PLUGIN_ID_ENGINE_REDIS);
         assert_eq!(engine_sqlite().id, PLUGIN_ID_ENGINE_SQLITE);
         assert_eq!(engine_sqlserver().id, PLUGIN_ID_ENGINE_SQLSERVER);
-        assert_eq!(module_nacos().id, PLUGIN_ID_MODULE_NACOS);
-        let nacos = module_nacos();
-        nacos.validate().expect("nacos 清单应通过校验");
-        assert_eq!(nacos.logic_entry(), Some("logic.js"));
-        let caps: Vec<_> = nacos
-            .contributes
-            .module
-            .as_ref()
-            .expect("module.capabilities")
-            .capabilities
-            .iter()
-            .map(|c| c.id.as_str())
-            .collect();
-        assert_eq!(caps, vec!["namespace", "config", "discovery", "cluster"]);
         assert_eq!(importer_warpgate().id, PLUGIN_ID_IMPORTER_WARPGATE);
         assert_eq!(importer_docker_db().id, PLUGIN_ID_IMPORTER_DOCKER_DB);
+        // Nacos 已改为独立 download 插件，不在 first_party_manifests 内
+        assert!(!first_party_manifests()
+            .iter()
+            .any(|m| m.id == PLUGIN_ID_MODULE_NACOS));
     }
 
     #[test]
@@ -551,14 +529,8 @@ mod tests {
     }
 
     #[test]
-    fn nacos_embeds_logic_js() {
-        let bytes = first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "logic.js")
-            .expect("应嵌入 nacos logic.js");
-        let src = String::from_utf8(bytes).unwrap();
-        assert!(src.contains("publishConfig"));
-        assert!(src.contains("rollbackConfig"));
-        assert!(src.contains("probeHealth"));
-        assert!(first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "other.js").is_none());
+    fn nacos_is_not_first_party_logic_embed() {
+        assert!(first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "logic.js").is_none());
     }
 
     #[test]

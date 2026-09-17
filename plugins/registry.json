@@ -301,10 +301,15 @@
     {
       "id": "omni.module.nacos",
       "kind": "module",
-      "name": "Nacos module shell",
-      "description": "Host shell for the Nacos console plugin.",
+      "name": "Nacos",
+      "description": "Nacos console workbench (namespaces, configs, discovery). Install from the plugin market.",
       "version": "0.2.0",
-      "distribution": "bundled",
+      "distribution": "download",
+      "artifact": {
+        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-module-nacos-0.2.0.omni-plugin",
+        "sha256": "7222f595354f015af7a3d196a4c359b6f3255c13d810504713d4522c5eadfa8b",
+        "size": 8234
+      },
       "permissions": [
         "ui:sidebar",
         "net:connect",

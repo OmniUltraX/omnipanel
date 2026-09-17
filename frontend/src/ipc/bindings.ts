@@ -4546,6 +4546,8 @@ export type MarketplaceItem_Deserialize = {
 	updateAvailable: boolean,
 	sourceId: string,
 	downloadSize: number,
+	/**  与 install 闸一致：空 artifact url → bundled；勿用 size 推断。 */
+	distribution: PluginDistribution,
 	permissions: string[],
 	/**  外部来源包名（Rubick npm 名）；官方/内置为空，前端转换安装用。 */
 	externalNpm?: string | null,
@@ -4564,6 +4566,8 @@ export type MarketplaceItem_Serialize = {
 	updateAvailable: boolean,
 	sourceId: string,
 	downloadSize: number,
+	/**  与 install 闸一致：空 artifact url → bundled；勿用 size 推断。 */
+	distribution: PluginDistribution,
 	permissions: string[],
 	/**  外部来源包名（Rubick npm 名）；官方/内置为空，前端转换安装用。 */
 	externalNpm?: string | null,

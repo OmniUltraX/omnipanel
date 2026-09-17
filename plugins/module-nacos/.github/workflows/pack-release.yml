@@ -1,0 +1,71 @@
+name: Pack and release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          path: plugin
+
+      - name: Checkout OmniPanel (pack toolchain)
+        uses: actions/checkout@v4
+        with:
+          repository: OmniUltraX/omnipanel
+          path: omnipanel
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Resolve version
+        id: ver
+        working-directory: plugin
+        run: |
+          VERSION=$(node -p "require('./plugin.json').version")
+          ASSET="omni-module-nacos-${VERSION}.omni-plugin"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+
+      - name: Stage plugin into host tree and pack
+        run: |
+          rm -rf omnipanel/plugins/module-nacos
+          mkdir -p omnipanel/plugins
+          cp -a plugin omnipanel/plugins/module-nacos
+          mkdir -p dist
+          cd omnipanel
+          cargo run -q -p omnipanel-plugin-pkg --bin pack -- \
+            plugins/module-nacos \
+            "../dist/${{ steps.ver.outputs.asset }}"
+          ls -la "../dist/${{ steps.ver.outputs.asset }}"
+          sha256sum "../dist/${{ steps.ver.outputs.asset }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.ver.outputs.asset }}
+          path: dist/${{ steps.ver.outputs.asset }}
+
+      - name: GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ steps.ver.outputs.asset }}
+          body: |
+            OmniPanel Nacos plugin `${{ steps.ver.outputs.version }}`.
+
+            Install via OmniPanel → Plugins → install local `.omni-plugin`,
+            or wait for host `plugins-latest` catalog to pick up the same asset.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

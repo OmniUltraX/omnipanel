@@ -6,10 +6,12 @@ on:
     paths:
       - "plugins/registry.json"
       - "plugins/*/plugin.json"
+      - "plugins/module-nacos/**"
       - "plugins-market/*/plugin.json"
       - "plugins-market/*/ui/**"
       - "plugins-market/*/logic.js"
       - "scripts/generate-plugin-registry.mjs"
+      - "scripts/plugin-download-only.mjs"
       - ".github/workflows/publish-plugin-registry.yml"
   workflow_dispatch:
 
@@ -22,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
@@ -39,21 +43,31 @@ jobs:
             const fs = require("fs");
             const path = require("path");
             const { execFileSync } = require("child_process");
-            const market = "plugins-market";
+            const { DOWNLOAD_ONLY_PLUGIN_DIRS } = require("./scripts/plugin-download-only.mjs");
             const manifestByDir = {};
-            for (const dir of fs.readdirSync(market, { withFileTypes: true })) {
-              if (!dir.isDirectory()) continue;
-              const manifestPath = path.join(market, dir.name, "plugin.json");
-              if (!fs.existsSync(manifestPath)) continue;
+            function packOne(rootDir, dir) {
+              const manifestPath = path.join(rootDir, dir, "plugin.json");
+              if (!fs.existsSync(manifestPath)) return;
               const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
               const asset = manifest.id.replace(/\./g, "-") + "-" + manifest.version + ".omni-plugin";
-              manifestByDir[dir.name] = { manifest, asset };
+              const key = rootDir + "/" + dir;
+              manifestByDir[key] = { manifest, asset };
               execFileSync(
                 "cargo",
                 ["run", "-q", "-p", "omnipanel-plugin-pkg", "--bin", "pack", "--",
-                 path.join(market, dir.name), path.join("dist", asset)],
+                 path.join(rootDir, dir), path.join("dist", asset)],
                 { stdio: "inherit" },
               );
+            }
+            const market = "plugins-market";
+            if (fs.existsSync(market)) {
+              for (const dir of fs.readdirSync(market, { withFileTypes: true })) {
+                if (!dir.isDirectory()) continue;
+                packOne(market, dir.name);
+              }
+            }
+            for (const dir of DOWNLOAD_ONLY_PLUGIN_DIRS) {
+              packOne("plugins", dir);
             }
             fs.writeFileSync("dist/market-assets.json", JSON.stringify(manifestByDir, null, 2));
           '
@@ -66,10 +80,10 @@ jobs:
             const crypto = require("crypto");
             const manifestByDir = JSON.parse(fs.readFileSync("dist/market-assets.json", "utf8"));
             const registry = JSON.parse(fs.readFileSync("plugins/registry.json", "utf8"));
-            for (const [dir, { manifest, asset }] of Object.entries(manifestByDir)) {
+            for (const [key, { manifest, asset }] of Object.entries(manifestByDir)) {
               const bytes = fs.readFileSync("dist/" + asset);
               const entry = registry.plugins.find((p) => p.id === manifest.id);
-              if (!entry) throw new Error("registry 缺少 " + manifest.id + "（" + dir + "）");
+              if (!entry) throw new Error("registry 缺少 " + manifest.id + "（" + key + "）");
               const url = `https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/${asset}`;
               const artifact = {
                 url,
