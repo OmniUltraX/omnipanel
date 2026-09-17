@@ -406,27 +406,41 @@ impl<C: MethodCaller> SourceAdapter for PluginLocalAdapter<C> {
     }
 
     fn fetch_asset(&self, doc: &KsDocRef, rel: &str) -> Result<Option<(String, Vec<u8>)>, String> {
-        // 禁锢：只允许盒子内 assets/ 下文件，拒绝 .. 与绝对路径。
+        // 禁锢：只允许 assets/ 下文件，拒绝 .. 与绝对路径。
         let clean = rel.replace('\\', "/");
         let clean = clean.trim().trim_start_matches('/');
         if clean.is_empty() || clean.contains("..") || !clean.starts_with("assets/") {
             return Ok(None);
         }
-        let box_root = self.root.join(&doc.box_id);
-        let path = box_root.join(clean);
-        // canonicalize 确认不出盒子目录（防 box_id/rel 构造穿越）。
-        let (canon_root, canon_path) = match (box_root.canonicalize(), path.canonicalize()) {
-            (Ok(r), Ok(p)) => (r, p),
-            _ => return Ok(None),
+        // 思源布局有两种：盒内 <box>/assets/（旧）与 data 根共享 assets/（新）。
+        // 盒内优先，找不到回落共享目录；canonicalize 确认不出授权根。
+        let Ok(canon_root) = self.root.canonicalize() else {
+            return Ok(None);
         };
-        if !canon_path.starts_with(&canon_root) || !canon_path.is_file() {
-            return Ok(None);
+        for path in [
+            self.root.join(&doc.box_id).join(clean),
+            self.root.join(clean),
+        ] {
+            let Ok(canon) = path.canonicalize() else {
+                continue;
+            };
+            if !canon.starts_with(&canon_root) || !canon.is_file() {
+                continue;
+            }
+            let bytes =
+                std::fs::read(&canon).map_err(|e| format!("读资源失败 {clean}: {e}"))?;
+            if bytes.len() as u64 > MAX_ASSET_BYTES {
+                return Ok(None);
+            }
+            return Ok(Some((clean.replace('/', "__"), bytes)));
         }
-        let bytes = std::fs::read(&path).map_err(|e| format!("读资源失败 {clean}: {e}"))?;
-        if bytes.len() as u64 > MAX_ASSET_BYTES {
-            return Ok(None);
-        }
-        Ok(Some((clean.replace('/', "__"), bytes)))
+        tracing::warn!(
+            "思源镜像资源缺失（同步跳过，预览破图）: {}/{} @ {}",
+            doc.box_id,
+            clean,
+            self.root.display()
+        );
+        Ok(None)
     }
 
     fn list_notebooks(&self) -> Result<Vec<KsNotebook>, String> {
@@ -614,6 +628,51 @@ mod tests {
         let adapter = adapter_in(dir.path(), HashMap::new());
         let err = adapter.list_notebooks().expect_err("空目录应报错");
         assert!(err.contains("未发现可同步文件"), "提示可读: {err}");
+    }
+
+    fn asset_doc(box_id: &str) -> crate::adapter::KsDocRef {
+        crate::adapter::KsDocRef {
+            id: "d".to_string(),
+            title: String::new(),
+            parent_id: None,
+            box_id: box_id.to_string(),
+            rel_path: format!("{box_id}/d.sy"),
+            fingerprint: "1".to_string(),
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn fetch_asset_prefers_box_then_shared_root() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        write_file(&dir.path().join("assets").join("s.png"), "SHARED");
+        write_file(&dir.path().join("box1").join("assets").join("b.png"), "BOX");
+        let adapter = adapter_in(dir.path(), HashMap::new());
+        let doc = asset_doc("box1");
+        // 盒内优先
+        let (name, bytes) = adapter
+            .fetch_asset(&doc, "assets/b.png")
+            .expect("读盒内")
+            .expect("盒内有");
+        assert_eq!(name, "assets__b.png");
+        assert_eq!(bytes, b"BOX");
+        // 盒内缺失回落 data 根共享 assets/
+        let (shared_name, shared) = adapter
+            .fetch_asset(&doc, "assets/s.png")
+            .expect("读共享")
+            .expect("共享有");
+        assert_eq!(shared_name, "assets__s.png");
+        assert_eq!(shared, b"SHARED");
+        // 都缺失 → None（同步保留原文，不炸整篇）
+        assert!(adapter
+            .fetch_asset(&doc, "assets/nope.png")
+            .expect("缺失不报错")
+            .is_none());
+        // 穿越拒绝
+        assert!(adapter
+            .fetch_asset(&doc, "../evil.png")
+            .expect("穿越不报错")
+            .is_none());
     }
 
     #[test]
