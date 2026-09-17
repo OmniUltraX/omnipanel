@@ -19,7 +19,9 @@ use base64::Engine as _;
 use omnipanel_s3::{S3Client, S3Config};
 use sha2::Digest as _;
 
-use super::adapter::{KsDocContent, KsDocRef, KsNotebook, MethodCaller, SourceAdapter};
+use super::adapter::{
+    KsDocContent, KsDocRef, KsNotebook, MethodCaller, SourceAdapter, MAX_ASSET_BYTES,
+};
 use super::local::MAX_PARSE_BYTES;
 
 /// S3 思源源配置（console 表单值 + Vault 密钥拼装，见 `knowledge_source::s3_config_of`）。
@@ -102,7 +104,7 @@ pub struct DejavuIndex {
     aes_key_verify_val: String,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Clone)]
 pub struct DejavuFile {
     #[serde(default)]
     id: String,
@@ -250,6 +252,8 @@ struct S3Cache {
     done: bool,
     notebooks: Vec<(String, String, Option<String>)>,
     docs: HashMap<String, S3CachedDoc>,
+    /// 全量 File 元数据（rel → meta；资源文件按需二次下载）。
+    files: HashMap<String, DejavuFile>,
 }
 
 impl Default for S3Cache {
@@ -258,6 +262,7 @@ impl Default for S3Cache {
             done: false,
             notebooks: Vec::new(),
             docs: HashMap::new(),
+            files: HashMap::new(),
         }
     }
 }
@@ -314,12 +319,30 @@ impl<C> SiyuanS3Adapter<C> {
 }
 
 impl<C: MethodCaller> SiyuanS3Adapter<C> {
-    /// 并发拉取全部文件对象并组装（8 并发；单文件失败只计数不整体失败）。
-    async fn fetch_all_files(
+    /// 组装单个文件字节（File 对象已解密出 meta，按 chunks 顺序拼 chunk 明文）。
+    async fn assemble_file(
+        store: &SiyuanS3Store,
+        key: &[u8; 32],
+        meta: &DejavuFile,
+    ) -> Result<Vec<u8>, String> {
+        let mut bytes = Vec::with_capacity(meta.size.max(0) as usize);
+        for chunk_id in &meta.chunks {
+            let chunk_obj = store.get(&chunk_object_key(chunk_id)?).await?;
+            let plain = aes_gcm_open(key, &chunk_obj)?;
+            bytes.extend_from_slice(&plain);
+            if bytes.len() as u64 > MAX_ASSET_BYTES + MAX_PARSE_BYTES {
+                return Err(format!("文件过大，跳过: {}", meta.path));
+            }
+        }
+        Ok(bytes)
+    }
+
+    /// 并发拉取全部 File 元数据（小 JSON；单文件失败只计数不整体失败）。
+    async fn fetch_all_metas(
         store: std::sync::Arc<SiyuanS3Store>,
         key: [u8; 32],
         file_ids: Vec<String>,
-    ) -> (Vec<(DejavuFile, Vec<u8>)>, usize) {
+    ) -> (Vec<DejavuFile>, usize) {
         let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
         let mut set = tokio::task::JoinSet::new();
         for file_id in file_ids {
@@ -336,21 +359,14 @@ impl<C: MethodCaller> SiyuanS3Adapter<C> {
                 let obj = store
                     .get(&format!("objects/{}/{}", &file_id[..2], &file_id[2..]))
                     .await?;
-                let meta = decode_file_object(&obj, &key)?;
-                let mut bytes = Vec::with_capacity(meta.size.max(0) as usize);
-                for chunk_id in &meta.chunks {
-                    let chunk_obj = store.get(&chunk_object_key(chunk_id)?).await?;
-                    let plain = aes_gcm_open(&key, &chunk_obj)?;
-                    bytes.extend_from_slice(&plain);
-                }
-                Ok::<_, String>((meta, bytes))
+                decode_file_object(&obj, &key)
             });
         }
         let mut out = Vec::new();
         let mut skipped = 0usize;
         while let Some(res) = set.join_next().await {
             match res {
-                Ok(Ok(item)) => out.push(item),
+                Ok(Ok(meta)) => out.push(meta),
                 _ => skipped += 1,
             }
         }
@@ -366,14 +382,56 @@ impl<C: MethodCaller> SiyuanS3Adapter<C> {
         }
         let key = derive_repo_key(&self.cfg.repo_password)?;
         let store = std::sync::Arc::new(SiyuanS3Store::new(&self.cfg)?);
-        let (files, mut skipped) = block_on_s3(async {
+        let (metas, mut skipped) = block_on_s3(async {
             let latest_raw = store.get("refs/latest").await?;
             let index_id = parse_latest_ref(&latest_raw)?;
             let index_raw = store.get(&format!("indexes/{index_id}")).await?;
             let index = decode_index_object(&index_raw)?;
             verify_repo_key(&index, &key)?;
-            Ok::<_, String>(Self::fetch_all_files(store.clone(), key, index.files).await)
+            Ok::<_, String>(Self::fetch_all_metas(store.clone(), key, index.files).await)
         })?;
+        // 全量 File 元数据留存（资源文件按需二次下载）；只组装 .sy/conf 进解析。
+        let mut file_metas: HashMap<String, DejavuFile> = HashMap::new();
+        for meta in &metas {
+            let rel = meta.path.trim_start_matches('/').replace('\\', "/");
+            if !rel.is_empty() {
+                file_metas.entry(rel).or_insert_with(|| meta.clone());
+            }
+        }
+        // 组装 .sy/conf 明文（并发；失败只计数）。
+        let targets: Vec<DejavuFile> = metas
+            .into_iter()
+            .filter(|m| {
+                let rel = m.path.trim_start_matches('/').replace('\\', "/");
+                rel.ends_with(".sy") || rel.ends_with(".siyuan/conf.json")
+            })
+            .collect();
+        let (files, skipped_assemble): (Vec<(DejavuFile, Vec<u8>)>, usize) = block_on_s3(async move {
+            let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
+            let mut set = tokio::task::JoinSet::new();
+            for meta in targets {
+                let store = store.clone();
+                let sem = sem.clone();
+                set.spawn(async move {
+                    let _permit = sem
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| "信号量关闭".to_string())?;
+                    let bytes = Self::assemble_file(&store, &key, &meta).await?;
+                    Ok::<_, String>((meta, bytes))
+                });
+            }
+            let mut out = Vec::new();
+            let mut skipped = 0usize;
+            while let Some(res) = set.join_next().await {
+                match res {
+                    Ok(Ok(item)) => out.push(item),
+                    _ => skipped += 1,
+                }
+            }
+            Ok::<_, String>((out, skipped))
+        })?;
+        skipped += skipped_assemble;
         // 顶层目录自动补文件夹在解析循环后统一做（与本地源一致）。
         let mut notebooks: Vec<(String, String, Option<String>)> = Vec::new();
         let mut seen_notebooks: HashSet<String> = HashSet::new();
@@ -459,6 +517,7 @@ impl<C: MethodCaller> SiyuanS3Adapter<C> {
                         .unwrap_or("")
                         .to_string();
                     let box_id = Self::top_dir(&rel);
+                    let tags = super::adapter::parse_doc_tags(&value);
                     docs.insert(
                         id.clone(),
                         S3CachedDoc {
@@ -469,6 +528,7 @@ impl<C: MethodCaller> SiyuanS3Adapter<C> {
                                 box_id: box_id.clone(),
                                 rel_path: rel.clone(),
                                 fingerprint: meta.updated.to_string(),
+                                tags,
                             },
                             content: KsDocContent {
                                 title,
@@ -501,6 +561,7 @@ impl<C: MethodCaller> SiyuanS3Adapter<C> {
         let mut cache = self.cache.lock().unwrap();
         cache.notebooks = notebooks;
         cache.docs = docs;
+        cache.files = file_metas;
         cache.done = true;
         *self.skipped.lock().unwrap() = skipped;
         Ok(())
@@ -550,6 +611,35 @@ impl<C: MethodCaller> SourceAdapter for SiyuanS3Adapter<C> {
 
     fn file_key(&self, doc: &KsDocRef) -> String {
         format!("s3:{}:{}", doc.box_id, doc.rel_path)
+    }
+
+    fn asset_managed(&self) -> bool {
+        true
+    }
+
+    fn fetch_asset(&self, doc: &KsDocRef, rel: &str) -> Result<Option<(String, Vec<u8>)>, String> {
+        // 禁锢：只允许盒子内 assets/ 下文件。
+        let clean = rel.replace('\\', "/");
+        let clean = clean.trim().trim_start_matches('/');
+        if clean.is_empty() || clean.contains("..") || !clean.starts_with("assets/") {
+            return Ok(None);
+        }
+        self.ensure_cache()?;
+        let key = derive_repo_key(&self.cfg.repo_password)?;
+        let store = SiyuanS3Store::new(&self.cfg)?;
+        let full_rel = format!("{}/{}", doc.box_id, clean);
+        let meta = {
+            let cache = self.cache.lock().unwrap();
+            match cache.files.get(&full_rel).cloned() {
+                Some(meta) => meta,
+                None => return Ok(None),
+            }
+        };
+        let bytes = block_on_s3(Self::assemble_file(&store, &key, &meta))?;
+        if bytes.len() as u64 > MAX_ASSET_BYTES {
+            return Ok(None);
+        }
+        Ok(Some((clean.replace('/', "__"), bytes)))
     }
 
     fn list_notebooks(&self) -> Result<Vec<KsNotebook>, String> {

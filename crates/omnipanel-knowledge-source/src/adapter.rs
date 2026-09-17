@@ -33,6 +33,9 @@ pub struct KsDocRef {
     pub rel_path: String,
     /// 变更指纹：mtime 文本 / ETag / updatedAt，字符串比对。
     pub fingerprint: String,
+    /// 解析出的文档标签（引擎合并进条目 tags；命名空间标签另由 adapter.tag 保证）。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// 文档正文。
@@ -44,6 +47,9 @@ pub struct KsDocContent {
     #[serde(default)]
     pub updated_at_ms: Option<i64>,
 }
+
+/// 镜像资源上限（思源 assets 图片/附件；超限留原 URL，不同同步炸）。
+pub const MAX_ASSET_BYTES: u64 = 32 * 1024 * 1024;
 
 /// 数据源适配器（同步方法；L2 插件经 `PluginAdapter` 桥接）。
 pub trait SourceAdapter {
@@ -103,6 +109,17 @@ pub trait SourceAdapter {
     fn list_notebooks(&self) -> Result<Vec<KsNotebook>, String>;
     fn list_documents(&self) -> Result<Vec<KsDocRef>, String>;
     fn get_document(&self, doc: &KsDocRef) -> Result<KsDocContent, String>;
+
+    /// 是否接管镜像资源落盘（true 时引擎把正文 `assets/…` 引用收进附件目录并改写 URL）。
+    fn asset_managed(&self) -> bool {
+        false
+    }
+
+    /// 取镜像资源字节：`rel` 为正文里的 `assets/…` 相对路径；返回 (存储文件名, 字节)。
+    /// 取不到返回 Ok(None)（引擎保留原 URL，不炸整篇）。
+    fn fetch_asset(&self, _doc: &KsDocRef, _rel: &str) -> Result<Option<(String, Vec<u8>)>, String> {
+        Ok(None)
+    }
 }
 
 /// L2 方法调用方（由宿主实现：网关/QuickJS 桥接；测试可注入内存实现）。
@@ -122,6 +139,27 @@ fn required_str(value: &serde_json::Value, key: &str, what: &str) -> Result<Stri
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("{what} 缺少字段: {key}"))
+}
+
+/// 解析结果里的 `tags` 数组（思源 .sy 的文档标签；非法/超长项丢弃，最多 64 个）。
+pub fn parse_doc_tags(value: &serde_json::Value) -> Vec<String> {
+    const MAX_TAGS: usize = 64;
+    const MAX_CHARS: usize = 64;
+    let mut out = Vec::new();
+    if let Some(arr) = value.get("tags").and_then(|v| v.as_array()) {
+        for item in arr {
+            let tag = item.as_str().unwrap_or("").trim().to_string();
+            if tag.is_empty()
+                || tag.chars().count() > MAX_CHARS
+                || out.len() >= MAX_TAGS
+                || out.contains(&tag)
+            {
+                continue;
+            }
+            out.push(tag);
+        }
+    }
+    out
 }
 
 /// id/标签覆盖（迁移兼容用；缺省走 `ks` / `import:ks` / namespace）。
@@ -251,6 +289,7 @@ impl<C> PluginAdapter<C> {
                         .get("updatedAt")
                         .map(|v| v.to_string())
                         .unwrap_or_default(),
+                    tags: Vec::new(),
                 })
             })
             .collect()

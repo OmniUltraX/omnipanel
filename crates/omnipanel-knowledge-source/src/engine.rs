@@ -301,7 +301,7 @@ pub fn rebuild_source<A: SourceAdapter>(
     sync_source(storage, adapter, display_name)
 }
 
-/// 同步单个文档：解析 → 落库。返回 `true` 表示新增（调用方传入有无旧状态）。
+/// 同步单个文档：解析 → 镜像资源落盘 → 落库。返回 `true` 表示新增。
 fn sync_one_doc<A: SourceAdapter>(
     storage: &Storage,
     adapter: &A,
@@ -322,6 +322,12 @@ fn sync_one_doc<A: SourceAdapter>(
         title
     };
     let entry_id = adapter.doc_entry_id(&doc.id);
+    // 解析出的文档标签（命名空间标签保底，解析标签合并）。
+    let mut tags = vec![adapter.tag()];
+    for tag in &doc.tags {
+        ensure_tag(&mut tags, tag);
+    }
+    let markdown = mirror_assets_to_store(adapter, doc, &entry_id, content.markdown)?;
     match storage.get_knowledge(&entry_id)? {
         None => {
             let mut entry = base_entry(
@@ -329,27 +335,114 @@ fn sync_one_doc<A: SourceAdapter>(
                 title,
                 "document",
                 parent_folder_id,
-                vec![adapter.tag()],
+                tags,
                 adapter.doc_source(&doc.box_id, &doc.id),
                 now_ms,
             );
-            entry.content = content.markdown;
+            entry.content = markdown;
             entry.sort_order = next_sort_order(storage, parent_folder_id)?;
             storage.save_knowledge(&entry)?;
             Ok(is_new)
         }
         Some(mut existing) => {
             existing.title = title;
-            existing.content = content.markdown;
+            existing.content = markdown;
             existing.source = adapter.doc_source(&doc.box_id, &doc.id);
             existing.parent_id = parent_folder_id.to_string();
             existing.updated_at = now_ms;
             existing.tags.retain(|t| t != &adapter.archive_tag());
-            ensure_tag(&mut existing.tags, &adapter.tag());
+            for tag in &tags {
+                ensure_tag(&mut existing.tags, tag);
+            }
             storage.save_knowledge(&existing)?;
             Ok(false)
         }
     }
+}
+
+/// 镜像资源落盘：正文 `assets/…` 引用收进条目附件目录并改写为
+/// `knowledge-asset://`，孤儿文件清理。仅 asset_managed 适配器走这里；
+/// 取不到的引用保留原文（预览破图但不同步炸）。
+fn mirror_assets_to_store<A: SourceAdapter>(
+    adapter: &A,
+    doc: &KsDocRef,
+    entry_id: &str,
+    markdown: String,
+) -> OmniResult<String> {
+    if !adapter.asset_managed() {
+        return Ok(markdown);
+    }
+    let refs = extract_asset_refs(&markdown);
+    if refs.is_empty() {
+        prune_mirror_assets(entry_id, &[])?;
+        return Ok(markdown);
+    }
+    let dir = omnipanel_store::knowledge_entry_assets_dir(entry_id)?;
+    let mut out = markdown;
+    let mut kept: Vec<String> = Vec::new();
+    for rel in &refs {
+        match adapter.fetch_asset(doc, rel) {
+            Ok(Some((name, bytes))) => {
+                if std::fs::write(dir.join(&name), &bytes).is_err() {
+                    continue;
+                }
+                kept.push(name.clone());
+                out = out.replace(
+                    &format!("]({rel})"),
+                    &format!("](knowledge-asset://{entry_id}/{name})"),
+                );
+            }
+            _ => {}
+        }
+    }
+    prune_mirror_assets(entry_id, &kept)?;
+    Ok(out)
+}
+
+/// 宽容提取正文里的 `assets/…` 引用（到右括号/空白/引号为止；拒绝 `..`）。
+fn extract_asset_refs(markdown: &str) -> Vec<String> {
+    let mut refs: Vec<String> = Vec::new();
+    let mut rest = markdown;
+    while let Some(idx) = rest.find("](") {
+        rest = &rest[idx + 2..];
+        let end = rest
+            .find(&[')', ' ', '\n', '\t', '"', '\''][..])
+            .unwrap_or(rest.len());
+        let mut url = rest[..end].trim();
+        url = url.trim_start_matches('<').trim_end_matches('>');
+        if url.starts_with("assets/")
+            && !url.contains("..")
+            && url.len() < 512
+            && !refs.iter().any(|r| r == url)
+        {
+            refs.push(url.to_string());
+        }
+    }
+    refs
+}
+
+#[cfg(test)]
+pub(super) fn extract_asset_refs_for_test(markdown: &str) -> Vec<String> {
+    extract_asset_refs(markdown)
+}
+
+/// 删除条目附件目录中不在保留集里的文件（镜像只读，无手动粘贴，安全）。
+fn prune_mirror_assets(entry_id: &str, kept: &[String]) -> OmniResult<()> {
+    let dir = match omnipanel_store::knowledge_entry_assets_dir(entry_id) {
+        Ok(dir) => dir,
+        Err(_) => return Ok(()),
+    };
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !kept.iter().any(|k| k == &name) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    Ok(())
 }
 
 fn ensure_archive_folder<A: SourceAdapter>(
@@ -428,6 +521,7 @@ mod tests {
                             box_id: "nb1".to_string(),
                             rel_path: "d1".to_string(),
                             fingerprint: "v1".to_string(),
+                            tags: Vec::new(),
                         },
                         KsDocContent {
                             title: "文档一".to_string(),
@@ -446,6 +540,7 @@ mod tests {
                             box_id: "nb1".to_string(),
                             rel_path: "d2".to_string(),
                             fingerprint: "v1".to_string(),
+                            tags: Vec::new(),
                         },
                         KsDocContent {
                             title: "文档二".to_string(),
@@ -609,6 +704,7 @@ mod tests {
                     box_id: "nb".to_string(),
                     rel_path: "bad".to_string(),
                     fingerprint: "1".to_string(),
+                    tags: Vec::new(),
                 }])
             }
             fn get_document(&self, _doc: &KsDocRef) -> Result<KsDocContent, String> {
@@ -658,6 +754,7 @@ mod tests {
                     box_id: "nb1".to_string(),
                     rel_path: rel.to_string(),
                     fingerprint: "1".to_string(),
+                    tags: Vec::new(),
                 };
                 Ok(vec![
                     mk("parent", "parent.sy"),
@@ -693,6 +790,71 @@ mod tests {
     }
 
     #[test]
+    fn doc_tags_merged_into_entry() {
+        // 解析出的文档标签与命名空间标签合并落库；增量更新只增不减。
+        let storage = mem_storage();
+        struct TaggedAdapter;
+        impl SourceAdapter for TaggedAdapter {
+            fn namespace(&self) -> &str {
+                "demo"
+            }
+            fn list_notebooks(&self) -> Result<Vec<KsNotebook>, String> {
+                Ok(vec![KsNotebook {
+                    id: "nb1".to_string(),
+                    name: "笔记本".to_string(),
+                    parent_id: None,
+                }])
+            }
+            fn list_documents(&self) -> Result<Vec<KsDocRef>, String> {
+                Ok(vec![KsDocRef {
+                    id: "d1".to_string(),
+                    title: "文档一".to_string(),
+                    parent_id: None,
+                    box_id: "nb1".to_string(),
+                    rel_path: "d1".to_string(),
+                    fingerprint: "1".to_string(),
+                    tags: vec!["cnb".to_string(), "personal".to_string()],
+                }])
+            }
+            fn get_document(&self, doc: &KsDocRef) -> Result<KsDocContent, String> {
+                Ok(KsDocContent {
+                    title: doc.id.clone(),
+                    markdown: "x".to_string(),
+                    updated_at_ms: None,
+                })
+            }
+        }
+        sync_source(&storage, &TaggedAdapter, "演示").expect("同步");
+        let entry = storage
+            .get_knowledge("ks-doc-d1")
+            .expect("读")
+            .expect("在库");
+        assert!(entry.tags.contains(&"demo".to_string()), "{:?}", entry.tags);
+        assert!(entry.tags.contains(&"cnb".to_string()), "{:?}", entry.tags);
+        assert!(
+            entry.tags.contains(&"personal".to_string()),
+            "{:?}",
+            entry.tags
+        );
+        // 增量重跑：标签保留且不重复。
+        sync_source(&storage, &TaggedAdapter, "演示").expect("重跑");
+        let again = storage
+            .get_knowledge("ks-doc-d1")
+            .expect("读")
+            .expect("在库");
+        assert_eq!(again.tags.iter().filter(|t| *t == "cnb").count(), 1);
+    }
+
+    #[test]
+    fn extract_asset_refs_cases() {
+        let md = "![a](assets/x.png) 文本 [f](assets/y.zip \"t\") 外链 [b](https://e.com/z.png) 空 ![](assets/x.png)";
+        let refs = super::extract_asset_refs_for_test(md);
+        assert_eq!(refs, vec!["assets/x.png".to_string(), "assets/y.zip".to_string()]);
+        assert!(super::extract_asset_refs_for_test("无引用").is_empty());
+        assert!(super::extract_asset_refs_for_test("![a](../evil.png)").is_empty());
+    }
+
+    #[test]
     fn parent_move_triggers_update() {
         // 平铺旧数据 + 新规则重跑 → 父归属漂移计为更新（迁移场景）。
         let storage = mem_storage();
@@ -716,6 +878,7 @@ mod tests {
                     box_id: "nb1".to_string(),
                     rel_path: rel.to_string(),
                     fingerprint: "1".to_string(),
+                    tags: Vec::new(),
                 };
                 Ok(vec![
                     mk("parent", "parent.sy"),
