@@ -73,9 +73,11 @@
         flex-shrink: 0;
     }
 
+    /* 与 .ssh-sidebar-tree-wrap 一致：在 vsplit body(overflow:hidden) 内可纵向滚动 */
     .docker-sidebar-tree-wrap {
-        min-height: 120px;
         flex: 1;
+        min-height: 0;
+        overflow: auto;
     }
 
     .docker-tree-drop-target {
