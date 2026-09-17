@@ -47,90 +47,54 @@ pub fn addon_everything() -> PluginManifest {
     first_party_manifest!("addon-everything")
 }
 
-pub fn cloud_aliyun() -> PluginManifest {
-    download_only_manifest(
-        "cloud-aliyun",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-aliyun/plugin.json"
-        )),
-    )
-}
-
 /// download-only：仅供测试读清单，不进 `first_party_manifests`。
-fn download_only_manifest(dir: &str, json: &str) -> PluginManifest {
-    PluginManifest::from_json(json)
+/// 运行时读盘（禁止 `include_str!`），否则独立仓 pack CI checkout 宿主时
+/// 未拉 submodule 会导致整个 `omnipanel-plugin` 编译失败。
+fn download_only_manifest(dir: &str) -> PluginManifest {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../plugins")
+        .join(dir)
+        .join("plugin.json");
+    let json = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "读 download-only 清单 {} 失败: {e}（需 git submodule update --init）",
+            path.display()
+        )
+    });
+    PluginManifest::from_json(&json)
         .unwrap_or_else(|e| panic!("download-only 清单 plugins/{dir}/plugin.json 非法: {e}"))
 }
 
+pub fn cloud_aliyun() -> PluginManifest {
+    download_only_manifest("cloud-aliyun")
+}
+
 pub fn cloud_tencent() -> PluginManifest {
-    download_only_manifest(
-        "cloud-tencent",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-tencent/plugin.json"
-        )),
-    )
+    download_only_manifest("cloud-tencent")
 }
 
 pub fn cloud_huawei() -> PluginManifest {
-    download_only_manifest(
-        "cloud-huawei",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-huawei/plugin.json"
-        )),
-    )
+    download_only_manifest("cloud-huawei")
 }
 
 pub fn cloud_aws() -> PluginManifest {
-    download_only_manifest(
-        "cloud-aws",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-aws/plugin.json"
-        )),
-    )
+    download_only_manifest("cloud-aws")
 }
 
 pub fn cloud_azure() -> PluginManifest {
-    download_only_manifest(
-        "cloud-azure",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-azure/plugin.json"
-        )),
-    )
+    download_only_manifest("cloud-azure")
 }
 
 pub fn cloud_digitalocean() -> PluginManifest {
-    download_only_manifest(
-        "cloud-digitalocean",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-digitalocean/plugin.json"
-        )),
-    )
+    download_only_manifest("cloud-digitalocean")
 }
 
 pub fn cloud_gcp() -> PluginManifest {
-    download_only_manifest(
-        "cloud-gcp",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-gcp/plugin.json"
-        )),
-    )
+    download_only_manifest("cloud-gcp")
 }
 
 pub fn cloud_bandwagon() -> PluginManifest {
-    download_only_manifest(
-        "cloud-bandwagon",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-bandwagon/plugin.json"
-        )),
-    )
+    download_only_manifest("cloud-bandwagon")
 }
 
 pub fn panel_1panel() -> PluginManifest {
@@ -537,13 +501,19 @@ mod tests {
         assert!(first_party_logic_bytes(PLUGIN_ID_MODULE_NACOS, "logic.js").is_none());
     }
 
+    fn read_download_only_logic(dir: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../plugins")
+            .join(dir)
+            .join("logic.js");
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("读 {} 失败: {e}", path.display()))
+    }
+
     #[test]
     fn tencent_is_download_only_not_embedded() {
         assert!(first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "logic.js").is_none());
-        let src = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-tencent/logic.js"
-        ));
+        let src = read_download_only_logic("cloud-tencent");
         assert!(src.contains("TC3-HMAC-SHA256"));
         assert!(src.contains("host.netFetch"));
         assert!(src.contains("host.hash"));
@@ -552,10 +522,7 @@ mod tests {
     #[test]
     fn huawei_is_download_only_not_embedded() {
         assert!(first_party_logic_bytes(PLUGIN_ID_CLOUD_HUAWEI, "logic.js").is_none());
-        let src = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../plugins/cloud-huawei/logic.js"
-        ));
+        let src = read_download_only_logic("cloud-huawei");
         assert!(src.contains("SDK-HMAC-SHA256"));
         assert!(src.contains("host.netFetch"));
         assert!(src.contains("host.hash"));
