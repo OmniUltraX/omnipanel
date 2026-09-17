@@ -77,8 +77,8 @@ OmniPanel 通过签名插件体系向第三方开放三级扩展能力：
 | 类别 | 说明 |
 |------|------|
 | **插件平台** | `.omni-plugin` 签名安装；插件中心 + 工作室校验/打包/安装；官方验签与投稿；L1 / L2 / L3 |
-| **云厂商** | 能力工作台（账户 → 能力 → 实例）；阿里云 / 腾讯云 / 华为云 / AWS / Azure / GCP / DigitalOcean / 搬瓦工；阿里云另含安全组 / EIP / SLB / RDS / Redis / 磁盘 / DNS |
-| **模块插件** | Nacos：命名空间切换、服务在线/离线与上线下线、可拖分栏、Ctrl+F 搜配置 |
+| **云厂商** | 能力工作台（账户 → 能力 → 实例）；八家厂商改为插件中心 **download-only** L2 安装（阿里云 / 腾讯 / 华为 / AWS / Azure / GCP / DigitalOcean / 搬瓦工）；阿里云含安全组删除及 EIP / SLB / RDS / Redis / 磁盘 / DNS |
+| **模块插件** | Nacos（download-only）：命名空间切换、服务在线/离线与上线下线、可拖分栏、Ctrl+F 搜配置 |
 | **同步安全** | 团队 sync_key_v2 + 在线设备中继传钥；无 peer 时导入 `.omnipanel-sync.key`；助手绑定 v2 加密二维码 |
 | **在场验证** | 危险操作须先过 Windows Hello / Touch ID 或打字签发短命 token；按 action+target 一次性消费，覆盖数据库 / Docker / 云 / SSH |
 | **团队同步** | 模块快照改 v2 密钥派生；文件夹树同步；推送/拉取前等待布局 hydration |
