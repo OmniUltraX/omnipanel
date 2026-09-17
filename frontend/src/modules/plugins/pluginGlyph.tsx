@@ -2,7 +2,6 @@ import type { PluginKind } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getPluginManifest } from "../../lib/pluginManifests";
-import { getEngineIcon } from "../database/connection/engineIcons";
 import { getEngineDescriptor } from "../database/engineRegistry";
 import {
   IconDatabase,
@@ -13,18 +12,9 @@ import {
   IconMonitor,
   IconWrench,
 } from "../../components/ui/icons/Icons";
+import { getPluginMarketIcon } from "./pluginMarketIcons";
 
 const SIZE_PX = { sm: 22, md: 32, lg: 40 } as const;
-
-function engineKeyOf(pluginId: string, kind: PluginKind): string | null {
-  if (kind !== "engine") return null;
-  const form = getPluginManifest(pluginId)?.contributes.ui?.connectionForm;
-  if (form && typeof form === "object") {
-    const key = String((form as { engineKey?: unknown }).engineKey ?? "").trim();
-    if (key) return key;
-  }
-  return pluginId.startsWith("omni.engine.") ? pluginId.slice("omni.engine.".length) : pluginId;
-}
 
 function KindMark({ kind, size }: { kind: PluginKind; size: number }) {
   const iconSize = Math.max(12, Math.round(size * 0.55));
@@ -62,8 +52,13 @@ export function PluginGlyph({
   const { t } = useI18n();
   const theme = useSettingsStore((s) => s.resolved);
   const px = SIZE_PX[size];
-  const engineKey = engineKeyOf(pluginId, kind);
-  const iconUrl = engineKey ? getEngineIcon(engineKey, theme) : null;
+  const iconUrl = getPluginMarketIcon(pluginId, kind, theme);
+  const engineForm = kind === "engine" ? getPluginManifest(pluginId)?.contributes.ui?.connectionForm : null;
+  const engineKey =
+    engineForm && typeof engineForm === "object"
+      ? String((engineForm as { engineKey?: unknown }).engineKey ?? "").trim() ||
+        (pluginId.startsWith("omni.engine.") ? pluginId.slice("omni.engine.".length) : pluginId)
+      : null;
   const letters =
     getEngineDescriptor(engineKey)?.icon ??
     (name?.trim().slice(0, 2) || pluginId.replace(/^omni\.[a-z]+\./, "").slice(0, 2)).toUpperCase();
