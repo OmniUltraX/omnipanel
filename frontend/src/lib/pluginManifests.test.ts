@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { parsePluginManifest } from "@omnipanel/plugin-sdk";
+import cloudAliyunJson from "../../../plugins/cloud-aliyun/plugin.json";
+import cloudAwsJson from "../../../plugins/cloud-aws/plugin.json";
+import cloudAzureJson from "../../../plugins/cloud-azure/plugin.json";
+import cloudBandwagonJson from "../../../plugins/cloud-bandwagon/plugin.json";
+import cloudDigitaloceanJson from "../../../plugins/cloud-digitalocean/plugin.json";
+import cloudGcpJson from "../../../plugins/cloud-gcp/plugin.json";
+import cloudHuaweiJson from "../../../plugins/cloud-huawei/plugin.json";
+import cloudTencentJson from "../../../plugins/cloud-tencent/plugin.json";
 import nacosPluginJson from "../../../plugins/module-nacos/plugin.json";
 import {
   FIRST_PARTY_PLUGIN_MANIFESTS,
@@ -10,12 +18,31 @@ import {
   setInstalledPluginManifests,
 } from "./pluginManifests";
 
+function withInstalledClouds(run: () => void) {
+  setInstalledPluginManifests([
+    parsePluginManifest(cloudAliyunJson),
+    parsePluginManifest(cloudTencentJson),
+    parsePluginManifest(cloudHuaweiJson),
+    parsePluginManifest(cloudAwsJson),
+    parsePluginManifest(cloudAzureJson),
+    parsePluginManifest(cloudDigitaloceanJson),
+    parsePluginManifest(cloudGcpJson),
+    parsePluginManifest(cloudBandwagonJson),
+  ]);
+  try {
+    run();
+  } finally {
+    setInstalledPluginManifests([]);
+  }
+}
+
 describe("pluginManifests 单源目录", () => {
   it("解析全部第一方清单且 id 唯一", () => {
     const ids = FIRST_PARTY_PLUGIN_MANIFESTS.map((m) => m.id);
-    expect(ids).toHaveLength(23);
-    expect(new Set(ids).size).toBe(23);
+    expect(ids).toHaveLength(15);
+    expect(new Set(ids).size).toBe(15);
     expect(ids).not.toContain("omni.module.nacos");
+    expect(ids).not.toContain("omni.cloud.aliyun");
   });
 
   it("kind 分布与仓库样板一致", () => {
@@ -31,7 +58,7 @@ describe("pluginManifests 单源目录", () => {
     ]);
     expect(listPluginManifests("panel")).toHaveLength(3);
     expect(listPluginManifests("module")).toHaveLength(0);
-    expect(listPluginManifests("cloud")).toHaveLength(8);
+    expect(listPluginManifests("cloud")).toHaveLength(0);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(1);
     expect(listPluginManifests("importer")).toHaveLength(2);
@@ -185,65 +212,72 @@ describe("pluginManifests 单源目录", () => {
   });
 
   it("阿里云声明 capabilities 而非 ecs panelTabs", () => {
-    const manifest = getPluginManifest("omni.cloud.aliyun");
-    expect(manifest?.kind).toBe("cloud");
-    expect(manifestPanelTabIds(manifest)).toEqual([]);
-    expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
-      "compute",
-      "compute.lite",
-      "network.securityGroup",
-      "network.eip",
-      "network.loadBalancer",
-      "database",
-      "database.cache",
-      "storage.disk",
-      "objectStorage",
-      "domains",
-      "certs",
-    ]);
-    expect(manifest?.methods?.map((m) => m.name)).toEqual(
-      expect.arrayContaining(["listResources", "invokeAction"]),
-    );
+    withInstalledClouds(() => {
+      const manifest = getPluginManifest("omni.cloud.aliyun");
+      expect(manifest?.kind).toBe("cloud");
+      expect(manifestPanelTabIds(manifest)).toEqual([]);
+      expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
+        "compute",
+        "compute.lite",
+        "network.securityGroup",
+        "network.eip",
+        "network.loadBalancer",
+        "database",
+        "database.cache",
+        "storage.disk",
+        "objectStorage",
+        "domains",
+        "certs",
+      ]);
+      expect(manifest?.methods?.map((m) => m.name)).toEqual(
+        expect.arrayContaining(["listResources", "invokeAction"]),
+      );
+      expect(manifest?.entry?.logic).toBe("logic.js");
+    });
   });
 
   it("腾讯云声明相同 capabilities", () => {
-    const manifest = getPluginManifest("omni.cloud.tencent");
-    expect(manifest?.kind).toBe("cloud");
-    expect(manifest?.entry?.logic).toBe("logic.js");
-    expect(manifestPanelTabIds(manifest)).toEqual([]);
-    expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
-      "compute",
-      "compute.lite",
-      "network.securityGroup",
-      "network.eip",
-      "network.loadBalancer",
-      "database",
-      "database.cache",
-      "storage.disk",
-      "objectStorage",
-      "domains",
-      "certs",
-    ]);
+    withInstalledClouds(() => {
+      const manifest = getPluginManifest("omni.cloud.tencent");
+      expect(manifest?.kind).toBe("cloud");
+      expect(manifest?.entry?.logic).toBe("logic.js");
+      expect(manifestPanelTabIds(manifest)).toEqual([]);
+      expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
+        "compute",
+        "compute.lite",
+        "network.securityGroup",
+        "network.eip",
+        "network.loadBalancer",
+        "database",
+        "database.cache",
+        "storage.disk",
+        "objectStorage",
+        "domains",
+        "certs",
+      ]);
+    });
   });
 
   it("华为云声明相同 capabilities 且走 L2", () => {
-    const manifest = getPluginManifest("omni.cloud.huawei");
-    expect(manifest?.kind).toBe("cloud");
-    expect(manifest?.entry?.logic).toBe("logic.js");
-    expect(manifestPanelTabIds(manifest)).toEqual([]);
-    expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
-      "compute",
-      "compute.lite",
-      "network.securityGroup",
-      "network.eip",
-      "network.loadBalancer",
-      "database",
-      "database.cache",
-      "storage.disk",
-      "objectStorage",
-      "domains",
-      "certs",
-    ]);
+    withInstalledClouds(() => {
+      const manifest = getPluginManifest("omni.cloud.huawei");
+      expect(manifest?.kind).toBe("cloud");
+      expect(manifest?.entry?.logic).toBe("logic.js");
+      expect(manifestPanelTabIds(manifest)).toEqual([]);
+      expect(manifest?.contributes.cloud?.capabilities.map((c) => c.id)).toEqual([
+        "compute",
+        "compute.lite",
+        "network.securityGroup",
+        "network.eip",
+        "network.loadBalancer",
+        "database",
+        "database.cache",
+        "storage.disk",
+        "objectStorage",
+        "domains",
+        "certs",
+      ]);
+    });
   });
 
   for (const id of [
@@ -254,10 +288,12 @@ describe("pluginManifests 单源目录", () => {
     "omni.cloud.bandwagon",
   ] as const) {
     it(`${id} 为 L2 云插件`, () => {
-      const manifest = getPluginManifest(id);
-      expect(manifest?.kind).toBe("cloud");
-      expect(manifest?.entry?.logic).toBe("logic.js");
-      expect(manifest?.contributes.cloud?.capabilities.length).toBeGreaterThan(0);
+      withInstalledClouds(() => {
+        const manifest = getPluginManifest(id);
+        expect(manifest?.kind).toBe("cloud");
+        expect(manifest?.entry?.logic).toBe("logic.js");
+        expect(manifest?.contributes.cloud?.capabilities.length).toBeGreaterThan(0);
+      });
     });
   }
 

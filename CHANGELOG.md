@@ -2,6 +2,12 @@
 
 本文件记录 OmniPanel 各版本的 notable 变更，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [Unreleased]
+
+### 变更
+
+- **云厂商插件**：八家云厂商（阿里云 / 腾讯 / 华为 / AWS / Azure / DO / GCP / 搬瓦工）全部改为 L2 `logic.js` + 市场 download-only；升级后需从插件中心安装所需厂商，已有连接的 `pluginId` 不变。Web 版暂无云插件运行时。
+
 ## [0.8.21] - 2026-09-08
 
 ### 新增

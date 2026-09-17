@@ -41,7 +41,7 @@ cargo run -p omnipanel-plugin-pkg --bin publish -- <plugin_dir> https://example.
 - 同 id 重复安装即原子升级；
 - 启用状态持久化，重启保持。
 
-也可从官方市场下载（`distribution: download`）。download-only 第一方样板（如 Nacos）源码可在宿主 `plugins/` 以 submodule 存在，但**不**嵌入客户端；名单见 `scripts/plugin-download-only.mjs`，由 `publish-plugin-registry` 打进 `plugins-latest`。
+也可从官方市场下载（`distribution: download`）。download-only 第一方样板（Nacos、全部 `cloud-*`）源码可在宿主 `plugins/` 以 submodule 存在，但**不**嵌入客户端；名单见 `scripts/plugin-download-only.mjs`，由 `publish-plugin-registry` 打进 `plugins-latest`。
 
 ## 卸载
 

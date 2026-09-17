@@ -10,6 +10,7 @@ import {
 } from "./cloudMetricChart";
 import type { CloudCapabilityDecl } from "@omnipanel/plugin-sdk";
 import { parsePluginManifest } from "@omnipanel/plugin-sdk";
+import cloudAliyunJson from "../../../../plugins/cloud-aliyun/plugin.json";
 import type { PluginListItem } from "../../ipc/bindings";
 import { cloudCapabilitiesForPlugin, isGlobalCloudCapability, shouldShowCloudRegionFilter } from "./cloudCapabilities";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
@@ -39,32 +40,37 @@ import {
 
 describe("cloud capabilities contract", () => {
   it("阿里云清单声明能力且无 ecs Tab", () => {
-    const manifest = getPluginManifest("omni.cloud.aliyun");
-    const caps = manifestCloudCapabilities(manifest);
-    expect(caps.map((c) => c.id)).toEqual([
-      "compute",
-      "compute.lite",
-      "network.securityGroup",
-      "network.eip",
-      "network.loadBalancer",
-      "database",
-      "database.cache",
-      "storage.disk",
-      "objectStorage",
-      "domains",
-      "certs",
-    ]);
-    expect(caps.find((c) => c.id === "dns")).toBeUndefined();
-    expect(manifest?.contributes.ui?.panelTabs ?? []).toEqual([]);
-    expect(caps.find((c) => c.id === "domains")?.scope).toBe("global");
-    expect(caps.find((c) => c.id === "domains")?.detailSlots).toContain("records");
-    expect(caps.find((c) => c.id === "network.securityGroup")?.detailSlots).toContain("members");
-    expect(caps.find((c) => c.id === "objectStorage")?.detailSlots).toContain("overview");
-    expect(caps.find((c) => c.id === "certs")?.detailSlots).toContain("overview");
-    expect(caps.find((c) => c.id === "compute")?.scope).toBe("region");
-    expect(caps.find((c) => c.id === "compute")?.detailSlots).toContain("backups");
-    expect(caps.find((c) => c.id === "compute.lite")?.detailSlots).toContain("backups");
-    expect(isGlobalCloudCapability(caps.find((c) => c.id === "certs")!)).toBe(true);
+    setInstalledPluginManifests([parsePluginManifest(cloudAliyunJson)]);
+    try {
+      const manifest = getPluginManifest("omni.cloud.aliyun");
+      const caps = manifestCloudCapabilities(manifest);
+      expect(caps.map((c) => c.id)).toEqual([
+        "compute",
+        "compute.lite",
+        "network.securityGroup",
+        "network.eip",
+        "network.loadBalancer",
+        "database",
+        "database.cache",
+        "storage.disk",
+        "objectStorage",
+        "domains",
+        "certs",
+      ]);
+      expect(caps.find((c) => c.id === "dns")).toBeUndefined();
+      expect(manifest?.contributes.ui?.panelTabs ?? []).toEqual([]);
+      expect(caps.find((c) => c.id === "domains")?.scope).toBe("global");
+      expect(caps.find((c) => c.id === "domains")?.detailSlots).toContain("records");
+      expect(caps.find((c) => c.id === "network.securityGroup")?.detailSlots).toContain("members");
+      expect(caps.find((c) => c.id === "objectStorage")?.detailSlots).toContain("overview");
+      expect(caps.find((c) => c.id === "certs")?.detailSlots).toContain("overview");
+      expect(caps.find((c) => c.id === "compute")?.scope).toBe("region");
+      expect(caps.find((c) => c.id === "compute")?.detailSlots).toContain("backups");
+      expect(caps.find((c) => c.id === "compute.lite")?.detailSlots).toContain("backups");
+      expect(isGlobalCloudCapability(caps.find((c) => c.id === "certs")!)).toBe(true);
+    } finally {
+      setInstalledPluginManifests([]);
+    }
   });
 
   it("插件未激活时能力列表为空", () => {

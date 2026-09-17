@@ -7,6 +7,7 @@ on:
       - "plugins/registry.json"
       - "plugins/*/plugin.json"
       - "plugins/module-nacos/**"
+      - "plugins/cloud-*/**"
       - "plugins-market/*/plugin.json"
       - "plugins-market/*/ui/**"
       - "plugins-market/*/logic.js"

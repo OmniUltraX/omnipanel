@@ -48,35 +48,89 @@ pub fn addon_everything() -> PluginManifest {
 }
 
 pub fn cloud_aliyun() -> PluginManifest {
-    first_party_manifest!("cloud-aliyun")
+    download_only_manifest(
+        "cloud-aliyun",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-aliyun/plugin.json"
+        )),
+    )
+}
+
+/// download-only：仅供测试读清单，不进 `first_party_manifests`。
+fn download_only_manifest(dir: &str, json: &str) -> PluginManifest {
+    PluginManifest::from_json(json)
+        .unwrap_or_else(|e| panic!("download-only 清单 plugins/{dir}/plugin.json 非法: {e}"))
 }
 
 pub fn cloud_tencent() -> PluginManifest {
-    first_party_manifest!("cloud-tencent")
+    download_only_manifest(
+        "cloud-tencent",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-tencent/plugin.json"
+        )),
+    )
 }
 
 pub fn cloud_huawei() -> PluginManifest {
-    first_party_manifest!("cloud-huawei")
+    download_only_manifest(
+        "cloud-huawei",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-huawei/plugin.json"
+        )),
+    )
 }
 
 pub fn cloud_aws() -> PluginManifest {
-    first_party_manifest!("cloud-aws")
+    download_only_manifest(
+        "cloud-aws",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-aws/plugin.json"
+        )),
+    )
 }
 
 pub fn cloud_azure() -> PluginManifest {
-    first_party_manifest!("cloud-azure")
+    download_only_manifest(
+        "cloud-azure",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-azure/plugin.json"
+        )),
+    )
 }
 
 pub fn cloud_digitalocean() -> PluginManifest {
-    first_party_manifest!("cloud-digitalocean")
+    download_only_manifest(
+        "cloud-digitalocean",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-digitalocean/plugin.json"
+        )),
+    )
 }
 
 pub fn cloud_gcp() -> PluginManifest {
-    first_party_manifest!("cloud-gcp")
+    download_only_manifest(
+        "cloud-gcp",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-gcp/plugin.json"
+        )),
+    )
 }
 
 pub fn cloud_bandwagon() -> PluginManifest {
-    first_party_manifest!("cloud-bandwagon")
+    download_only_manifest(
+        "cloud-bandwagon",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-bandwagon/plugin.json"
+        )),
+    )
 }
 
 pub fn panel_1panel() -> PluginManifest {
@@ -132,6 +186,7 @@ pub fn importer_docker_db() -> PluginManifest {
 }
 
 /// 第一方 L2 逻辑包（内置插件不落盘时由宿主嵌入装载）。
+/// 全部云厂商已 download-only，不在此嵌入。
 pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u8>> {
     let rel = logic_rel.trim().replace('\\', "/");
     match (plugin_id, rel.as_str()) {
@@ -139,62 +194,6 @@ pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../plugins/importer-warpgate/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
-        (PLUGIN_ID_CLOUD_TENCENT, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/cloud-tencent/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
-        (PLUGIN_ID_CLOUD_HUAWEI, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/cloud-huawei/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
-        (PLUGIN_ID_CLOUD_AWS, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/cloud-aws/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
-        (PLUGIN_ID_CLOUD_AZURE, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/cloud-azure/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
-        (PLUGIN_ID_CLOUD_DIGITALOCEAN, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/cloud-digitalocean/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
-        (PLUGIN_ID_CLOUD_GCP, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/cloud-gcp/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
-        (PLUGIN_ID_CLOUD_BANDWAGON, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/cloud-bandwagon/logic.js"
             ))
             .as_bytes()
             .to_vec(),
@@ -254,14 +253,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
     vec![
         theme_default(),
         addon_everything(),
-        cloud_aliyun(),
-        cloud_tencent(),
-        cloud_huawei(),
-        cloud_aws(),
-        cloud_azure(),
-        cloud_digitalocean(),
-        cloud_gcp(),
-        cloud_bandwagon(),
+        // 全部云厂商 → download-only（安装后经 Runtime 装载）
         panel_1panel(),
         panel_bt(),
         panel_hestia(),
@@ -287,6 +279,7 @@ mod tests {
         assert_eq!(theme_default().id, PLUGIN_ID_THEME_DEFAULT);
         assert_eq!(addon_everything().id, PLUGIN_ID_ADDON_EVERYTHING);
         assert_eq!(cloud_aliyun().id, PLUGIN_ID_CLOUD_ALIYUN);
+        assert_eq!(cloud_aliyun().logic_entry(), Some("logic.js"));
         assert_eq!(cloud_tencent().id, PLUGIN_ID_CLOUD_TENCENT);
         assert_eq!(cloud_tencent().logic_entry(), Some("logic.js"));
         assert_eq!(cloud_huawei().id, PLUGIN_ID_CLOUD_HUAWEI);
@@ -301,12 +294,23 @@ mod tests {
         assert_eq!(cloud_gcp().logic_entry(), Some("logic.js"));
         assert_eq!(cloud_bandwagon().id, PLUGIN_ID_CLOUD_BANDWAGON);
         assert_eq!(cloud_bandwagon().logic_entry(), Some("logic.js"));
-        assert!(
-            first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "logic.js")
-                .expect("应嵌入腾讯云 logic.js")
-                .len()
-                > 100
-        );
+        // 全部云厂商已 download-only：不进 first_party，也不嵌入 logic.js
+        for id in [
+            PLUGIN_ID_CLOUD_ALIYUN,
+            PLUGIN_ID_CLOUD_TENCENT,
+            PLUGIN_ID_CLOUD_HUAWEI,
+            PLUGIN_ID_CLOUD_AWS,
+            PLUGIN_ID_CLOUD_AZURE,
+            PLUGIN_ID_CLOUD_DIGITALOCEAN,
+            PLUGIN_ID_CLOUD_GCP,
+            PLUGIN_ID_CLOUD_BANDWAGON,
+        ] {
+            assert!(
+                !first_party_manifests().iter().any(|m| m.id == id),
+                "{id} 不应在 first_party_manifests"
+            );
+            assert!(first_party_logic_bytes(id, "logic.js").is_none());
+        }
         assert_eq!(panel_1panel().id, PLUGIN_ID_PANEL_1PANEL);
         assert_eq!(panel_bt().id, PLUGIN_ID_PANEL_BT);
         assert_eq!(panel_hestia().id, PLUGIN_ID_PANEL_HESTIA);
@@ -534,25 +538,27 @@ mod tests {
     }
 
     #[test]
-    fn tencent_embeds_logic_js() {
-        let bytes = first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "logic.js")
-            .expect("应嵌入腾讯云 logic.js");
-        let src = String::from_utf8(bytes).unwrap();
+    fn tencent_is_download_only_not_embedded() {
+        assert!(first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "logic.js").is_none());
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-tencent/logic.js"
+        ));
         assert!(src.contains("TC3-HMAC-SHA256"));
         assert!(src.contains("host.netFetch"));
         assert!(src.contains("host.hash"));
-        assert!(first_party_logic_bytes(PLUGIN_ID_CLOUD_TENCENT, "other.js").is_none());
     }
 
     #[test]
-    fn huawei_embeds_logic_js() {
-        let bytes = first_party_logic_bytes(PLUGIN_ID_CLOUD_HUAWEI, "logic.js")
-            .expect("应嵌入华为云 logic.js");
-        let src = String::from_utf8(bytes).unwrap();
+    fn huawei_is_download_only_not_embedded() {
+        assert!(first_party_logic_bytes(PLUGIN_ID_CLOUD_HUAWEI, "logic.js").is_none());
+        let src = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/cloud-huawei/logic.js"
+        ));
         assert!(src.contains("SDK-HMAC-SHA256"));
         assert!(src.contains("host.netFetch"));
         assert!(src.contains("host.hash"));
-        assert!(first_party_logic_bytes(PLUGIN_ID_CLOUD_HUAWEI, "other.js").is_none());
     }
 
     #[test]

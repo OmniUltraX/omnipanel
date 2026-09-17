@@ -2,12 +2,8 @@
 name = "omnipanel-cloud"
 version.workspace = true
 edition.workspace = true
-description = "云厂商 Host 分发：按 pluginId 路由到阿里云 Driver；腾讯云走插件 L2"
+description = "云厂商 Host 辅助：pluginId 解析与共享类型；业务经插件 L2"
 
 [dependencies]
-reqwest.workspace = true
 omnipanel-error = { path = "../omnipanel-error" }
 omnipanel-cloud-aliyun = { path = "../omnipanel-cloud-aliyun" }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }

@@ -67,6 +67,7 @@ async fn run_everything_search(args: Value) -> Result<Value, OmniError> {
 
 /// 编译期内置网关 handler 登记。新增第一方插件方法在此追加，
 /// 禁止在 `plugin_invoke` 命令里按插件 ID 特判。
+/// 云厂商（含阿里云）一律走 L2 `logic.js`，不再登记原生 invoke。
 fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
     gateway.register(
         omnipanel_plugin::PLUGIN_ID_ADDON_EVERYTHING,
@@ -79,30 +80,6 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
             })
         }),
     );
-    for method in [
-        "testAccount",
-        "listRegions",
-        "getAccount",
-        "listResources",
-        "getResource",
-        "invokeAction",
-        "getMetrics",
-        "queryLogs",
-    ] {
-        let method_name = method.to_string();
-        gateway.register(
-            omnipanel_plugin::PLUGIN_ID_CLOUD_ALIYUN,
-            method,
-            Arc::new(move |args| {
-                let method_name = method_name.clone();
-                Box::pin(async move {
-                    omnipanel_cloud_aliyun::handle_invoke(&method_name, args)
-                        .await
-                        .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))
-                })
-            }),
-        );
-    }
 }
 
 /// L2 执行器工厂：`plugin-wasm` feature 关闭时返回 None（L1/L3 不受影响）。

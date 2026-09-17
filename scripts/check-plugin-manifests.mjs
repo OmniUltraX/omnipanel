@@ -297,14 +297,31 @@ if (!fs.existsSync(registryPath)) {
 } else {
   try {
     const registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
+    function entryHasDownloadArtifact(p) {
+      if (!p) return false;
+      if (p.distribution === "download") return true;
+      if (p.artifact?.url) return true;
+      if (Array.isArray(p.versions)) {
+        return p.versions.some((v) => v?.artifact?.url);
+      }
+      return false;
+    }
+    function entryIsBundled(p) {
+      if (!p || !p.id) return false;
+      if (entryHasDownloadArtifact(p)) return false;
+      if (p.distribution === "bundled") return true;
+      // v2 无 artifact 的 versions 条目 = bundled
+      if (Array.isArray(p.versions) && p.versions.length > 0) return true;
+      return false;
+    }
     const bundledIds = new Set(
       (Array.isArray(registry.plugins) ? registry.plugins : [])
-        .filter((p) => p && p.distribution === "bundled")
+        .filter(entryIsBundled)
         .map((p) => p.id),
     );
     const downloadIds = new Set(
       (Array.isArray(registry.plugins) ? registry.plugins : [])
-        .filter((p) => p && (p.distribution === "download" || p.artifact?.url))
+        .filter(entryHasDownloadArtifact)
         .map((p) => p.id),
     );
     for (const id of bundledJsonIds) {
