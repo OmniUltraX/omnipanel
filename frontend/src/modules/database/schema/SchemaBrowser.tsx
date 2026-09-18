@@ -86,6 +86,8 @@ export function SchemaBrowser({
     handleContextLayoutRoot,
     handlePathCrumbClick,
     handleCollapseAll,
+    handleExpandAll,
+    expandAllDisabled,
     refreshSchemaCache,
     getSchemaTreeContextMenuItems,
     filterDialogConn,
@@ -176,9 +178,11 @@ export function SchemaBrowser({
       ) : null}
       <ModuleSidebarTreeToolbar
         onRefresh={() => void refreshSchemaCache()}
+        onExpandAll={handleExpandAll}
         onCollapseAll={handleCollapseAll}
         refreshing={anyConnectionRefreshing}
         refreshDisabled={anyConnectionRefreshing}
+        expandDisabled={expandAllDisabled}
         collapseDisabled={expandedNodeIds.size === 0}
       />
     </div>
