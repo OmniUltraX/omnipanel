@@ -517,6 +517,8 @@ export function CloudTreeSidebar({
           {visibleAccounts.map((account) => {
             const accountKey = makeCloudTreeKey({ kind: "account", accountId: account.id });
             const expanded = isExpanded(accountKey);
+            // 无能力（插件未安装/未激活）时不显示展开箭头，避免点开展现空树。
+            const accountCaps = cloudCapabilitiesForPlugin(account.pluginId);
             const inventory = inventoryByAccount[account.id];
             const accountRefreshing = Boolean(
               refreshingKeys[cloudAccountRefreshKey(account.id)],
@@ -541,7 +543,7 @@ export function CloudTreeSidebar({
                   icon={<ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />}
                   prefix={<StatusDot status={accountStatus} title={accountStatusTitle} />}
                   className={serverTreeNodeClassName(cloudBrandKind(account.pluginId))}
-                  hasChildren
+                  hasChildren={accountCaps.length > 0}
                   expanded={expanded}
                   active={activeNavKey === accountKey || activeAccountId === account.id}
                   trailing={

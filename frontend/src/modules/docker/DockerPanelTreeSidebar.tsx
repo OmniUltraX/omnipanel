@@ -307,13 +307,21 @@ export function DockerPanelTreeSidebar({
     () => folders.map((folder) => `docker-folder:${folder.id}`),
     [folders],
   );
+  /** 一键展开/折叠只到"文件夹 + 连接"两层（容器/镜像列表不动，避免全量拉取）。 */
+  const expandableKeys = useMemo(
+    () => [
+      ...folderTreeKeys,
+      ...connections.map((connection) => makeDockerTreeKey(connection.connectionId)),
+    ],
+    [folderTreeKeys, connections],
+  );
   const expandFoldersDisabled = useMemo(
-    () => folderTreeKeys.length === 0 || folderTreeKeys.every((key) => isExpanded(key)),
-    [folderTreeKeys, isExpanded],
+    () => expandableKeys.length === 0 || expandableKeys.every((key) => isExpanded(key)),
+    [expandableKeys, isExpanded],
   );
   const collapseFoldersDisabled = useMemo(
-    () => folderTreeKeys.length === 0 || folderTreeKeys.every((key) => !isExpanded(key)),
-    [folderTreeKeys, isExpanded],
+    () => expandableKeys.length === 0 || expandableKeys.every((key) => !isExpanded(key)),
+    [expandableKeys, isExpanded],
   );
 
   const allTreeKeys = useMemo(() => {
@@ -764,8 +772,8 @@ export function DockerPanelTreeSidebar({
           toolbar={
             <ModuleSidebarTreeToolbar
               onRefresh={onRefreshAll}
-              onExpandAll={() => setAllExpanded(folderTreeKeys, true)}
-              onCollapseAll={() => setAllExpanded(folderTreeKeys, false)}
+              onExpandAll={() => setAllExpanded(expandableKeys, true)}
+              onCollapseAll={() => setAllExpanded(expandableKeys, false)}
               refreshing={refreshingAll}
               refreshDisabled={refreshingAll || connections.length === 0}
               expandDisabled={expandFoldersDisabled}
@@ -787,8 +795,8 @@ export function DockerPanelTreeSidebar({
         {addConnectionButton}
         <ModuleSidebarTreeToolbar
           onRefresh={onRefreshAll}
-          onExpandAll={() => setAllExpanded(folderTreeKeys, true)}
-          onCollapseAll={() => setAllExpanded(folderTreeKeys, false)}
+          onExpandAll={() => setAllExpanded(expandableKeys, true)}
+          onCollapseAll={() => setAllExpanded(expandableKeys, false)}
           refreshing={refreshingAll}
           refreshDisabled={refreshingAll || connections.length === 0}
           expandDisabled={expandFoldersDisabled}
