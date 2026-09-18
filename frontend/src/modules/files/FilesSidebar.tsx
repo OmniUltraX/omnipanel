@@ -7,7 +7,7 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Button } from "../../components/ui/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import {
   useTreeClickDelay,
   type TreeRowMouseEvent,
@@ -425,32 +425,32 @@ export function FilesSidebar({
   const connectionActions = (
     <div className="schema-toolbar schema-toolbar--inline">
       {onSyncSshSftp ? (
-        <Button
-          type="button"
-          variant="icon"
+        <WorkbenchActionButton
+          icon
           className={syncingSshSftp ? "tree-action-btn--busy" : undefined}
           title={t("files.sidebar.syncSshSftp")}
+          aria-label={t("files.sidebar.syncSshSftp")}
           disabled={syncingSshSftp}
           onClick={onSyncSshSftp}
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M2 8a6 6 0 0 1 10.5-3.9" />
             <path d="M14 2v3h-3" />
             <path d="M14 8a6 6 0 0 1-10.5 3.9" />
             <path d="M2 14v-3h3" />
           </svg>
-        </Button>
+        </WorkbenchActionButton>
       ) : null}
-      <Button
-        type="button"
-        variant="icon"
+      <WorkbenchActionButton
+        icon
         title={t("files.sidebar.add")}
+        aria-label={t("files.sidebar.add")}
         onClick={() => onAddConnection()}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
           <path d="M12 5v14M5 12h14" />
         </svg>
-      </Button>
+      </WorkbenchActionButton>
     </div>
   );
 

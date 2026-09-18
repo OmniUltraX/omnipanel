@@ -42,7 +42,7 @@ import {
 import { DockerContainersTreeBranch } from "./DockerContainersTreeBranch";
 import { dockerSourceLabel } from "./dockerConnectionSource";
 import { groupContainersByComposeProject } from "./dockerComposeGroups";
-import { usePersistedDockerTreeExpanded } from "./usePersistedDockerTreeExpanded";
+import { usePersistedTreeExpanded } from "@/components/ui/module-sidebar/usePersistedTreeExpanded";
 import { DockerTreeRefreshButton } from "./DockerTreeRefreshButton";
 import {
   dockerSidebarCategoryRefreshKey,
@@ -250,7 +250,10 @@ export function DockerPanelTreeSidebar({
   section,
 }: DockerPanelTreeSidebarProps) {
   const { t } = useI18n();
-  const { isExpanded, toggle, ensureExpanded } = usePersistedDockerTreeExpanded();
+  // storageKey 沿用旧 key，用户现有展开态不断。
+  const { isExpanded, toggle, ensureExpanded } = usePersistedTreeExpanded(
+    "omnipanel-docker-tree-expanded.v1",
+  );
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxTarget, setCtxTarget] = useState<CtxTarget | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);

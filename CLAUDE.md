@@ -255,6 +255,14 @@ Desktop / Web：Web 的 `ai_chat_stream` 仅 HTTP backend（无 ACP/CLI）；Age
 
 `Button` 省略 `variant` 时是 **实心蓝**；`danger` 是浅红底色块。页头、行内、空态、对话框 footer、设置、登录、协议发送一律用 `WorkbenchActionButton`，不要 `primary` / `secondary` / `danger`。尺寸统一扁平硬朗：11px / 4×8 / 4px 圆角，不要再传 `size`。不要新写 `xxx-panel__header`。详见 `.cursor/rules/workbench-actions.mdc`。
 
+### 左侧栏三层标准（`frontend/src/components/ui/module-sidebar/`）
+
+新模块左侧栏照抄三层组装：L0 `ModuleLeftColumn`（标题 + 标签筛选 + 操作）→ L1 `ModuleSidebarSection`（箭头 + 标题 + 计数 + 操作，可折叠，`ScopedSearch` 包在 L1 外层）→ L2 `SidebarTreeNode`。**单分组原则：只有一个分组也必须包一层 L1，不允许裸树直挂。**
+
+- 图标锁死 14px：用 `SidebarIcon(kind)`，禁止自绘 `FolderIcon`；状态只用 `SidebarStatusDot` 四态；计数只用 `SidebarCountBadge`（标题按钮内、紧跟标题）。
+- 段头工具条用 `ModuleSidebarTreeToolbar`（刷新 + 展开/折叠二选一，无能力置灰）；展开态走 `usePersistedTreeExpanded(key, scope)`，storageKey 沿用旧 key；右键走 `buildModuleSidebarContextMenu` 五段模板；`SidebarTreeSelectionProvider` 必须传 `orderedKeys`。
+- 交互：单击选中 + 预览、双击常驻打开；修饰键单击只改选区不抢开预览。完整规约见 `openspec/changes/unify-module-left-sidebar/`。
+
 ## Tauri IPC Pattern
 
 正式业务路径是 **tauri-specta** 生成的 `commands.*`（见 `frontend/src/ipc/bindings.ts`），不是裸 `invoke`。

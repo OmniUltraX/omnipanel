@@ -13,8 +13,8 @@ const iconProps = {
   fill: "none",
   stroke: "currentColor",
   strokeWidth: 1.8,
-  width: 13,
-  height: 13,
+  width: 14,
+  height: 14,
   "aria-hidden": true,
 } as const;
 
@@ -44,21 +44,21 @@ export function DockerTreeIcon({ kind }: { kind: DockerTreeIconKind }) {
         <img
           src={dockerBrandIcon}
           alt=""
-          width={13}
-          height={13}
+          width={14}
+          height={14}
           className="docker-tree-brand-icon"
           aria-hidden
           draggable={false}
         />
       );
     case "connection-1panel":
-      return <BrandIconImg kind="1panel" size={13} className="docker-tree-brand-icon" />;
+      return <BrandIconImg kind="1panel" size={14} className="docker-tree-brand-icon" />;
     case "connection-bt":
-      return <BrandIconImg kind="bt" size={13} className="docker-tree-brand-icon" />;
+      return <BrandIconImg kind="bt" size={14} className="docker-tree-brand-icon" />;
     case "images":
-      return <ImageLayersIcon size={13} />;
+      return <ImageLayersIcon size={14} />;
     case "containers":
-      return <ContainerIcon size={13} />;
+      return <ContainerIcon size={14} />;
     case "networks":
       return (
         <svg {...iconProps}>
@@ -77,11 +77,11 @@ export function DockerTreeIcon({ kind }: { kind: DockerTreeIconKind }) {
         </svg>
       );
     case "image":
-      return <ImageLayersIcon size={13} />;
+      return <ImageLayersIcon size={14} />;
     case "container":
-      return <ContainerIcon size={13} />;
+      return <ContainerIcon size={14} />;
     case "compose-project":
-      return <ComposeStackIcon size={13} />;
+      return <ComposeStackIcon size={14} />;
     case "network":
       return (
         <svg {...iconProps}>

@@ -9,8 +9,8 @@ const iconProps = {
   fill: "none",
   stroke: "currentColor",
   strokeWidth: 1.8,
-  width: 13,
-  height: 13,
+  width: 14,
+  height: 14,
   "aria-hidden": true,
 } as const;
 
