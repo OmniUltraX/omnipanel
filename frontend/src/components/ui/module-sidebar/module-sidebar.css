@@ -29,6 +29,19 @@
     opacity: 1;
     width: 22px;
     height: 22px;
+    /* 与 WorkbenchActionButton 同语言：1px 透明边框，悬停/聚焦时变蓝。
+       否则同一排里幽灵按钮有边框、工具条按钮没边框，悬停态割裂。 */
+    border: 1px solid transparent;
+    border-radius: 4px;
+}
+
+.module-sidebar-toolbar .tree-action-btn:not(:disabled):hover,
+.module-sidebar-toolbar .tree-action-btn:not(:disabled):focus-visible {
+    color: var(--accent);
+    background: var(--surface);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    outline: none;
+    box-shadow: none;
 }
 
 .module-sidebar-toolbar .tree-action-btn:disabled {
