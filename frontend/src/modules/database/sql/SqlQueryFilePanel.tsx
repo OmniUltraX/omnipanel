@@ -147,7 +147,7 @@ function FolderTree({
                   "data-sql-file-node-type": "folder",
                 }}
                 icon={
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
                     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
                   </svg>
                 }
@@ -203,7 +203,7 @@ function FolderTree({
                 "data-sql-file-node-type": "tree-chart",
               }}
               icon={
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
                   <rect x="3" y="3" width="7" height="18" rx="1.5" />
                   <rect x="14" y="3" width="7" height="10" rx="1.5" />
                   <rect x="14" y="16" width="7" height="5" rx="1.5" />
@@ -240,7 +240,7 @@ function FolderTree({
               "data-sql-file-node-type": "file",
             }}
             icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
                 <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                 <path d="M14 2v6h6" />
                 <path d="M8 13h8M8 17h5" />

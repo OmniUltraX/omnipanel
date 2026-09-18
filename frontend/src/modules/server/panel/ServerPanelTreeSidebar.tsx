@@ -8,9 +8,10 @@ import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/Stat
 import { appConfirm } from "@/lib/appConfirm";
 import { showToast } from "@/stores/toastStore";
 import {
-  VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
 } from "@/components/ui/sidebar/VerticalSplitSidebar";
+import { ModuleSidebarSection } from "@/components/ui/module-sidebar";
+import { SidebarCountBadge } from "@/components/ui/module-sidebar";
 import {
   SidebarTreeEmpty,
   SidebarTreeNode,
@@ -463,7 +464,7 @@ export function ServerPanelTreeSidebar({
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{server.name}</span>
                       <span
-                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${panelTypeTagModifier(server.serviceType)}`}
+                        className={`sidebar-tag-chip badge badge-muted server-item__type-tag server-item__type-tag--${panelTypeTagModifier(server.serviceType)}`}
                       >
                         {panelServiceTypeLabel(server.serviceType, t)}
                       </span>
@@ -515,17 +516,13 @@ export function ServerPanelTreeSidebar({
   if (section) {
     return (
       <div className="server-sidebar">
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           {...section}
-          actions={
-            <>
-              <span className="badge badge-muted">{servers.length}</span>
-              {toolbarActions}
-            </>
-          }
+          count={servers.length}
+          actions={toolbarActions}
         >
           {panelBody}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
       </div>
     );
   }
@@ -534,7 +531,7 @@ export function ServerPanelTreeSidebar({
     <div className="server-sidebar">
       <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
         <span>{t("server.sidebar.title")}</span>
-        <span className="badge badge-muted">{servers.length}</span>
+        <SidebarCountBadge count={servers.length} />
         {toolbarActions}
       </div>
       {panelBody}

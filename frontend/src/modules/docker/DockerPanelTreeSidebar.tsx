@@ -15,7 +15,6 @@ import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { Button } from "@/components/ui/Button";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
-  VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
 } from "@/components/ui/sidebar/VerticalSplitSidebar";
 import {
@@ -43,6 +42,7 @@ import { DockerContainersTreeBranch } from "./DockerContainersTreeBranch";
 import { dockerSourceLabel } from "./dockerConnectionSource";
 import { groupContainersByComposeProject } from "./dockerComposeGroups";
 import { usePersistedTreeExpanded } from "@/components/ui/module-sidebar/usePersistedTreeExpanded";
+import { ModuleSidebarSection, SidebarCountBadge, SidebarIcon } from "@/components/ui/module-sidebar";
 import { DockerTreeRefreshButton } from "./DockerTreeRefreshButton";
 import {
   dockerSidebarCategoryRefreshKey,
@@ -147,14 +147,6 @@ function DockerTreeBranch({
       onNavigate={onNavigate}
       onRefreshCategory={() => refreshCategory("containers")}
     />
-  );
-}
-
-function FolderIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
   );
 }
 
@@ -593,7 +585,7 @@ export function DockerPanelTreeSidebar({
           label={
             <span className="server-tree-server-label">
               <span className="server-tree-server-name">{connection.name}</span>
-              <span className="badge badge-muted docker-tree-source-tag">
+              <span className="sidebar-tag-chip badge badge-muted docker-tree-source-tag">
                 {dockerSourceLabel(connection.source)}
               </span>
             </span>
@@ -653,7 +645,7 @@ export function DockerPanelTreeSidebar({
             module="docker"
             nodeType="folder"
             treeKey={folderTreeKey}
-            icon={<FolderIcon />}
+            icon={<SidebarIcon kind="folder" />}
             className={dragOverKey === dropKey ? "docker-tree-drop-target" : ""}
             label={folder.name}
             hasChildren
@@ -768,17 +760,13 @@ export function DockerPanelTreeSidebar({
   if (section) {
     return (
       <div ref={rootRef} className="server-sidebar docker-sidebar">
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           {...section}
-          actions={
-            <>
-              <span className="badge badge-muted">{connections.length}</span>
-              {addConnectionButton}
-            </>
-          }
+          count={connections.length}
+          actions={addConnectionButton}
         >
           {panelBody}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
       </div>
     );
   }
@@ -787,7 +775,7 @@ export function DockerPanelTreeSidebar({
     <div ref={rootRef} className="server-sidebar docker-sidebar">
       <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
         <span>{t("docker.sidebar.title")}</span>
-        <span className="badge badge-muted">{connections.length}</span>
+        <SidebarCountBadge count={connections.length} />
         {addConnectionButton}
       </div>
       {panelBody}

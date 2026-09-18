@@ -8,6 +8,7 @@ import {
   type MouseEvent,
 } from "react";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { ModuleSidebarSection, SidebarRefreshIcon } from "../../components/ui/module-sidebar";
 import {
   useTreeClickDelay,
   type TreeRowMouseEvent,
@@ -433,12 +434,7 @@ export function FilesSidebar({
           disabled={syncingSshSftp}
           onClick={onSyncSshSftp}
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M2 8a6 6 0 0 1 10.5-3.9" />
-            <path d="M14 2v3h-3" />
-            <path d="M14 8a6 6 0 0 1-10.5 3.9" />
-            <path d="M2 14v-3h3" />
-          </svg>
+          <SidebarRefreshIcon />
         </WorkbenchActionButton>
       ) : null}
       <WorkbenchActionButton
@@ -461,10 +457,11 @@ export function FilesSidebar({
       onMouseLeave={() => { hoveredRef.current = false; }}
     >
     <VerticalSplitSidebar className="fm-sidebar">
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("files.sidebar.connections")}
         expanded={sections.connections}
         onToggle={() => toggleSection("connections")}
+        count={sortedConnections.length}
         actions={connectionActions}
       >
         {sortedConnections.length === 0 ? (
@@ -486,7 +483,7 @@ export function FilesSidebar({
             ))}
           </div>
         )}
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
       <VerticalSplitSidebarSection
         title={t("files.sidebar.quickPaths")}

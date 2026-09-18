@@ -1,6 +1,7 @@
 import "./module-sidebar.css";
 
 export { SidebarIcon, type SidebarIconKind } from "./SidebarIcon";
+export { SidebarRefreshIcon } from "./SidebarRefreshIcon";
 export { SidebarStatusDot, type SidebarStatus } from "./SidebarStatusDot";
 export { SidebarCountBadge } from "./SidebarCountBadge";
 export { ModuleSidebarSection, type ModuleSidebarSectionProps } from "./ModuleSidebarSection";

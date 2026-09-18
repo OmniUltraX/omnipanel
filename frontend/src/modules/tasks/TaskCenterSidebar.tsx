@@ -5,6 +5,7 @@ import {
   VerticalSplitSidebarSection,
 } from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { Button } from "../../components/ui/primitives/Button";
+import { SidebarCountBadge } from "../../components/ui/module-sidebar";
 import {
   IconCheckCircle,
   IconClipboard,
@@ -140,7 +141,7 @@ function ConnRow({
 }
 
 function CountBadge({ count }: { count: number }) {
-  return <span className="badge badge-muted">{count}</span>;
+  return <SidebarCountBadge count={count} />;
 }
 
 /** 侧栏分区内的轻量批量操作条（文案按钮，避免挤在 24px icon actions 里） */

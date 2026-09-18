@@ -29,7 +29,6 @@ import {
 } from "../../stores/connectionStore";
 import { HostStatusIndicator } from "../../modules/server/ssh/components/HostStatusIndicator";
 import { loadSshPoolStatuses } from "../../stores/sshConnectionStore";
-import { useSshHostStore } from "../../stores/sshHostStore";
 import { usePanelProbeStore } from "../../modules/server/ssh/stores/panelProbeStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
 import { ContextMenu, type ContextMenuItem } from "../ui/menu";
@@ -308,17 +307,6 @@ function HostPanelIcons({ sshId }: { sshId: string }) {
           }
         />
       ))}
-    </span>
-  );
-}
-
-function HostMonitoringBadge({ resourceId }: { resourceId: string }) {
-  const { t } = useI18n();
-  const enabled = useSshHostStore((s) => s.isMonitoring(resourceId));
-  if (!enabled) return null;
-  return (
-    <span className="host-monitoring-badge" title={t("ssh.monitoring.active")}>
-      <span className="host-monitoring-dot" aria-hidden />
     </span>
   );
 }
@@ -1024,9 +1012,6 @@ export function HostListPanel({
               <span className="host-row-1">
                 <span className="host-name">{host.name}</span>
                 <span className="host-row-2">{host.subtitle}</span>
-                <span className="host-row-1-meta">
-                  <HostMonitoringBadge resourceId={host.id} />
-                </span>
               </span>
             </span>
           }

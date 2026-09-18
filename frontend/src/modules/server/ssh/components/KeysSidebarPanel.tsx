@@ -22,6 +22,7 @@ import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
 import { buildSshKeyUsageCounts } from "../utils/sshKeyUsage";
 import { usePersistedTreeExpanded } from "../../../../components/ui/module-sidebar/usePersistedTreeExpanded";
 import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";
+import { SidebarRefreshIcon } from "../../../../components/ui/module-sidebar";
 import { formatOmniError } from "../utils/formatOmniError";
 
 function sshKeyTypeTreeKey(keyType: string) {
@@ -230,10 +231,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
           disabled={loading}
           onClick={() => void loadKeys()}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-            <path d="M23 4v6h-6M1 20v-6h6" />
-            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-          </svg>
+          <SidebarRefreshIcon />
         </SshSidebarHeaderIconBtn>
         <SshSidebarHeaderIconBtn
           title={t("ssh.keys.generate")}
@@ -635,7 +633,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                                     {hostUsageCount > 0 ? (
                                       <span className="host-row-1-meta">
                                         <span
-                                          className="badge badge-muted ssh-key-usage-tag"
+                                          className="sidebar-tag-chip badge badge-muted ssh-key-usage-tag"
                                           title={t("ssh.keys.hostUsage", { count: hostUsageCount })}
                                         >
                                           {t("ssh.keys.hostUsageTag", { count: hostUsageCount })}

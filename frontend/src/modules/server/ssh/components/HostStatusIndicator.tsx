@@ -1,5 +1,6 @@
 import { useI18n } from "../../../../i18n";
 import { StatusDot } from "../../../../components/ui/primitives/StatusDot";
+import { useSshHostStore } from "../../../../stores/sshHostStore";
 import {
   hostStatusDotStatus,
   useHostConnectionIndicatorStatus,
@@ -30,7 +31,11 @@ export function HostStatusIndicator({ resourceId, showLabel = false, className }
       : reachability === "offline"
         ? t("ssh.status.unreachable")
         : null;
-  const title = reachabilityHint ? `${label} · ${reachabilityHint}` : label;
+  // 性能监控开关并入状态点悬停提示，行内只保留一个点。
+  const monitoring = useSshHostStore((s) => s.isMonitoring(resourceId ?? ""));
+  const title = [label, reachabilityHint, monitoring ? t("ssh.monitoring.active") : null]
+    .filter(Boolean)
+    .join(" · ");
 
   const dot = (
     <StatusDot

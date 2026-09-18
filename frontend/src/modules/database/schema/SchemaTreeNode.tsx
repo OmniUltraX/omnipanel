@@ -148,7 +148,7 @@ export const TreeNode = memo(
         iconUrl ? (
           <img src={iconUrl} alt="" className="tree-engine-logo" draggable={false} />
         ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
             <rect x="2" y="2" width="20" height="8" rx="2" />
             <rect x="2" y="14" width="20" height="8" rx="2" />
             <circle cx="6" cy="6" r="1" fill="currentColor" />
@@ -157,31 +157,31 @@ export const TreeNode = memo(
         )
       ) : null}
       {type === "database" && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <ellipse cx="12" cy="5" rx="9" ry="3" />
           <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
         </svg>
       )}
       {type === "table" && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <rect x="3" y="3" width="18" height="18" rx="2" />
           <path d="M3 9h18M3 15h18M9 3v18" />
         </svg>
       )}
       {type === "view" && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" />
           <circle cx="12" cy="12" r="3" />
         </svg>
       )}
       {type === "user" && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <circle cx="12" cy="8" r="3" />
           <path d="M5 20a7 7 0 0114 0" />
         </svg>
       )}
       {type === "routine" && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <path d="M10 3h4" />
           <path d="M12 3v6" />
           <path d="M6 14h12" />
@@ -189,25 +189,25 @@ export const TreeNode = memo(
         </svg>
       )}
       {type === "sql-query" && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
           <path d="M14 2v6h6" />
           <path d="M8 13h8M8 17h5" />
         </svg>
       )}
       {(type === "folder" || type === "connection-folder") && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
         </svg>
       )}
       {type === "column" && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <path d="M12 2v20" />
           <path d="M2 12h20" />
         </svg>
       )}
       {type === "index" && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
           <path d="M4 6h16M4 10h10M4 14h14M4 18h8" />
         </svg>
       )}
@@ -337,7 +337,7 @@ export const TreeNode = memo(
             <span className="server-tree-server-label">
               <span className="server-tree-server-name">{label}</span>
               <span
-                className="badge badge-muted server-item__type-tag server-item__type-tag--onepanel"
+                className="sidebar-tag-chip badge badge-muted server-item__type-tag server-item__type-tag--onepanel"
                 title={`${t("database.connectionInfo.deployment.server")}: ${deploymentServerTag}`}
               >
                 {deploymentServerTag}
