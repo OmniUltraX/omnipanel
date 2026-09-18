@@ -81,6 +81,19 @@ export function usePersistedTreeExpanded(
     [storageKey, scope],
   );
 
+  /** 直接赋值（默认展开语义的树做 toggle / 单组收展用）。 */
+  const set = useCallback(
+    (key: string, value: boolean) => {
+      setExpanded((prev) => {
+        if ((prev[key] ?? false) === value) return prev;
+        const next = { ...prev, [key]: value };
+        writeMap(storageKey, scope, next);
+        return next;
+      });
+    },
+    [storageKey, scope],
+  );
+
   const setAllExpanded = useCallback(
     (keys: Iterable<string>, nextExpanded: boolean) => {
       setExpanded((prev) => {
@@ -102,5 +115,5 @@ export function usePersistedTreeExpanded(
     });
   }, [storageKey, scope]);
 
-  return { isExpanded, toggle, ensureExpanded, setAllExpanded, collapseAll };
+  return { isExpanded, toggle, ensureExpanded, set, setAllExpanded, collapseAll };
 }
