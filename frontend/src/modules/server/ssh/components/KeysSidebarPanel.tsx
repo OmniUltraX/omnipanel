@@ -20,7 +20,7 @@ import { showToast } from "../../../../stores/toastStore";
 import { useConnectionStore } from "../../../../stores/connectionStore";
 import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
 import { buildSshKeyUsageCounts } from "../utils/sshKeyUsage";
-import { usePersistedSshTreeExpanded } from "../usePersistedSshTreeExpanded";
+import { usePersistedTreeExpanded } from "../../../../components/ui/module-sidebar/usePersistedTreeExpanded";
 import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";
 import { formatOmniError } from "../utils/formatOmniError";
 
@@ -159,7 +159,11 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
   const activeKeyName = useSshWorkspaceNavStore((s) => s.activeKeyName);
   const selectKey = useSshWorkspaceNavStore((s) => s.selectKey);
   const connections = useConnectionStore((s) => s.connections);
-  const { isExpanded, toggle, ensureExpanded } = usePersistedSshTreeExpanded();
+  // storageKey 沿用旧 key，用户现有展开态不断。
+  const { isExpanded, toggle, ensureExpanded } = usePersistedTreeExpanded(
+    "omnipanel-ssh-tree-expanded.v1",
+    "team",
+  );
 
   const keyUsageCounts = useMemo(
     () => buildSshKeyUsageCounts(keys, connections),

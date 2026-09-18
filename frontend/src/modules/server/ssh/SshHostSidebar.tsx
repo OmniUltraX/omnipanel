@@ -13,6 +13,7 @@ import { useSshSelectionStore } from "./stores/sshSelectionStore";
 import { useSshWorkspaceNavStore } from "./stores/sshWorkspaceNavStore";
 import { TunnelsSidebarPanel } from "./components/TunnelsSidebarPanel";
 import { KeysSidebarPanel } from "./components/KeysSidebarPanel";
+import { SidebarCountBadge } from "../../../components/ui/module-sidebar";
 
 const SECTION_STORAGE_KEY = "omnipanel-ssh-host-sidebar-sections";
 /** 与数据库「查询/同步」、服务端「云账户」一致：次要段 autoSize 高度持久化 */
@@ -105,7 +106,7 @@ export function SshHostSidebar({
         actions={
           <>
             {hostHeaderActions}
-            <span className="badge badge-muted">{hostCount}</span>
+            <SidebarCountBadge count={hostCount} />
           </>
         }
       >
@@ -135,7 +136,7 @@ export function SshHostSidebar({
         actions={
           <>
             {tunnelHeaderActions}
-            <span className="badge badge-muted">{tunnelCount}</span>
+            <SidebarCountBadge count={tunnelCount} />
           </>
         }
       >
@@ -160,7 +161,7 @@ export function SshHostSidebar({
         actions={
           <>
             {keyHeaderActions}
-            <span className="badge badge-muted">{keyCount}</span>
+            <SidebarCountBadge count={keyCount} />
           </>
         }
       >

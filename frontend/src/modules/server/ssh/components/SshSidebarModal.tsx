@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Button } from "../../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 
 type Props = {
   open: boolean;
@@ -44,9 +44,8 @@ type IconBtnProps = {
 
 export function SshSidebarHeaderIconBtn({ title, active, disabled, onClick, children }: IconBtnProps) {
   return (
-    <Button
-      variant="icon"
-      size="icon-xs"
+    <WorkbenchActionButton
+      icon
       title={title}
       aria-label={title}
       className={active ? "ssh-sidebar-header-btn--active" : undefined}
@@ -57,6 +56,6 @@ export function SshSidebarHeaderIconBtn({ title, active, disabled, onClick, chil
       }}
     >
       {children}
-    </Button>
+    </WorkbenchActionButton>
   );
 }
