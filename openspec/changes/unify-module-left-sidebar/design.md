@@ -53,7 +53,7 @@
 
 ### 决策 6：树通用功能收成 `ModuleSidebarTreeToolbar` + `usePersistedTreeExpanded` + 右键模板
 
-- Toolbar 三按钮固定顺序：新建（`+`，无新建能力的树不渲染）→ 刷新（`DockerTreeRefreshButton` 语义：12px、busy 旋转、stopPropagation）→ 一键展开 → 一键折叠（折叠用数据库 `SchemaBrowser.tsx:192` 双上箭头 path，展开用其垂直翻转；`disabled` 语义照抄数据库 `expandedSize===0`）。无对应能力的树，按钮置灰而非缺失，保证段头按钮位对齐。
+- Toolbar 按钮固定顺序：新建（`+`，无新建能力的树不渲染）→ 刷新（`DockerTreeRefreshButton` 语义：12px、busy 旋转、stopPropagation，无能力置灰占位）→ 展开/折叠（二选一：有可收节点只显示折叠，全收起或空树只显示展开，两者永不同时出现）。折叠 path 复用数据库 `SchemaBrowser.tsx:192` 双上箭头，展开为其垂直翻转。
 - 持久化：SSH（teamLocalStorage）、Docker/终端（localStorage）、数据库（zustand+快照）、知识库（store 数组）五处实现逻辑同为 `isExpanded/toggle/ensureExpanded`，收成 `usePersistedTreeExpanded(storageKey, { scope })` 一个；各模块只传 key，默认折叠态由调用方传入（终端连接组默认展开，其余默认折叠的现状不变）。
 - 右键：`buildSidebarTreeContextMenuItems` 从"重命名+删除"扩展为段落模板（打开预览/常驻 → 新建类 → 标签 → 重命名/复制 → 删除 danger），各模块只填 extraItems；终端"移到工作区"子菜单、知识库"向量化/分享"段作为 extraItems 原样保留。
 - 多选：所有 `SidebarTreeSelectionProvider` 强制传 `orderedKeys`（虚拟树传扁平 key 数组，普通树传 `collectAll*SidebarTreeKeys` 现有函数返回值）；批量删除统一走 `resolveSidebarTreeDeleteTargets` + 一次确认。终端/知识库/SSH 现缺 `orderedKeys` 导致 Shift 范围选失效，本次补齐。

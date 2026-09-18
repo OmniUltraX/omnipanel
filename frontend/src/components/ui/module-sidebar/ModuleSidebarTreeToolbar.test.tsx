@@ -3,28 +3,41 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { ModuleSidebarTreeToolbar } from "./ModuleSidebarTreeToolbar";
 
 describe("ModuleSidebarTreeToolbar", () => {
-  it("固定顺序渲染刷新→展开→折叠", () => {
-    const { container } = render(
+  it("固定顺序渲染刷新→展开/折叠", () => {
+    const { container, rerender } = render(
       <ModuleSidebarTreeToolbar
         onRefresh={vi.fn()}
         onExpandAll={vi.fn()}
         onCollapseAll={vi.fn()}
       />,
     );
-    const labels = [...container.querySelectorAll("button")].map((b) =>
-      b.getAttribute("aria-label"),
+    // 有可收节点 → 只显示折叠
+    expect([...container.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([
+      "刷新",
+      "全部折叠",
+    ]);
+    // 全收起 → 只显示展开
+    rerender(
+      <ModuleSidebarTreeToolbar
+        onRefresh={vi.fn()}
+        onExpandAll={vi.fn()}
+        onCollapseAll={vi.fn()}
+        collapseDisabled
+      />,
     );
-    expect(labels).toEqual(["刷新", "全部展开", "全部折叠"]);
+    expect([...container.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual([
+      "刷新",
+      "全部展开",
+    ]);
   });
 
-  it("无 handler 的按钮置灰而非缺失（段头按钮位对齐）", () => {
-    render(<ModuleSidebarTreeToolbar onExpandAll={vi.fn()} />);
+  it("无 handler 的刷新置灰而非缺失（段头按钮位对齐）", () => {
+    render(<ModuleSidebarTreeToolbar onExpandAll={vi.fn()} collapseDisabled />);
     const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(3);
-    // 刷新无 handler → 禁用
+    expect(buttons).toHaveLength(2);
+    // 刷新无 handler → 禁用占位
     expect(buttons[0]).toBeDisabled();
     expect(buttons[1]).not.toBeDisabled();
-    expect(buttons[2]).toBeDisabled();
   });
 
   it("点击阻止冒泡并触发回调", () => {

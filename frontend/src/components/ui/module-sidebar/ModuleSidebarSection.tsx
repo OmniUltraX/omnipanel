@@ -24,7 +24,8 @@ export type ModuleSidebarSectionProps = VerticalSplitSidebarSectionConfig & {
 /**
  * L1 分段标准壳：`VerticalSplitSidebarSection` 的薄封装，只收敛 actions 槽位。
  *
- * 槽位顺序固定：自定义 actions → toolbar → 计数徽标。
+ * 槽位顺序固定：计数徽标（紧跟标题）→ 自定义 actions → toolbar。
+ * 计数放标题后、不贴右边缘；按钮全部靠右。
  * 单分组原则：哪怕模块只有一个分组，也必须包一层本组件，不允许裸树直挂。
  */
 export function ModuleSidebarSection({
@@ -41,9 +42,9 @@ export function ModuleSidebarSection({
       actions={
         actions || toolbar || count != null ? (
           <>
+            {count != null ? <SidebarCountBadge count={count} title={countTitle} /> : null}
             {actions}
             {toolbar}
-            {count != null ? <SidebarCountBadge count={count} title={countTitle} /> : null}
           </>
         ) : undefined
       }
