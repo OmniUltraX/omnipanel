@@ -205,6 +205,22 @@ describe("tablePreviewFilter quick filter", () => {
     expect(sql).toContain("(");
   });
 
+  it("flattens same-combinator column draft on merge", () => {
+    const base = {
+      combinator: "and" as const,
+      rules: [{ field: "id", operator: "=", value: 1 }],
+    };
+    const draft = {
+      combinator: "and" as const,
+      rules: [
+        { field: "name", operator: "=", value: "a" },
+        { field: "name", operator: "=", value: "b" },
+      ],
+    };
+    const merged = mergeColumnFilter(base, "name", draft);
+    expect(merged?.rules).toHaveLength(3);
+  });
+
   it("keeps muted rows out of SQL but preserves them in the group", () => {
     const group = {
       combinator: "and" as const,
