@@ -210,7 +210,7 @@ function CloudCapabilityBranch({
         treeKey={capKey}
         label={label}
         afterLabel={
-          countBadge != null ? <span className="badge badge-muted">{countBadge}</span> : null
+          countBadge != null ? <span className="sidebar-tag-chip badge badge-muted">{countBadge}</span> : null
         }
         icon={<ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />}
         className={serverTreeNodeClassName(cloudBrandKind(account.pluginId))}
@@ -260,7 +260,7 @@ function CloudCapabilityBranch({
                   label={row.name || row.id}
                   afterLabel={
                     !global && row.regionId ? (
-                      <span className="badge badge-muted">{cloudRegionLabel(row.regionId)}</span>
+                      <span className="sidebar-tag-chip badge badge-muted">{cloudRegionLabel(row.regionId)}</span>
                     ) : null
                   }
                   icon={<ServerTreeIcon kind="server" />}
