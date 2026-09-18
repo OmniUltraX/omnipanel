@@ -12,7 +12,6 @@ import {
 import { ModuleSidebarSection, SidebarCountBadge } from "@/components/ui/module-sidebar";
 import {
   ModuleSidebarTreeToolbar,
-  SidebarRefreshIcon,
   usePersistedTreeExpanded,
 } from "@/components/ui/module-sidebar";
 import {
@@ -422,15 +421,6 @@ export function ServerPanelTreeSidebar({
           <path d="M4 19h16" />
         </svg>
       </WorkbenchActionButton>
-      <WorkbenchActionButton
-        icon
-        title={t("server.sidebar.refreshPanels")}
-        aria-label={t("server.sidebar.refreshPanels")}
-        disabled={connectionsLoading || cacheRefreshing || syncingFromSsh}
-        onClick={handleRefreshPanels}
-      >
-        <SidebarRefreshIcon />
-      </WorkbenchActionButton>
     </div>
   );
 
@@ -547,8 +537,11 @@ export function ServerPanelTreeSidebar({
           actions={toolbarActions}
           toolbar={
             <ModuleSidebarTreeToolbar
+              onRefresh={() => void handleRefreshPanels()}
               onExpandAll={() => setAllExpanded(serverKeys, true)}
               onCollapseAll={() => setAllExpanded(serverKeys, false)}
+              refreshing={cacheRefreshing}
+              refreshDisabled={connectionsLoading || cacheRefreshing || syncingFromSsh}
               expandDisabled={expandAllServersDisabled}
               collapseDisabled={collapseAllServersDisabled}
             />

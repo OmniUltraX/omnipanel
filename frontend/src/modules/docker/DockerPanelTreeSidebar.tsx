@@ -18,7 +18,6 @@ import {
   ModuleSidebarTreeToolbar,
   SidebarCountBadge,
   SidebarIcon,
-  SidebarRefreshIcon,
 } from "@/components/ui/module-sidebar";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
@@ -688,6 +687,7 @@ export function DockerPanelTreeSidebar({
     });
   };
 
+  // 刷新收进段头工具条（避免与占位刷新重复）：此处只留新建类按钮。
   const addConnectionButton = (
     <div className="schema-toolbar schema-toolbar--inline">
       <WorkbenchActionButton
@@ -713,18 +713,6 @@ export function DockerPanelTreeSidebar({
             <path d="M8 11l4 4 4-4" />
             <path d="M4 19h16" />
           </svg>
-        </WorkbenchActionButton>
-      )}
-      {onRefreshAll && (
-        <WorkbenchActionButton
-          icon
-          className={refreshingAll ? "tree-action-btn--busy" : undefined}
-          title={t("docker.sidebar.refreshAll")}
-          aria-label={t("docker.sidebar.refreshAll")}
-          disabled={refreshingAll || connections.length === 0}
-          onClick={onRefreshAll}
-        >
-          <SidebarRefreshIcon />
         </WorkbenchActionButton>
       )}
     </div>
@@ -778,8 +766,11 @@ export function DockerPanelTreeSidebar({
           actions={addConnectionButton}
           toolbar={
             <ModuleSidebarTreeToolbar
+              onRefresh={onRefreshAll}
               onExpandAll={() => setAllExpanded(folderTreeKeys, true)}
               onCollapseAll={() => setAllExpanded(folderTreeKeys, false)}
+              refreshing={refreshingAll}
+              refreshDisabled={refreshingAll || connections.length === 0}
               expandDisabled={expandFoldersDisabled}
               collapseDisabled={collapseFoldersDisabled}
             />
@@ -797,6 +788,15 @@ export function DockerPanelTreeSidebar({
         <span>{t("docker.sidebar.title")}</span>
         <SidebarCountBadge count={connections.length} />
         {addConnectionButton}
+        <ModuleSidebarTreeToolbar
+          onRefresh={onRefreshAll}
+          onExpandAll={() => setAllExpanded(folderTreeKeys, true)}
+          onCollapseAll={() => setAllExpanded(folderTreeKeys, false)}
+          refreshing={refreshingAll}
+          refreshDisabled={refreshingAll || connections.length === 0}
+          expandDisabled={expandFoldersDisabled}
+          collapseDisabled={collapseFoldersDisabled}
+        />
       </div>
       {panelBody}
     </div>
