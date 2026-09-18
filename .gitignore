@@ -45,6 +45,10 @@ Thumbs.db
 # Warp terminal / local agent workspace
 warp/
 
+# Trae / WorkBuddy 本地产物（HTML 分享包、会话记忆）
+.trae-html-share-packages/
+.workbuddy/
+
 # Environment
 .env
 .env.local
