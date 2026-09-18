@@ -123,16 +123,26 @@
 
 .workbench-panel-header-action-btn:focus-visible,
 .db-tables-panel-header-action-btn:focus-visible {
-    box-shadow: none;
-    outline: none;
-    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    box-shadow: none !important;
+    outline: none !important;
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border)) !important;
+    /* 焦点态也不许铺实心蓝：只允许描边变化。 */
+    background: transparent !important;
 }
 
 .workbench-panel-header-action-btn:not(:disabled):hover,
 .db-tables-panel-header-action-btn:not(:disabled):hover {
-    color: var(--accent);
-    background: var(--surface);
-    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    color: var(--accent) !important;
+    background: var(--surface) !important;
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border)) !important;
+}
+
+/* 按下态与悬停同款：任何情况下都不出现蓝色实心填充。 */
+.workbench-panel-header-action-btn:not(:disabled):active,
+.db-tables-panel-header-action-btn:not(:disabled):active {
+    color: var(--accent) !important;
+    background: var(--surface) !important;
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border)) !important;
 }
 
 .workbench-panel-header-action-btn--danger:not(:disabled):hover,

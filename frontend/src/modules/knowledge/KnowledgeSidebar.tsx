@@ -63,6 +63,7 @@ import {
   useSidebarTreeSelection,
 } from "@/components/ui/sidebar-tree";
 import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
+import { SidebarTreeEmpty } from "@/components/ui/sidebar-tree";
 import {
   ModuleSidebarSection,
   ModuleSidebarTreeToolbar,
@@ -1059,11 +1060,11 @@ export function KnowledgeSidebar() {
         }}
       >
         {isLoading && entries.length === 0 ? (
-          <div className="knowledge-tree-empty">{t("common.loading")}</div>
+          <SidebarTreeEmpty>{t("common.loading")}</SidebarTreeEmpty>
         ) : visibleTree.length === 0 ? (
-          <div className="knowledge-tree-empty">
+          <SidebarTreeEmpty>
             {searchQuery.trim() ? t("knowledge.noResults") : t("knowledge.noEntries")}
-          </div>
+          </SidebarTreeEmpty>
         ) : virtualized ? (
           <div
             style={{ height: virtualizer.getTotalSize(), position: "relative" }}

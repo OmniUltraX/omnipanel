@@ -13,6 +13,7 @@ import {
   useTreeClickDelay,
   type TreeRowMouseEvent,
 } from "../../components/ui/sidebar-tree/useTreeClickDelay";
+import { SidebarTreeEmpty } from "../../components/ui/sidebar-tree";
 import "../../components/ui/sidebar-tree/sidebar-tree.css";
 import {
   usePersistedVerticalSplitSections,
@@ -465,7 +466,7 @@ export function FilesSidebar({
         actions={connectionActions}
       >
         {sortedConnections.length === 0 ? (
-          <p className="fm-conn-empty">{t("files.sidebar.emptySection")}</p>
+          <SidebarTreeEmpty>{t("files.sidebar.emptySection")}</SidebarTreeEmpty>
         ) : (
           <div className="fm-connections">
             {sortedConnections.map((conn) => (
@@ -544,7 +545,7 @@ export function FilesSidebar({
       >
         <div ref={favMeasureRef} className="fm-section-measure">
           {normalFavorites.length === 0 ? (
-            <p className="fm-conn-empty">{t("files.sidebar.normalFavoritesEmpty")}</p>
+            <SidebarTreeEmpty>{t("files.sidebar.normalFavoritesEmpty")}</SidebarTreeEmpty>
           ) : (
             <div className="fm-quick-section">
               {normalFavorites.map((fav) => {
@@ -587,7 +588,7 @@ export function FilesSidebar({
       >
         <div ref={globalFavMeasureRef} className="fm-section-measure">
           {globalFavorites.length === 0 ? (
-            <p className="fm-conn-empty">{t("files.sidebar.globalFavoritesEmpty")}</p>
+            <SidebarTreeEmpty>{t("files.sidebar.globalFavoritesEmpty")}</SidebarTreeEmpty>
           ) : (
             <div className="fm-quick-section">
               {globalFavorites.map((fav) => {

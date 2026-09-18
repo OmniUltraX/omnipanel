@@ -23782,7 +23782,8 @@ button.omni-btn-tool[aria-pressed="true"] {
 
 .fm-conn-item--selected,
 .fm-favorite-item--selected {
-    background: var(--accent-soft);
+    /* 与 sidebar-tree --selected 同色：多选 ≠ 打开，两者必须可区分。 */
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface));
     color: var(--fg);
 }
 

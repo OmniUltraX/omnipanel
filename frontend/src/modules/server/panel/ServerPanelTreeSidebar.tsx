@@ -432,7 +432,7 @@ export function ServerPanelTreeSidebar({
       >
       <SidebarTreeRoot className="server-sidebar-body">
         {sortedServers.length === 0 ? (
-          <div className="empty-state compact">{t("common.noResources")}</div>
+            <SidebarTreeEmpty>{t("common.noResources")}</SidebarTreeEmpty>
         ) : (
             sortedServers.map((server) => {
             const serverKey = makeServerTreeKey(server.id);

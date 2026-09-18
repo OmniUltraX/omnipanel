@@ -22,7 +22,7 @@ import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
 import { buildSshKeyUsageCounts } from "../utils/sshKeyUsage";
 import { usePersistedTreeExpanded } from "../../../../components/ui/module-sidebar/usePersistedTreeExpanded";
 import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";
-import { SidebarRefreshIcon } from "../../../../components/ui/module-sidebar";
+import { SidebarIcon, SidebarRefreshIcon } from "../../../../components/ui/module-sidebar";
 import { formatOmniError } from "../utils/formatOmniError";
 
 function sshKeyTypeTreeKey(keyType: string) {
@@ -61,14 +61,6 @@ function groupKeysByType(keys: SshKeyInfo[]): [string, SshKeyInfo[]][] {
     bucket.sort((a, b) => a.name.localeCompare(b.name));
   }
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-}
-
-function FolderIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
-      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-    </svg>
-  );
 }
 
 function KeyIcon() {
@@ -580,7 +572,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                     module="ssh"
                     nodeType="key-type"
                     treeKey={typeTreeKey}
-                    icon={<FolderIcon />}
+                    icon={<SidebarIcon kind="folder" />}
                     label={`${keyTypeLabel(keyType, t)} (${typeKeys.length})`}
                     hasChildren
                     expanded={typeExpanded}

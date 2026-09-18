@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
-  VerticalSplitSidebarSection,
 } from "../../components/ui/sidebar/VerticalSplitSidebar";
+import { ModuleSidebarSection } from "../../components/ui/module-sidebar";
+import { SidebarTreeEmpty } from "../../components/ui/sidebar-tree";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { Button } from "../../components/ui/primitives/Button";
-import { SidebarCountBadge } from "../../components/ui/module-sidebar";
 import {
   IconCheckCircle,
   IconClipboard,
@@ -138,10 +139,6 @@ function ConnRow({
       {trailing}
     </div>
   );
-}
-
-function CountBadge({ count }: { count: number }) {
-  return <SidebarCountBadge count={count} />;
 }
 
 /** 侧栏分区内的轻量批量操作条（文案按钮，避免挤在 24px icon actions 里） */
@@ -344,11 +341,11 @@ export function TaskCenterSidebar({
   if (tab === "activity") {
     return (
       <VerticalSplitSidebar className="task-center-sidebar">
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           title={t("taskCenter.filter.passive")}
           expanded={activitySections.sections.passive}
           onToggle={() => activitySections.toggleSection("passive")}
-          actions={<CountBadge count={passiveJobs.length} />}
+          count={passiveJobs.length}
         >
           {cancellablePassiveCount > 0 ? (
             <BatchBar>
@@ -363,7 +360,7 @@ export function TaskCenterSidebar({
             </BatchBar>
           ) : null}
           {passiveJobs.length === 0 ? (
-            <p className="fm-conn-empty">{t("taskCenter.activity.emptyPassive")}</p>
+            <SidebarTreeEmpty>{t("taskCenter.activity.emptyPassive")}</SidebarTreeEmpty>
           ) : (
             <div className="fm-connections">
               {passiveJobs.map((item) => (
@@ -382,25 +379,25 @@ export function TaskCenterSidebar({
                     )
                   }
                   trailing={
-                    <span className="badge badge-muted">{tStatus(t, item.status)}</span>
+                    <span className="sidebar-tag-chip badge badge-muted">{tStatus(t, item.status)}</span>
                   }
                   onClick={() => onSelect({ tab: "activity", kind: "job", id: item.id })}
                 />
               ))}
             </div>
           )}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
 
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           title={t("taskCenter.filter.active")}
           expanded={activitySections.sections.active}
           onToggle={() => activitySections.toggleSection("active")}
-          actions={<CountBadge count={activeJobs.length} />}
+          count={activeJobs.length}
           autoSize
           autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "activity-active" }}
         >
           {activeJobs.length === 0 ? (
-            <p className="fm-conn-empty">{t("taskCenter.activity.emptyActive")}</p>
+            <SidebarTreeEmpty>{t("taskCenter.activity.emptyActive")}</SidebarTreeEmpty>
           ) : (
             <div className="fm-connections">
               {activeJobs.map((item) => (
@@ -411,25 +408,25 @@ export function TaskCenterSidebar({
                   title={`${item.title} · ${item.module}`}
                   icon={<IconRobot size={12} />}
                   trailing={
-                    <span className="badge badge-muted">{tStatus(t, item.status)}</span>
+                    <span className="sidebar-tag-chip badge badge-muted">{tStatus(t, item.status)}</span>
                   }
                   onClick={() => onSelect({ tab: "activity", kind: "job", id: item.id })}
                 />
               ))}
             </div>
           )}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
 
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           title={t("taskCenter.tabs.loopPlans")}
           expanded={activitySections.sections.plans}
           onToggle={() => activitySections.toggleSection("plans")}
-          actions={<CountBadge count={specs.length} />}
+          count={specs.length}
           autoSize
           autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "activity-plans" }}
         >
           {specs.length === 0 ? (
-            <p className="fm-conn-empty">{t("taskCenter.activity.empty")}</p>
+            <SidebarTreeEmpty>{t("taskCenter.activity.empty")}</SidebarTreeEmpty>
           ) : (
             <div className="fm-connections">
               {specs.map((s) => (
@@ -440,7 +437,7 @@ export function TaskCenterSidebar({
                   title={s.description || s.name}
                   icon={<IconRefresh size={12} />}
                   trailing={
-                    <span className="badge badge-muted">
+                    <span className="sidebar-tag-chip badge badge-muted">
                       {s.enabled ? t("taskCenter.loops.on") : t("taskCenter.loops.off")}
                     </span>
                   }
@@ -449,7 +446,7 @@ export function TaskCenterSidebar({
               ))}
             </div>
           )}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
       </VerticalSplitSidebar>
     );
   }
@@ -457,14 +454,14 @@ export function TaskCenterSidebar({
   if (tab === "inbox") {
     return (
       <VerticalSplitSidebar className="task-center-sidebar">
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           title={t("taskCenter.inbox.mine")}
           expanded={inboxSections.sections.mine}
           onToggle={() => inboxSections.toggleSection("mine")}
           actions={
             <div className="schema-toolbar schema-toolbar--inline">
-              <Button
-                variant="icon"
+              <WorkbenchActionButton
+                icon
                 title={t("taskCenter.inbox.newList")}
                 aria-label={t("taskCenter.inbox.newList")}
                 onClick={(e) => {
@@ -483,8 +480,8 @@ export function TaskCenterSidebar({
                   })();
                 }}
               >
-                <IconPlus size={14} />
-              </Button>
+                <IconPlus size={12} />
+              </WorkbenchActionButton>
             </div>
           }
         >
@@ -558,9 +555,9 @@ export function TaskCenterSidebar({
                 );
               })}
           </div>
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
 
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           title={t("taskCenter.inbox.suggestions")}
           expanded={inboxSections.sections.suggestions}
           onToggle={() => inboxSections.toggleSection("suggestions")}
@@ -569,8 +566,8 @@ export function TaskCenterSidebar({
           actions={
             inbox.length > 0 ? (
               <div className="schema-toolbar schema-toolbar--inline">
-                <Button
-                  variant="icon"
+                <WorkbenchActionButton
+                  icon
                   title={t("taskCenter.inbox.doneAll")}
                   aria-label={t("taskCenter.inbox.doneAll")}
                   onClick={(e) => {
@@ -578,10 +575,10 @@ export function TaskCenterSidebar({
                     void handleDoneAllInbox();
                   }}
                 >
-                  <IconCheckCircle size={14} />
-                </Button>
-                <Button
-                  variant="icon"
+                  <IconCheckCircle size={12} />
+                </WorkbenchActionButton>
+                <WorkbenchActionButton
+                  icon
                   title={t("taskCenter.inbox.dismissAll")}
                   aria-label={t("taskCenter.inbox.dismissAll")}
                   onClick={(e) => {
@@ -589,14 +586,14 @@ export function TaskCenterSidebar({
                     void handleDismissAllInbox();
                   }}
                 >
-                  <IconClose size={14} />
-                </Button>
+                  <IconClose size={12} />
+                </WorkbenchActionButton>
               </div>
             ) : undefined
           }
         >
           {inbox.length === 0 ? (
-            <p className="fm-conn-empty">{t("taskCenter.inbox.empty")}</p>
+            <SidebarTreeEmpty>{t("taskCenter.inbox.empty")}</SidebarTreeEmpty>
           ) : (
             <div className="fm-connections">
               {inbox.map((item) => {
@@ -616,7 +613,7 @@ export function TaskCenterSidebar({
                     name={item.title}
                     title={item.title}
                     icon={<IconInbox size={12} />}
-                    trailing={<span className="badge badge-muted">{riskLabel}</span>}
+                    trailing={<span className="sidebar-tag-chip badge badge-muted">{riskLabel}</span>}
                     onClick={() => {
                       onInboxBucketChange("suggestions");
                       onSelect({ tab: "inbox", bucket: "suggestions", id: item.id });
@@ -626,7 +623,7 @@ export function TaskCenterSidebar({
               })}
             </div>
           )}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
       </VerticalSplitSidebar>
     );
   }
@@ -642,7 +639,7 @@ export function TaskCenterSidebar({
 
   return (
     <VerticalSplitSidebar className="task-center-sidebar">
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("taskCenter.history.buckets")}
         expanded={historySections.sections.buckets}
         onToggle={() => historySections.toggleSection("buckets")}
@@ -662,14 +659,14 @@ export function TaskCenterSidebar({
             />
           ))}
         </div>
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
       {showJobsList ? (
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           title={t("taskCenter.history.recentJobs")}
           expanded={historySections.sections.jobs}
           onToggle={() => historySections.toggleSection("jobs")}
-          actions={<CountBadge count={filteredHistoryJobs.length} />}
+          count={filteredHistoryJobs.length}
           autoSize
           autoSizePersist={{ storageKey: SIZE_STORAGE_KEY, id: "history-jobs" }}
         >
@@ -709,11 +706,11 @@ export function TaskCenterSidebar({
             </div>
           ) : null}
           {filteredHistoryJobs.length === 0 ? (
-            <p className="fm-conn-empty">
+            <SidebarTreeEmpty>
               {historyJobs.length === 0
                 ? t("taskCenter.history.empty")
                 : t("taskCenter.history.filterNoMatch")}
-            </p>
+            </SidebarTreeEmpty>
           ) : (
             <div className="fm-connections">
               {filteredHistoryJobs.map((item) => {
@@ -745,7 +742,7 @@ export function TaskCenterSidebar({
                             {riskLabel}
                           </span>
                         ) : (
-                          <span className="badge badge-muted">{tStatus(t, item.status)}</span>
+                          <span className="sidebar-tag-chip badge badge-muted">{tStatus(t, item.status)}</span>
                         )}
                       </>
                     }
@@ -757,7 +754,7 @@ export function TaskCenterSidebar({
               })}
             </div>
           )}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
       ) : null}
     </VerticalSplitSidebar>
   );

@@ -992,7 +992,7 @@ export function HostListPanel({
           nodeType="host"
           treeKey={treeKey}
           icon={<HostTreeIcon />}
-          className={`${dragOverKey === dragKey ? "ssh-tree-drop-target" : ""}${selected ? " selected" : ""}`}
+          className={dragOverKey === dragKey ? "ssh-tree-drop-target" : ""}
           prefix={
             selectionMode ? (
               <input

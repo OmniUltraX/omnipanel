@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
-import { Button } from "@/components/ui/Button";
+import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
 import { IconPlus } from "@/components/ui/Icons";
 import { MultiSelect } from "@/components/ui/form/MultiSelect";
 import { StatusDot } from "@/components/ui/primitives/StatusDot";
@@ -501,15 +501,14 @@ export function CloudTreeSidebar({
       onToggle={section?.onToggle ?? (() => {})}
       actions={
         onCreateAccount ? (
-          <Button
-            type="button"
-            variant="icon"
+          <WorkbenchActionButton
+            icon
             title={t("server.cloud.sidebar.addAccount")}
             aria-label={t("server.cloud.sidebar.addAccount")}
             onClick={onCreateAccount}
           >
-            <IconPlus size={14} />
-          </Button>
+            <IconPlus size={12} />
+          </WorkbenchActionButton>
         ) : null
       }
     >

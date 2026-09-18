@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { useI18n } from "../../i18n";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { showToast } from "../../stores/toastStore";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { useProtocolHttpOptional } from "./ProtocolHttpContext";
@@ -52,9 +53,8 @@ export function ProtocolSidebarNewButton({
 
   return (
     <div className="schema-toolbar schema-toolbar--inline">
-      <button
-        type="button"
-        className="proto-sidebar-new"
+      <WorkbenchActionButton
+        icon
         title={t("protocol.sidebar.import")}
         aria-label={t("protocol.sidebar.import")}
         disabled={!http || importing}
@@ -63,15 +63,14 @@ export function ProtocolSidebarNewButton({
           void handleImport();
         }}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
           <path d="M12 3v12" />
           <path d="m7 10 5 5 5-5" />
           <path d="M5 21h14" />
         </svg>
-      </button>
-      <button
-        type="button"
-        className="proto-sidebar-new"
+      </WorkbenchActionButton>
+      <WorkbenchActionButton
+        icon
         title={t("protocol.sidebar.newRequest")}
         aria-label={t("protocol.sidebar.newRequest")}
         onClick={(event) => {
@@ -79,10 +78,10 @@ export function ProtocolSidebarNewButton({
           requestNewRequestPicker(null);
         }}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
           <path d="M12 5v14M5 12h14" />
         </svg>
-      </button>
+      </WorkbenchActionButton>
     </div>
   );
 }
