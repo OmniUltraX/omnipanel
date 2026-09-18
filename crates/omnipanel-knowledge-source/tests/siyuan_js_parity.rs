@@ -116,6 +116,41 @@ async fn js_renders_images_and_collects_tags() {
     assert!(tags.contains(&"sport"), "行内标签: {tags:?}");
 }
 
+const SY_HEAD_MARKS_DOC: &str = r####"{"ID":"doc3","Spec":"2","Type":"NodeDocument","Properties":{"id":"doc3","title":"样式"},"Children":[
+{"ID":"h1","Type":"NodeHeading","HeadingLevel":2,"Children":[{"Type":"NodeText","Data":"无标记二级标题"}]},
+{"ID":"h2","Type":"NodeHeading","HeadingLevel":3,"Children":[{"Type":"NodeHeadingC8hMarker","Data":"### "},{"Type":"NodeText","Data":"旧版三级标题"}]},
+{"ID":"p1","Type":"NodeParagraph","Children":[
+{"Type":"NodeTextMark","TextMarkType":"strong","TextMarkTextContent":"粗体"},
+{"Type":"NodeText","Data":" "},
+{"Type":"NodeTextMark","TextMarkType":"em","TextMarkTextContent":"斜体"},
+{"Type":"NodeText","Data":" "},
+{"Type":"NodeTextMark","TextMarkType":"code","TextMarkTextContent":"x=1"},
+{"Type":"NodeText","Data":" "},
+{"Type":"NodeTextMark","TextMarkType":"strong a","TextMarkAHref":"https://example.com/y","TextMarkTextContent":"粗链"}
+]}
+]}"####;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn js_headings_use_level_and_marks_render() {
+    let scope = JsExecutorScope::new();
+    let ret = scope.call(
+        "parseDocument",
+        serde_json::json!({ "relPath": "box1/doc3.sy", "content": SY_HEAD_MARKS_DOC }),
+    );
+    assert_eq!(ret["kind"], "doc");
+    let md = ret["markdown"].as_str().expect("markdown 字符串");
+    for fragment in [
+        "## 无标记二级标题",
+        "### 旧版三级标题",
+        "**粗体**",
+        "*斜体*",
+        "`x=1`",
+        "**[粗链](https://example.com/y)**",
+    ] {
+        assert!(md.contains(fragment), "缺片段 {fragment}:\n{md}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn js_routes_conf_and_skips() {
     let scope = JsExecutorScope::new();

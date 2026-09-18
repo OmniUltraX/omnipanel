@@ -400,10 +400,10 @@
       "kind": "knowledge",
       "name": "SiYuan notes",
       "description": "Mirror SiYuan notebooks into the knowledge base (read-only, host pipeline).",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "distribution": "download",
       "artifact": {
-        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-knowledge-siyuan-0.4.0.omni-plugin",
+        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-knowledge-siyuan-0.4.1.omni-plugin",
         "sha256": "",
         "size": 4561
       },
