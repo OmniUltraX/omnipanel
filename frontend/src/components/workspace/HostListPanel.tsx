@@ -614,11 +614,12 @@ export function HostListPanel({
     deleteFolder(folder.id);
   };
 
-  const handleAdd = () => {
+  // useCallback：toolbar useMemo 依赖它，裸函数会导致 toolbar 每轮重建 → header meta 反复上报 → 无限循环。
+  const handleAdd = useCallback(() => {
     setEditConnection(undefined);
     setPresetFolderId(null);
     setShowDialog(true);
-  };
+  }, []);
 
   const handleNewHostInFolder = (folderId: string) => {
     setEditConnection(undefined);
