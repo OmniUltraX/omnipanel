@@ -128,7 +128,12 @@ export function IconDropdownButton({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-controls={open ? menuId : undefined}
-          className={cn("icon-dropdown-button__trigger", open && "icon-dropdown-button__trigger--open")}
+          className={cn(
+            "icon-dropdown-button__trigger",
+            // 幽灵按钮行为与段头统一：hover 白底细描边，禁用蓝色实心块。
+            "workbench-panel-header-action-btn",
+            open && "icon-dropdown-button__trigger--open",
+          )}
           onClick={() => setOpen((value) => !value)}
         >
           {icon}
