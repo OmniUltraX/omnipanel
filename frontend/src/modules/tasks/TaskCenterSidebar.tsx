@@ -3,7 +3,7 @@ import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
-} from "../../components/ui/VerticalSplitSidebar";
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { Button } from "../../components/ui/primitives/Button";
 import {
   IconCheckCircle,

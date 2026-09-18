@@ -17,7 +17,7 @@ import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/Stat
 import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
-} from "@/components/ui/VerticalSplitSidebar";
+} from "@/components/ui/sidebar/VerticalSplitSidebar";
 import {
   SidebarTreeEmpty,
   SidebarTreeNode,

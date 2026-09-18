@@ -10,7 +10,7 @@ import { showToast } from "@/stores/toastStore";
 import {
   VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
-} from "@/components/ui/VerticalSplitSidebar";
+} from "@/components/ui/sidebar/VerticalSplitSidebar";
 import {
   SidebarTreeEmpty,
   SidebarTreeNode,

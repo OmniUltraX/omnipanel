@@ -1,0 +1,40 @@
+/* 左侧栏统一共享层：计数徽标 / 工具条 / 行操作。行内按钮复用 sidebar-tree.css 的显隐语义。 */
+
+.sidebar-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--badge-muted, rgba(127, 127, 127, 0.18));
+    color: var(--meta);
+    font-size: 10px;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.module-sidebar-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    flex-shrink: 0;
+}
+
+/* 段头工具条按钮常显（tree-action-btn 默认只在行 hover 时显）。 */
+.module-sidebar-toolbar .tree-action-btn {
+    opacity: 1;
+    width: 22px;
+    height: 22px;
+}
+
+.module-sidebar-toolbar .tree-action-btn:disabled {
+    opacity: 0.35;
+}
+
+.sidebar-row-actions {
+    margin-left: 2px;
+}

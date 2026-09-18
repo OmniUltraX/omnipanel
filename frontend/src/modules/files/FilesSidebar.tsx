@@ -18,7 +18,7 @@ import {
   usePersistedVerticalSplitSizes,
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
-} from "../../components/ui/VerticalSplitSidebar";
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
 import { StatusDot } from "../../components/ui/primitives/StatusDot";
 import type { FileManagerConnectionInfo } from "../../ipc/bindings";
