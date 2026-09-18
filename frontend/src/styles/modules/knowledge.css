@@ -2742,6 +2742,13 @@
         color: var(--fg-2);
     }
 
+    /* 大纲跳转命中闪光：确认滚到了哪一段 */
+    .knowledge-crepe-shell .knowledge-jump-flash {
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        border-radius: var(--r-sm);
+        transition: background 1.1s ease-out;
+    }
+
     .knowledge-backlinks__heading {
         margin: 0 0 6px;
         font-size: 11px;

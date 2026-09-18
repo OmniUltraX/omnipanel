@@ -95,7 +95,12 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
   const [historyOpen, setHistoryOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
-  const [jumpHeadingText, setJumpHeadingText] = useState<string | null>(null);
+  const [jumpHeadingRequest, setJumpHeadingRequest] = useState<{
+    text: string;
+    occurrence: number;
+    nonce: number;
+  } | null>(null);
+  const jumpNonceRef = useRef(0);
   const [jumpSourceLine, setJumpSourceLine] = useState<number | null>(null);
   const [hoverNav, setHoverNav] = useState<KnowledgeLinkNavigate | null>(null);
   const [wikilinkQuery, setWikilinkQuery] = useState<{ query: string; caret: number } | null>(null);
@@ -134,6 +139,7 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
     setSaveState("idle");
     setHistoryOpen(false);
     setEditorEpoch(0);
+    setJumpHeadingRequest(null);
   }, [entry?.id]);
 
   useEffect(() => {
@@ -860,8 +866,8 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
               onChange={handleContentChange}
               onNavigateLink={(nav) => void handleNavigateLink(nav)}
               onHoverLink={setHoverNav}
-              jumpHeadingText={jumpHeadingText}
-              onJumpHeadingHandled={() => setJumpHeadingText(null)}
+              jumpHeadingRequest={jumpHeadingRequest}
+              onJumpHeadingHandled={() => setJumpHeadingRequest(null)}
             />
           )}
           {historyOpen ? (
@@ -890,7 +896,18 @@ export function KnowledgeDocumentPanel({ entryId }: KnowledgeDocumentPanelProps)
           headings={headings}
           onJumpHeading={(heading) => {
             if (editorMode === "source") setJumpSourceLine(heading.line);
-            else setJumpHeadingText(heading.text);
+            else {
+              // 同名标题按出现顺序定位；nonce 保证同标题重复点击也触发
+              const occurrence = headings.filter(
+                (h) => h.line < heading.line && h.text.trim() === heading.text.trim(),
+              ).length;
+              jumpNonceRef.current += 1;
+              setJumpHeadingRequest({
+                text: heading.text,
+                occurrence,
+                nonce: jumpNonceRef.current,
+              });
+            }
           }}
           linked={meta.backlinks.get(entry.id) ?? []}
           unlinked={unlinked}
