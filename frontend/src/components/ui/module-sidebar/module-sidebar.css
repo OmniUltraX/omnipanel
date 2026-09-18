@@ -49,3 +49,13 @@
     white-space: nowrap;
     flex-shrink: 0;
 }
+
+/* 有徽标的段头：标题不撑满，徽标紧跟标题文字（仅影响新规范段头，旧段头无 badge 走原样式）。 */
+.vsplit-sidebar-section__header:has(> .sidebar-count-badge) .vsplit-sidebar-section__title,
+.schema-sidebar-section__header:has(> .sidebar-count-badge) .vsplit-sidebar-section__title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
