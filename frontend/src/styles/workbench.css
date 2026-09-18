@@ -102,7 +102,7 @@
     font-weight: 500;
     line-height: 1.25;
     letter-spacing: 0.01em;
-    border-radius: 4px;
+    border-radius: 4px !important;
     gap: 4px;
     color: var(--meta);
     background: transparent;
@@ -115,10 +115,12 @@
 .workbench-panel-header-action-btn[data-size^="icon"],
 .db-tables-panel-header-action-btn[data-variant="icon"],
 .db-tables-panel-header-action-btn[data-size^="icon"] {
-    width: 22px;
-    height: 22px;
-    min-width: 22px;
-    padding: 0;
+    /* 几何写死最高优先级：任何主题/工具类都不得改动段头按钮尺寸圆角。 */
+    width: 22px !important;
+    height: 22px !important;
+    min-width: 22px !important;
+    padding: 0 !important;
+    border-radius: 4px !important;
 }
 
 .workbench-panel-header-action-btn:focus-visible,
