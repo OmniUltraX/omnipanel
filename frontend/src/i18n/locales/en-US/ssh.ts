@@ -3,6 +3,8 @@ export default {
       title: "Connections",
       search: "Search hosts…",
       openSshGroup: "~/.ssh/config",
+      newMenu: "New",
+      newHost: "New host",
       syncConfig: "Import from ~/.ssh/config",
       syncConfigConfirmTitle: "Sync SSH Config",
       syncConfigConfirmMessage:

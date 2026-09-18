@@ -3,6 +3,8 @@ export default {
       title: "连接",
       search: "搜索主机…",
       openSshGroup: "~/.ssh/config",
+      newMenu: "新建",
+      newHost: "新建主机",
       syncConfig: "从 ~/.ssh/config 导入",
       syncConfigConfirmTitle: "同步 SSH 配置",
       syncConfigConfirmMessage:

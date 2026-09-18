@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useI18n } from "../../i18n";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { SidebarImportIcon } from "../../components/ui/module-sidebar";
 import { showToast } from "../../stores/toastStore";
 import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { useProtocolHttpOptional } from "./ProtocolHttpContext";
@@ -63,11 +64,7 @@ export function ProtocolSidebarNewButton({
           void handleImport();
         }}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-          <path d="M12 3v12" />
-          <path d="m7 10 5 5 5-5" />
-          <path d="M5 21h14" />
-        </svg>
+        <SidebarImportIcon />
       </WorkbenchActionButton>
       <WorkbenchActionButton
         icon

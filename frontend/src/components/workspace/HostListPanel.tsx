@@ -31,7 +31,7 @@ import { HostStatusIndicator } from "../../modules/server/ssh/components/HostSta
 import { loadSshPoolStatuses } from "../../stores/sshConnectionStore";
 import { usePanelProbeStore } from "../../modules/server/ssh/stores/panelProbeStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
-import { ContextMenu, type ContextMenuItem } from "../ui/menu";
+import { ContextMenu, type ContextMenuItem, IconDropdownButton } from "../ui/menu";
 import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../ui/menu/withGlobalShareMenuItem";
 import { useShareUiStore } from "../../stores/shareUiStore";
@@ -66,6 +66,7 @@ import {
   ModuleSidebarTreeToolbar,
   SidebarCountBadge,
   SidebarIcon,
+  SidebarImportIcon,
 } from "../ui/module-sidebar";
 import {
   collectAllSshSidebarTreeKeys,
@@ -1110,29 +1111,28 @@ export function HostListPanel({
   const toolbar = useMemo(
     () => (
       <div className="schema-toolbar schema-toolbar--inline host-list-actions">
-        <WorkbenchActionButton
-          icon
-          title={t("ssh.sidebar.newFolder")}
-          aria-label={t("ssh.sidebar.newFolder")}
-          onClick={() => handleCreateFolder(null)}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            <line x1="12" y1="11" x2="12" y2="17" />
-            <line x1="9" y1="14" x2="15" y2="14" />
-          </svg>
-        </WorkbenchActionButton>
-        <WorkbenchActionButton
-          icon
-          title={t("ssh.dialog.addTitle")}
-          aria-label={t("ssh.dialog.addTitle")}
-          onClick={handleAdd}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </WorkbenchActionButton>
+        <IconDropdownButton
+          title={t("ssh.sidebar.newMenu")}
+          size="icon-xs"
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          }
+          items={[
+            {
+              id: "new-folder",
+              label: t("ssh.sidebar.newFolder"),
+              onSelect: () => handleCreateFolder(null),
+            },
+            {
+              id: "new-host",
+              label: t("ssh.sidebar.newHost"),
+              onSelect: () => handleAdd(),
+            },
+          ]}
+        />
         <WorkbenchActionButton
           icon
           title={t("ssh.sidebar.syncConfig")}
@@ -1140,7 +1140,11 @@ export function HostListPanel({
           disabled={syncing}
           onClick={() => openImportDialog(null)}
         >
-          <IconDownload size={14} className={syncing ? "icon-spin" : undefined} />
+          {syncing ? (
+            <IconDownload size={12} className="icon-spin" />
+          ) : (
+            <SidebarImportIcon />
+          )}
         </WorkbenchActionButton>
         <ModuleSidebarTreeToolbar
           onExpandAll={() => setAllExpanded(folderTreeKeys, true)}

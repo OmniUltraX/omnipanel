@@ -18,6 +18,7 @@ import {
   ModuleSidebarTreeToolbar,
   SidebarCountBadge,
   SidebarIcon,
+  SidebarImportIcon,
 } from "@/components/ui/module-sidebar";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
@@ -708,11 +709,7 @@ export function DockerPanelTreeSidebar({
           disabled={importingFromSsh}
           onClick={onImportFromSsh}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M12 3v12" />
-            <path d="M8 11l4 4 4-4" />
-            <path d="M4 19h16" />
-          </svg>
+          <SidebarImportIcon />
         </WorkbenchActionButton>
       )}
     </div>
