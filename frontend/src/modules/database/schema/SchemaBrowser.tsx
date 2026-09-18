@@ -11,7 +11,7 @@ import {
   SchemaFilterDialog,
 } from "./DatabaseFilterDialog";
 import { estimateSchemaFlatRowSize } from "./schemaTreeFlatRows";
-import { SchemaSidebarSection } from "./SchemaSidebarSection";
+import { ModuleSidebarSection } from "@/components/ui/module-sidebar";
 import {
   SidebarTreeSelectionProvider,
 } from "@/components/ui/sidebar-tree";
@@ -363,9 +363,9 @@ export function SchemaBrowser({
 
   if (section) {
     return (
-      <SchemaSidebarSection {...section} actions={toolbar}>
+      <ModuleSidebarSection {...section} count={connectionConfigs?.length ?? 0} actions={toolbar}>
         {panelBody}
-      </SchemaSidebarSection>
+      </ModuleSidebarSection>
     );
   }
 

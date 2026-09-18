@@ -19,7 +19,7 @@ import {
   type TreeRowMouseEvent,
 } from "@/components/ui/sidebar-tree";
 import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
-import { usePersistedServerTreeExpanded } from "../server/panel/usePersistedServerTreeExpanded";
+import { usePersistedTreeExpanded } from "@/components/ui/module-sidebar/usePersistedTreeExpanded";
 import { ServerTreeIcon, serverTreeNodeClassName } from "../server/panel/serverTreeIcons";
 import { pluginDisplayName } from "../plugins/pluginDisplayName";
 import { usePluginRuntimeStore } from "@/stores/pluginRuntimeStore";
@@ -342,7 +342,10 @@ export function CloudTreeSidebar({
   usePluginRuntimeStore((s) => s.hydrated);
   const inventoryByAccount = useCloudInventoryStore((s) => s.byAccount);
   const refreshingKeys = useCloudInventoryStore((s) => s.refreshingKeys);
-  const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
+  // storageKey 沿用旧 key，用户现有展开态不断（与服务器面板共用同一份展开表）。
+  const { isExpanded, toggle, ensureExpanded } = usePersistedTreeExpanded(
+    "omnipanel-server-tree-expanded.v1",
+  );
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxTarget, setCtxTarget] = useState<CloudTreeCtxTarget | null>(null);
   const saveConn = useConnectionStore((s) => s.save);

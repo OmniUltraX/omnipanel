@@ -6,10 +6,10 @@ import {
 import { SidebarCountBadge } from "./SidebarCountBadge";
 
 export type ModuleSidebarSectionProps = VerticalSplitSidebarSectionConfig & {
-  /** 段内叶子总数：渲染在操作区末尾，保证各模块段头布局一致 */
+  /** 段内叶子总数：标题按钮内、紧跟标题文字 */
   count?: number | string | null;
   countTitle?: string;
-  /** 段头通用工具条（一键折叠 / 展开 / 刷新），放在自定义 actions 之后、计数之前 */
+  /** 段头通用工具条（一键折叠 / 展开 / 刷新），放在自定义 actions 之后 */
   toolbar?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
@@ -19,6 +19,7 @@ export type ModuleSidebarSectionProps = VerticalSplitSidebarSectionConfig & {
   minBodyHeightPx?: number;
   maxBodyHeightPx?: number;
   resizePlacement?: "top" | "bottom";
+  // autoSize / autoSizePersist / fillRemainingSpace 由基类透传（...section），次要段自动高度照常用。
 };
 
 /**

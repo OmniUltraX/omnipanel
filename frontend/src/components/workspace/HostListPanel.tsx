@@ -1112,15 +1112,6 @@ export function HostListPanel({
       <div className="schema-toolbar schema-toolbar--inline host-list-actions">
         <WorkbenchActionButton
           icon
-          title={t("ssh.sidebar.syncConfig")}
-          aria-label={t("ssh.sidebar.syncConfig")}
-          disabled={syncing}
-          onClick={() => openImportDialog(null)}
-        >
-          <IconDownload size={14} className={syncing ? "icon-spin" : undefined} />
-        </WorkbenchActionButton>
-        <WorkbenchActionButton
-          icon
           title={t("ssh.sidebar.newFolder")}
           aria-label={t("ssh.sidebar.newFolder")}
           onClick={() => handleCreateFolder(null)}
@@ -1141,6 +1132,15 @@ export function HostListPanel({
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
+        </WorkbenchActionButton>
+        <WorkbenchActionButton
+          icon
+          title={t("ssh.sidebar.syncConfig")}
+          aria-label={t("ssh.sidebar.syncConfig")}
+          disabled={syncing}
+          onClick={() => openImportDialog(null)}
+        >
+          <IconDownload size={14} className={syncing ? "icon-spin" : undefined} />
         </WorkbenchActionButton>
         <ModuleSidebarTreeToolbar
           onExpandAll={() => setAllExpanded(folderTreeKeys, true)}

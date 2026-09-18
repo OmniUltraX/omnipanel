@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
-  VerticalSplitSidebarSection,
 } from "../../../components/ui/sidebar/VerticalSplitSidebar";
+import { ModuleSidebarSection } from "../../../components/ui/module-sidebar";
 import { useI18n } from "../../../i18n";
 import { HostListPanel } from "../../../components/workspace/HostListPanel";
 import type { WorkspaceResource } from "../../../lib/resourceRegistry";
@@ -13,7 +13,6 @@ import { useSshSelectionStore } from "./stores/sshSelectionStore";
 import { useSshWorkspaceNavStore } from "./stores/sshWorkspaceNavStore";
 import { TunnelsSidebarPanel } from "./components/TunnelsSidebarPanel";
 import { KeysSidebarPanel } from "./components/KeysSidebarPanel";
-import { SidebarCountBadge } from "../../../components/ui/module-sidebar";
 
 const SECTION_STORAGE_KEY = "omnipanel-ssh-host-sidebar-sections";
 /** 与数据库「查询/同步」、服务端「云账户」一致：次要段 autoSize 高度持久化 */
@@ -99,16 +98,12 @@ export function SshHostSidebar({
 
   return (
     <VerticalSplitSidebar className="ssh-host-sidebar">
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("ssh.sidebar.title")}
         expanded={sections.hosts}
         onToggle={() => toggleSection("hosts")}
-        actions={
-          <>
-            {hostHeaderActions}
-            <SidebarCountBadge count={hostCount} />
-          </>
-        }
+        count={hostCount}
+        actions={hostHeaderActions}
       >
         <HostListPanel
           resources={resources}
@@ -121,9 +116,9 @@ export function SshHostSidebar({
           onHeaderMetaChange={handleHostHeaderMetaChange}
           tagModuleKey={tagModuleKey}
         />
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("ssh.tabs.tunnels")}
         expanded={sections.tunnels}
         keepMounted
@@ -133,12 +128,8 @@ export function SshHostSidebar({
           toggleSection("tunnels");
           setSection("tunnels");
         }}
-        actions={
-          <>
-            {tunnelHeaderActions}
-            <SidebarCountBadge count={tunnelCount} />
-          </>
-        }
+        count={tunnelCount}
+        actions={tunnelHeaderActions}
       >
         <TunnelsSidebarPanel
           sshResources={resources}
@@ -146,9 +137,9 @@ export function SshHostSidebar({
           onHeaderMetaChange={handleTunnelHeaderMetaChange}
           onEnsureExpanded={ensureTunnelsExpanded}
         />
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("ssh.tabs.keys")}
         expanded={sections.keys}
         keepMounted
@@ -158,19 +149,15 @@ export function SshHostSidebar({
           toggleSection("keys");
           setSection("keys");
         }}
-        actions={
-          <>
-            {keyHeaderActions}
-            <SidebarCountBadge count={keyCount} />
-          </>
-        }
+        count={keyCount}
+        actions={keyHeaderActions}
       >
         <KeysSidebarPanel
           onCountChange={setKeyCount}
           onHeaderMetaChange={handleKeyHeaderMetaChange}
           onEnsureExpanded={ensureKeysExpanded}
         />
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
     </VerticalSplitSidebar>
   );
 }
