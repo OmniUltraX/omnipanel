@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.8.32] - 2026-09-19
+
+### 修复
+
+- **发版 CI**：插件 smoke 跳过仅提交 `.wat` 的 wasm-stub，不再把缺失的 `logic.wasm` 当 JS 装载
+- **Web Docker**：Rust 构建安装 `libudev-dev`、运行时带 `libudev1`（`serialport` / `libudev-sys`）；`packages/` 在 `npm ci` 之前拷入，保证 `file:` 依赖可解析
+
 ## [0.8.31] - 2026-09-19
 
 ### 新增

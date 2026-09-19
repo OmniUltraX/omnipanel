@@ -8,11 +8,12 @@
 FROM node:22-bookworm-slim AS frontend
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
+# file:../packages/* 必须在 npm ci 之前就位，否则 lock 里的 workspace 链是空的
+COPY packages /build/packages
 RUN npm ci
 COPY frontend/ ./
 # vite alias @repo-logo → ../logo；tsc 还要解析 plugin-sdk / plugin-ui 与插件清单
 COPY logo /build/logo
-COPY packages /build/packages
 COPY plugins /build/plugins
 ENV SKIP_GEN_BINDINGS=1
 ENV OMNIPANEL_WEB=1
@@ -26,6 +27,7 @@ RUN apt-get update \
     pkg-config \
     libssl-dev \
     libdbus-1-dev \
+    libudev-dev \
   && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock ./
@@ -48,6 +50,7 @@ RUN apt-get update \
     curl \
     libssl3 \
     libdbus-1-3 \
+    libudev1 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
