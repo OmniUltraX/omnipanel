@@ -20,6 +20,7 @@ export default {
     overview: {
       capabilities: "能力入口",
       noCapabilities: "当前插件未启用或未声明能力。",
+      pluginMissing: "未安装 {name} 插件，无法列出厂商能力。",
       linkedSsh: "关联终端",
       linkedFiles: "关联文件",
       none: "暂无关联",
@@ -40,6 +41,13 @@ export default {
     },
     filter: {
       allRegions: "全部地域",
+    },
+    sidebar: {
+      search: "搜索云账户、能力或实例…",
+      empty: "暂无云账户",
+      noResults: "没有匹配的云账户",
+      refreshAccount: "刷新此账户",
+      pluginMissing: "插件未安装",
     },
     tree: {
       loading: "加载中…",

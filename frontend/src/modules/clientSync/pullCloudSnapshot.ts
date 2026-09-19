@@ -25,6 +25,7 @@ import {
 } from "./secretsVaultSync";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { waitLayoutStoresHydrated } from "./layoutStoresHydration";
+import { schedulePluginEnsure } from "../../lib/pluginEnsure";
 import { useClientSyncTombstoneStore } from "./tombstones";
 
 function sidebarFoldersEmpty(raw: string | null | undefined): boolean {
@@ -186,6 +187,7 @@ async function refreshLocalModuleUi(): Promise<void> {
   } catch {
   }
   window.dispatchEvent(new CustomEvent(CLIENT_SYNC_MODULES_APPLIED_EVENT));
+  schedulePluginEnsure();
 }
 
 /** 密文库需要 ossPath；团队校验需要 teams。缺一则先补齐 /api/me。 */

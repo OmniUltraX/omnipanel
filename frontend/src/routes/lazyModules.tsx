@@ -1,6 +1,4 @@
 import { lazy, type ComponentType } from "react";
-import type { OverlayModuleKey } from "../lib/routePanels";
-import { preloadOverlayModuleChunk } from "../lib/moduleWarmup";
 
 function lazyNamedModule<T extends ComponentType<object>>(
   loader: () => Promise<Record<string, T>>,
@@ -86,45 +84,18 @@ export const LazyPluginsPanel = lazyNamedModule(
   "PluginsPanel",
 );
 
-/** 空闲预热顺序：终端优先，其余随后；仅拉 chunk，不挂载（与 shell 预热表对齐，含 cloud） */
-const IDLE_CHUNK_KEYS: OverlayModuleKey[] = [
-  "terminal",
-  "ssh",
-  "database",
-  "docker",
-  "server",
-  "files",
-  "cloud",
-  "protocol",
-  "workflow",
-  "knowledge",
-  "tasks",
-];
-
 const EXTRA_IDLE_LOADERS = [
   () => import("../modules/workspace/DashboardPage"),
   () => import("../modules/workspace/UserWorkspace"),
 ] as const;
 
-/** 空闲时逐个预拉取模块 chunk，首次点击侧栏即可秒开；避免一次打满主线程 */
+/** 空闲时只补 Dashboard / UserWorkspace 两个非叠层 chunk。叠层由 scheduleIdleChunkWarm 覆盖。 */
 export function preloadModuleChunks(): void {
   let index = 0;
   const loadNext = () => {
-    if (index < IDLE_CHUNK_KEYS.length) {
-      const key = IDLE_CHUNK_KEYS[index++];
-      void preloadOverlayModuleChunk(key).finally(() => {
-        if (typeof requestIdleCallback === "function") {
-          requestIdleCallback(loadNext, { timeout: 2000 });
-        } else {
-          window.setTimeout(loadNext, 50);
-        }
-      });
-      return;
-    }
-    const extraIndex = index - IDLE_CHUNK_KEYS.length;
-    if (extraIndex >= EXTRA_IDLE_LOADERS.length) return;
-    index++;
-    void EXTRA_IDLE_LOADERS[extraIndex]()
+    if (index >= EXTRA_IDLE_LOADERS.length) return;
+    const loader = EXTRA_IDLE_LOADERS[index++];
+    void loader()
       .catch(() => {})
       .finally(() => {
         if (typeof requestIdleCallback === "function") {

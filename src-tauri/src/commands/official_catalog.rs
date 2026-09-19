@@ -155,6 +155,34 @@ fn normalize_registry(registry: &mut RegistryFile) {
     }
 }
 
+fn fill_seed_gaps(registry: &mut RegistryFile) {
+    fill_first_party_gaps(registry);
+    let seed = bundled_registry();
+    for seed_item in seed.plugins {
+        match registry
+            .plugins
+            .iter_mut()
+            .find(|plugin| plugin.id == seed_item.id)
+        {
+            Some(existing) => {
+                let artifact_missing = existing
+                    .artifact
+                    .as_ref()
+                    .map(|artifact| artifact.url.trim().is_empty())
+                    .unwrap_or(true);
+                if artifact_missing && seed_item.artifact.is_some() {
+                    existing.artifact = seed_item.artifact;
+                    existing.distribution = seed_item.distribution;
+                    if existing.version.trim().is_empty() {
+                        existing.version = seed_item.version;
+                    }
+                }
+            }
+            None => registry.plugins.push(seed_item),
+        }
+    }
+}
+
 fn fill_first_party_gaps(registry: &mut RegistryFile) {
     let seed = bundled_registry();
     let seed_by_id: HashMap<&str, &RegistryPlugin> = seed
@@ -206,8 +234,37 @@ fn fill_first_party_gaps(registry: &mut RegistryFile) {
 
 fn seed_registry() -> RegistryFile {
     let mut registry = bundled_registry();
-    fill_first_party_gaps(&mut registry);
+    fill_seed_gaps(&mut registry);
     registry
+}
+
+/// 缓存或种子目录中是否为可下载官方包（bundled 返回 None）。
+pub(crate) fn lookup_official_download(
+    plugins_root: Option<&Path>,
+    plugin_id: &str,
+) -> Option<(String, Vec<String>)> {
+    let mut registry = load_cached_registry(plugins_root).unwrap_or_else(seed_registry);
+    fill_seed_gaps(&mut registry);
+    let item = registry
+        .plugins
+        .iter()
+        .find(|plugin| plugin.id == plugin_id)?;
+    if item.distribution != PluginDistribution::Download {
+        return None;
+    }
+    let url_ok = item
+        .artifact
+        .as_ref()
+        .is_some_and(|artifact| !artifact.url.trim().is_empty());
+    if !url_ok {
+        return None;
+    }
+    let name = if item.name.trim().is_empty() {
+        item.id.clone()
+    } else {
+        item.name.clone()
+    };
+    Some((name, item.permissions.clone()))
 }
 
 fn to_catalog_items(
@@ -663,5 +720,53 @@ mod tests {
             Some("https://example.com/t.omni-plugin")
         );
         assert!(translator.versions.is_empty());
+    }
+
+    #[test]
+    fn seed_gaps_restore_download_only_and_repair_artifact() {
+        let mut empty = RegistryFile {
+            schema_version: 1,
+            plugins: Vec::new(),
+        };
+        fill_seed_gaps(&mut empty);
+        let aliyun = empty
+            .plugins
+            .iter()
+            .find(|p| p.id == "omni.cloud.aliyun")
+            .expect("seed should add cloud plugin");
+        assert_eq!(aliyun.distribution, PluginDistribution::Download);
+        assert!(
+            aliyun
+                .artifact
+                .as_ref()
+                .is_some_and(|artifact| !artifact.url.trim().is_empty())
+        );
+
+        let mut stale = RegistryFile {
+            schema_version: 1,
+            plugins: vec![RegistryPlugin {
+                id: "omni.cloud.aliyun".into(),
+                kind: PluginKind::Cloud,
+                name: "aliyun".into(),
+                description: String::new(),
+                version: String::new(),
+                versions: Vec::new(),
+                distribution: PluginDistribution::Download,
+                artifact: None,
+                permissions: Vec::new(),
+                created_at: None,
+                updated_at: None,
+                downloads: None,
+            }],
+        };
+        fill_seed_gaps(&mut stale);
+        assert!(
+            stale
+                .plugins
+                .iter()
+                .find(|p| p.id == "omni.cloud.aliyun")
+                .and_then(|p| p.artifact.as_ref())
+                .is_some_and(|artifact| !artifact.url.trim().is_empty())
+        );
     }
 }

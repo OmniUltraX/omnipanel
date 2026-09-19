@@ -34,6 +34,16 @@ export default {
       hint: "添加一条服务连接后即可管理配置、命名空间与发现。",
       disabled: "插件未启用，{name} 控制台不可用。",
     },
+    ensure: {
+      installedToast: "已自动安装插件：{names}",
+      notFoundToast: "同步资源需要插件 {names}，目录中未找到，连接已保留",
+      failedToast: "自动安装插件失败：{detail}",
+      confirmTitle: "安装同步所需的第三方插件",
+      confirmHint: "这些插件来自非官方源，将获得下列权限。确认后才会安装。",
+      goInstall: "去安装插件",
+      installNow: "立即下载插件",
+      installing: "正在下载所需插件…",
+    },
     engineDisabled: {
       title: "引擎插件已禁用",
       hint: "该连接对应的引擎插件已关闭。启用插件后即可使用专用工作台。",

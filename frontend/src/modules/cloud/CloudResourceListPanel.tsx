@@ -40,6 +40,7 @@ function rowField(row: CloudResourceRow, key: string, t: (key: string) => string
 
 export function CloudResourceListPanel({
   account,
+  live = true,
   capability,
   selectedRegions,
   selectedRowId,
@@ -47,6 +48,7 @@ export function CloudResourceListPanel({
   onOpenRow,
 }: {
   account: CloudAccount;
+  live?: boolean;
   capability: string;
   selectedRegions: string[];
   selectedRowId: string | null;
@@ -92,8 +94,9 @@ export function CloudResourceListPanel({
   );
 
   useEffect(() => {
+    if (!live) return;
     void reload(false);
-  }, [reload]);
+  }, [live, reload]);
 
   useEffect(() => {
     setQuery("");

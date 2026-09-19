@@ -34,6 +34,16 @@ export default {
       hint: "Add a service connection to manage configs, namespaces, and discovery.",
       disabled: "Plugin is disabled, so the {name} console is unavailable.",
     },
+    ensure: {
+      installedToast: "Installed plugins: {names}",
+      notFoundToast: "Synced resources need {names}, which is not in any catalog. Connections were kept.",
+      failedToast: "Plugin auto-install failed: {detail}",
+      confirmTitle: "Install third-party plugins required by sync",
+      confirmHint: "These plugins are from a non-official source and will receive the permissions below. They install only after you confirm.",
+      goInstall: "Install plugin",
+      installNow: "Download plugin now",
+      installing: "Downloading required plugins…",
+    },
     engineDisabled: {
       title: "Engine plugin disabled",
       hint: "The engine plugin for this connection is turned off. Enable it to restore the custom workbench.",

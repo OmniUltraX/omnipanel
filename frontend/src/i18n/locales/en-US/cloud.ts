@@ -20,6 +20,7 @@ export default {
     overview: {
       capabilities: "Capabilities",
       noCapabilities: "This plugin is disabled or declares no capabilities.",
+      pluginMissing: "{name} is not installed, so vendor capabilities are unavailable.",
       linkedSsh: "Linked terminals",
       linkedFiles: "Linked files",
       none: "None linked",
@@ -40,6 +41,13 @@ export default {
     },
     filter: {
       allRegions: "All regions",
+    },
+    sidebar: {
+      search: "Search accounts, capabilities, or instances…",
+      empty: "No cloud accounts",
+      noResults: "No matching cloud accounts",
+      refreshAccount: "Refresh this account",
+      pluginMissing: "Plugin not installed",
     },
     tree: {
       loading: "Loading…",

@@ -350,6 +350,24 @@ describe("cloud account status dot", () => {
   it("刷新中为 connecting", () => {
     expect(cloudAccountStatusDot(undefined, true)).toBe("connecting");
   });
+
+  it("插件未就绪时即使有失败缓存也是 idle", () => {
+    expect(
+      cloudAccountStatusDot(
+        {
+          lists: {},
+          details: {},
+          snapshot: { snapshot: {}, fetchedAt: Date.now(), error: "plugin missing" },
+        },
+        false,
+        false,
+      ),
+    ).toBe("idle");
+  });
+
+  it("无清单无快照为 idle", () => {
+    expect(cloudAccountStatusDot(undefined)).toBe("idle");
+  });
 });
 
 describe("cloud metric charts visibility prefs", () => {

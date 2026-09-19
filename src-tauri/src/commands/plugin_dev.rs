@@ -197,12 +197,16 @@ pub(crate) fn load_dev_links(app: &AppHandle) -> HashMap<String, DevLink> {
         .unwrap_or_default()
 }
 
-pub(crate) fn save_dev_links(app: &AppHandle, links: &HashMap<String, DevLink>) -> Result<(), OmniError> {
+pub(crate) fn save_dev_links(
+    app: &AppHandle,
+    links: &HashMap<String, DevLink>,
+) -> Result<(), OmniError> {
     let path = dev_links_path(app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| OmniError::internal(e.to_string()))?;
     }
-    let text = serde_json::to_string_pretty(links).map_err(|e| OmniError::internal(e.to_string()))?;
+    let text =
+        serde_json::to_string_pretty(links).map_err(|e| OmniError::internal(e.to_string()))?;
     std::fs::write(&path, text).map_err(|e| OmniError::internal(e.to_string()))?;
     Ok(())
 }
@@ -249,7 +253,9 @@ fn unique_link_name(
         .ok_or_else(|| OmniError::invalid_input("目录名非法，无法建工程"))?;
     // 工程名禁锢与工作台一致：不含路径分隔与上级引用。
     if base.contains(['/', '\\']) || base.contains("..") || base.contains(':') {
-        return Err(OmniError::invalid_input(format!("目录名不适合做工程名: {base}")));
+        return Err(OmniError::invalid_input(format!(
+            "目录名不适合做工程名: {base}"
+        )));
     }
     let taken = |name: &str| -> bool {
         if links.contains_key(name) {
@@ -377,7 +383,8 @@ pub async fn plugin_dev_watch(
         .find(|(_, link)| link.dir == dir_str)
         .map(|(name, _)| name.clone())
         .unwrap_or_else(|| {
-            unique_link_name(&state.app_handle, &dir, &links).unwrap_or_else(|_| manifest.id.clone())
+            unique_link_name(&state.app_handle, &dir, &links)
+                .unwrap_or_else(|_| manifest.id.clone())
         });
     watch_inner(&state, project, &dir).await
 }
@@ -446,9 +453,7 @@ pub(crate) fn unlink_project(app: &AppHandle, project: &str) -> Result<String, O
 /// 开发期条目一览：会话监听 ∪ 已链接（重启后链接仍在，监听可一键恢复）。
 #[tauri::command]
 #[specta::specta]
-pub async fn plugin_dev_status(
-    state: State<'_, AppState>,
-) -> Result<Vec<DevWatchInfo>, OmniError> {
+pub async fn plugin_dev_status(state: State<'_, AppState>) -> Result<Vec<DevWatchInfo>, OmniError> {
     let registry = state.plugin_registry.lock().await;
     let states: HashMap<String, (bool, bool, String)> = registry
         .list()
@@ -473,10 +478,11 @@ pub async fn plugin_dev_status(
     let mut covered_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (id, entry) in map.iter() {
         covered_dirs.insert(entry.dir.to_string_lossy().into_owned());
-        let (enabled, activated, version) = states
-            .get(id)
-            .cloned()
-            .unwrap_or((false, false, String::new()));
+        let (enabled, activated, version) =
+            states
+                .get(id)
+                .cloned()
+                .unwrap_or((false, false, String::new()));
         out.push(DevWatchInfo {
             project: entry.project.clone(),
             plugin_id: id.clone(),
@@ -498,10 +504,11 @@ pub async fn plugin_dev_status(
         if !dir.is_dir() {
             continue;
         }
-        let (enabled, activated, version) = states
-            .get(&link.plugin_id)
-            .cloned()
-            .unwrap_or((false, false, String::new()));
+        let (enabled, activated, version) =
+            states
+                .get(&link.plugin_id)
+                .cloned()
+                .unwrap_or((false, false, String::new()));
         out.push(DevWatchInfo {
             project: name,
             plugin_id: link.plugin_id,
@@ -556,8 +563,7 @@ fn ensure_dev_loop(app: &AppHandle) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let mut interval =
-            tokio::time::interval(Duration::from_secs(DEV_POLL_SECS));
+        let mut interval = tokio::time::interval(Duration::from_secs(DEV_POLL_SECS));
         loop {
             interval.tick().await;
             dev_tick(&app).await;
@@ -589,8 +595,9 @@ async fn dev_tick(app: &AppHandle) {
                         entry.changed_at = Some(Instant::now());
                         None
                     }
-                    Some(t) if Instant::now().duration_since(t)
-                        >= Duration::from_secs(DEV_SETTLE_SECS) =>
+                    Some(t)
+                        if Instant::now().duration_since(t)
+                            >= Duration::from_secs(DEV_SETTLE_SECS) =>
                     {
                         entry.changed_at = None;
                         entry.fingerprint = fingerprint;

@@ -9,7 +9,7 @@ import {
 } from "../../lib/workspaceNavigation";
 import { isDashboardPath, isModulePath, moduleKeyFromPath } from "../../lib/paths";
 import { isOverlayModulePath } from "../../lib/routePanels";
-import { scheduleNavHoverWarm } from "../../lib/moduleWarmup";
+import { scheduleNavHoverWarm, scheduleNavPointerWarm } from "../../lib/moduleWarmup";
 import {
   SIDEBAR_PENDING_BACKSTOP_MS,
   readCurrentPathname,
@@ -76,7 +76,7 @@ export function Sidebar() {
 
   const markPending = (path: string) => {
     // pointerdown 即预热：触屏/键盘/快点无 hover，click 前能省则省
-    scheduleNavHoverWarm(path);
+    scheduleNavPointerWarm(path);
     const fromPath = readCurrentPathname();
     setPendingPath(path);
     clearPendingTimers();

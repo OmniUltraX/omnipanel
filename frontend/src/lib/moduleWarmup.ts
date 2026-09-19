@@ -1,6 +1,8 @@
 import type { OverlayModuleKey } from "./routePanels";
 import { isOverlayModuleKey, OVERLAY_MODULE_KEYS } from "./routePanels";
 import { moduleKeyFromPath, MODULE_PATHS } from "./paths";
+import { ensureModuleLocale } from "../i18n/loadLocale";
+import { useSettingsStore } from "../stores/settingsStore";
 
 type ModuleChunkLoader = () => Promise<unknown>;
 
@@ -18,19 +20,11 @@ const OVERLAY_CHUNK_LOADERS: Record<OverlayModuleKey, ModuleChunkLoader> = {
   cloud: () => import("../modules/cloud/CloudPanel"),
 };
 
-/** 空闲 Shell 预热顺序：终端优先，与 chunk 预热一致 */
+/** 空闲只预拉最常进的几个 chunk；其余走侧栏悬停。全量闲扫会在 dev 里打出秒级长任务。 */
 export const IDLE_OVERLAY_SHELL_KEYS: readonly OverlayModuleKey[] = [
   "terminal",
-  "ssh",
   "database",
-  "docker",
-  "server",
-  "files",
-  "cloud",
-  "protocol",
-  "workflow",
-  "knowledge",
-  "tasks",
+  "ssh",
 ];
 
 const chunkInflight = new Map<OverlayModuleKey, Promise<void>>();
@@ -148,9 +142,9 @@ export function overlayKeyFromNavPath(path: string): OverlayModuleKey | null {
 }
 
 /**
- * 悬停意图：预拉 JS chunk + 请求挂壳（suspended）。
- * 悬停到点击通常有 200ms+，壳先挂上，首访只剩数据显示。
- * 返回取消函数（mouseleave 时调用；已发出的请求不撤回，无害）。
+ * 悬停：只预拉 JS chunk + 模块文案（不挂 React 壳）。
+ * 扫一遍侧栏若立即挂壳，retainAll 会把 10+ 个 dock 树常驻，切换出现秒级长任务。
+ * 挂壳只在 pointerdown（即将点击）时请求。
  */
 export function scheduleNavHoverWarm(
   path: string,
@@ -159,8 +153,16 @@ export function scheduleNavHoverWarm(
   const key = overlayKeyFromNavPath(path);
   if (!key) return () => {};
   void preloadOverlayModuleChunk(key);
-  requestModuleShellWarm(key);
+  void ensureModuleLocale(useSettingsStore.getState().locale, key, { notify: false });
   return () => {};
+}
+
+/** pointerdown：预拉 chunk 并请求挂壳，抢在 click/navigate 之前开始 mount。 */
+export function scheduleNavPointerWarm(path: string): void {
+  const key = overlayKeyFromNavPath(path);
+  if (!key) return;
+  void preloadOverlayModuleChunk(key);
+  requestModuleShellWarm(key);
 }
 
 export interface IdleOverlayShellWarmOptions {
@@ -175,16 +177,15 @@ export interface IdleOverlayShellWarmOptions {
  * 空闲错峰：按序逐个预拉 chunk（纯下载 + 求值，不挂壳）。
  *
  * 刻意不含壳挂载：实测 11 个悬挂壳 ≈ 启动期 95% 长任务（dev 下数秒），
- * 而 chunk 预拉仅 ~0.3s。挂壳只走意图驱动（hover/focus/pointerdown 经
- * scheduleNavHoverWarm → requestModuleShellWarm），与用户意图对齐，
+ * 而 chunk 预拉仅 ~0.3s。挂壳只走 pointerdown（scheduleNavPointerWarm），
  * 避免启动 stampede 堵住 hover 等交互。
  */
 export function scheduleIdleChunkWarm(
   options?: IdleOverlayShellWarmOptions,
 ): () => void {
   const keys = options?.keys ?? IDLE_OVERLAY_SHELL_KEYS;
-  const initialShellTimeoutMs = options?.initialShellTimeoutMs ?? 2500;
-  const stepShellTimeoutMs = options?.stepShellTimeoutMs ?? 1200;
+  const initialShellTimeoutMs = options?.initialShellTimeoutMs ?? 8000;
+  const stepShellTimeoutMs = options?.stepShellTimeoutMs ?? 2500;
   let cancelled = false;
   let cancelScheduled: (() => void) | null = null;
   let index = 0;

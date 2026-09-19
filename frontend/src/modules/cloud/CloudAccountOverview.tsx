@@ -3,8 +3,14 @@ import { useI18n, getEnvLabel } from "../../i18n";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { commands } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
+import { PLUGINS_PATH } from "../../lib/paths";
+import { ensureKnownPluginIds } from "../../lib/pluginEnsure";
+import { afterPaintIdle } from "../../lib/yieldToMain";
+import { navigateToFeature } from "../../lib/workspaceNavigation";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { usePluginEnsureStore } from "../../stores/pluginEnsureStore";
+import { useNavigate } from "react-router-dom";
 import { ServerTreeIcon } from "../server/panel/serverTreeIcons";
 import { pluginDisplayName } from "../plugins/pluginDisplayName";
 import {
@@ -41,19 +47,23 @@ function envLabel(tag: string): string {
 
 export function CloudAccountOverview({
   account,
+  live = true,
   selectedRegions,
   onOpenCapability,
   onOpenResource,
 }: {
   account: CloudAccount;
+  live?: boolean;
   selectedRegions: string[];
   onOpenCapability: (capability: string, mode?: CloudDockOpenMode) => void;
   onOpenResource: (capability: string, resourceId: string, regionId: string) => void;
 }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const connections = useConnectionStore((s) => s.connections);
   usePluginRuntimeStore((s) => s.items);
   usePluginRuntimeStore((s) => s.hydrated);
+  const ensureRunning = usePluginEnsureStore((s) => s.running);
   const [testing, setTesting] = useState(false);
   const [testState, setTestState] = useState<"idle" | "ok" | "err">("idle");
   const [testMessage, setTestMessage] = useState<string | null>(null);
@@ -75,24 +85,32 @@ export function CloudAccountOverview({
   );
 
   useEffect(() => {
+    if (!live || !isPluginActivated(account.pluginId)) return;
     const caps = cloudCapabilitiesForPlugin(account.pluginId);
     if (caps.length === 0) return;
-    for (const cap of caps) {
-      void useCloudInventoryStore
-        .getState()
-        .ensureList(account.id, cap.id, isGlobalCloudCapability(cap) ? [] : selectedRegions, {
-          quiet: true,
-        })
-        .catch(() => undefined);
-    }
-  }, [account.id, account.pluginId, selectedRegions]);
+    const cancel = afterPaintIdle(() => {
+      for (const cap of caps) {
+        void useCloudInventoryStore
+          .getState()
+          .ensureList(account.id, cap.id, isGlobalCloudCapability(cap) ? [] : selectedRegions, {
+            quiet: true,
+          })
+          .catch(() => undefined);
+      }
+    }, 400);
+    return cancel;
+  }, [account.id, account.pluginId, live, selectedRegions]);
 
   useEffect(() => {
-    void useCloudInventoryStore
-      .getState()
-      .ensureAccount(account.id, { quiet: true })
-      .catch(() => undefined);
-  }, [account.id]);
+    if (!live || !isPluginActivated(account.pluginId)) return;
+    const cancel = afterPaintIdle(() => {
+      void useCloudInventoryStore
+        .getState()
+        .ensureAccount(account.id, { quiet: true })
+        .catch(() => undefined);
+    }, 200);
+    return cancel;
+  }, [account.id, account.pluginId, live]);
 
   const counts = useMemo(() => {
     const next: Record<string, number | null> = {};
@@ -305,7 +323,26 @@ export function CloudAccountOverview({
       <section className="cloud-overview__section">
         <h3 className="cloud-overview__title">{t("cloud.overview.capabilities")}</h3>
         {capabilities.length === 0 ? (
-          <p className="form-hint">{t("cloud.overview.noCapabilities")}</p>
+          <div className="space-y-2">
+            <p className="form-hint">
+              {ensureRunning
+                ? t("plugins.ensure.installing")
+                : t("cloud.overview.pluginMissing", {
+                    name: pluginDisplayName(account.pluginId, t),
+                  })}
+            </p>
+            <div className="flex items-center gap-2">
+              <WorkbenchActionButton
+                disabled={ensureRunning || !account.pluginId}
+                onClick={() => void ensureKnownPluginIds([account.pluginId])}
+              >
+                {ensureRunning ? t("plugins.ensure.installing") : t("plugins.ensure.installNow")}
+              </WorkbenchActionButton>
+              <WorkbenchActionButton onClick={() => navigateToFeature(PLUGINS_PATH, navigate)}>
+                {t("plugins.ensure.goInstall")}
+              </WorkbenchActionButton>
+            </div>
+          </div>
         ) : (
           <div className="cloud-overview__grid">
             {capabilities.map((cap) => {

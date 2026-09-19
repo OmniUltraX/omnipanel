@@ -21,15 +21,22 @@ import type { Connection } from "../../ipc/bindings";
 import { useCloudDockStore } from "../../stores/cloudDockStore";
 import { useCloudInventoryStore } from "../../stores/cloudInventoryStore";
 import { useUiFollowConsumer } from "../../lib/ai/uiFollow";
-import { VerticalSplitSidebar } from "../../components/ui/sidebar/VerticalSplitSidebar";
+import {
+  VerticalSplitSidebar,
+  usePersistedVerticalSplitSections,
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { ScopedSearch } from "../../components/ui/search";
 import {
   cloudRegionRowLabel,
   fallbackCloudRegions,
   loadCloudAccountRegions,
 } from "./cloudRegionDiscovery";
-import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { resolveCloudQueryRegions } from "./cloudResourceApi";
+import { ensureKnownPluginIds } from "../../lib/pluginEnsure";
+
+const CLOUD_SECTION_STORAGE_KEY = "omnipanel-cloud-sidebar-sections";
+type CloudSectionKey = "accounts";
 
 export function CloudPanel() {
   const { t } = useI18n();
@@ -37,7 +44,7 @@ export function CloudPanel() {
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
   const tagAllowedIds = useModuleTagFilter("cloud", CONNECTION_TAG_KINDS);
-  usePluginRuntimeStore((s) => s.items);
+  const pluginItems = usePluginRuntimeStore((s) => s.items);
   const cloudAccounts = useMemo(() => {
     const list: CloudAccount[] = [];
     for (const conn of connections) {
@@ -48,6 +55,15 @@ export function CloudPanel() {
     }
     return list;
   }, [connections, tagAllowedIds]);
+
+  useEffect(() => {
+    if (!moduleLive) return;
+    const missing = cloudAccounts
+      .map((account) => account.pluginId)
+      .filter((id): id is string => Boolean(id) && !isPluginActivated(id));
+    if (missing.length === 0) return;
+    void ensureKnownPluginIds(missing);
+  }, [moduleLive, cloudAccounts, pluginItems]);
 
   const dockTabs = useCloudDockStore((s) => s.tabs);
   const activeTabId = useCloudDockStore((s) => s.activeTabId);
@@ -75,6 +91,10 @@ export function CloudPanel() {
   const [editCloudConnection, setEditCloudConnection] = useState<Connection | undefined>();
   const [activeCloudNavKey, setActiveCloudNavKey] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const { sections, toggleSection } = usePersistedVerticalSplitSections<CloudSectionKey>(
+    CLOUD_SECTION_STORAGE_KEY,
+    { accounts: true },
+  );
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [inspectorRowId, setInspectorRowId] = useState<string | null>(null);
   const [tabCtxMenu, setTabCtxMenu] = useState<{
@@ -284,6 +304,7 @@ export function CloudPanel() {
         <CloudDockPanel
           tab={tab}
           account={account}
+          live={moduleLive}
           selectedRegions={queryRegions}
           inspectorRowId={inspectorRowId}
           onOpenCapability={(capability) =>
@@ -305,7 +326,7 @@ export function CloudPanel() {
         />
       );
     },
-    [activeAccountId, cloudById, dockTabs, handleNavigateCloud, inspectorRowId, liveRegionIds, selectedRegions],
+    [activeAccountId, cloudById, dockTabs, handleNavigateCloud, inspectorRowId, liveRegionIds, moduleLive, selectedRegions],
   );
 
   return (
@@ -322,7 +343,7 @@ export function CloudPanel() {
               className="server-tree-scoped-search"
               value={searchQuery}
               onChange={setSearchQuery}
-              placeholder={t("server.sidebar.search")}
+              placeholder={t("cloud.sidebar.search")}
             >
               <CloudTreeSidebar
                 accounts={cloudAccounts}
@@ -337,10 +358,11 @@ export function CloudPanel() {
                 onCreateAccount={handleCreateCloud}
                 onEditAccount={handleEditCloud}
                 onDeleteAccount={handleDeleteCloud}
+                live={moduleLive}
                 section={{
                   title: t("server.cloud.sidebar.title"),
-                  expanded: true,
-                  onToggle: () => undefined,
+                  expanded: sections.accounts,
+                  onToggle: () => toggleSection("accounts"),
                 }}
               />
             </ScopedSearch>

@@ -6,6 +6,7 @@ import {
   getLocaleBag,
   getLocaleRevision,
   loadBootLocale,
+  loadIdleLocale,
   seedLocaleChunks,
   subscribeLocaleRevision,
 } from "./loadLocale";
@@ -98,9 +99,15 @@ export function createTranslator(locale: Locale) {
   };
 }
 
-/** 应用启动 / 切语言时调用：加载该语言全部分片 */
+/** 应用启动 / 切语言：只加载 boot 分片，模块文案按路由 / 空闲补齐 */
 export async function prepareLocale(locale: Locale): Promise<void> {
   await loadBootLocale(locale);
+}
+
+/** 空闲补齐剩余模块文案分片 */
+export async function prepareIdleLocale(locale?: Locale): Promise<void> {
+  const active = locale ?? useSettingsStore.getState().locale;
+  await loadIdleLocale(active);
 }
 
 export async function prepareModuleLocale(

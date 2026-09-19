@@ -64,6 +64,17 @@ impl Storage {
             .map_err(map_sqlite)
     }
 
+    pub fn ks_config_list_source_keys(&self) -> OmniResult<Vec<String>> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT source_key FROM ks_source_config ORDER BY source_key")
+            .map_err(map_sqlite)?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(map_sqlite)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(map_sqlite)
+    }
+
     pub fn ks_config_save(&self, cfg: &KsSourceConfig) -> OmniResult<()> {
         self.conn()
             .execute(
@@ -212,6 +223,10 @@ mod tests {
             .unwrap();
         let got = storage.ks_config_get("plugin:x:y").unwrap().unwrap();
         assert_eq!(got.display_name, "演示");
+        assert_eq!(
+            storage.ks_config_list_source_keys().unwrap(),
+            vec!["plugin:x:y".to_string()]
+        );
     }
 
     #[test]
