@@ -37,7 +37,11 @@ fn translate_float_sample_packs_verifies_and_loads() {
         overlays[0].get("entry").and_then(|v| v.as_str()),
         Some("ui/index.html")
     );
-    assert!(manifest.permissions.contains(&PluginPermission::UiSelection));
+    assert!(
+        manifest
+            .permissions
+            .contains(&PluginPermission::UiSelection)
+    );
     assert!(manifest.permissions.contains(&PluginPermission::AiTools));
 
     // 3. 安装 = 解压到 plugins_root/<plugin_id>/，资产齐备

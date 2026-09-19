@@ -22,8 +22,5 @@ async fn huawei_logic_instantiates_and_requires_creds() {
         .await
         .err()
         .expect("缺凭据应失败");
-    assert!(
-        err.to_string().contains("AccessKey"),
-        "actual: {err}"
-    );
+    assert!(err.to_string().contains("AccessKey"), "actual: {err}");
 }

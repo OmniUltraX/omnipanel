@@ -81,10 +81,10 @@ OmniPanel 通过签名插件体系向第三方开放三级扩展能力：
 | **模块插件** | Nacos（download-only）：命名空间切换、服务在线/离线与上线下线、可拖分栏、Ctrl+F 搜配置 |
 | **同步安全** | 团队 sync_key_v2 + 在线设备中继传钥；无 peer 时导入 `.omnipanel-sync.key`；助手绑定 v2 加密二维码 |
 | **在场验证** | 危险操作须先过 Windows Hello / Touch ID 或打字签发短命 token；按 action+target 一次性消费，覆盖数据库 / Docker / 云 / SSH |
-| **团队同步** | 模块快照改 v2 密钥派生；文件夹树同步；推送/拉取前等待布局 hydration |
+| **团队同步** | 模块快照改 v2 密钥派生；文件夹树同步；拉取后自动安装官方/已用插件；推送/拉取前等待布局 hydration |
 | **面板应用** | 宝塔已装应用版本/端口；MySQL / Redis 一键管理参数 |
 | **快捷启动** | 面板内询问 AI（流式 + Markdown）；询问记录与收藏；场景模型芯片与设置同步 |
-| **性能** | 模块保活秒切；模块窗隐藏 10 分钟空闲卸载；看板隐藏停轮询 |
+| **性能** | 模块保活秒切；悬停只预拉 chunk；隐藏叠层跳过布局；模块窗隐藏 10 分钟空闲卸载；看板隐藏停轮询 |
 | **Web 版** | 浏览器访问 + GHCR 公开 Docker 镜像，支持 Render / Zeabur / Railway 等一键部署 |
 
 完整版本记录见 [CHANGELOG.md](./CHANGELOG.md)。

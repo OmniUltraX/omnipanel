@@ -318,12 +318,7 @@ fn auth_candidates(cached: Option<&HostSession>) -> Vec<AuthStyle> {
             AuthStyle::ApiToken { algo: a } => a != algo,
             _ => true,
         });
-        all.insert(
-            0,
-            AuthStyle::ApiToken {
-                algo: *algo,
-            },
-        );
+        all.insert(0, AuthStyle::ApiToken { algo: *algo });
     }
     all
 }
@@ -393,10 +388,8 @@ async fn send_request_with_api_fallback(
                             .as_deref()
                             .is_some_and(|c| c.to_ascii_lowercase().contains("timed out"))
                     {
-                        return Err(
-                            OmniError::new(ErrorCode::Timeout, "1Panel 请求超时")
-                                .with_cause(err.cause.unwrap_or(err.message)),
-                        );
+                        return Err(OmniError::new(ErrorCode::Timeout, "1Panel 请求超时")
+                            .with_cause(err.cause.unwrap_or(err.message)));
                     }
                     // Token 鉴权偶发 401（时钟边界 / 面板瞬时拒绝）：立刻用新时间戳重试一次
                     if matches!(err.code, ErrorCode::Auth) {
@@ -450,8 +443,16 @@ async fn send_request_with_api_fallback(
                 }
             }
         };
-        match send_request_once(host, api_key, method, path, body.clone(), *flavor, &jwt_auth)
-            .await
+        match send_request_once(
+            host,
+            api_key,
+            method,
+            path,
+            body.clone(),
+            *flavor,
+            &jwt_auth,
+        )
+        .await
         {
             Ok(v) => {
                 if looks_like_html_bytes(&v.2) {
@@ -480,10 +481,8 @@ async fn send_request_with_api_fallback(
                         .as_deref()
                         .is_some_and(|c| c.to_ascii_lowercase().contains("timed out"))
                 {
-                    return Err(
-                        OmniError::new(ErrorCode::Timeout, "1Panel 请求超时")
-                            .with_cause(err.cause.unwrap_or(err.message)),
-                    );
+                    return Err(OmniError::new(ErrorCode::Timeout, "1Panel 请求超时")
+                        .with_cause(err.cause.unwrap_or(err.message)));
                 }
                 last_err = Some(err);
             }

@@ -75,11 +75,7 @@ impl ModbusSession {
         Ok(())
     }
 
-    pub fn write_multiple_registers(
-        &mut self,
-        _addr: u16,
-        _values: Vec<u16>,
-    ) -> OmniResult<()> {
+    pub fn write_multiple_registers(&mut self, _addr: u16, _values: Vec<u16>) -> OmniResult<()> {
         if !self.connected {
             return Err(OmniError::new(ErrorCode::Connection, "Not connected"));
         }

@@ -1,15 +1,15 @@
 //! L2 宿主本地密码学：插件签厂商 API 用，不经网络、不需权限。
 
 use base64::{
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
     Engine as _,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 use hmac::{Hmac, Mac};
+use rsa::RsaPrivateKey;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::signature::{SignatureEncoding, Signer};
-use rsa::RsaPrivateKey;
 use serde::Deserialize;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
@@ -108,12 +108,14 @@ pub fn hmac_digest(spec_json: &str) -> Result<String, String> {
     let alg = spec.alg.trim().to_ascii_lowercase();
     let digest = match alg.as_str() {
         "sha256" | "hmac-sha256" | "hmac_sha256" => {
-            let mut mac = Hmac::<Sha256>::new_from_slice(&key).map_err(|e| format!("hmac key: {e}"))?;
+            let mut mac =
+                Hmac::<Sha256>::new_from_slice(&key).map_err(|e| format!("hmac key: {e}"))?;
             mac.update(&data);
             mac.finalize().into_bytes().to_vec()
         }
         "sha1" | "hmac-sha1" | "hmac_sha1" => {
-            let mut mac = Hmac::<Sha1>::new_from_slice(&key).map_err(|e| format!("hmac key: {e}"))?;
+            let mut mac =
+                Hmac::<Sha1>::new_from_slice(&key).map_err(|e| format!("hmac key: {e}"))?;
             mac.update(&data);
             mac.finalize().into_bytes().to_vec()
         }
@@ -189,8 +191,10 @@ mod tests {
 
     #[test]
     fn hmac_sha1_hex_and_base64() {
-        let hex = hmac_digest(r#"{"alg":"sha1","key":"key","data":"The quick brown fox jumps over the lazy dog"}"#)
-            .expect("hmac");
+        let hex = hmac_digest(
+            r#"{"alg":"sha1","key":"key","data":"The quick brown fox jumps over the lazy dog"}"#,
+        )
+        .expect("hmac");
         assert_eq!(hex, "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9");
         let b64 = hmac_digest(
             r#"{"alg":"sha1","key":"key","data":"The quick brown fox jumps over the lazy dog","encoding":"base64"}"#,
@@ -201,9 +205,11 @@ mod tests {
 
     #[test]
     fn hmac_rejects_unknown_alg() {
-        assert!(hmac_digest(r#"{"alg":"md5","key":"k","data":"d"}"#)
-            .unwrap_err()
-            .contains("不支持"));
+        assert!(
+            hmac_digest(r#"{"alg":"md5","key":"k","data":"d"}"#)
+                .unwrap_err()
+                .contains("不支持")
+        );
     }
 
     #[test]
@@ -228,8 +234,8 @@ mod tests {
 
     #[test]
     fn sign_rejects_unknown_key_encoding() {
-        let err = sign_digest(r#"{"alg":"rs256","key":"x","data":"d","keyEncoding":"hex"}"#)
-            .unwrap_err();
+        let err =
+            sign_digest(r#"{"alg":"rs256","key":"x","data":"d","keyEncoding":"hex"}"#).unwrap_err();
         assert!(err.contains("keyEncoding"), "unexpected: {err}");
     }
 }

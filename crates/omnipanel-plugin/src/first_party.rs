@@ -290,9 +290,11 @@ mod tests {
         assert_eq!(importer_warpgate().id, PLUGIN_ID_IMPORTER_WARPGATE);
         assert_eq!(importer_docker_db().id, PLUGIN_ID_IMPORTER_DOCKER_DB);
         // Nacos 已改为独立 download 插件，不在 first_party_manifests 内
-        assert!(!first_party_manifests()
-            .iter()
-            .any(|m| m.id == PLUGIN_ID_MODULE_NACOS));
+        assert!(
+            !first_party_manifests()
+                .iter()
+                .any(|m| m.id == PLUGIN_ID_MODULE_NACOS)
+        );
     }
 
     #[test]
@@ -506,8 +508,7 @@ mod tests {
             .join("../../plugins")
             .join(dir)
             .join("logic.js");
-        std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("读 {} 失败: {e}", path.display()))
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("读 {} 失败: {e}", path.display()))
     }
 
     #[test]
@@ -593,12 +594,7 @@ mod tests {
         let manifest = theme_default();
         manifest.validate().expect("theme-default 清单应通过校验");
         assert_eq!(
-            manifest
-                .contributes
-                .themes
-                .as_ref()
-                .expect("themes")
-                .tokens,
+            manifest.contributes.themes.as_ref().expect("themes").tokens,
             "tokens.json"
         );
         let bytes = first_party_asset_bytes(PLUGIN_ID_THEME_DEFAULT, "tokens.json")

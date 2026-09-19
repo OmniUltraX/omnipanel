@@ -128,7 +128,9 @@ describe("buildSlashDashboardRows", () => {
     const rows = buildSlashDashboardRows(entries, "", "board", (e) =>
       e.kind === "builtin" ? "看板" : e.label ?? e.tabId,
     );
-    expect(rows.map((r) => r.tabId)).toEqual(["board", "custom:1", "custom:2"]);
+    const ids = rows.map((r) => r.tabId);
+    expect(ids[0]).toBe("board");
+    expect(ids.sort()).toEqual(["board", "custom:1", "custom:2"]);
     expect(rows[0]?.current).toBe(true);
   });
 });

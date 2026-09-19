@@ -117,7 +117,11 @@ pub trait SourceAdapter {
 
     /// 取镜像资源字节：`rel` 为正文里的 `assets/…` 相对路径；返回 (存储文件名, 字节)。
     /// 取不到返回 Ok(None)（引擎保留原 URL，不炸整篇）。
-    fn fetch_asset(&self, _doc: &KsDocRef, _rel: &str) -> Result<Option<(String, Vec<u8>)>, String> {
+    fn fetch_asset(
+        &self,
+        _doc: &KsDocRef,
+        _rel: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, String> {
         Ok(None)
     }
 }

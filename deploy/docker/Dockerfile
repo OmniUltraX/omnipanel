@@ -10,8 +10,10 @@ WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-# vite alias @repo-logo → ../logo
+# vite alias @repo-logo → ../logo；tsc 还要解析 plugin-sdk / plugin-ui 与插件清单
 COPY logo /build/logo
+COPY packages /build/packages
+COPY plugins /build/plugins
 ENV SKIP_GEN_BINDINGS=1
 ENV OMNIPANEL_WEB=1
 RUN npm run build

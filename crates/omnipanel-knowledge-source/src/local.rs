@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use super::adapter::{
-    KsDocContent, KsDocRef, KsNotebook, MethodCaller, SourceAdapter, MAX_ASSET_BYTES,
+    KsDocContent, KsDocRef, KsNotebook, MAX_ASSET_BYTES, MethodCaller, SourceAdapter,
 };
 
 /// 单文件上限（8MB），超限跳过并计数。
@@ -427,8 +427,7 @@ impl<C: MethodCaller> SourceAdapter for PluginLocalAdapter<C> {
             if !canon.starts_with(&canon_root) || !canon.is_file() {
                 continue;
             }
-            let bytes =
-                std::fs::read(&canon).map_err(|e| format!("读资源失败 {clean}: {e}"))?;
+            let bytes = std::fs::read(&canon).map_err(|e| format!("读资源失败 {clean}: {e}"))?;
             if bytes.len() as u64 > MAX_ASSET_BYTES {
                 return Ok(None);
             }
@@ -664,15 +663,19 @@ mod tests {
         assert_eq!(shared_name, "assets__s.png");
         assert_eq!(shared, b"SHARED");
         // 都缺失 → None（同步保留原文，不炸整篇）
-        assert!(adapter
-            .fetch_asset(&doc, "assets/nope.png")
-            .expect("缺失不报错")
-            .is_none());
+        assert!(
+            adapter
+                .fetch_asset(&doc, "assets/nope.png")
+                .expect("缺失不报错")
+                .is_none()
+        );
         // 穿越拒绝
-        assert!(adapter
-            .fetch_asset(&doc, "../evil.png")
-            .expect("穿越不报错")
-            .is_none());
+        assert!(
+            adapter
+                .fetch_asset(&doc, "../evil.png")
+                .expect("穿越不报错")
+                .is_none()
+        );
     }
 
     #[test]

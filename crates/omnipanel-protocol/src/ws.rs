@@ -48,7 +48,9 @@ impl WsSession {
         for (key, value) in &config.headers {
             request.headers_mut().insert(
                 key.parse::<tokio_tungstenite::tungstenite::http::HeaderName>()
-                    .map_err(|e| OmniError::invalid_input(format!("Invalid header name {key}: {e}")))?,
+                    .map_err(|e| {
+                        OmniError::invalid_input(format!("Invalid header name {key}: {e}"))
+                    })?,
                 value
                     .parse::<tokio_tungstenite::tungstenite::http::HeaderValue>()
                     .map_err(|e| {

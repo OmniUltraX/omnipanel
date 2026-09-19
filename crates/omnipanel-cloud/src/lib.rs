@@ -4,10 +4,10 @@
 use omnipanel_error::OmniError;
 
 pub use omnipanel_cloud_aliyun::{
-    is_write_action, AliyunCredentials, CloudAccountSnapshot, CloudAction, CloudActionResult,
-    CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudLogPage, CloudLogQuery,
-    CloudMetricQuery, CloudMetricSeries, CloudOssBucket, CloudRegion, CloudResourceDetail,
-    CloudResourceFilter, CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN,
+    AliyunCredentials, CloudAccountSnapshot, CloudAction, CloudActionResult, CloudCertificateItem,
+    CloudDomainItem, CloudEcsInstance, CloudLogPage, CloudLogQuery, CloudMetricQuery,
+    CloudMetricSeries, CloudOssBucket, CloudRegion, CloudResourceDetail, CloudResourceFilter,
+    CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN, is_write_action,
 };
 
 pub const PLUGIN_ID_TENCENT: &str = "omni.cloud.tencent";
@@ -126,7 +126,10 @@ mod tests {
         assert_eq!(resolve_plugin_id("aliyun").unwrap(), PLUGIN_ID_ALIYUN);
         assert_eq!(resolve_plugin_id("tencent").unwrap(), PLUGIN_ID_TENCENT);
         assert_eq!(resolve_plugin_id("qcloud").unwrap(), PLUGIN_ID_TENCENT);
-        assert_eq!(resolve_plugin_id(PLUGIN_ID_TENCENT).unwrap(), PLUGIN_ID_TENCENT);
+        assert_eq!(
+            resolve_plugin_id(PLUGIN_ID_TENCENT).unwrap(),
+            PLUGIN_ID_TENCENT
+        );
         assert_eq!(resolve_plugin_id("huawei").unwrap(), PLUGIN_ID_HUAWEI);
         assert!(!is_first_party_cloud("omni.cloud.aws"));
         assert!(!is_first_party_cloud(PLUGIN_ID_TENCENT));
