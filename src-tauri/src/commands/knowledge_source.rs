@@ -62,10 +62,7 @@ fn parse_fields(source: &Value) -> Vec<KsSourceField> {
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string(),
-                        required: f
-                            .get("required")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false),
+                        required: f.get("required").and_then(|v| v.as_bool()).unwrap_or(false),
                     })
                 })
                 .collect()
@@ -136,7 +133,8 @@ fn find_source_methods(
             .get("siyuanS3")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let namespace = str_field(source, "id");        let tag = {
+        let namespace = str_field(source, "id");
+        let tag = {
             let tag = str_field(source, "tag");
             if tag.is_empty() {
                 namespace.clone()
@@ -279,20 +277,15 @@ struct GatewayCaller<'a> {
 }
 
 impl MethodCaller for GatewayCaller<'_> {
-    fn call(
-        &self,
-        plugin_id: &str,
-        method: &str,
-        args: Value,
-    ) -> Result<Value, String> {
+    fn call(&self, plugin_id: &str, method: &str, args: Value) -> Result<Value, String> {
         debug_assert_eq!(plugin_id, self.plugin_id);
         let plugin_id = plugin_id.to_string();
         let method = method.to_string();
         tokio::task::block_in_place(move || {
             tokio::runtime::Handle::current()
-                .block_on(async move {
-                    invoke_plugin_method(self.state, plugin_id, method, args).await
-                })
+                .block_on(
+                    async move { invoke_plugin_method(self.state, plugin_id, method, args).await },
+                )
                 .map_err(|e| e.to_string())
         })
     }
@@ -302,8 +295,7 @@ impl MethodCaller for GatewayCaller<'_> {
 fn open_sync_storage() -> Result<Storage, OmniError> {
     let path = omnipanel_store::meta_db_path()
         .map_err(|e| OmniError::internal(format!("无法定位本地库: {e}")))?;
-    Storage::open(&path, None)
-        .map_err(|e| OmniError::internal(format!("打开本地库失败: {e}")))
+    Storage::open(&path, None).map_err(|e| OmniError::internal(format!("打开本地库失败: {e}")))
 }
 
 /// 列出某插件声明的知识源（控制台用）。
@@ -363,7 +355,8 @@ pub async fn ks_config_get(
 /// 保存某源配置（`config_json` 必须为合法 JSON；密钥走 Vault，不落库）。
 #[tauri::command]
 #[specta::specta]
-pub async fn ks_config_save(    state: State<'_, AppState>,
+pub async fn ks_config_save(
+    state: State<'_, AppState>,
     plugin_id: String,
     source_id: String,
     display_name: String,
@@ -401,16 +394,10 @@ pub async fn ks_secret_save(
     if secret.trim().is_empty() {
         return Err(OmniError::invalid_input("密钥不能为空".to_string()));
     }
-    let vault_key = format!(
-        "ks-{}-{}",
-        source_id.trim(),
-        field_key.trim()
-    );
+    let vault_key = format!("ks-{}-{}", source_id.trim(), field_key.trim());
     crate::commands::plugin::require_plugin_vault(&state, &plugin_id).await?;
-    let reference =
-        omnipanel_store::plugin_secret_ref(&plugin_id, &vault_key).map_err(|e| {
-            OmniError::internal(format!("生成密钥引用失败: {e}"))
-        })?;
+    let reference = omnipanel_store::plugin_secret_ref(&plugin_id, &vault_key)
+        .map_err(|e| OmniError::internal(format!("生成密钥引用失败: {e}")))?;
     omnipanel_store::Vault::store(&reference, secret.trim())?;
     let storage = state.storage.lock().await;
     let key = source_key_of(&plugin_id, &source_id);
@@ -448,10 +435,8 @@ pub async fn ks_secret_has(
     let Some(vault_key) = refs.get(&field_key) else {
         return Ok(false);
     };
-    let reference =
-        omnipanel_store::plugin_secret_ref(&plugin_id, vault_key).map_err(|e| {
-            OmniError::internal(format!("生成密钥引用失败: {e}"))
-        })?;
+    let reference = omnipanel_store::plugin_secret_ref(&plugin_id, vault_key)
+        .map_err(|e| OmniError::internal(format!("生成密钥引用失败: {e}")))?;
     Ok(omnipanel_store::Vault::get(&reference)
         .map(|s| !s.is_empty())
         .unwrap_or(false))
@@ -650,10 +635,7 @@ fn extra_args_for(
         };
         if let Ok(secret) = omnipanel_store::Vault::get(vault_key) {
             if !secret.is_empty() {
-                out.insert(
-                    field.key.clone(),
-                    Value::String(secret),
-                );
+                out.insert(field.key.clone(), Value::String(secret));
             }
         }
     }
@@ -703,9 +685,9 @@ async fn s3_config_of(
 ) -> Result<omnipanel_knowledge_source::SiyuanS3Config, OmniError> {
     let key = source_key_of(plugin_id, source_id);
     let storage = state.storage.lock().await;
-    let cfg = storage
-        .ks_config_get(&key)?
-        .ok_or_else(|| OmniError::invalid_input("请先在源配置里填写 S3 连接信息并保存".to_string()))?;
+    let cfg = storage.ks_config_get(&key)?.ok_or_else(|| {
+        OmniError::invalid_input("请先在源配置里填写 S3 连接信息并保存".to_string())
+    })?;
     let values: Value = serde_json::from_str(&cfg.config_json).unwrap_or(Value::Null);
     let get = |k: &str| {
         values
@@ -801,9 +783,10 @@ async fn run_ks_sync(
                 .id_prefix
                 .clone()
                 .unwrap_or_else(|| "ks".to_string()),
-            &options.source_prefix.clone().unwrap_or_else(|| {
-                format!("import:ks:{}", resolved.namespace)
-            }),
+            &options
+                .source_prefix
+                .clone()
+                .unwrap_or_else(|| format!("import:ks:{}", resolved.namespace)),
             &options
                 .tag
                 .clone()

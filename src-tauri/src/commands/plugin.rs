@@ -402,6 +402,15 @@ pub(crate) fn pkg_err_to_omni(err: omnipanel_plugin_pkg::PkgError) -> OmniError 
     }
 }
 
+/// 卸除指定插件的 L2 逻辑实例（下次 sync_plugin_logic 按落盘字节重建）。
+/// 覆盖安装/更新后必须调：否则实例已存在会被跳过，内存里永远是旧 JS。
+pub(crate) fn evict_plugin_logic_instance(state: &State<'_, AppState>, plugin_id: &str) {
+    let mut instances = state.plugin_logic_instances.lock().unwrap();
+    if let Some(inst) = instances.remove(plugin_id) {
+        inst.lock().unwrap().shutdown();
+    }
+}
+
 pub(crate) async fn install_plugin_from_path(
     state: &State<'_, AppState>,
     pkg_path: PathBuf,
@@ -448,6 +457,10 @@ pub(crate) async fn install_plugin_from_path(
         );
         return Err(pkg_err_to_omni(err));
     }
+
+    // 落盘已是新包：先卸旧实例，否则后续 sync_plugin_logic 跳过已存在项，
+    // 新逻辑永远不生效（重建同步也救不回来）。
+    evict_plugin_logic_instance(state, &plugin_id);
 
     if let Err(err) = rebuild_and_sync(state).await {
         let dest_for_restore = dest_root.clone();

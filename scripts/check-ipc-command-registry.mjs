@@ -68,13 +68,21 @@ const HANDLER_ONLY_ALLOWLIST = new Set([
   "workspace_window::write_workspace_window_handoff",
   // 模块独立窗 / 快捷启动窗（前端裸 invoke，与 workspace_window 同类）
   "module_window::ensure_module_window_prewarm",
+  "module_window::hide_window_to_tray",
   "module_window::open_module_window",
+  "module_window::show_window_from_tray",
   "quick_launcher::get_app_tray_active",
   "quick_launcher::hide_quick_launcher",
   "quick_launcher::set_app_tray_active",
   "quick_launcher::set_quick_launcher_height",
   "quick_launcher::show_quick_launcher",
   "quick_launcher::toggle_quick_launcher",
+  // HTTP 流式旁路（非 specta Channel）
+  "ai::ai_http_stream_post",
+  // 系统应用枚举 / 启动（快捷启动器裸 invoke）
+  "system_apps::get_system_app_icons",
+  "system_apps::launch_system_app",
+  "system_apps::list_system_apps",
 ]);
 
 function extractMacroBody(src, macroName) {

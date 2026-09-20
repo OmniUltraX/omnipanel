@@ -1,0 +1,74 @@
+/* 左侧栏统一共享层：计数徽标 / 工具条 / 行操作。行内按钮复用 sidebar-tree.css 的显隐语义。 */
+
+.sidebar-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--badge-muted, rgba(127, 127, 127, 0.18));
+    color: var(--meta);
+    font-size: 10px;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.module-sidebar-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    flex-shrink: 0;
+}
+
+/* 段头工具条按钮常显（tree-action-btn 默认只在行 hover 时显）。 */
+.module-sidebar-toolbar .tree-action-btn {
+    opacity: 1;
+    width: 22px;
+    height: 22px;
+    /* 与 WorkbenchActionButton 同语言：1px 透明边框，悬停/聚焦时变蓝。
+       否则同一排里幽灵按钮有边框、工具条按钮没边框，悬停态割裂。 */
+    border: 1px solid transparent;
+    border-radius: 4px;
+}
+
+.module-sidebar-toolbar .tree-action-btn:not(:disabled):hover,
+.module-sidebar-toolbar .tree-action-btn:not(:disabled):focus-visible {
+    color: var(--accent);
+    background: var(--surface);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    outline: none;
+    box-shadow: none;
+}
+
+.module-sidebar-toolbar .tree-action-btn:disabled {
+    opacity: 0.35;
+}
+
+.sidebar-row-actions {
+    margin-left: 2px;
+}
+
+/* 来源/类型徽标：与知识库既有 import-badge 同视觉，全模块统一类名。 */
+.sidebar-tag-chip {
+    font-size: 11px;
+    color: var(--meta);
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* 有徽标的段头：标题不撑满，徽标紧跟标题文字（仅影响新规范段头，旧段头无 badge 走原样式）。 */
+.vsplit-sidebar-section__header:has(> .sidebar-count-badge) .vsplit-sidebar-section__title,
+.schema-sidebar-section__header:has(> .sidebar-count-badge) .vsplit-sidebar-section__title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

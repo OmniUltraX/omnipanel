@@ -20,7 +20,7 @@ use omnipanel_s3::{S3Client, S3Config};
 use sha2::Digest as _;
 
 use super::adapter::{
-    KsDocContent, KsDocRef, KsNotebook, MethodCaller, SourceAdapter, MAX_ASSET_BYTES,
+    KsDocContent, KsDocRef, KsNotebook, MAX_ASSET_BYTES, MethodCaller, SourceAdapter,
 };
 use super::local::MAX_PARSE_BYTES;
 
@@ -56,13 +56,7 @@ pub fn derive_repo_key(passphrase: &str) -> Result<[u8; 32], String> {
         .as_deref()
         .map(<[u8]>::to_vec)
         .map_err(|_| ())
-        .and_then(|v| {
-            if v.len() == 32 {
-                Ok(v)
-            } else {
-                Err(())
-            }
-        })
+        .and_then(|v| if v.len() == 32 { Ok(v) } else { Err(()) })
     {
         let mut key = [0u8; 32];
         key.copy_from_slice(&raw);
@@ -72,8 +66,7 @@ pub fn derive_repo_key(passphrase: &str) -> Result<[u8; 32], String> {
     let hex_digest = hex::encode(sha2::Sha256::digest(clean.as_bytes()));
     let salt = &hex_digest.as_bytes()[..16];
     // scrypt 0.11 的 Params 含输出长度位（与 dkLen=32 一致）。
-    let params =
-        scrypt::Params::new(15, 8, 1, 32).map_err(|e| format!("scrypt 参数非法: {e}"))?;
+    let params = scrypt::Params::new(15, 8, 1, 32).map_err(|e| format!("scrypt 参数非法: {e}"))?;
     let mut key = [0u8; 32];
     scrypt::scrypt(clean.as_bytes(), salt, &params, &mut key)
         .map_err(|e| format!("密钥派生失败: {e}"))?;
@@ -169,8 +162,7 @@ pub fn chunk_object_key(chunk_id: &str) -> Result<String, String> {
 }
 
 pub fn parse_latest_ref(raw: &[u8]) -> Result<String, String> {
-    let id = String::from_utf8(raw.to_vec())
-        .map_err(|_| "refs/latest 非文本".to_string())?;
+    let id = String::from_utf8(raw.to_vec()).map_err(|_| "refs/latest 非文本".to_string())?;
     let id = id.trim().to_string();
     if !is_hex_id(&id) {
         return Err("refs/latest 非法（非 40hex）：仓库未初始化或损坏".to_string());
@@ -220,8 +212,7 @@ impl SiyuanS3Store {
             access_key: cfg.access_key.trim().to_string(),
             prefix: String::new(),
         };
-        let client =
-            S3Client::new(s3cfg, cfg.secret_key.clone()).map_err(|e| e.to_string())?;
+        let client = S3Client::new(s3cfg, cfg.secret_key.clone()).map_err(|e| e.to_string())?;
         Ok(Self {
             client,
             prefix: cfg.prefix.clone(),
@@ -406,31 +397,32 @@ impl<C: MethodCaller> SiyuanS3Adapter<C> {
                 rel.ends_with(".sy") || rel.ends_with(".siyuan/conf.json")
             })
             .collect();
-        let (files, skipped_assemble): (Vec<(DejavuFile, Vec<u8>)>, usize) = block_on_s3(async move {
-            let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
-            let mut set = tokio::task::JoinSet::new();
-            for meta in targets {
-                let store = store.clone();
-                let sem = sem.clone();
-                set.spawn(async move {
-                    let _permit = sem
-                        .acquire_owned()
-                        .await
-                        .map_err(|_| "信号量关闭".to_string())?;
-                    let bytes = Self::assemble_file(&store, &key, &meta).await?;
-                    Ok::<_, String>((meta, bytes))
-                });
-            }
-            let mut out = Vec::new();
-            let mut skipped = 0usize;
-            while let Some(res) = set.join_next().await {
-                match res {
-                    Ok(Ok(item)) => out.push(item),
-                    _ => skipped += 1,
+        let (files, skipped_assemble): (Vec<(DejavuFile, Vec<u8>)>, usize) =
+            block_on_s3(async move {
+                let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
+                let mut set = tokio::task::JoinSet::new();
+                for meta in targets {
+                    let store = store.clone();
+                    let sem = sem.clone();
+                    set.spawn(async move {
+                        let _permit = sem
+                            .acquire_owned()
+                            .await
+                            .map_err(|_| "信号量关闭".to_string())?;
+                        let bytes = Self::assemble_file(&store, &key, &meta).await?;
+                        Ok::<_, String>((meta, bytes))
+                    });
                 }
-            }
-            Ok::<_, String>((out, skipped))
-        })?;
+                let mut out = Vec::new();
+                let mut skipped = 0usize;
+                while let Some(res) = set.join_next().await {
+                    match res {
+                        Ok(Ok(item)) => out.push(item),
+                        _ => skipped += 1,
+                    }
+                }
+                Ok::<_, String>((out, skipped))
+            })?;
         skipped += skipped_assemble;
         // 顶层目录自动补文件夹在解析循环后统一做（与本地源一致）。
         let mut notebooks: Vec<(String, String, Option<String>)> = Vec::new();
@@ -628,10 +620,7 @@ impl<C: MethodCaller> SourceAdapter for SiyuanS3Adapter<C> {
         let key = derive_repo_key(&self.cfg.repo_password)?;
         let store = SiyuanS3Store::new(&self.cfg)?;
         // 盒内优先，找不到回落仓库根共享 assets/（与本地源一致）。
-        let candidates = [
-            format!("{}/{}", doc.box_id, clean),
-            clean.to_string(),
-        ];
+        let candidates = [format!("{}/{}", doc.box_id, clean), clean.to_string()];
         for full_rel in &candidates {
             let meta = {
                 let cache = self.cache.lock().unwrap();
@@ -693,8 +682,7 @@ mod tests {
     /// 与上游同顺序组装测试包：明文 → zstd → AES-GCM（nonce 前置）。
     fn encrypt_object(plain: &[u8], key: &[u8; 32]) -> Vec<u8> {
         let compressed = zstd::encode_all(&plain[..], 0).expect("zstd 压缩");
-        let cipher =
-            aes_gcm::Aes256Gcm::new(aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(key));
+        let cipher = aes_gcm::Aes256Gcm::new(aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(key));
         let nonce = [7u8; 12]; // 固定 nonce 仅测试用
         let mut out = nonce.to_vec();
         out.extend_from_slice(
@@ -732,8 +720,7 @@ mod tests {
     #[test]
     fn index_object_and_key_verify() {
         let key = test_key();
-        let cipher =
-            aes_gcm::Aes256Gcm::new(aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&key));
+        let cipher = aes_gcm::Aes256Gcm::new(aes_gcm::Key::<aes_gcm::Aes256Gcm>::from_slice(&key));
         let nonce = [3u8; 12];
         let mut enveloped = nonce.to_vec();
         enveloped.extend_from_slice(

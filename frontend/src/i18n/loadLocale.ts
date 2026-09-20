@@ -1,3 +1,4 @@
+import { startTransition } from "react";
 import type { Locale } from "../stores/settingsStore";
 
 /**
@@ -177,6 +178,7 @@ export const MODULE_LOCALE_KEYS: Record<string, readonly string[]> = {
 };
 
 const loadedKeys = new Set<string>();
+const chunkInflight = new Map<string, Promise<void>>();
 const bag: Record<Locale, Record<string, unknown>> = {
   "zh-CN": {},
   "en-US": {},
@@ -194,6 +196,18 @@ function bumpLocaleRevision() {
   for (const listener of localeListeners) {
     listener();
   }
+}
+
+let bumpScheduled = false;
+function scheduleLocaleRevisionBump() {
+  if (bumpScheduled) return;
+  bumpScheduled = true;
+  queueMicrotask(() => {
+    bumpScheduled = false;
+    startTransition(() => {
+      bumpLocaleRevision();
+    });
+  });
 }
 
 /** 供 useSyncExternalStore：文案分片加载完成后触发重渲 */
@@ -227,41 +241,60 @@ export function seedLocaleChunks(
 export async function ensureLocaleChunks(
   locale: Locale,
   chunks: readonly string[],
+  opts?: { notify?: boolean },
 ): Promise<void> {
   const pending: Promise<void>[] = [];
   for (const chunk of chunks) {
     const id = keyId(locale, chunk);
     if (loadedKeys.has(id)) continue;
-    const loader = locale === "zh-CN" ? zhLoader(chunk) : enLoader(chunk);
-    pending.push(
-      loader().then((mod) => {
-        bag[locale][chunk] = mod.default;
-        loadedKeys.add(id);
-      }),
-    );
+    let inflight = chunkInflight.get(id);
+    if (!inflight) {
+      const loader = locale === "zh-CN" ? zhLoader(chunk) : enLoader(chunk);
+      inflight = loader()
+        .then((mod) => {
+          bag[locale][chunk] = mod.default;
+          loadedKeys.add(id);
+        })
+        .finally(() => {
+          chunkInflight.delete(id);
+        });
+      chunkInflight.set(id, inflight);
+    }
+    pending.push(inflight);
   }
   if (pending.length === 0) return;
   await Promise.all(pending);
-  bumpLocaleRevision();
+  if (opts?.notify === false) return;
+  scheduleLocaleRevisionBump();
 }
 
-/** 启动 / 切语言：加载全部分片，避免模块页残留 key */
+/** 启动 / 切语言：只补 boot 分片。模块分片走 ensureModuleLocale / loadIdleLocale。 */
 export async function loadBootLocale(locale: Locale): Promise<void> {
-  await ensureLocaleChunks(locale, ALL_LOCALE_CHUNK_KEYS);
+  await ensureLocaleChunks(locale, BOOT_LOCALE_KEYS);
+}
+
+/** 空闲静默补齐剩余模块文案：写入 bag 但不全局 bump，避免保活模块一起重渲。 */
+export async function loadIdleLocale(locale: Locale): Promise<void> {
+  for (const chunk of ALL_LOCALE_CHUNK_KEYS) {
+    await ensureLocaleChunks(locale, [chunk], { notify: false });
+  }
 }
 
 export async function ensureModuleLocale(
   locale: Locale,
   moduleKey: string,
+  opts?: { notify?: boolean },
 ): Promise<void> {
   const chunks = MODULE_LOCALE_KEYS[moduleKey];
   if (!chunks) return;
-  await ensureLocaleChunks(locale, chunks);
+  await ensureLocaleChunks(locale, chunks, opts);
 }
 
 /** 测试重置 */
 export function resetLocaleBagForTests(): void {
   loadedKeys.clear();
+  chunkInflight.clear();
+  bumpScheduled = false;
   bag["zh-CN"] = {};
   bag["en-US"] = {};
   localeRevision = 0;

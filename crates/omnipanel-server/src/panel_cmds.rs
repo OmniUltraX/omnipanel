@@ -72,7 +72,8 @@ pub async fn panel_1panel_request(
     body: Option<String>,
 ) -> Result<String, OmniError> {
     let body_val = parse_optional_json_body(body)?;
-    let result = omnipanel_panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
+    let result =
+        omnipanel_panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
     serde_json::to_string(&result).map_err(|e| {
         OmniError::internal("failed to serialize 1Panel response").with_cause(e.to_string())
     })

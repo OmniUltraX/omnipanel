@@ -52,6 +52,7 @@ pub mod panel;
 pub mod plugin;
 pub mod plugin_bridge;
 pub mod plugin_dev;
+pub mod plugin_ensure;
 pub mod plugin_studio;
 pub mod plugin_submit;
 pub mod pool;

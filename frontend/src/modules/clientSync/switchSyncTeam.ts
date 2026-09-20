@@ -22,6 +22,7 @@ import {
   setClientModuleSyncSuppressed,
 } from "./moduleSync";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
+import { schedulePluginEnsure } from "../../lib/pluginEnsure";
 import { useClientSyncTombstoneStore } from "./tombstones";
 import {
   ensureTeamSyncKeyForTeam,
@@ -128,6 +129,7 @@ async function refreshLocalModuleUi(): Promise<void> {
   } catch {
   }
   window.dispatchEvent(new CustomEvent(CLIENT_SYNC_MODULES_APPLIED_EVENT));
+  schedulePluginEnsure();
 }
 
 /**

@@ -32,7 +32,12 @@ const NODE_DENY_PATTERNS: &[&str] = &[
 ];
 
 /// `node:` 内建前缀（import/require 两种写法）。
-const NODE_PREFIX_PATTERNS: &[&str] = &["require('node:", "require(\"node:", "from 'node:", "from \"node:"];
+const NODE_PREFIX_PATTERNS: &[&str] = &[
+    "require('node:",
+    "require(\"node:",
+    "from 'node:",
+    "from \"node:",
+];
 
 /// 宿主可承接的 `utools.*` 白名单（v1，14 项；其它一律 external-only）。
 /// 映射：db*→插件私有 state；通知/剪贴板/外链/路径→既有宿主能力；
@@ -257,8 +262,10 @@ pub fn analyze_external_entries(
     entries: &BTreeMap<String, Vec<u8>>,
 ) -> Result<ExternalVerdict, PkgError> {
     // 1. 形状：package.json（Rubick）优先，plugin.json（uTools）回退。
-    let (plugin_name, features_raw, preload, main) = if let Some(raw) = entries.get("package.json") {
-        let text = as_text(raw).ok_or_else(|| PkgError::Malformed("package.json 非 UTF-8".into()))?;
+    let (plugin_name, features_raw, preload, main) = if let Some(raw) = entries.get("package.json")
+    {
+        let text =
+            as_text(raw).ok_or_else(|| PkgError::Malformed("package.json 非 UTF-8".into()))?;
         let pkg: RubickPackage = serde_json::from_str(text)
             .map_err(|e| PkgError::Malformed(format!("package.json 非法: {e}")))?;
         let name = pkg
@@ -269,7 +276,8 @@ pub fn analyze_external_entries(
             .ok_or_else(|| PkgError::Malformed("缺少 pluginName/name".into()))?;
         (name, pkg.features, pkg.preload, pkg.main)
     } else if let Some(raw) = entries.get("plugin.json") {
-        let text = as_text(raw).ok_or_else(|| PkgError::Malformed("plugin.json 非 UTF-8".into()))?;
+        let text =
+            as_text(raw).ok_or_else(|| PkgError::Malformed("plugin.json 非 UTF-8".into()))?;
         let manifest: UToolsManifest = serde_json::from_str(text)
             .map_err(|e| PkgError::Malformed(format!("plugin.json 非法: {e}")))?;
         let name = manifest
@@ -348,10 +356,13 @@ pub fn analyze_external_entries(
     }
     let preload_is_shimmed = compat_shim.is_some();
     let is_preload_file = |path: &String| {
-        preload_norm.as_deref().map(|norm| {
-            let p = path.trim_start_matches("./").trim_start_matches('/');
-            p == norm || p.ends_with(&format!("/{norm}"))
-        }).unwrap_or(false)
+        preload_norm
+            .as_deref()
+            .map(|norm| {
+                let p = path.trim_start_matches("./").trim_start_matches('/');
+                p == norm || p.ends_with(&format!("/{norm}"))
+            })
+            .unwrap_or(false)
     };
     for (path, text) in &scripts {
         // 垫片覆盖的 preload：其 require 豁免（文件被丢弃，垫片替代）。
@@ -401,9 +412,9 @@ pub fn analyze_external_entries(
     // 页面直调网络：不判死，转而要求 net:connect（运行时走桥接代理）。
     // compat 垫片自身亦走 fetch，置位同样触发权限声明。
     let needs_network = compat_shim.is_some()
-        || scripts.iter().any(|(_, text)| {
-            text.contains("fetch(") || text.contains("XMLHttpRequest")
-        });
+        || scripts
+            .iter()
+            .any(|(_, text)| text.contains("fetch(") || text.contains("XMLHttpRequest"));
 
     let main_entry = main.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let preload_entry = preload
@@ -716,19 +727,16 @@ pub fn convert_external_to_entries(
     );
     // compat 垫片：verdict 建议时生成，overlay 渲染紧随 prelude 注入。
     // 包内隔离，文件名固定为垫片 id。
-    let compat_entry: Option<String> = verdict
-        .compat_shim
-        .as_deref()
-        .and_then(|shim| {
-            compat_shim_source(shim).map(|source| {
-                let path = format!(
-                    "ui/compat/{}.js",
-                    shim.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
-                );
-                out.insert(path.clone(), source.into_bytes());
-                path
-            })
-        });
+    let compat_entry: Option<String> = verdict.compat_shim.as_deref().and_then(|shim| {
+        compat_shim_source(shim).map(|source| {
+            let path = format!(
+                "ui/compat/{}.js",
+                shim.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+            );
+            out.insert(path.clone(), source.into_bytes());
+            path
+        })
+    });
 
     let mut entry = serde_json::json!({ "ui": "ui/main.js" });
     if let Some(compat) = compat_entry.as_deref() {
@@ -799,9 +807,7 @@ pub fn unpack_npm_tarball(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, Pkg
         };
         let rel_str = rel.to_string_lossy().replace('\\', "/");
         let rel_str = rel_str.trim_matches('/').to_string();
-        if rel_str.is_empty()
-            || rel_str.split('/').any(|seg| seg == ".." || seg.is_empty())
-        {
+        if rel_str.is_empty() || rel_str.split('/').any(|seg| seg == ".." || seg.is_empty()) {
             continue;
         }
         if entry.header().entry_type().is_symlink() || entry.header().entry_type().is_hard_link() {
@@ -811,7 +817,9 @@ pub fn unpack_npm_tarball(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, Pkg
             continue;
         }
         if entry.size() > MAX_ENTRY_BYTES {
-            return Err(PkgError::Malformed(format!("tar 单项过大，拒绝解包: {rel_str}")));
+            return Err(PkgError::Malformed(format!(
+                "tar 单项过大，拒绝解包: {rel_str}"
+            )));
         }
         let mut data = Vec::new();
         use std::io::Read;
@@ -842,13 +850,16 @@ mod tests {
     }
 
     const PURE_PKG: &str = r#"{"name":"demo-pure","pluginName":"纯展示","version":"1.0.0","main":"index.html","features":[{"code":"calc","explain":"计算","cmds":["calc","计算"]}]}"#;
-    const PURE_HTML: &str = r#"<div><script>utools.showNotification('hi');utools.db.put('k','v');</script></div>"#;
+    const PURE_HTML: &str =
+        r#"<div><script>utools.showNotification('hi');utools.db.put('k','v');</script></div>"#;
 
     #[test]
     fn pure_web_package_is_runnable() {
-        let verdict =
-            analyze_external_entries(&entries(&[("package.json", PURE_PKG), ("index.html", PURE_HTML)]))
-                .unwrap();
+        let verdict = analyze_external_entries(&entries(&[
+            ("package.json", PURE_PKG),
+            ("index.html", PURE_HTML),
+        ]))
+        .unwrap();
         assert!(verdict.runnable, "reasons: {:?}", verdict.reasons);
         assert_eq!(verdict.plugin_name, "纯展示");
         assert_eq!(verdict.features.len(), 1);
@@ -881,19 +892,29 @@ mod tests {
             analyze_external_entries(&entries(&[("package.json", pkg), ("index.html", html)]))
                 .unwrap();
         assert!(!verdict.runnable);
-        assert!(verdict.reasons.iter().any(|r| r.contains("utools.screenCapture")));
+        assert!(
+            verdict
+                .reasons
+                .iter()
+                .any(|r| r.contains("utools.screenCapture"))
+        );
     }
 
     #[test]
     fn utools_plugin_json_shape_accepted() {
         let manifest = r#"{"pluginName":"旧格式","main":"index.html","features":[{"code":"o","explain":"o","cmds":[{"type":"over","label":"问问AI"}]}]}"#;
-        let verdict =
-            analyze_external_entries(&entries(&[("plugin.json", manifest), ("index.html", "<div/>")]))
-                .unwrap();
+        let verdict = analyze_external_entries(&entries(&[
+            ("plugin.json", manifest),
+            ("index.html", "<div/>"),
+        ]))
+        .unwrap();
         assert!(verdict.runnable, "reasons: {:?}", verdict.reasons);
         assert_eq!(
             verdict.features[0].cmds,
-            vec![ExternalCmd::Match { kind: "over".into(), label: "问问AI".into() }]
+            vec![ExternalCmd::Match {
+                kind: "over".into(),
+                label: "问问AI".into()
+            }]
         );
     }
 
@@ -908,9 +929,12 @@ mod tests {
         // 回归：ip-config 类包 require("os") 曾漏网判 runnable，装后全 0.0.0.0。
         let pkg = r#"{"name":"demo-os","pluginName":"OS包","preload":"preload.js","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
         let preload = r#"const os = require("os");"#;
-        let verdict =
-            analyze_external_entries(&entries(&[("package.json", pkg), ("preload.js", preload), ("index.html", "<div/>")]))
-                .unwrap();
+        let verdict = analyze_external_entries(&entries(&[
+            ("package.json", pkg),
+            ("preload.js", preload),
+            ("index.html", "<div/>"),
+        ]))
+        .unwrap();
         assert!(!verdict.runnable);
         assert!(verdict.reasons.iter().any(|r| r.contains("require(os)")));
     }
@@ -934,7 +958,12 @@ mod tests {
             analyze_external_entries(&entries(&[("package.json", pkg), ("index.html", html)]))
                 .unwrap();
         assert!(!verdict.runnable);
-        assert!(verdict.reasons.iter().any(|r| r.contains("rubick.copyText")));
+        assert!(
+            verdict
+                .reasons
+                .iter()
+                .any(|r| r.contains("rubick.copyText"))
+        );
     }
 
     #[test]
@@ -958,7 +987,12 @@ mod tests {
         let out = convert_external_to_entries(&verdict, &input, "demo-net", "1.0.0").unwrap();
         let manifest_text = std::str::from_utf8(&out["plugin.json"]).unwrap();
         let manifest = omnipanel_plugin::PluginManifest::from_json(manifest_text).unwrap();
-        assert!(manifest.permissions.iter().any(|p| p.as_str() == "net:connect"));
+        assert!(
+            manifest
+                .permissions
+                .iter()
+                .any(|p| p.as_str() == "net:connect")
+        );
     }
 
     #[test]
@@ -969,21 +1003,29 @@ mod tests {
         let pkg = r#"{"name":"ip-config-rubick-plugin","pluginName":"ip-config","version":"1.0.4","main":"index.html","preload":"preload.js","features":[{"code":"ip","explain":"查IP","cmds":["ip"]}]}"#;
         let preload = r#"const os = require("os");window.lanIPv4 = async function(s){ s("1.2.3.4"); };window.wan_no_proxy = function(s,f){};window.locationInfo = function(s,f){};window.confetti = function(){};if (rubick.isMacOs() || rubick.isLinux()) {}"#;
         let html = r#"<div><script>window.lanIPv4(function(ip){ document.title = ip; });rubick.copyText("x");rubick.onPluginEnter(function(){});fetch('https://forge.speedtest.cn/api/location/info');</script></div>"#;
-        let input = entries(&[("package.json", pkg), ("preload.js", preload), ("index.html", html)]);
+        let input = entries(&[
+            ("package.json", pkg),
+            ("preload.js", preload),
+            ("index.html", html),
+        ]);
         let verdict = analyze_external_entries(&input).unwrap();
         assert!(verdict.runnable, "reasons: {:?}", verdict.reasons);
         assert_eq!(verdict.compat_shim.as_deref(), Some("ip-tools-v1"));
         assert!(verdict.needs_network);
-        let out =
-            convert_external_to_entries(&verdict, &input, "ip-config-rubick-plugin", "1.0.4")
-                .unwrap();
+        let out = convert_external_to_entries(&verdict, &input, "ip-config-rubick-plugin", "1.0.4")
+            .unwrap();
         assert!(out.contains_key("ui/compat/ip-tools-v1.js"));
         assert!(!out.contains_key("preload.js"));
         let manifest_text = std::str::from_utf8(&out["plugin.json"]).unwrap();
         let manifest = omnipanel_plugin::PluginManifest::from_json(manifest_text).unwrap();
         manifest.validate().expect("转出清单须过校验");
         assert_eq!(manifest.compat_entry(), Some("ui/compat/ip-tools-v1.js"));
-        assert!(manifest.permissions.iter().any(|p| p.as_str() == "net:connect"));
+        assert!(
+            manifest
+                .permissions
+                .iter()
+                .any(|p| p.as_str() == "net:connect")
+        );
     }
 
     #[test]
@@ -994,17 +1036,32 @@ mod tests {
             analyze_external_entries(&entries(&[("package.json", pkg), ("index.html", html)]))
                 .unwrap();
         assert!(!verdict.runnable);
-        assert!(verdict.reasons.iter().any(|r| r.contains("rubick.shellOpenItem")));
+        assert!(
+            verdict
+                .reasons
+                .iter()
+                .any(|r| r.contains("rubick.shellOpenItem"))
+        );
     }
 
     #[test]
     fn preload_unknown_global_is_external_only() {
         let pkg = r#"{"name":"demo-unk","pluginName":"未知全局","preload":"preload.js","main":"index.html","features":[{"code":"x","explain":"x","cmds":["x"]}]}"#;
-        let preload = r#"window.lanIPv4 = function(s){ s("x"); };window.customNative = function(){};"#;
-        let input = entries(&[("package.json", pkg), ("preload.js", preload), ("index.html", "<div/>")]);
+        let preload =
+            r#"window.lanIPv4 = function(s){ s("x"); };window.customNative = function(){};"#;
+        let input = entries(&[
+            ("package.json", pkg),
+            ("preload.js", preload),
+            ("index.html", "<div/>"),
+        ]);
         let verdict = analyze_external_entries(&input).unwrap();
         assert!(!verdict.runnable);
-        assert!(verdict.reasons.iter().any(|r| r.contains("window.customNative")));
+        assert!(
+            verdict
+                .reasons
+                .iter()
+                .any(|r| r.contains("window.customNative"))
+        );
         assert_eq!(verdict.compat_shim, None);
     }
 
@@ -1032,15 +1089,17 @@ mod tests {
             }
             builder.finish().unwrap();
         }
-        let mut encoder =
-            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         encoder.write_all(&tar_buf).unwrap();
         encoder.finish().unwrap()
     }
 
     #[test]
     fn unpack_strips_top_dir_and_rejects_links() {
-        let tgz = make_tgz(&[("package.json", PURE_PKG.as_bytes()), ("index.html", PURE_HTML.as_bytes())]);
+        let tgz = make_tgz(&[
+            ("package.json", PURE_PKG.as_bytes()),
+            ("index.html", PURE_HTML.as_bytes()),
+        ]);
         let out = unpack_npm_tarball(&tgz).unwrap();
         assert!(out.contains_key("package.json"));
         assert!(out.contains_key("index.html"));
@@ -1057,10 +1116,7 @@ mod tests {
     }
 
     fn pure_web_full() -> BTreeMap<String, Vec<u8>> {
-        entries(&[
-            ("package.json", PURE_PKG),
-            ("index.html", PURE_HTML),
-        ])
+        entries(&[("package.json", PURE_PKG), ("index.html", PURE_HTML)])
     }
 
     #[test]
@@ -1068,8 +1124,7 @@ mod tests {
         let input = pure_web_full();
         let verdict = analyze_external_entries(&input).unwrap();
         assert!(verdict.runnable);
-        let out =
-            convert_external_to_entries(&verdict, &input, "demo-pure", "1.2.3").unwrap();
+        let out = convert_external_to_entries(&verdict, &input, "demo-pure", "1.2.3").unwrap();
         assert!(out.contains_key("plugin.json"));
         assert!(out.contains_key("ui/main.js"));
         assert!(out.contains_key("index.html"));
@@ -1103,8 +1158,7 @@ mod tests {
     fn convert_scoped_npm_name_sanitized() {
         let input = pure_web_full();
         let verdict = analyze_external_entries(&input).unwrap();
-        let out =
-            convert_external_to_entries(&verdict, &input, "@scope/Name.X", "0.0.1").unwrap();
+        let out = convert_external_to_entries(&verdict, &input, "@scope/Name.X", "0.0.1").unwrap();
         let manifest_text = std::str::from_utf8(&out["plugin.json"]).unwrap();
         let manifest = omnipanel_plugin::PluginManifest::from_json(manifest_text).unwrap();
         assert_eq!(manifest.id, "omni.ext.scope-name.x");

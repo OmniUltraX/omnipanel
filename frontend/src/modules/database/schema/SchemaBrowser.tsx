@@ -1,4 +1,5 @@
-import { Button } from "../../../components/ui/Button";
+import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
+import { ModuleSidebarTreeToolbar } from "@/components/ui/module-sidebar";
 import { IconDropdownButton } from "../../../components/ui/menu";
 import { ScopedSearch } from "../../../components/ui/search";
 import { ContextMenu } from "../../../components/ui/menu";
@@ -10,7 +11,7 @@ import {
   SchemaFilterDialog,
 } from "./DatabaseFilterDialog";
 import { estimateSchemaFlatRowSize } from "./schemaTreeFlatRows";
-import { SchemaSidebarSection } from "./SchemaSidebarSection";
+import { ModuleSidebarSection, SidebarImportIcon } from "@/components/ui/module-sidebar";
 import {
   SidebarTreeSelectionProvider,
 } from "@/components/ui/sidebar-tree";
@@ -85,6 +86,8 @@ export function SchemaBrowser({
     handleContextLayoutRoot,
     handlePathCrumbClick,
     handleCollapseAll,
+    handleExpandAll,
+    expandAllDisabled,
     refreshSchemaCache,
     getSchemaTreeContextMenuItems,
     filterDialogConn,
@@ -108,38 +111,34 @@ export function SchemaBrowser({
 
   const toolbar = (
     <div className="schema-toolbar schema-toolbar--inline">
-      <Button
-        variant="icon"
+      <WorkbenchActionButton
+        icon
         title={t("database.sidebar.createConnection")}
+        aria-label={t("database.sidebar.createConnection")}
         onClick={onCreateConnection}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
           <path d="M12 5v14M5 12h14" />
         </svg>
-      </Button>
+      </WorkbenchActionButton>
       {onNewSqlQuery ? (
-        <Button
-          variant="icon"
+        <WorkbenchActionButton
+          icon
           title={t("database.workspace.newQuery")}
           aria-label={t("database.workspace.newQuery")}
           onClick={onNewSqlQuery}
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="12" height="12" aria-hidden>
             <path d="M3 4.5h10M3 8h10M3 11.5h6" strokeLinecap="round" />
             <path d="M11.5 8.5 13 10l-2 2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        </Button>
+        </WorkbenchActionButton>
       ) : null}
       {onImportNavicat ? (
         <IconDropdownButton
           title={t("database.sidebar.importConnections")}
-          icon={
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-              <path d="M12 3v12" />
-              <path d="M8 11l4 4 4-4" />
-              <path d="M4 21h16" />
-            </svg>
-          }
+          size="icon-xs"
+          icon={<SidebarImportIcon />}
           items={[
             {
               id: "datagrip",
@@ -171,29 +170,15 @@ export function SchemaBrowser({
           ]}
         />
       ) : null}
-      <Button
-        variant="icon"
-        title={t("database.sidebar.refresh")}
-        disabled={anyConnectionRefreshing}
-        onClick={() => void refreshSchemaCache()}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-          <path d="M23 4v6h-6M1 20v-6h6" />
-          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-        </svg>
-      </Button>
-      <Button
-        variant="icon"
-        title={t("database.sidebar.collapseAll")}
-        aria-label={t("database.sidebar.collapseAll")}
-        disabled={expandedNodeIds.size === 0}
-        onClick={handleCollapseAll}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden>
-          <path d="M8 16l4-4 4 4" />
-          <path d="M8 11l4-4 4 4" />
-        </svg>
-      </Button>
+      <ModuleSidebarTreeToolbar
+        onRefresh={() => void refreshSchemaCache()}
+        onExpandAll={handleExpandAll}
+        onCollapseAll={handleCollapseAll}
+        refreshing={anyConnectionRefreshing}
+        refreshDisabled={anyConnectionRefreshing}
+        expandDisabled={expandAllDisabled}
+        collapseDisabled={expandedNodeIds.size === 0}
+      />
     </div>
   );
 
@@ -377,9 +362,9 @@ export function SchemaBrowser({
 
   if (section) {
     return (
-      <SchemaSidebarSection {...section} actions={toolbar}>
+      <ModuleSidebarSection {...section} count={connectionConfigs?.length ?? 0} actions={toolbar}>
         {panelBody}
-      </SchemaSidebarSection>
+      </ModuleSidebarSection>
     );
   }
 

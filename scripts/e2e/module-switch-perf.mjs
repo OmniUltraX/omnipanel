@@ -94,6 +94,10 @@ async function measure(label) {
     conn,
     "Math.round(performance.memory.usedJSHeapSize/1048576*10)/10",
   );
+  const overlays0 = await evalJs(
+    conn,
+    `(function(){var o=[...document.querySelectorAll('.route-panel--overlay')];return JSON.stringify({n:o.length,active:o.filter(e=>e.classList.contains('route-panel--active')).length})})()`,
+  );
   for (const title of CLICK_TITLES) {
     // 先 pointerdown（探针打点）再 click（与真实点击一致）
     const clicked = await evalJs(
@@ -110,10 +114,15 @@ async function measure(label) {
     conn,
     "Math.round(performance.memory.usedJSHeapSize/1048576*10)/10",
   );
+  const overlays1 = await evalJs(
+    conn,
+    `(function(){var o=[...document.querySelectorAll('.route-panel--overlay')];return JSON.stringify({n:o.length,active:o.filter(e=>e.classList.contains('route-panel--active')).length})})()`,
+  );
   conn.close();
   const rows = JSON.parse(summary);
   const tasks = JSON.parse(longtasks);
   console.log(`\n=== ${label} ===`);
+  console.log(`overlays: ${overlays0} -> ${overlays1}`);
   console.log(`heap: ${heap0}MB -> ${heap1}MB (delta ${(Math.round((heap1 - heap0) * 10) / 10)}MB)`);
   console.log("pair | count | avgMs | p95Ms | avgInputToEffectMs | avgInputToLayoutMs | lastHeapMB");
   for (const r of rows) {
@@ -160,6 +169,54 @@ async function main() {
     console.log("[cleanup] flag removed, app rebooted with retain-all");
   } else if (phase === "measure") {
     await measure("manual (no reload, current flag)");
+  } else if (phase === "hover-scan") {
+    const conn = await connectRetry("hover");
+    await waitForProbe(conn);
+    const before = await evalJs(
+      conn,
+      `(function(){var o=[...document.querySelectorAll('.route-panel--overlay')];return o.length})()`,
+    );
+    await evalJs(
+      conn,
+      `(function(){var btns=[...document.querySelectorAll('.sidebar-item[title]')];for(var b of btns){b.dispatchEvent(new MouseEvent('mouseover',{bubbles:true,view:window}));}return btns.map(x=>x.title).join('|')})()`,
+    );
+    await sleep(800);
+    const after = await evalJs(
+      conn,
+      `(function(){var o=[...document.querySelectorAll('.route-panel--overlay')];return o.length})()`,
+    );
+    console.log(`hover-scan overlays: ${before} -> ${after} (should not grow)`);
+    conn.close();
+  } else if (phase === "first-open") {
+    const conn = await connectRetry("first");
+    await waitForProbe(conn);
+    await evalJs(conn, "window.__omniSwitchPerf.reset(); 'ok'");
+    await evalJs(
+      conn,
+      `(function(){window.__omniLongtasks=[];if(window.__omniLongtaskObs){try{window.__omniLongtaskObs.disconnect()}catch{}}try{var o=new PerformanceObserver(function(l){for(var e of l.getEntries()){window.__omniLongtasks.push({d:Math.round(e.duration*10)/10});if(window.__omniLongtasks.length>40)window.__omniLongtasks.shift()}});o.observe({entryTypes:['longtask']});window.__omniLongtaskObs=o;return 'obs'}catch(e){return String(e)}})()`,
+    );
+    const overlays0 = await evalJs(
+      conn,
+      `(function(){var o=[...document.querySelectorAll('.route-panel--overlay')];return o.length})()`,
+    );
+    for (const title of ["云", "文件"]) {
+      const clicked = await evalJs(
+        conn,
+        `(function(){var btns=[...document.querySelectorAll('.sidebar-item[title]')];var b=btns.find(x=>x.title==${JSON.stringify(title)});if(!b)return 'missing';b.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));b.click();return location.pathname})()`,
+      );
+      await sleep(1800);
+      console.log("opened", title, clicked);
+    }
+    const summary = await evalJs(conn, "JSON.stringify(window.__omniSwitchPerf.summary())");
+    const longtasks = await evalJs(conn, "JSON.stringify((window.__omniLongtasks||[]).filter(t=>t.d>50))");
+    const overlays1 = await evalJs(
+      conn,
+      `(function(){var o=[...document.querySelectorAll('.route-panel--overlay')];return o.length})()`,
+    );
+    console.log("overlays", overlays0, "->", overlays1);
+    console.log("summary", summary);
+    console.log("longtasks", longtasks);
+    conn.close();
   } else {
     console.error("usage: node scripts/e2e/module-switch-perf.mjs <phase-a|phase-b|phase-c>");
     process.exit(2);

@@ -1655,6 +1655,17 @@ export function useSchemaBrowserModel({
   const handleCollapseAll = useCallback(() => {
     updateExpanded(() => new Set());
   }, [updateExpanded]);
+  /** 一键展开仅到连接层（库表不动，避免大树瞬间爆炸），与折叠配对。 */
+  const handleExpandAll = useCallback(() => {
+    const ids = connections.map((conn) => `conn:${conn.config.id}`);
+    updateExpanded((prev) => new Set([...prev, ...ids]));
+  }, [connections, updateExpanded]);
+  const expandAllDisabled = useMemo(
+    () =>
+      connections.length === 0 ||
+      connections.every((conn) => expandedNodeIds.has(`conn:${conn.config.id}`)),
+    [connections, expandedNodeIds],
+  );
   return {
     t,
     search,
@@ -1692,6 +1703,8 @@ export function useSchemaBrowserModel({
     handleContextLayoutRoot,
     handlePathCrumbClick,
     handleCollapseAll,
+    handleExpandAll,
+    expandAllDisabled,
     refreshSchemaCache,
     getSchemaTreeContextMenuItems,
     filterDialogConn,

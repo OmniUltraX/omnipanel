@@ -8,8 +8,8 @@ pub mod local;
 pub mod siyuan_s3;
 
 pub use adapter::{
-    AdapterOptions, KsDocContent, KsDocRef, KsNotebook, MethodCaller, PluginAdapter, SourceAdapter,
-    MAX_ASSET_BYTES,
+    AdapterOptions, KsDocContent, KsDocRef, KsNotebook, MAX_ASSET_BYTES, MethodCaller,
+    PluginAdapter, SourceAdapter,
 };
 pub use engine::{KsFailure, KsReport, rebuild_source, sync_source};
 pub use local::{MAX_PARSE_BYTES, PluginLocalAdapter, read_local_file, walk_local_files};

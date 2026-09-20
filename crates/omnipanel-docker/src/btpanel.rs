@@ -1087,12 +1087,15 @@ async fn enrich_containers_compose_from_ssh_labels(
             config_files,
         };
         if let Some(id) = item.id.clone() {
-            by_id.insert(id, LabelMeta {
-                project: meta.project.clone(),
-                service: meta.service.clone(),
-                working_dir: meta.working_dir.clone(),
-                config_files: meta.config_files.clone(),
-            });
+            by_id.insert(
+                id,
+                LabelMeta {
+                    project: meta.project.clone(),
+                    service: meta.service.clone(),
+                    working_dir: meta.working_dir.clone(),
+                    config_files: meta.config_files.clone(),
+                },
+            );
         }
         for n in item.names.unwrap_or_default() {
             let n = n.trim_start_matches('/').to_string();

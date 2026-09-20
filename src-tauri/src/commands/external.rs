@@ -10,9 +10,7 @@
 
 use omnipanel_error::OmniError;
 use omnipanel_plugin::PluginListItem;
-use omnipanel_plugin_pkg::{
-    ExternalCmd, analyze_external_entries, unpack_npm_tarball,
-};
+use omnipanel_plugin_pkg::{ExternalCmd, analyze_external_entries, unpack_npm_tarball};
 use omnipanel_store::AuditEntry;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -107,9 +105,9 @@ fn validate_npm_name(npm: &str) -> Result<String, OmniError> {
     if name.contains("://") || name.contains("..") || name.chars().any(char::is_whitespace) {
         return Err(OmniError::invalid_input("npm 包名非法"));
     }
-    let ok = name.chars().all(|c| {
-        c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '@' | '~')
-    });
+    let ok = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '@' | '~'));
     if !ok {
         return Err(OmniError::invalid_input("npm 包名非法"));
     }
@@ -286,8 +284,7 @@ pub async fn plugin_external_analyze_npm(
             .await
             .map_err(|e| OmniError::internal(e.to_string()))?
             .map_err(pkg_err_to_omni)?;
-        let verdict =
-            analyze_external_entries(&entries).map_err(pkg_err_to_omni)?;
+        let verdict = analyze_external_entries(&entries).map_err(pkg_err_to_omni)?;
         Ok(dto_from_verdict(&npm, &version, &verdict))
     }
     .await;
@@ -314,8 +311,7 @@ pub async fn plugin_external_convert_npm(
     let npm = validate_npm_name(&npm)?;
     let version = validate_version(&version)?;
     let outcome: Result<PluginListItem, OmniError> = async {
-        let (bytes, _target) =
-            fetch_verified_tarball(&state.plugin_http, &npm, &version).await?;
+        let (bytes, _target) = fetch_verified_tarball(&state.plugin_http, &npm, &version).await?;
         let (verdict, entries) = tokio::task::spawn_blocking(move || {
             let entries = unpack_npm_tarball(&bytes)?;
             let verdict = analyze_external_entries(&entries)?;
@@ -324,10 +320,9 @@ pub async fn plugin_external_convert_npm(
         .await
         .map_err(|e| OmniError::internal(e.to_string()))?
         .map_err(pkg_err_to_omni)?;
-        let out_entries = omnipanel_plugin_pkg::convert_external_to_entries(
-            &verdict, &entries, &npm, &version,
-        )
-        .map_err(pkg_err_to_omni)?;
+        let out_entries =
+            omnipanel_plugin_pkg::convert_external_to_entries(&verdict, &entries, &npm, &version)
+                .map_err(pkg_err_to_omni)?;
         let tmp = std::env::temp_dir().join(format!(
             "omni-external-{}-{}-{}.omni-plugin",
             npm.replace(['@', '/', '.'], "_"),

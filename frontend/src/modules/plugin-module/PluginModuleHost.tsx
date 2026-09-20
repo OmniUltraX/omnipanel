@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { ModuleSegmentDock, closeDockTabNow, openDockTabNow } from "../../components/dock";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
@@ -24,6 +25,9 @@ import { parseModuleWindowParams } from "../../lib/moduleWindow";
 import { manifestModuleCapabilities } from "../../lib/moduleCapabilities";
 import { getPluginManifest } from "../../lib/pluginManifests";
 import { getPluginModule } from "../../lib/pluginModuleRegistry";
+import { PLUGINS_PATH } from "../../lib/paths";
+import { navigateToFeature } from "../../lib/workspaceNavigation";
+import { ensureKnownPluginIds } from "../../lib/pluginEnsure";
 import { showToast } from "../../stores/toastStore";
 import { isPluginActivated, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -54,6 +58,7 @@ import "./moduleHost.css";
 
 export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const { active: moduleActive, suspended: moduleSuspended } = useModuleVisibility();
   usePluginRuntimeStore((s) => s.items);
   const desc = getPluginModule(moduleKey);
@@ -65,6 +70,12 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
     manifest?.displayName?.trim() ||
     (translated === nameKey ? moduleKey : translated);
   const activated = desc ? isPluginActivated(desc.pluginId) : false;
+
+  useEffect(() => {
+    if (!moduleActive || !pluginId || activated) return;
+    void ensureKnownPluginIds([pluginId]);
+  }, [moduleActive, pluginId, activated]);
+
   const connections = useConnectionStore((s) => s.connections);
   const removeConn = useConnectionStore((s) => s.remove);
   const saveConn = useConnectionStore((s) => s.save);
@@ -318,6 +329,18 @@ export function PluginModuleHost({ moduleKey }: { moduleKey: string }) {
       <WorkspaceEmptyPage
         title={name}
         prompt={t("plugins.moduleShell.disabled", { name })}
+        actions={
+          pluginId ? (
+            <>
+              <WorkbenchActionButton onClick={() => void ensureKnownPluginIds([pluginId])}>
+                {t("plugins.ensure.installNow")}
+              </WorkbenchActionButton>
+              <WorkbenchActionButton onClick={() => navigateToFeature(PLUGINS_PATH, navigate)}>
+                {t("plugins.ensure.goInstall")}
+              </WorkbenchActionButton>
+            </>
+          ) : null
+        }
       />
     );
   }

@@ -4784,8 +4784,9 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 
 /*
  * 闅愯棌鐨勯潪 dockview overlay锛氳烦杩囧瓙鏍戝竷灞€涓庣粯鍒讹紝鍑忚交鍚庡彴妯″潡鐨勬覆鏌撳紑閿€銆? * keep-layout 妯″潡锛堢粓绔?鏁版嵁搴?dockview锛変笉鍙備笌锛岄伩鍏嶉噺鍒?0 瀹藉悗 api.layout 鍘嬫墎銆? * 鍏冪礌鑷韩浠?absolute inset:0 鍗犱綅锛屽垏鍥炴椂瀛愭爲鎸夋棦鏈?box 鎭㈠甯冨眬锛屾棤灏哄濉岄櫡銆? */
-.route-panel--overlay:not(.route-panel--active):not(.route-panel--keep-layout) {
+.route-panel--overlay:not(.route-panel--active) {
     content-visibility: hidden;
+    contain-intrinsic-size: auto 100%;
 }
 
 /* === 宸ヤ綔鍖哄叏灞忔€侊細dock 瀹瑰櫒 position:fixed 鍗犳弧瑙嗗彛 ===
@@ -23782,7 +23783,8 @@ button.omni-btn-tool[aria-pressed="true"] {
 
 .fm-conn-item--selected,
 .fm-favorite-item--selected {
-    background: var(--accent-soft);
+    /* 与 sidebar-tree --selected 同色：多选 ≠ 打开，两者必须可区分。 */
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface));
     color: var(--fg);
 }
 

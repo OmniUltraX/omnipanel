@@ -42,6 +42,8 @@ interface KnowledgeStore {
   setSelectedEntry: (id: string | null) => void;
   toggleExpanded: (id: string) => void;
   setExpanded: (id: string, open: boolean) => void;
+  /** 批量替换展开集合（段头一键展开 / 折叠用，一次 set 避免逐个通知） */
+  setExpandedIds: (ids: string[]) => void;
   clearError: () => void;
 }
 
@@ -288,6 +290,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
               : [...state.expandedIds, id]
             : state.expandedIds.filter((x) => x !== id),
         })),
+      setExpandedIds: (ids) => set({ expandedIds: [...ids] }),
       clearError: () => set({ error: null }),
     }),
     {

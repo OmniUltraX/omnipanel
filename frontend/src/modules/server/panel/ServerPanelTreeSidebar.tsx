@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
-import { Button } from "@/components/ui/Button";
-import { IconRefresh } from "@/components/ui/Icons";
+import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import { appConfirm } from "@/lib/appConfirm";
 import { showToast } from "@/stores/toastStore";
 import {
-  VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
-} from "@/components/ui/VerticalSplitSidebar";
+} from "@/components/ui/sidebar/VerticalSplitSidebar";
+import { ModuleSidebarSection, SidebarCountBadge } from "@/components/ui/module-sidebar";
+import {
+  ModuleSidebarTreeToolbar,
+  usePersistedTreeExpanded,
+} from "@/components/ui/module-sidebar";
 import {
   SidebarTreeEmpty,
   SidebarTreeNode,
@@ -34,7 +37,6 @@ import {
 } from "./panelPlugin";
 import { listPanelSidebarTabs } from "./panelTabIds";
 import { usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
-import { usePersistedServerTreeExpanded } from "./usePersistedServerTreeExpanded";
 import {
   makeServerTreeKey,
   serverSupportsResources,
@@ -175,7 +177,10 @@ export function ServerPanelTreeSidebar({
   const resourcesByServerId = useServerPanelCacheStore((s) => s.resourcesByServerId);
   const refreshingServerIds = useServerPanelCacheStore((s) => s.refreshingServerIds);
   const refreshingAppsServerIds = useServerPanelCacheStore((s) => s.refreshingAppsServerIds);
-  const { isExpanded, toggle, ensureExpanded } = usePersistedServerTreeExpanded();
+  // storageKey 沿用旧 key，用户现有展开态不断。
+  const { isExpanded, toggle, ensureExpanded, setAllExpanded } = usePersistedTreeExpanded(
+    "omnipanel-server-tree-expanded.v1",
+  );
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxServer, setCtxServer] = useState<ServerEntry | null>(null);
   const [syncingFromSsh, setSyncingFromSsh] = useState(false);
@@ -313,6 +318,30 @@ export function ServerPanelTreeSidebar({
     [servers],
   );
 
+  /** Shift 范围选顺序：服务 + 其下面板分类，按渲染顺序扁平。 */
+  const orderedKeys = useMemo(
+    () =>
+      sortedServers.flatMap((server) => [
+        makeServerTreeKey(server.id),
+        ...listPanelSidebarTabs(server.serviceType).map((category) =>
+          makeServerTreeKey(server.id, category),
+        ),
+      ]),
+    [sortedServers],
+  );
+  const serverKeys = useMemo(
+    () => sortedServers.map((server) => makeServerTreeKey(server.id)),
+    [sortedServers],
+  );
+  const expandAllServersDisabled = useMemo(
+    () => serverKeys.length === 0 || serverKeys.every((key) => isExpanded(key)),
+    [serverKeys, isExpanded],
+  );
+  const collapseAllServersDisabled = useMemo(
+    () => serverKeys.length === 0 || serverKeys.every((key) => !isExpanded(key)),
+    [serverKeys, isExpanded],
+  );
+
   useEffect(() => {
     if (!hasSidebarTreeSearch(searchQuery)) {
       return;
@@ -365,11 +394,18 @@ export function ServerPanelTreeSidebar({
 
   const toolbarActions = (
     <div className="schema-toolbar schema-toolbar--inline">
-      <Button
-        type="button"
-        variant="icon"
-        size="icon-xs"
-        className="server-sidebar-refresh"
+      <WorkbenchActionButton
+        icon
+        title={t("server.sidebar.addPanel")}
+        aria-label={t("server.sidebar.addPanel")}
+        onClick={onCreateServer}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </WorkbenchActionButton>
+      <WorkbenchActionButton
+        icon
         title={
           syncingFromSsh
             ? t("server.sidebar.syncFromSshRunning")
@@ -379,44 +415,24 @@ export function ServerPanelTreeSidebar({
         disabled={connectionsLoading || syncingFromSsh}
         onClick={handleSyncFromSsh}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M12 3v12" />
           <path d="m8 11 4 4 4-4" />
           <path d="M4 19h16" />
         </svg>
-      </Button>
-      <Button
-        type="button"
-        variant="icon"
-        size="icon-xs"
-        className="server-sidebar-refresh"
-        title={t("server.sidebar.refreshPanels")}
-        aria-label={t("server.sidebar.refreshPanels")}
-        disabled={connectionsLoading || cacheRefreshing || syncingFromSsh}
-        onClick={handleRefreshPanels}
-      >
-        <IconRefresh size={14} />
-      </Button>
-      <Button
-        type="button"
-        variant="icon"
-        className="server-sidebar-add"
-        title={t("server.sidebar.addPanel")}
-        onClick={onCreateServer}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </Button>
+      </WorkbenchActionButton>
     </div>
   );
 
   const panelBody = (
     <>
-      <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
+      <SidebarTreeSelectionProvider
+        orderedKeys={orderedKeys}
+        onSelectedIdsChange={handleSelectedIdsChange}
+      >
       <SidebarTreeRoot className="server-sidebar-body">
         {sortedServers.length === 0 ? (
-          <div className="empty-state compact">{t("common.noResources")}</div>
+            <SidebarTreeEmpty>{t("common.noResources")}</SidebarTreeEmpty>
         ) : (
             sortedServers.map((server) => {
             const serverKey = makeServerTreeKey(server.id);
@@ -463,7 +479,7 @@ export function ServerPanelTreeSidebar({
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{server.name}</span>
                       <span
-                        className={`badge badge-muted server-item__type-tag server-item__type-tag--${panelTypeTagModifier(server.serviceType)}`}
+                        className={`sidebar-tag-chip badge badge-muted server-item__type-tag server-item__type-tag--${panelTypeTagModifier(server.serviceType)}`}
                       >
                         {panelServiceTypeLabel(server.serviceType, t)}
                       </span>
@@ -515,17 +531,24 @@ export function ServerPanelTreeSidebar({
   if (section) {
     return (
       <div className="server-sidebar">
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           {...section}
-          actions={
-            <>
-              <span className="badge badge-muted">{servers.length}</span>
-              {toolbarActions}
-            </>
+          count={servers.length}
+          actions={toolbarActions}
+          toolbar={
+            <ModuleSidebarTreeToolbar
+              onRefresh={() => void handleRefreshPanels()}
+              onExpandAll={() => setAllExpanded(serverKeys, true)}
+              onCollapseAll={() => setAllExpanded(serverKeys, false)}
+              refreshing={cacheRefreshing}
+              refreshDisabled={connectionsLoading || cacheRefreshing || syncingFromSsh}
+              expandDisabled={expandAllServersDisabled}
+              collapseDisabled={collapseAllServersDisabled}
+            />
           }
         >
           {panelBody}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
       </div>
     );
   }
@@ -534,7 +557,7 @@ export function ServerPanelTreeSidebar({
     <div className="server-sidebar">
       <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
         <span>{t("server.sidebar.title")}</span>
-        <span className="badge badge-muted">{servers.length}</span>
+        <SidebarCountBadge count={servers.length} />
         {toolbarActions}
       </div>
       {panelBody}

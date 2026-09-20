@@ -17,6 +17,7 @@ import { ApprovalDialog } from "./components/ai/ApprovalDialog";
 import { ImporterWizardDialog } from "./modules/importer/ImporterWizardDialog";
 import { TeamShareDialogConnected } from "./components/share/TeamShareDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
+import { PluginEnsureHost } from "./modules/plugins/PluginEnsureHost";
 import { PluginOverlayHost } from "./components/ui/overlay/PluginOverlayHost";
 import { SelectionFloatLayer } from "./components/plugin/SelectionFloatLayer";
 import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
@@ -347,6 +348,24 @@ function AppShell() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void import("./lib/pluginEnsure").then(({ schedulePluginEnsure }) => {
+        schedulePluginEnsure();
+      });
+    }, 10000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void import("./i18n").then(({ prepareIdleLocale }) => {
+        void prepareIdleLocale();
+      });
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // 空闲错峰预拉 chunk（挂壳只走 hover/pointerdown 意图驱动，不参与闲扫）
   useEffect(() => scheduleIdleChunkWarm(), []);
 
@@ -550,6 +569,7 @@ function AppShell() {
       <QuickInputHost />
       {/* 全局应用内 confirm/alert；禁止改回 Tauri 原生 dialog */}
       <AppDialogHost />
+      <PluginEnsureHost />
       <PluginOverlayHost />
       <SelectionFloatLayer />
       <CloseBehaviorDialogHost />

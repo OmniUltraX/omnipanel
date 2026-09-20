@@ -39,7 +39,11 @@ interface KnowledgeCrepeEditorProps {
   onChange: (markdown: string) => void;
   onNavigateLink?: (nav: KnowledgeLinkNavigate) => void;
   onHoverLink?: (nav: KnowledgeLinkNavigate | null) => void;
-  jumpHeadingText?: string | null;
+  /**
+   * 大纲跳转请求：nonce 保证每次点击都触发（同标题重复点也生效），
+   * occurrence 区分同名标题（第 N 个同名标题）。
+   */
+  jumpHeadingRequest?: { text: string; occurrence: number; nonce: number } | null;
   onJumpHeadingHandled?: () => void;
 }
 
@@ -185,7 +189,7 @@ function CrepeEditorInner(props: KnowledgeCrepeEditorProps) {
     resolveTitleToId = () => null,
     idToTitle = () => null,
     onChange,
-    jumpHeadingText,
+    jumpHeadingRequest,
     onJumpHeadingHandled,
   } = props;
 
@@ -197,6 +201,8 @@ function CrepeEditorInner(props: KnowledgeCrepeEditorProps) {
   idToTitleRef.current = idToTitle;
   const reverseAssetRef = useRef(new Map<string, string>());
   const [editorContent, setEditorContent] = useState<string | null>(null);
+  /** 本实例作用域：多 Tab 常驻时不串到别的编辑器 */
+  const scopeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -218,32 +224,93 @@ function CrepeEditorInner(props: KnowledgeCrepeEditorProps) {
   }, [entryId]);
 
   useEffect(() => {
-    if (!jumpHeadingText) return;
-    const root = document.querySelector(".knowledge-crepe-shell .ProseMirror");
-    if (!root) return;
-    const headings = root.querySelectorAll("h1,h2,h3,h4,h5,h6");
-    for (const node of headings) {
-      if ((node.textContent ?? "").trim() === jumpHeadingText.trim()) {
-        node.scrollIntoView({ behavior: "smooth", block: "start" });
-        break;
+    // 编辑器内容还没初始化好时不消费请求，等 editorContent 就绪后 effect 会重跑
+    if (!jumpHeadingRequest || editorContent == null) return;
+    // 大纲文本是源码 markdown，渲染后内联语法（加粗/链接/wikilink）会消失，归一化后再比对
+    const normalize = (s: string) =>
+      s
+        .trim()
+        .replace(/\[\[|\]\]/g, "")
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/(\*\*|__|\*|_|~~|`)/g, "")
+        .replace(/\s+#+\s*$/, "")
+        .trim();
+    const want = jumpHeadingRequest.text.trim();
+    const wantNormalized = normalize(want);
+    // ProseMirror 是异步挂载的，轮询等它出现（最多约 1.5s），避免请求在 DOM 就绪前被消费掉
+    let cancelled = false;
+    let attempts = 0;
+    let flashTimer: number | null = null;
+    const timer: number = window.setInterval(() => {
+      if (cancelled) return;
+      attempts += 1;
+      const scope = scopeRef.current;
+      const pm = scope?.querySelector(".ProseMirror");
+      const nodes = pm
+        ? Array.from(
+            pm.querySelectorAll("h1, h2, h3, h4, h5, h6"),
+          )
+        : [];
+      const matches = nodes.filter((node) => {
+        const text = node.textContent ?? "";
+        return text.trim() === want || normalize(text) === wantNormalized;
+      });
+      const target = matches[Math.min(jumpHeadingRequest.occurrence, matches.length - 1)];
+      if (!target) {
+        if (attempts >= 25) {
+          window.clearInterval(timer);
+          onJumpHeadingHandled?.();
+        }
+        return;
       }
-    }
-    onJumpHeadingHandled?.();
-  }, [jumpHeadingText, onJumpHeadingHandled]);
+      window.clearInterval(timer);
+      // 直接滚已知容器，不依赖 scrollIntoView 穿透多层滚动祖先的行为
+      const scroller = scope?.closest(".knowledge-note-scroll");
+      if (scroller) {
+        const sRect = scroller.getBoundingClientRect();
+        const tRect = target.getBoundingClientRect();
+        scroller.scrollTo({
+          top: scroller.scrollTop + (tRect.top - sRect.top) - 12,
+          behavior: "smooth",
+        });
+      } else {
+        target.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+      }
+      // 命中闪一下，方便确认跳到了哪一段
+      target.classList.remove("knowledge-jump-flash");
+      // 强制重启动画（同一标题连点时）
+      void (target as HTMLElement).offsetWidth;
+      target.classList.add("knowledge-jump-flash");
+      flashTimer = window.setTimeout(() => target.classList.remove("knowledge-jump-flash"), 1300);
+      onJumpHeadingHandled?.();
+    }, 60);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      if (flashTimer) window.clearTimeout(flashTimer);
+    };
+  }, [jumpHeadingRequest, editorContent, onJumpHeadingHandled]);
 
   if (editorContent == null) {
-    return <div className="knowledge-crepe-loading" />;
+    return (
+      <div ref={scopeRef} className="knowledge-crepe-jump-scope">
+        <div className="knowledge-crepe-loading" />
+      </div>
+    );
   }
 
   return (
-    <CrepeEditorMount
-      entryId={entryId}
-      defaultContent={editorContent}
-      placeholder={placeholder}
-      reverseAssetRef={reverseAssetRef}
-      idToTitleRef={idToTitleRef}
-      onChangeRef={onChangeRef}
-    />
+    <div ref={scopeRef} className="knowledge-crepe-jump-scope">
+      <CrepeEditorMount
+        entryId={entryId}
+        defaultContent={editorContent}
+        placeholder={placeholder}
+        reverseAssetRef={reverseAssetRef}
+        idToTitleRef={idToTitleRef}
+        onChangeRef={onChangeRef}
+      />
+    </div>
   );
 }
 

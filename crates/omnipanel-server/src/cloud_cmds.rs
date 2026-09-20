@@ -2,11 +2,10 @@
 //! 业务调用（测连、列表、动作）依赖桌面端插件 L2；Web 暂无 QuickJS 运行时。
 
 use omnipanel_cloud::{
-    CloudAccountSnapshot, CloudAction, CloudActionResult, CloudLogPage, CloudLogQuery,
-    CloudMetricQuery, CloudMetricSeries, CloudRegion, CloudResourceDetail, CloudResourceFilter,
-    CloudResourceRow, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT, default_region,
-    AliyunCredentials, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudOssBucket,
-    CloudSwasInstance,
+    AliyunCredentials, CloudAccountSnapshot, CloudAction, CloudActionResult, CloudCertificateItem,
+    CloudDomainItem, CloudEcsInstance, CloudLogPage, CloudLogQuery, CloudMetricQuery,
+    CloudMetricSeries, CloudOssBucket, CloudRegion, CloudResourceDetail, CloudResourceFilter,
+    CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT, default_region,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{Connection, ConnectionKind, Vault};
@@ -216,9 +215,7 @@ pub async fn cloud_resolve_secret(
         .filter(|s| !s.trim().is_empty())
         .or_else(|| Vault::get(&cloud_secret_ref(connection_id)).ok())
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| {
-            OmniError::invalid_input("未找到 AccessKey Secret，请重新填写并保存连接")
-        })?;
+        .ok_or_else(|| OmniError::invalid_input("未找到 AccessKey Secret，请重新填写并保存连接"))?;
 
     Ok(secret.trim().to_string())
 }

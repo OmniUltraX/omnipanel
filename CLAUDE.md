@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OmniPanel is an AI-native cross-platform engineering workstation for developers. It unifies terminal, SSH, database, Docker, server management, and AI assistance into a single desktop application.
 
-**Status:** v0.8.30（事实源见 `CHANGELOG.md`）。桌面版（Tauri）与 Web 版（`crates/omnipanel-server` + axum）双形态，共用同一套前端与业务 crate。
+**Status:** v0.8.32（事实源见 `CHANGELOG.md`）。桌面版（Tauri）与 Web 版（`crates/omnipanel-server` + axum）双形态，共用同一套前端与业务 crate。
 
 > **本文档只记稳定约定。** 模块进度与版本以 `CHANGELOG.md` 为准，目录结构以实际代码为准。发现本文档与代码不一致时，以代码为准并顺手修正本文档。
 
@@ -254,6 +254,14 @@ Desktop / Web：Web 的 `ai_chat_stream` 仅 HTTP backend（无 ACP/CLI）；Age
 工作台页头必须用 `WorkbenchPanelHeader` + `WorkbenchActionButton`（`frontend/src/components/ui/primitives/`）。视觉事实源是数据库表页头：10px 标签、芯片、幽灵操作。
 
 `Button` 省略 `variant` 时是 **实心蓝**；`danger` 是浅红底色块。页头、行内、空态、对话框 footer、设置、登录、协议发送一律用 `WorkbenchActionButton`，不要 `primary` / `secondary` / `danger`。尺寸统一扁平硬朗：11px / 4×8 / 4px 圆角，不要再传 `size`。不要新写 `xxx-panel__header`。详见 `.cursor/rules/workbench-actions.mdc`。
+
+### 左侧栏三层标准（`frontend/src/components/ui/module-sidebar/`）
+
+新模块左侧栏照抄三层组装：L0 `ModuleLeftColumn`（标题 + 标签筛选 + 操作）→ L1 `ModuleSidebarSection`（箭头 + 标题 + 计数 + 操作，可折叠，`ScopedSearch` 包在 L1 外层）→ L2 `SidebarTreeNode`。**单分组原则：只有一个分组也必须包一层 L1，不允许裸树直挂。**
+
+- 图标锁死 14px：用 `SidebarIcon(kind)`，禁止自绘 `FolderIcon`；状态只用 `SidebarStatusDot` 四态；计数只用 `SidebarCountBadge`（标题按钮内、紧跟标题）。
+- 段头工具条用 `ModuleSidebarTreeToolbar`（刷新 + 展开/折叠二选一，无能力置灰）；展开态走 `usePersistedTreeExpanded(key, scope)`，storageKey 沿用旧 key；右键走 `buildModuleSidebarContextMenu` 五段模板；`SidebarTreeSelectionProvider` 必须传 `orderedKeys`。
+- 交互：单击选中 + 预览、双击常驻打开；修饰键单击只改选区不抢开预览。完整规约见 `openspec/changes/unify-module-left-sidebar/`。
 
 ## Tauri IPC Pattern
 

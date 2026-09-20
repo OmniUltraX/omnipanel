@@ -1,16 +1,16 @@
 //! 云厂商 Host 薄桥：解连接、Vault、prod 闸、audit；业务经插件 L2（`invoke_cloud_plugin`）。
 
 use omnipanel_cloud::{
-    default_region, is_write_action, AliyunCredentials, CloudAccountSnapshot, CloudAction,
-    CloudActionResult, CloudCertificateItem, CloudDomainItem, CloudEcsInstance, CloudLogPage,
-    CloudLogQuery, CloudMetricQuery, CloudMetricSeries, CloudOssBucket, CloudRegion,
-    CloudResourceDetail, CloudResourceFilter, CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN,
-    PLUGIN_ID_HUAWEI, PLUGIN_ID_TENCENT,
+    AliyunCredentials, CloudAccountSnapshot, CloudAction, CloudActionResult, CloudCertificateItem,
+    CloudDomainItem, CloudEcsInstance, CloudLogPage, CloudLogQuery, CloudMetricQuery,
+    CloudMetricSeries, CloudOssBucket, CloudRegion, CloudResourceDetail, CloudResourceFilter,
+    CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN, PLUGIN_ID_HUAWEI, PLUGIN_ID_TENCENT,
+    default_region, is_write_action,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{AuditEntry, Connection, ConnectionKind, Vault};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tauri::State;
 
 use crate::state::AppState;
@@ -313,11 +313,8 @@ fn require_write_presence(
     if !is_write_action(&action.name) {
         return Ok(());
     }
-    let target = omnipanel_presence::pipe_target(&[
-        connection_id,
-        &action.resource_id,
-        &action.name,
-    ]);
+    let target =
+        omnipanel_presence::pipe_target(&[connection_id, &action.resource_id, &action.name]);
     omnipanel_presence::require_grant(
         &state.presence_tokens,
         action.presence_token.as_deref(),
@@ -386,9 +383,7 @@ pub async fn cloud_resolve_secret(
         .filter(|s| !s.trim().is_empty())
         .or_else(|| Vault::get(&cloud_secret_ref(connection_id)).ok())
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| {
-            OmniError::invalid_input("未找到 AccessKey Secret，请重新填写并保存连接")
-        })?;
+        .ok_or_else(|| OmniError::invalid_input("未找到 AccessKey Secret，请重新填写并保存连接"))?;
 
     Ok(secret.trim().to_string())
 }
@@ -431,7 +426,12 @@ pub async fn cloud_list_regions(
         &state,
         &plugin_id,
         "listRegions",
-        cloud_plugin_args(&connection_id, &creds, &cfg, json!({ "configured": configured })),
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({ "configured": configured }),
+        ),
     )
     .await?;
     l2_items(value)
@@ -554,7 +554,8 @@ pub async fn cloud_invoke_action(
                 "success",
             );
             serde_json::from_value(value).map_err(|e| {
-                OmniError::new(ErrorCode::Internal, "插件动作结果无法解析").with_cause(e.to_string())
+                OmniError::new(ErrorCode::Internal, "插件动作结果无法解析")
+                    .with_cause(e.to_string())
             })
         }
         Err(err) => {
@@ -797,6 +798,8 @@ mod tests {
         let target = pipe_target(&["c1", "i-1", "stop"]);
         assert!(require_grant(&store, None, ACTION_CLOUD_LIFECYCLE, &target).is_err());
         let issued = store.issue(ACTION_CLOUD_LIFECYCLE, &target).unwrap();
-        assert!(require_grant(&store, Some(&issued.token), ACTION_CLOUD_LIFECYCLE, &target).is_ok());
+        assert!(
+            require_grant(&store, Some(&issued.token), ACTION_CLOUD_LIFECYCLE, &target).is_ok()
+        );
     }
 }

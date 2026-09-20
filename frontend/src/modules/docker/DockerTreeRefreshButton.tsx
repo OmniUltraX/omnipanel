@@ -1,4 +1,5 @@
 import { useI18n } from "@/i18n";
+import { SidebarRefreshIcon } from "@/components/ui/module-sidebar";
 import { useDockerSidebarRefreshing } from "./hooks/useDockerConnectionResources";
 
 type DockerTreeRefreshButtonProps = {
@@ -26,20 +27,7 @@ export function DockerTreeRefreshButton({
         onRefresh();
       }}
     >
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        aria-hidden
-      >
-        <path d="M2 8a6 6 0 0 1 10.5-3.9" />
-        <path d="M14 2v3h-3" />
-        <path d="M14 8a6 6 0 0 1-10.5 3.9" />
-        <path d="M2 14v-3h3" />
-      </svg>
+      <SidebarRefreshIcon />
     </button>
   );
 }

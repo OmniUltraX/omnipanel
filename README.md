@@ -82,10 +82,10 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 | **Module plugins** | Nacos (download-only): namespace switch, service online/offline, resizable split, Ctrl+F config search |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
 | **Presence guard** | Dangerous ops require Windows Hello / Touch ID or short-lived type-issued token; consumed once per action across DB / Docker / cloud / SSH |
-| **Team sync** | Module snapshots use v2 key derivation; folder trees; wait layout hydration before push/pull |
+| **Team sync** | Module snapshots use v2 key derivation; folder trees; auto-install official/used plugins after pull; wait layout hydration before push/pull |
 | **Panel apps** | BT installed apps show version/port; MySQL / Redis one-click manage params |
 | **Quick Launcher** | In-panel Ask AI (stream + Markdown); ask history with favorites; scene model chip synced from settings |
-| **Performance** | Keep-alive module switch; idle-unload module windows after 10m hidden; stop widget polling when hidden |
+| **Performance** | Keep-alive module switch; hover preloads chunks only; hidden overlays skip layout; idle-unload module windows after 10m hidden; stop widget polling when hidden |
 | **Web edition** | Browser UI + public GHCR image; one-click deploy on Render, Zeabur, Railway, and more |
 
 Full release notes: [CHANGELOG.md](./CHANGELOG.md).
@@ -112,12 +112,58 @@ cd omnipanel
 # Frontend deps
 cd frontend && npm install && cd ..
 
-# Dev (Tauri + Vite)
-cd frontend && npm run tauri dev
+# Dev (Tauri + Vite, recommended: auto-enables dev-mcp + dev identifier,
+# runs as "OmniPanel Dev" side-by-side with the release install)
+npm run tauri dev
+# Equivalent raw command:
+# cargo tauri dev --features dev-mcp
 
-# Or frontend only
+# Or frontend only (no Tauri shell, no Rust backend)
 cd frontend && npm run dev
 ```
+
+Dev builds use a separate identifier / product name (`com.omnipanel.app.dev`,
+`OmniPanel Dev`, see `src-tauri/tauri.dev.conf.json`), and Agent Router /
+OmniMCP ports are offset (`:8766` / `:12757`) so Dev and Release can run in
+parallel. Release builds (`tauri build`) never include the dev bridge.
+
+#### 🛠️ Dev MCP bridge (`--features dev-mcp`, dev-only)
+
+Desktop dev builds embed `tauri-plugin-mcp-bridge` (WebSocket `ws://127.0.0.1:9223`).
+It lets external agents (Cursor / Claude Code / Windsurf / VS Code) drive the
+**running Dev app**: screenshots, DOM snapshot, `execute_js` / IPC invoke,
+console logs. Release builds compile it out (zero code path).
+
+1. Start the app with the bridge enabled (the `npm run tauri dev` wrapper does
+   this for you; raw `cargo tauri dev` needs `--features dev-mcp` explicitly).
+2. Add the MCP server to your AI client (Cursor: Settings → MCP → New MCP Server;
+   Claude Code: `MCP: Edit Config`):
+
+```json
+{
+  "mcpServers": {
+    "tauri": {
+      "command": "npx",
+      "args": ["-y", "@hypothesi/tauri-mcp-server"]
+    }
+  }
+}
+```
+
+3. In the agent session, connect to the running app, then automate:
+
+```js
+await driver_session({ action: "start", port: 9223 })
+await webview_screenshot({})
+await webview_execute_js({ script: "document.title" })
+```
+
+Headless check without an AI client: `node scripts/e2e/plugin-capabilities.mjs`
+expects the bridge on `127.0.0.1:9223` (see `scripts/e2e/README.md`).
+
+> Dev bridge (`:9223`, drives the Dev app UI) ≠ **OmniMCP** below
+> (`:12756` release / `:12757` dev, the product's DevOps tool API for
+> external agents). Don't mix the two ports.
 
 ### 🌐 Web edition (P0: frontend / backend split)
 
@@ -215,8 +261,19 @@ omnipanel/
 | Line | Entry | Purpose |
 |------|-------|---------|
 | **InternalOrchestrator** | Tauri IPC `ai_chat_stream` | Built-in UI: multi-backend, `omni_*` tools, terminal approval |
-| **Agent Router** | `http://127.0.0.1:8765/v1/*` | Pure LLM routing (OpenAI-compatible SSE), zero MCP coupling |
-| **OmniMCP** | `http://127.0.0.1:12756/mcp` | External agents (Cursor / Claude Code, etc.) |
+| **Agent Router** | `http://127.0.0.1:8765/v1/*` (dev `:8766`) | Pure LLM routing (OpenAI-compatible SSE), zero MCP coupling |
+| **OmniMCP** | `http://127.0.0.1:12756/mcp` (dev `:12757`) | External agents (Cursor / Claude Code, etc.) |
+
+Configure both under Settings → AI Services (ports, API key, tool exposure,
+external-approval gate). Cursor snippet (release; dev uses `:12757`):
+
+```json
+{
+  "mcpServers": {
+    "omnipanel": { "url": "http://127.0.0.1:12756/mcp" }
+  }
+}
+```
 
 Details and release notes: [CHANGELOG.md](./CHANGELOG.md).
 

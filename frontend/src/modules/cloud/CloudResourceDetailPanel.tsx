@@ -211,11 +211,13 @@ function resolveSlots(
 
 export function CloudResourceDetailPanel({
   account,
+  live = true,
   capability,
   resourceId,
   regionId,
 }: {
   account: CloudAccount;
+  live?: boolean;
   capability: string;
   resourceId: string;
   regionId: string;
@@ -298,8 +300,9 @@ export function CloudResourceDetailPanel({
   );
 
   useEffect(() => {
+    if (!live) return;
     void reload(false);
-  }, [reload]);
+  }, [live, reload]);
 
   useEffect(() => {
     if (!slots.includes(slot)) setSlot("overview");
@@ -425,8 +428,9 @@ export function CloudResourceDetailPanel({
   ]);
 
   useEffect(() => {
-    if (slot === "metrics") void refreshMetrics();
-  }, [refreshMetrics, slot]);
+    if (!live || slot !== "metrics") return;
+    void refreshMetrics();
+  }, [live, refreshMetrics, slot]);
 
   useEffect(() => {
     setLogPage(1);
@@ -443,8 +447,9 @@ export function CloudResourceDetailPanel({
   }, [account.id, capability, resourceId]);
 
   useEffect(() => {
-    if (slot === "logs") void refreshLogs();
-  }, [refreshLogs, slot]);
+    if (!live || slot !== "logs") return;
+    void refreshLogs();
+  }, [live, refreshLogs, slot]);
 
   if (error) {
     return <div className="server-main" style={{ padding: 16 }}>{error}</div>;

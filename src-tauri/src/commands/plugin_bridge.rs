@@ -75,10 +75,7 @@ impl ProdConfirmer for TauriProdConfirmer {
 }
 
 /// 仅明确同意才放行；超时、通道关闭、用户拒绝一律 false（不发网）。
-async fn wait_confirm(
-    rx: tokio::sync::oneshot::Receiver<bool>,
-    timeout: Duration,
-) -> bool {
+async fn wait_confirm(rx: tokio::sync::oneshot::Receiver<bool>, timeout: Duration) -> bool {
     matches!(tokio::time::timeout(timeout, rx).await, Ok(Ok(true)))
 }
 
@@ -282,11 +279,7 @@ impl PluginBridge {
             );
             Ok(())
         } else {
-            self.audit(
-                "plugin.permission",
-                "blocked",
-                format!("{action} {target}"),
-            );
+            self.audit("plugin.permission", "blocked", format!("{action} {target}"));
             Err(PluginError::Invoke(format!(
                 "已拦截对生产环境目标的访问（未获用户确认）: {target}"
             )))

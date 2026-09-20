@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   usePersistedVerticalSplitSections,
   VerticalSplitSidebar,
-  VerticalSplitSidebarSection,
 } from "../../../components/ui/sidebar/VerticalSplitSidebar";
+import { ModuleSidebarSection } from "../../../components/ui/module-sidebar";
 import { useI18n } from "../../../i18n";
 import { HostListPanel } from "../../../components/workspace/HostListPanel";
 import type { WorkspaceResource } from "../../../lib/resourceRegistry";
@@ -98,16 +98,12 @@ export function SshHostSidebar({
 
   return (
     <VerticalSplitSidebar className="ssh-host-sidebar">
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("ssh.sidebar.title")}
         expanded={sections.hosts}
         onToggle={() => toggleSection("hosts")}
-        actions={
-          <>
-            {hostHeaderActions}
-            <span className="badge badge-muted">{hostCount}</span>
-          </>
-        }
+        count={hostCount}
+        actions={hostHeaderActions}
       >
         <HostListPanel
           resources={resources}
@@ -120,9 +116,9 @@ export function SshHostSidebar({
           onHeaderMetaChange={handleHostHeaderMetaChange}
           tagModuleKey={tagModuleKey}
         />
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("ssh.tabs.tunnels")}
         expanded={sections.tunnels}
         keepMounted
@@ -132,12 +128,8 @@ export function SshHostSidebar({
           toggleSection("tunnels");
           setSection("tunnels");
         }}
-        actions={
-          <>
-            {tunnelHeaderActions}
-            <span className="badge badge-muted">{tunnelCount}</span>
-          </>
-        }
+        count={tunnelCount}
+        actions={tunnelHeaderActions}
       >
         <TunnelsSidebarPanel
           sshResources={resources}
@@ -145,9 +137,9 @@ export function SshHostSidebar({
           onHeaderMetaChange={handleTunnelHeaderMetaChange}
           onEnsureExpanded={ensureTunnelsExpanded}
         />
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("ssh.tabs.keys")}
         expanded={sections.keys}
         keepMounted
@@ -157,19 +149,15 @@ export function SshHostSidebar({
           toggleSection("keys");
           setSection("keys");
         }}
-        actions={
-          <>
-            {keyHeaderActions}
-            <span className="badge badge-muted">{keyCount}</span>
-          </>
-        }
+        count={keyCount}
+        actions={keyHeaderActions}
       >
         <KeysSidebarPanel
           onCountChange={setKeyCount}
           onHeaderMetaChange={handleKeyHeaderMetaChange}
           onEnsureExpanded={ensureKeysExpanded}
         />
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
     </VerticalSplitSidebar>
   );
 }

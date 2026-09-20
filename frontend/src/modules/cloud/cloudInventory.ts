@@ -100,7 +100,9 @@ export function isCloudInventoryFresh(fetchedAt: number | undefined, now = Date.
 export function cloudAccountStatusDot(
   inventory: CloudAccountInventory | undefined,
   refreshing = false,
+  pluginReady = true,
 ): "online" | "connecting" | "offline" | "idle" {
+  if (!pluginReady) return "idle";
   if (refreshing) return "connecting";
   const snapshot = inventory?.snapshot;
   if (snapshot) {

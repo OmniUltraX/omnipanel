@@ -849,7 +849,10 @@ mod tests {
     fn extract_asset_refs_cases() {
         let md = "![a](assets/x.png) 文本 [f](assets/y.zip \"t\") 外链 [b](https://e.com/z.png) 空 ![](assets/x.png)";
         let refs = super::extract_asset_refs_for_test(md);
-        assert_eq!(refs, vec!["assets/x.png".to_string(), "assets/y.zip".to_string()]);
+        assert_eq!(
+            refs,
+            vec!["assets/x.png".to_string(), "assets/y.zip".to_string()]
+        );
         assert!(super::extract_asset_refs_for_test("无引用").is_empty());
         assert!(super::extract_asset_refs_for_test("![a](../evil.png)").is_empty());
     }

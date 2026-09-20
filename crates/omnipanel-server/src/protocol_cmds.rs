@@ -2,9 +2,11 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use omnipanel_protocol::grpc::{GrpcCallRequest, GrpcCallResponse, GrpcConnectionConfig, GrpcSession};
-use omnipanel_protocol::modbus::{ModbusConfig, ModbusSession};
 use crate::state::ServerState;
+use omnipanel_protocol::grpc::{
+    GrpcCallRequest, GrpcCallResponse, GrpcConnectionConfig, GrpcSession,
+};
+use omnipanel_protocol::modbus::{ModbusConfig, ModbusSession};
 
 static GRPC_COUNTER: AtomicU64 = AtomicU64::new(1);
 static MODBUS_COUNTER: AtomicU64 = AtomicU64::new(1);

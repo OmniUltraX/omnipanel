@@ -81,10 +81,10 @@ OmniPanel 通过签名插件体系向第三方开放三级扩展能力：
 | **模块插件** | Nacos（download-only）：命名空间切换、服务在线/离线与上线下线、可拖分栏、Ctrl+F 搜配置 |
 | **同步安全** | 团队 sync_key_v2 + 在线设备中继传钥；无 peer 时导入 `.omnipanel-sync.key`；助手绑定 v2 加密二维码 |
 | **在场验证** | 危险操作须先过 Windows Hello / Touch ID 或打字签发短命 token；按 action+target 一次性消费，覆盖数据库 / Docker / 云 / SSH |
-| **团队同步** | 模块快照改 v2 密钥派生；文件夹树同步；推送/拉取前等待布局 hydration |
+| **团队同步** | 模块快照改 v2 密钥派生；文件夹树同步；拉取后自动安装官方/已用插件；推送/拉取前等待布局 hydration |
 | **面板应用** | 宝塔已装应用版本/端口；MySQL / Redis 一键管理参数 |
 | **快捷启动** | 面板内询问 AI（流式 + Markdown）；询问记录与收藏；场景模型芯片与设置同步 |
-| **性能** | 模块保活秒切；模块窗隐藏 10 分钟空闲卸载；看板隐藏停轮询 |
+| **性能** | 模块保活秒切；悬停只预拉 chunk；隐藏叠层跳过布局；模块窗隐藏 10 分钟空闲卸载；看板隐藏停轮询 |
 | **Web 版** | 浏览器访问 + GHCR 公开 Docker 镜像，支持 Render / Zeabur / Railway 等一键部署 |
 
 完整版本记录见 [CHANGELOG.md](./CHANGELOG.md)。
@@ -111,12 +111,56 @@ cd omnipanel
 # 安装前端依赖
 cd frontend && npm install && cd ..
 
-# 开发模式（Tauri + Vite）
-cd frontend && npm run tauri dev
+# 开发模式（Tauri + Vite，推荐：自动带上 dev-mcp + 独立开发标识，
+# 以“OmniPanel Dev”与正式安装版并存）
+npm run tauri dev
+# 等价原生命令：
+# cargo tauri dev --features dev-mcp
 
-# 或仅启动前端
+# 或仅启动前端（无 Tauri 壳、无 Rust 后端）
 cd frontend && npm run dev
 ```
+
+开发构建使用独立 identifier / 产品名（`com.omnipanel.app.dev`、`OmniPanel Dev`，
+见 `src-tauri/tauri.dev.conf.json`），且 Agent Router / OmniMCP 端口自动错开
+（`:8766` / `:12757`），可与正式版同时运行。正式构建（`tauri build`）不含开发桥。
+
+#### 🛠️ 开发用 MCP 桥（`--features dev-mcp`，仅开发期）
+
+桌面开发构建内嵌 `tauri-plugin-mcp-bridge`（WebSocket `ws://127.0.0.1:9223`），
+供外部 Agent（Cursor / Claude Code / Windsurf / VS Code）驱动**正在运行的开发版
+应用**：截图、DOM 快照、`execute_js` / IPC 调用、控制台日志。正式构建零代码路径，
+不打包该插件。
+
+1. 以桥接模式启动应用（`npm run tauri dev` 已自动带上；原生 `cargo tauri dev`
+   需显式加 `--features dev-mcp`）。
+2. 在 AI 客户端添加 MCP Server（Cursor：Settings → MCP → New MCP Server；
+   Claude Code：`MCP: Edit Config`）：
+
+```json
+{
+  "mcpServers": {
+    "tauri": {
+      "command": "npx",
+      "args": ["-y", "@hypothesi/tauri-mcp-server"]
+    }
+  }
+}
+```
+
+3. 在 Agent 会话里先连上运行中的应用，再做自动化：
+
+```js
+await driver_session({ action: "start", port: 9223 })
+await webview_screenshot({})
+await webview_execute_js({ script: "document.title" })
+```
+
+无 AI 客户端也可用脚本直连验证：`node scripts/e2e/plugin-capabilities.mjs`
+要求桥已监听 `127.0.0.1:9223`（见 `scripts/e2e/README.md`）。
+
+> 开发桥（`:9223`，驱动开发版 UI）≠ 下面的 **OmniMCP**（正式版 `:12756` /
+> 开发版 `:12757`，是产品对外提供的 DevOps 工具 API）。两者端口不要混用。
 
 ### 🌐 Web 模式（P0：前后端分离）
 
@@ -218,8 +262,19 @@ omnipanel/
 | 能力线 | 入口 | 用途 |
 |--------|------|------|
 | **InternalOrchestrator** | Tauri IPC `ai_chat_stream` | 内置 UI：多 backend、`omni_*` 工具、终端审批 |
-| **Agent Router** | `http://127.0.0.1:8765/v1/*` | 纯 LLM 路由（OpenAI 兼容 SSE），零 MCP 耦合 |
-| **OmniMCP** | `http://127.0.0.1:12756/mcp` | Cursor / Claude Code 等外部 Agent 接入 |
+| **Agent Router** | `http://127.0.0.1:8765/v1/*`（开发版 `:8766`） | 纯 LLM 路由（OpenAI 兼容 SSE），零 MCP 耦合 |
+| **OmniMCP** | `http://127.0.0.1:12756/mcp`（开发版 `:12757`） | Cursor / Claude Code 等外部 Agent 接入 |
+
+两者在设置 → AI 服务中配置（端口、API Key、工具暴露、外部调用确认开关）。
+Cursor 配置片段（正式版；开发版把 `:12756` 换成 `:12757`）：
+
+```json
+{
+  "mcpServers": {
+    "omnipanel": { "url": "http://127.0.0.1:12756/mcp" }
+  }
+}
+```
 
 详情与版本记录见 [CHANGELOG.md](./CHANGELOG.md)。
 

@@ -7,18 +7,20 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { Button } from "../../components/ui/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { ModuleSidebarSection, SidebarRefreshIcon } from "../../components/ui/module-sidebar";
 import {
   useTreeClickDelay,
   type TreeRowMouseEvent,
 } from "../../components/ui/sidebar-tree/useTreeClickDelay";
+import { SidebarTreeEmpty } from "../../components/ui/sidebar-tree";
 import "../../components/ui/sidebar-tree/sidebar-tree.css";
 import {
   usePersistedVerticalSplitSections,
   usePersistedVerticalSplitSizes,
   VerticalSplitSidebar,
   VerticalSplitSidebarSection,
-} from "../../components/ui/VerticalSplitSidebar";
+} from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
 import { StatusDot } from "../../components/ui/primitives/StatusDot";
 import type { FileManagerConnectionInfo } from "../../ipc/bindings";
@@ -425,32 +427,27 @@ export function FilesSidebar({
   const connectionActions = (
     <div className="schema-toolbar schema-toolbar--inline">
       {onSyncSshSftp ? (
-        <Button
-          type="button"
-          variant="icon"
+        <WorkbenchActionButton
+          icon
           className={syncingSshSftp ? "tree-action-btn--busy" : undefined}
           title={t("files.sidebar.syncSshSftp")}
+          aria-label={t("files.sidebar.syncSshSftp")}
           disabled={syncingSshSftp}
           onClick={onSyncSshSftp}
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M2 8a6 6 0 0 1 10.5-3.9" />
-            <path d="M14 2v3h-3" />
-            <path d="M14 8a6 6 0 0 1-10.5 3.9" />
-            <path d="M2 14v-3h3" />
-          </svg>
-        </Button>
+          <SidebarRefreshIcon />
+        </WorkbenchActionButton>
       ) : null}
-      <Button
-        type="button"
-        variant="icon"
+      <WorkbenchActionButton
+        icon
         title={t("files.sidebar.add")}
+        aria-label={t("files.sidebar.add")}
         onClick={() => onAddConnection()}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
           <path d="M12 5v14M5 12h14" />
         </svg>
-      </Button>
+      </WorkbenchActionButton>
     </div>
   );
 
@@ -461,14 +458,15 @@ export function FilesSidebar({
       onMouseLeave={() => { hoveredRef.current = false; }}
     >
     <VerticalSplitSidebar className="fm-sidebar">
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("files.sidebar.connections")}
         expanded={sections.connections}
         onToggle={() => toggleSection("connections")}
+        count={sortedConnections.length}
         actions={connectionActions}
       >
         {sortedConnections.length === 0 ? (
-          <p className="fm-conn-empty">{t("files.sidebar.emptySection")}</p>
+          <SidebarTreeEmpty>{t("files.sidebar.emptySection")}</SidebarTreeEmpty>
         ) : (
           <div className="fm-connections">
             {sortedConnections.map((conn) => (
@@ -486,7 +484,7 @@ export function FilesSidebar({
             ))}
           </div>
         )}
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
       <VerticalSplitSidebarSection
         title={t("files.sidebar.quickPaths")}
@@ -547,7 +545,7 @@ export function FilesSidebar({
       >
         <div ref={favMeasureRef} className="fm-section-measure">
           {normalFavorites.length === 0 ? (
-            <p className="fm-conn-empty">{t("files.sidebar.normalFavoritesEmpty")}</p>
+            <SidebarTreeEmpty>{t("files.sidebar.normalFavoritesEmpty")}</SidebarTreeEmpty>
           ) : (
             <div className="fm-quick-section">
               {normalFavorites.map((fav) => {
@@ -590,7 +588,7 @@ export function FilesSidebar({
       >
         <div ref={globalFavMeasureRef} className="fm-section-measure">
           {globalFavorites.length === 0 ? (
-            <p className="fm-conn-empty">{t("files.sidebar.globalFavoritesEmpty")}</p>
+            <SidebarTreeEmpty>{t("files.sidebar.globalFavoritesEmpty")}</SidebarTreeEmpty>
           ) : (
             <div className="fm-quick-section">
               {globalFavorites.map((fav) => {

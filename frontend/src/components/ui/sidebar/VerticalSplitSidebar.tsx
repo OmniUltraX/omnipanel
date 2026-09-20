@@ -101,6 +101,8 @@ export function VerticalSplitSidebarSection({
   expanded,
   onToggle,
   actions,
+  /** 标题后徽标（计数等）：渲染在标题按钮内、标题文字右侧 */
+  badge,
   children,
   keepMounted = false,
   bodyHeightPx,
@@ -114,6 +116,7 @@ export function VerticalSplitSidebarSection({
   fillRemainingSpace = false,
 }: VerticalSplitSidebarSectionConfig & {
   actions?: ReactNode;
+  badge?: ReactNode;
   children: ReactNode;
   /** 折叠时仍挂载子树（用于向标题栏上报操作按钮） */
   keepMounted?: boolean;
@@ -295,6 +298,7 @@ export function VerticalSplitSidebarSection({
             </svg>
           </span>
           <span className="vsplit-sidebar-section__title">{title}</span>
+          {badge}
         </button>
         {actions ? (
           <div

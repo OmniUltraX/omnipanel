@@ -1205,6 +1205,8 @@ export const commands = {
 	pluginOfficialCatalog: (force: boolean) => typedError<OfficialCatalogPlugin[], OmniError_Serialize>(__TAURI_INVOKE("plugin_official_catalog", { force })),
 	/**  从官方目录下载 `.omni-plugin` 并安装。bundled 条目拒绝下载。 */
 	pluginOfficialInstall: (pluginId: string) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_official_install", { pluginId })),
+	/**  模块快照落地后：收集本机资源所需插件并按信任分级安装。 */
+	pluginEnsureFromResources: (request: PluginEnsureRequest) => typedError<PluginEnsureResult, OmniError_Serialize>(__TAURI_INVOKE("plugin_ensure_from_resources", { request })),
 	/**  拉取并判定（纯静态，不执行包内代码）。 */
 	pluginExternalAnalyzeNpm: (npm: string, version: string) => typedError<ExternalVerdictDto_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_external_analyze_npm", { npm, version })),
 	/**  判定可转时转换并安装（dev 未签名放行，release 拒绝——第三方未审核语义）。 */
@@ -2954,6 +2956,36 @@ export type DbxInstallAttempt = {
 	key: string,
 	ok: boolean,
 	message: string,
+};
+
+export type PluginEnsureRequest = {
+	approveIds: string[],
+};
+
+export type PluginEnsureItem = {
+	id: string,
+	name: string,
+};
+
+export type PluginEnsurePendingItem = {
+	id: string,
+	name: string,
+	kind: PluginKind,
+	sourceId: string,
+	permissions: string[],
+};
+
+export type PluginEnsureFailItem = {
+	id: string,
+	message: string,
+};
+
+export type PluginEnsureResult = {
+	skipped: PluginEnsureItem[],
+	installed: PluginEnsureItem[],
+	pendingConfirm: PluginEnsurePendingItem[],
+	failed: PluginEnsureFailItem[],
+	notFound: PluginEnsureItem[],
 };
 
 export type DiscoveryScope = {

@@ -12,12 +12,18 @@ import {
 import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
-import { Button } from "@/components/ui/Button";
+import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
+import {
+  ModuleSidebarSection,
+  ModuleSidebarTreeToolbar,
+  SidebarCountBadge,
+  SidebarIcon,
+  SidebarImportIcon,
+} from "@/components/ui/module-sidebar";
 import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
-  VerticalSplitSidebarSection,
   type VerticalSplitSidebarSectionConfig,
-} from "@/components/ui/VerticalSplitSidebar";
+} from "@/components/ui/sidebar/VerticalSplitSidebar";
 import {
   SidebarTreeEmpty,
   SidebarTreeNode,
@@ -42,7 +48,7 @@ import {
 import { DockerContainersTreeBranch } from "./DockerContainersTreeBranch";
 import { dockerSourceLabel } from "./dockerConnectionSource";
 import { groupContainersByComposeProject } from "./dockerComposeGroups";
-import { usePersistedDockerTreeExpanded } from "./usePersistedDockerTreeExpanded";
+import { usePersistedTreeExpanded } from "@/components/ui/module-sidebar/usePersistedTreeExpanded";
 import { DockerTreeRefreshButton } from "./DockerTreeRefreshButton";
 import {
   dockerSidebarCategoryRefreshKey,
@@ -150,14 +156,6 @@ function DockerTreeBranch({
   );
 }
 
-function FolderIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
-  );
-}
-
 /** Ctrl+A 全选 / Delete 删除（仅侧栏指针激活时响应，避免误触右侧面板）。 */
 function DockerTreeHotkeys({
   allKeys,
@@ -250,7 +248,10 @@ export function DockerPanelTreeSidebar({
   section,
 }: DockerPanelTreeSidebarProps) {
   const { t } = useI18n();
-  const { isExpanded, toggle, ensureExpanded } = usePersistedDockerTreeExpanded();
+  // storageKey 沿用旧 key，用户现有展开态不断。
+  const { isExpanded, toggle, ensureExpanded, setAllExpanded } = usePersistedTreeExpanded(
+    "omnipanel-docker-tree-expanded.v1",
+  );
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxTarget, setCtxTarget] = useState<CtxTarget | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -301,6 +302,27 @@ export function DockerPanelTreeSidebar({
   }, [cacheConnections, connections, searchQuery]);
 
   const searching = hasSidebarTreeSearch(searchQuery);
+
+  const folderTreeKeys = useMemo(
+    () => folders.map((folder) => `docker-folder:${folder.id}`),
+    [folders],
+  );
+  /** 一键展开/折叠只到"文件夹 + 连接"两层（容器/镜像列表不动，避免全量拉取）。 */
+  const expandableKeys = useMemo(
+    () => [
+      ...folderTreeKeys,
+      ...connections.map((connection) => makeDockerTreeKey(connection.connectionId)),
+    ],
+    [folderTreeKeys, connections],
+  );
+  const expandFoldersDisabled = useMemo(
+    () => expandableKeys.length === 0 || expandableKeys.every((key) => isExpanded(key)),
+    [expandableKeys, isExpanded],
+  );
+  const collapseFoldersDisabled = useMemo(
+    () => expandableKeys.length === 0 || expandableKeys.every((key) => !isExpanded(key)),
+    [expandableKeys, isExpanded],
+  );
 
   const allTreeKeys = useMemo(() => {
     if (searching) {
@@ -590,7 +612,7 @@ export function DockerPanelTreeSidebar({
           label={
             <span className="server-tree-server-label">
               <span className="server-tree-server-name">{connection.name}</span>
-              <span className="badge badge-muted docker-tree-source-tag">
+              <span className="sidebar-tag-chip badge badge-muted docker-tree-source-tag">
                 {dockerSourceLabel(connection.source)}
               </span>
             </span>
@@ -650,7 +672,7 @@ export function DockerPanelTreeSidebar({
             module="docker"
             nodeType="folder"
             treeKey={folderTreeKey}
-            icon={<FolderIcon />}
+            icon={<SidebarIcon kind="folder" />}
             className={dragOverKey === dropKey ? "docker-tree-drop-target" : ""}
             label={folder.name}
             hasChildren
@@ -674,52 +696,30 @@ export function DockerPanelTreeSidebar({
     });
   };
 
+  // 刷新收进段头工具条（避免与占位刷新重复）：此处只留新建类按钮。
   const addConnectionButton = (
     <div className="schema-toolbar schema-toolbar--inline">
+      <WorkbenchActionButton
+        icon
+        title={t("docker.sidebar.addConnection")}
+        aria-label={t("docker.sidebar.addConnection")}
+        onClick={onCreate}
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </WorkbenchActionButton>
       {onImportFromSsh && (
-        <Button
-          type="button"
-          variant="icon"
-          className="server-sidebar-group-add"
+        <WorkbenchActionButton
+          icon
           title={t("docker.sidebar.importFromSsh")}
+          aria-label={t("docker.sidebar.importFromSsh")}
           disabled={importingFromSsh}
           onClick={onImportFromSsh}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M12 3v12" />
-            <path d="M8 11l4 4 4-4" />
-            <path d="M4 19h16" />
-          </svg>
-        </Button>
+          <SidebarImportIcon />
+        </WorkbenchActionButton>
       )}
-      {onRefreshAll && (
-        <Button
-          type="button"
-          variant="icon"
-          className={`server-sidebar-group-add${refreshingAll ? " tree-action-btn--busy" : ""}`}
-          title={t("docker.sidebar.refreshAll")}
-          disabled={refreshingAll || connections.length === 0}
-          onClick={onRefreshAll}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="M2 8a6 6 0 0 1 10.5-3.9" />
-            <path d="M14 2v3h-3" />
-            <path d="M14 8a6 6 0 0 1-10.5 3.9" />
-            <path d="M2 14v-3h3" />
-          </svg>
-        </Button>
-      )}
-      <Button
-        type="button"
-        variant="icon"
-        className="server-sidebar-add"
-        title={t("docker.sidebar.addConnection")}
-        onClick={onCreate}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </Button>
     </div>
   );
 
@@ -765,17 +765,24 @@ export function DockerPanelTreeSidebar({
   if (section) {
     return (
       <div ref={rootRef} className="server-sidebar docker-sidebar">
-        <VerticalSplitSidebarSection
+        <ModuleSidebarSection
           {...section}
-          actions={
-            <>
-              <span className="badge badge-muted">{connections.length}</span>
-              {addConnectionButton}
-            </>
+          count={connections.length}
+          actions={addConnectionButton}
+          toolbar={
+            <ModuleSidebarTreeToolbar
+              onRefresh={onRefreshAll}
+              onExpandAll={() => setAllExpanded(expandableKeys, true)}
+              onCollapseAll={() => setAllExpanded(expandableKeys, false)}
+              refreshing={refreshingAll}
+              refreshDisabled={refreshingAll || connections.length === 0}
+              expandDisabled={expandFoldersDisabled}
+              collapseDisabled={collapseFoldersDisabled}
+            />
           }
         >
           {panelBody}
-        </VerticalSplitSidebarSection>
+        </ModuleSidebarSection>
       </div>
     );
   }
@@ -784,8 +791,17 @@ export function DockerPanelTreeSidebar({
     <div ref={rootRef} className="server-sidebar docker-sidebar">
       <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
         <span>{t("docker.sidebar.title")}</span>
-        <span className="badge badge-muted">{connections.length}</span>
+        <SidebarCountBadge count={connections.length} />
         {addConnectionButton}
+        <ModuleSidebarTreeToolbar
+          onRefresh={onRefreshAll}
+          onExpandAll={() => setAllExpanded(expandableKeys, true)}
+          onCollapseAll={() => setAllExpanded(expandableKeys, false)}
+          refreshing={refreshingAll}
+          refreshDisabled={refreshingAll || connections.length === 0}
+          expandDisabled={expandFoldersDisabled}
+          collapseDisabled={collapseFoldersDisabled}
+        />
       </div>
       {panelBody}
     </div>

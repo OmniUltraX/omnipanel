@@ -98,7 +98,8 @@ pub async fn panel_1panel_request(
         _ => None,
     };
 
-    let result = omnipanel_panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
+    let result =
+        omnipanel_panel::onepanel::request(&host, &api_key, &method, &path, body_val).await?;
     serde_json::to_string(&result)
         .map_err(|e| OmniError::internal("序列化 1Panel 响应失败").with_cause(e.to_string()))
 }

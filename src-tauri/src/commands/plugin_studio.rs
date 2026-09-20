@@ -160,7 +160,12 @@ fn jail_path_in(base: &Path, rel: &str) -> Result<PathBuf, OmniError> {
     Ok(target)
 }
 
-fn jail_path(app: &AppHandle, roots: &StudioRoots, project: &str, rel: &str) -> Result<PathBuf, OmniError> {
+fn jail_path(
+    app: &AppHandle,
+    roots: &StudioRoots,
+    project: &str,
+    rel: &str,
+) -> Result<PathBuf, OmniError> {
     let base = resolve_project_dir_linked(app, roots, project)?;
     jail_path_in(&base, rel)
 }
@@ -267,7 +272,12 @@ fn resolve_scaffold_template(kind: &str, starter: Option<&str>) -> Result<&'stat
     }
 }
 
-fn scan_root(root: &Path, location: &str, seen: &mut std::collections::HashSet<String>, out: &mut Vec<StudioProject>) {
+fn scan_root(
+    root: &Path,
+    location: &str,
+    seen: &mut std::collections::HashSet<String>,
+    out: &mut Vec<StudioProject>,
+) {
     if !root.is_dir() {
         return;
     }
@@ -390,9 +400,7 @@ fn command_hidden(program: &str) -> std::process::Command {
 /// 环境检测：cargo / node / wat2wasm 版本（缺失为 None，前端给安装引导）。
 #[tauri::command]
 #[specta::specta]
-pub async fn plugin_studio_env_check(
-    _state: State<'_, AppState>,
-) -> Result<StudioEnv, OmniError> {
+pub async fn plugin_studio_env_check(_state: State<'_, AppState>) -> Result<StudioEnv, OmniError> {
     let cwd = repo_root().unwrap_or_else(|| PathBuf::from("."));
     Ok(StudioEnv {
         cargo: probe_version("cargo", &cwd),
@@ -521,10 +529,7 @@ fn toolchain_path() -> Option<String> {
         if old_lower.contains(&text.to_ascii_lowercase()) {
             continue;
         }
-        if prefix
-            .iter()
-            .any(|item| item.eq_ignore_ascii_case(&text))
-        {
+        if prefix.iter().any(|item| item.eq_ignore_ascii_case(&text)) {
             continue;
         }
         prefix.push(text);
@@ -839,8 +844,7 @@ pub async fn plugin_studio_remove_project(
     let parent = dir
         .parent()
         .ok_or_else(|| OmniError::invalid_input("路径越界"))?;
-    let allowed = parent == roots.user
-        || roots.repo.as_ref().is_some_and(|repo| parent == repo);
+    let allowed = parent == roots.user || roots.repo.as_ref().is_some_and(|repo| parent == repo);
     let canon = dir
         .canonicalize()
         .map_err(|e| OmniError::internal(e.to_string()))?;
@@ -903,8 +907,8 @@ pub async fn plugin_studio_run(
 
 fn validate_project_dir(dir: &Path) -> Result<String, OmniError> {
     let path = dir.join("plugin.json");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|_| OmniError::not_found("工程缺少 plugin.json"))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|_| OmniError::not_found("工程缺少 plugin.json"))?;
     let manifest =
         PluginManifest::from_json(&text).map_err(|e| OmniError::invalid_input(e.to_string()))?;
     manifest
@@ -974,7 +978,10 @@ fn write_builtin_scaffold(dir: &Path, name: &str, template: &str) -> Result<(), 
                 "overlays": [{ "id": "main", "entry": "ui/index.html" }]
             });
             write_file(dir.join("ui/main.js").as_path(), UI_MAIN)?;
-            write_file(dir.join("ui/index.html").as_path(), "<html><body>overlay</body></html>")?;
+            write_file(
+                dir.join("ui/index.html").as_path(),
+                "<html><body>overlay</body></html>",
+            )?;
         }
         "wasm-stub" => {
             manifest["methods"] = serde_json::json!([{ "name": "echo", "permissions": [] }]);
@@ -994,8 +1001,8 @@ fn write_builtin_scaffold(dir: &Path, name: &str, template: &str) -> Result<(), 
             write_file(dir.join("logic.js").as_path(), JS_LOGIC)?;
         }
     }
-    let json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| OmniError::internal(e.to_string()))?;
+    let json =
+        serde_json::to_string_pretty(&manifest).map_err(|e| OmniError::internal(e.to_string()))?;
     write_file(&dir.join("plugin.json"), &json)?;
     Ok(())
 }

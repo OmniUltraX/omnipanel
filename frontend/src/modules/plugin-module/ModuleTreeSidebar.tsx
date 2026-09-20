@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button } from "../../components/ui/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { IconPlus } from "../../components/ui/Icons";
 import { Select, type SelectOption } from "../../components/ui/form/Select";
 import { ScopedSearch } from "../../components/ui/search";
@@ -113,28 +113,26 @@ export function ModuleTreeSidebar({
           onToggle={() => toggleSection("connections")}
           actions={
             <>
-              <Button
-                type="button"
-                variant="icon"
+              <WorkbenchActionButton
+                icon
                 title={t("moduleHost.scan")}
                 aria-label={t("moduleHost.scan")}
                 disabled={scanBusy}
                 onClick={onScan}
               >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
                   <circle cx="7" cy="7" r="4.2" />
                   <path d="M10.2 10.2L14 14" />
                 </svg>
-              </Button>
-              <Button
-                type="button"
-                variant="icon"
+              </WorkbenchActionButton>
+              <WorkbenchActionButton
+                icon
                 title={t("moduleHost.newConnection")}
                 aria-label={t("moduleHost.newConnection")}
                 onClick={onCreate}
               >
-                <IconPlus size={14} />
-              </Button>
+                <IconPlus size={12} />
+              </WorkbenchActionButton>
             </>
           }
         >

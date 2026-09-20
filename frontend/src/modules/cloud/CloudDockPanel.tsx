@@ -7,6 +7,7 @@ import type { CloudWorkspaceTab } from "./cloudWorkspaceTabs";
 export function CloudDockPanel({
   tab,
   account,
+  live = true,
   selectedRegions,
   inspectorRowId,
   onOpenCapability,
@@ -15,6 +16,7 @@ export function CloudDockPanel({
 }: {
   tab: CloudWorkspaceTab;
   account: CloudAccount;
+  live?: boolean;
   selectedRegions: string[];
   inspectorRowId: string | null;
   onOpenCapability: (capability: string) => void;
@@ -25,6 +27,7 @@ export function CloudDockPanel({
     return (
       <CloudAccountOverview
         account={account}
+        live={live}
         selectedRegions={selectedRegions}
         onOpenCapability={(capability) => onOpenCapability(capability)}
         onOpenResource={(capability, resourceId, regionId) => onOpenRow(capability, resourceId, regionId)}
@@ -35,6 +38,7 @@ export function CloudDockPanel({
     return (
       <CloudResourceListPanel
         account={account}
+        live={live}
         capability={tab.capability}
         selectedRegions={selectedRegions}
         selectedRowId={inspectorRowId}
@@ -46,6 +50,7 @@ export function CloudDockPanel({
   return (
     <CloudResourceDetailPanel
       account={account}
+      live={live}
       capability={tab.capability}
       resourceId={tab.resourceId}
       regionId={tab.regionId}

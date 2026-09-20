@@ -365,7 +365,11 @@ mod tests {
         let text2 = r#"{"schemaVersion":2,"plugins":[{"id":"x","versions":[{"version":"1.0.0","artifact":{"url":"https://example.com/a","sha256":"","size":1,"integrity":"sha512-AAA"}}]}]}"#;
         let file2 = parse_registry(text2).unwrap();
         assert_eq!(
-            file2.plugins[0].versions[0].artifact.as_ref().unwrap().integrity,
+            file2.plugins[0].versions[0]
+                .artifact
+                .as_ref()
+                .unwrap()
+                .integrity,
             "sha512-AAA"
         );
     }
@@ -432,10 +436,7 @@ mod tests {
             .expect("nacos");
         assert_eq!(nacos.versions.len(), 1);
         assert_eq!(nacos.versions[0].version, "0.2.0");
-        assert_eq!(
-            nacos.versions[0].artifact.as_ref().unwrap().sha256,
-            "dead"
-        );
+        assert_eq!(nacos.versions[0].artifact.as_ref().unwrap().sha256, "dead");
     }
 
     #[test]

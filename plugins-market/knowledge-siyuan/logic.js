@@ -66,17 +66,30 @@ function b64decode(input) {
   }
 }
 
-// 节点自身文本：行内标记（链接/公式/标签原文）→ Data → markdown → content。
-// 注意：图片节点不走这里（renderImage 直出 ![alt](dest)），tag 标记原文保留在
-// 正文里，标签另由 collectDocTags 收集（正文可读性与标签索引兼得）。
+// 节点自身文本：行内标记 → Data → markdown → content。
+// TextMarkType 可能是复合标记（"strong a"），按 token 判定：链接优先成链，
+// 粗斜体包外层；tag 标记原文保留（索引另收）；code 走反引号。
 function ownText(node) {
   var markText = str(node.TextMarkTextContent);
   if (markText.trim() !== "") {
+    var tokens = str(node.TextMarkType).split(" ");
+    var has = function (s) {
+      for (var i = 0; i < tokens.length; i++) {
+        if (tokens[i] === s) return true;
+      }
+      return false;
+    };
+    if (has("tag")) return markText;
     var href = str(node.TextMarkAHref).trim();
-    if (node.TextMarkType === "a" && href !== "") {
-      return "[" + markText.trim() + "](" + href + ")";
+    var text = markText.trim();
+    if (has("a") && href !== "") {
+      text = "[" + text + "](" + href + ")";
     }
-    return markText;
+    if (has("code") && !has("a")) return "`" + markText.trim() + "`";
+    if (has("strong")) text = "**" + text + "**";
+    else if (has("em")) text = "*" + text + "*";
+    if (has("strike") || has("s")) text = "~~" + text + "~~";
+    return text;
   }
   var math = str(node.TextMarkInlineMathContent);
   if (math.trim() !== "") return "$" + math.trim() + "$";
@@ -210,6 +223,24 @@ function listItemPrefix(node) {
 
 function collectUnits(node, out, pending) {
   var t = nodeType(node);
+  if (t === "NodeHeading") {
+    var heading = renderHeading(node);
+    if (heading !== "") {
+      var pendingHead = pending.join("").trim();
+      if (pendingHead !== "") {
+        out.push(pendingHead);
+        pending.length = 0;
+      }
+      out.push(heading);
+    }
+    var hkids = nodeChildren(node);
+    for (var hi = 0; hi < hkids.length; hi++) {
+      if (isStructural(hkids[hi]) && !subtreeInline(hkids[hi])) {
+        collectUnits(hkids[hi], out, []);
+      }
+    }
+    return;
+  }
   if (t === "NodeCodeBlock") {
     var code = renderCodeBlock(node);
     if (code !== "") {
@@ -259,6 +290,22 @@ function collectUnits(node, out, pending) {
   }
   var rest = buf.join("").trim();
   if (rest !== "") out.push(rest);
+}
+
+// 标题：级别只认 HeadingLevel（新版思源无 marker 子节点，旧版有也不依赖）。
+// marker 节点跳过，残留标记文本兜底剥掉。
+function renderHeading(node) {
+  var level = parseInt(node.HeadingLevel, 10);
+  if (!(level >= 1 && level <= 6)) level = 0;
+  var buf = [];
+  var kids = nodeChildren(node);
+  for (var i = 0; i < kids.length; i++) {
+    if (/Marker$/.test(nodeType(kids[i]))) continue;
+    inlineInto(kids[i], buf);
+  }
+  var text = buf.join("").trim().replace(/^[#>\-*]+\s*/, "");
+  if (text === "") return "";
+  return (level > 0 ? new Array(level + 1).join("#") + " " : "") + text;
 }
 
 // pending 在 JS 侧用数组模拟可变字符串（调用方传 []）。

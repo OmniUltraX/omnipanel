@@ -217,7 +217,12 @@ impl MqttSession {
             0 => rumqttc::QoS::AtMostOnce,
             1 => rumqttc::QoS::AtLeastOnce,
             2 => rumqttc::QoS::ExactlyOnce,
-            _ => return Err(OmniError::invalid_input(format!("Invalid QoS: {}", msg.qos))),
+            _ => {
+                return Err(OmniError::invalid_input(format!(
+                    "Invalid QoS: {}",
+                    msg.qos
+                )));
+            }
         };
         self.client
             .publish(msg.topic, qos, msg.retain, msg.payload.as_bytes())

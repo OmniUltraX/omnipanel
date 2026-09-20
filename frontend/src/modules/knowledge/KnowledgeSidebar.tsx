@@ -13,7 +13,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { ScopedSearch } from "../../components/ui/ScopedSearch";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu";
 import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
-import { Button } from "../../components/ui/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import {
   buildKnowledgeTree,
   expandAncestorIds,
@@ -63,6 +63,13 @@ import {
   useSidebarTreeSelection,
 } from "@/components/ui/sidebar-tree";
 import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
+import { SidebarTreeEmpty } from "@/components/ui/sidebar-tree";
+import {
+  ModuleSidebarSection,
+  ModuleSidebarTreeToolbar,
+  SidebarIcon,
+} from "@/components/ui/module-sidebar";
+import { usePersistedVerticalSplitSections } from "../../components/ui/sidebar/VerticalSplitSidebar";
 
 /** 树行高（min-height 24 + 上下 padding）：固定高度虚拟化不漂移。 */
 const KNOWLEDGE_TREE_ROW_HEIGHT = 30;
@@ -79,23 +86,6 @@ type DropHint = {
   targetId: string;
   position: "before" | "inside" | "after";
 };
-
-function FolderIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
-      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-    </svg>
-  );
-}
-
-function DocIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
-    </svg>
-  );
-}
 
 type TreeRowProps = {
   node: KnowledgeTreeNode;
@@ -175,12 +165,15 @@ function TreeRow({
           ? " knowledge-tree-row--drop-after"
           : ""
       }`}
-      icon={isFolder ? <FolderIcon /> : <DocIcon />}
+      icon={isFolder ? <SidebarIcon kind="folder" /> : <SidebarIcon kind="document" />}
       label={entry.title}
       afterLabel={
         <>
           {mirrorLabel ? (
-            <span className="knowledge-import-badge" title={mirrorLabel}>
+            <span
+              className="sidebar-tag-chip knowledge-import-badge"
+              title={mirrorLabel}
+            >
               {mirrorLabel}
             </span>
           ) : null}
@@ -279,6 +272,7 @@ export function KnowledgeSidebar() {
   const setSelectedEntry = useKnowledgeStore((s) => s.setSelectedEntry);
   const toggleExpanded = useKnowledgeStore((s) => s.toggleExpanded);
   const setExpanded = useKnowledgeStore((s) => s.setExpanded);
+  const setExpandedIds = useKnowledgeStore((s) => s.setExpandedIds);
   const createFolder = useKnowledgeStore((s) => s.createFolder);
   const createDocument = useKnowledgeStore((s) => s.createDocument);
   const importPdfFromPath = useKnowledgeStore((s) => s.importPdfFromPath);
@@ -1013,6 +1007,30 @@ export function KnowledgeSidebar() {
     [t],
   );
 
+  /** 单分组原则：整棵树包一层 L1 段头，通用功能挂载于此。 */
+  const { sections, toggleSection } = usePersistedVerticalSplitSections<"library">(
+    "omnipanel-knowledge-sidebar-sections",
+    { library: true },
+  );
+
+  const folderIds = useMemo(
+    () => entries.filter((entry) => isKnowledgeFolder(entry)).map((entry) => entry.id),
+    [entries],
+  );
+  const expandAllDisabled =
+    folderIds.length === 0 || folderIds.every((id) => expandedIds.includes(id));
+
+  const handleExpandAll = useCallback(() => {
+    setExpandedIds(folderIds);
+  }, [folderIds, setExpandedIds]);
+
+  const handleCollapseAll = useCallback(() => {
+    setExpandedIds([]);
+  }, [setExpandedIds]);
+
+  /** Shift 范围选顺序：与当前可见扁平行一致。 */
+  const orderedKeys = useMemo(() => flatRows.map((row) => row.node.entry.id), [flatRows]);
+
   const renderTree = () => {
     const virtualized = flatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD;
     const rowOpts = {
@@ -1042,11 +1060,11 @@ export function KnowledgeSidebar() {
         }}
       >
         {isLoading && entries.length === 0 ? (
-          <div className="knowledge-tree-empty">{t("common.loading")}</div>
+          <SidebarTreeEmpty>{t("common.loading")}</SidebarTreeEmpty>
         ) : visibleTree.length === 0 ? (
-          <div className="knowledge-tree-empty">
+          <SidebarTreeEmpty>
             {searchQuery.trim() ? t("knowledge.noResults") : t("knowledge.noEntries")}
-          </div>
+          </SidebarTreeEmpty>
         ) : virtualized ? (
           <div
             style={{ height: virtualizer.getTotalSize(), position: "relative" }}
@@ -1077,56 +1095,58 @@ export function KnowledgeSidebar() {
     );
   };
 
-  const renderTreeActions = () => (
-    <div className="schema-toolbar schema-toolbar--inline knowledge-sidebar-section-actions" ref={newMenuRef}>
-      <Button
-        variant="icon"
-        size="sm"
-        title={t("knowledge.tree.new")}
-        onClick={() => setShowNewMenu((current) => !current)}
-      >
-        +
-      </Button>
-      {showNewMenu && (
-        <div className="knowledge-new-menu">
-          <button
-            type="button"
-            onClick={() => {
-              setShowNewMenu(false);
-              void createFolder(parentForNew());
-            }}
-          >
-            {t("knowledge.tree.newFolder")}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowNewMenu(false);
-              void handleCreateDocument(parentForNew());
-            }}
-          >
-            {t("knowledge.tree.newDocument")}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowNewMenu(false);
-              void handleImportPdf(parentForNew());
-            }}
-          >
-            {t("knowledge.tree.importPdf")}
-          </button>
-        </div>
-      )}
-      <Button
-        variant="icon"
-        size="sm"
+  const renderSectionActions = () => (
+    <>
+      <div className="knowledge-sidebar-section-actions" ref={newMenuRef}>
+        <WorkbenchActionButton
+          icon
+          title={t("knowledge.tree.new")}
+          aria-label={t("knowledge.tree.new")}
+          onClick={() => setShowNewMenu((current) => !current)}
+        >
+          {contextMenuIcons.plus}
+        </WorkbenchActionButton>
+        {showNewMenu && (
+          <div className="knowledge-new-menu">
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewMenu(false);
+                void createFolder(parentForNew());
+              }}
+            >
+              {t("knowledge.tree.newFolder")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewMenu(false);
+                void handleCreateDocument(parentForNew());
+              }}
+            >
+              {t("knowledge.tree.newDocument")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewMenu(false);
+                void handleImportPdf(parentForNew());
+              }}
+            >
+              {t("knowledge.tree.importPdf")}
+            </button>
+          </div>
+        )}
+      </div>
+      <WorkbenchActionButton
+        icon
         title={t("knowledge.ks.openButton")}
+        aria-label={t("knowledge.ks.openButton")}
         onClick={() => setKsConsoleOpen(true)}
       >
-        ⇄
-      </Button>
-    </div>
+        {contextMenuIcons.connect}
+      </WorkbenchActionButton>
+    </>
   );
 
   return (
@@ -1150,10 +1170,28 @@ export function KnowledgeSidebar() {
                 />
               </div>
             ) : (
-              <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
+              <SidebarTreeSelectionProvider
+                orderedKeys={orderedKeys}
+                onSelectedIdsChange={handleSelectedIdsChange}
+              >
                 <div className="knowledge-sidebar-sections">
-                  <div className="knowledge-sidebar-treehead">{renderTreeActions()}</div>
-                  {renderTree()}
+                  <ModuleSidebarSection
+                    title={t("routes.knowledge")}
+                    expanded={sections.library}
+                    onToggle={() => toggleSection("library")}
+                    count={entries.length}
+                    toolbar={
+                      <ModuleSidebarTreeToolbar
+                        onExpandAll={handleExpandAll}
+                        onCollapseAll={handleCollapseAll}
+                        expandDisabled={expandAllDisabled}
+                        collapseDisabled={expandedIds.length === 0}
+                      />
+                    }
+                    actions={renderSectionActions()}
+                  >
+                    {renderTree()}
+                  </ModuleSidebarSection>
                 </div>
               </SidebarTreeSelectionProvider>
             )}

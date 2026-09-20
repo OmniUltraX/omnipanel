@@ -208,10 +208,7 @@ pub async fn get_packets(
 }
 
 /// 获取抓包统计。
-pub async fn get_stats(
-    sessions: &SnifferSessions,
-    capture_id: &str,
-) -> OmniResult<CaptureStats> {
+pub async fn get_stats(sessions: &SnifferSessions, capture_id: &str) -> OmniResult<CaptureStats> {
     let sessions = sessions.lock().await;
     let session = sessions
         .get(capture_id)

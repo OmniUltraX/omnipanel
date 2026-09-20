@@ -271,7 +271,12 @@ export const useCloudInventoryStore = create<CloudInventoryState>()(
               }
             });
           if (opts?.force) return refresh();
-          if (cached && isCloudInventoryFresh(cached.fetchedAt)) return cached.snapshot;
+          if (cached && isCloudInventoryFresh(cached.fetchedAt) && !cached.error) {
+            return cached.snapshot;
+          }
+          if (cached && isCloudInventoryFresh(cached.fetchedAt) && cached.error) {
+            return refresh();
+          }
           if (cached) {
             void refresh();
             return cached.snapshot;

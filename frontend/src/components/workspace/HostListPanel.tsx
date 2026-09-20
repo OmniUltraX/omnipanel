@@ -14,7 +14,7 @@ import { parseResourceTag } from "../../lib/resourceTags";
 import { type WorkspaceResource } from "../../lib/resourceRegistry";
 import { CONNECTION_TAG_KINDS } from "../../modules/tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../../modules/tags/useModuleTagFilter";
-import { Button } from "../ui/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { IconDownload } from "../ui/icons/Icons";
 import type { HostDockOpenMode } from "../../modules/server/ssh/workspaceTabs";
 import { OPENSSH_CONFIG_GROUP, sshGroupLabel } from "../../lib/sshGroups";
@@ -29,15 +29,13 @@ import {
 } from "../../stores/connectionStore";
 import { HostStatusIndicator } from "../../modules/server/ssh/components/HostStatusIndicator";
 import { loadSshPoolStatuses } from "../../stores/sshConnectionStore";
-import { useSshHostStore } from "../../stores/sshHostStore";
 import { usePanelProbeStore } from "../../modules/server/ssh/stores/panelProbeStore";
 import { useResourceProfileNavStore } from "../../lib/resource/resourceProfileNavStore";
-import { ContextMenu, type ContextMenuItem } from "../ui/menu";
+import { ContextMenu, type ContextMenuItem, IconDropdownButton } from "../ui/menu";
 import { contextMenuIcons } from "../ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../ui/menu/withGlobalShareMenuItem";
 import { useShareUiStore } from "../../stores/shareUiStore";
 import { buildSshConnectionSharePayload } from "../../modules/share/resourceShare";
-import hostIcon from "../../assets/icons/host.svg";
 import { SshConnectionDialog } from "../../modules/server/ssh/components/SshConnectionDialog";
 import { SshConfigImportDialog } from "../../modules/server/ssh/components/SshConfigImportDialog";
 import {
@@ -63,7 +61,13 @@ import {
   useSidebarTreeSelection,
   type TreeRowMouseEvent,
 } from "../ui/sidebar-tree";
-import { usePersistedSshTreeExpanded } from "../../modules/server/ssh/usePersistedSshTreeExpanded";
+import { usePersistedTreeExpanded } from "../ui/module-sidebar/usePersistedTreeExpanded";
+import {
+  ModuleSidebarTreeToolbar,
+  SidebarCountBadge,
+  SidebarIcon,
+  SidebarImportIcon,
+} from "../ui/module-sidebar";
 import {
   collectAllSshSidebarTreeKeys,
   getSshHostFolderLabel,
@@ -263,27 +267,9 @@ function SshSelectionApiCapture({
   return null;
 }
 
-function FolderIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-    </svg>
-  );
-}
-
-/** SSH 主机条目图标（assets/icons/host.svg） */
+/** SSH 主机条目图标：统一图标集（原 assets/icons/host.svg） */
 function HostTreeIcon() {
-  return (
-    <img
-      src={hostIcon}
-      alt=""
-      width={14}
-      height={14}
-      className="ssh-tree-host-icon"
-      aria-hidden
-      draggable={false}
-    />
-  );
+  return <SidebarIcon kind="host" />;
 }
 
 const PANEL_ICON_ORDER: PanelBrandIconKind[] = ["bt", "1panel", "hestia"];
@@ -326,17 +312,6 @@ function HostPanelIcons({ sshId }: { sshId: string }) {
   );
 }
 
-function HostMonitoringBadge({ resourceId }: { resourceId: string }) {
-  const { t } = useI18n();
-  const enabled = useSshHostStore((s) => s.isMonitoring(resourceId));
-  if (!enabled) return null;
-  return (
-    <span className="host-monitoring-badge" title={t("ssh.monitoring.active")}>
-      <span className="host-monitoring-dot" aria-hidden />
-    </span>
-  );
-}
-
 function folderDisplayName(name: string, t: (key: string) => string): string {
   if (name === OPENSSH_CONFIG_GROUP) return sshGroupLabel(name, t);
   return name;
@@ -368,7 +343,11 @@ export function HostListPanel({
   const removeConn = useConnectionStore((s) => s.remove);
   const openShareDialog = useShareUiStore((s) => s.openShareDialog);
   const activeHostId = activeHostIdProp ?? selectedResourceByPath[SSH_PATH];
-  const { isExpanded, toggle, ensureExpanded } = usePersistedSshTreeExpanded();
+  // storageKey 沿用旧 key，用户现有展开态不断。
+  const { isExpanded, toggle, ensureExpanded, setAllExpanded } = usePersistedTreeExpanded(
+    "omnipanel-ssh-tree-expanded.v1",
+    "team",
+  );
 
   const folders = useSshSidebarTreeStore((s) => s.folders);
   const connectionFolderId = useSshSidebarTreeStore((s) => s.connectionFolderId);
@@ -624,11 +603,12 @@ export function HostListPanel({
     deleteFolder(folder.id);
   };
 
-  const handleAdd = () => {
+  // useCallback：toolbar useMemo 依赖它，裸函数会导致 toolbar 每轮重建 → header meta 反复上报 → 无限循环。
+  const handleAdd = useCallback(() => {
     setEditConnection(undefined);
     setPresetFolderId(null);
     setShowDialog(true);
-  };
+  }, []);
 
   const handleNewHostInFolder = (folderId: string) => {
     setEditConnection(undefined);
@@ -1013,7 +993,7 @@ export function HostListPanel({
           nodeType="host"
           treeKey={treeKey}
           icon={<HostTreeIcon />}
-          className={`${dragOverKey === dragKey ? "ssh-tree-drop-target" : ""}${selected ? " selected" : ""}`}
+          className={dragOverKey === dragKey ? "ssh-tree-drop-target" : ""}
           prefix={
             selectionMode ? (
               <input
@@ -1033,9 +1013,6 @@ export function HostListPanel({
               <span className="host-row-1">
                 <span className="host-name">{host.name}</span>
                 <span className="host-row-2">{host.subtitle}</span>
-                <span className="host-row-1-meta">
-                  <HostMonitoringBadge resourceId={host.id} />
-                </span>
               </span>
             </span>
           }
@@ -1098,7 +1075,7 @@ export function HostListPanel({
             module="ssh"
             nodeType="folder"
             treeKey={folderTreeKey}
-            icon={<FolderIcon />}
+            icon={<SidebarIcon kind="folder" />}
             className={dragOverKey === dropKey ? "ssh-tree-drop-target" : ""}
             label={folderDisplayName(folder.name, t)}
             hasChildren
@@ -1122,37 +1099,72 @@ export function HostListPanel({
     });
   };
 
+  const folderTreeKeys = useMemo(
+    () => folders.map((folder) => `ssh-folder:${folder.id}`),
+    [folders],
+  );
+  const expandFoldersDisabled =
+    folderTreeKeys.length === 0 || folderTreeKeys.every((key) => isExpanded(key));
+  const collapseFoldersDisabled =
+    folderTreeKeys.length === 0 || folderTreeKeys.every((key) => !isExpanded(key));
+
   const toolbar = useMemo(
     () => (
       <div className="schema-toolbar schema-toolbar--inline host-list-actions">
-        <Button
-          variant="icon"
+        <IconDropdownButton
+          title={t("ssh.sidebar.newMenu")}
+          size="icon-xs"
+          icon={
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          }
+          items={[
+            {
+              id: "new-folder",
+              label: t("ssh.sidebar.newFolder"),
+              onSelect: () => handleCreateFolder(null),
+            },
+            {
+              id: "new-host",
+              label: t("ssh.sidebar.newHost"),
+              onSelect: () => handleAdd(),
+            },
+          ]}
+        />
+        <WorkbenchActionButton
+          icon
           title={t("ssh.sidebar.syncConfig")}
+          aria-label={t("ssh.sidebar.syncConfig")}
           disabled={syncing}
           onClick={() => openImportDialog(null)}
         >
-          <IconDownload size={14} className={syncing ? "icon-spin" : undefined} />
-        </Button>
-        <Button
-          variant="icon"
-          title={t("ssh.sidebar.newFolder")}
-          onClick={() => handleCreateFolder(null)}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            <line x1="12" y1="11" x2="12" y2="17" />
-            <line x1="9" y1="14" x2="15" y2="14" />
-          </svg>
-        </Button>
-        <Button variant="icon" title={t("ssh.dialog.addTitle")} onClick={handleAdd}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </Button>
+          {syncing ? (
+            <IconDownload size={12} className="icon-spin" />
+          ) : (
+            <SidebarImportIcon />
+          )}
+        </WorkbenchActionButton>
+        <ModuleSidebarTreeToolbar
+          onExpandAll={() => setAllExpanded(folderTreeKeys, true)}
+          onCollapseAll={() => setAllExpanded(folderTreeKeys, false)}
+          expandDisabled={expandFoldersDisabled}
+          collapseDisabled={collapseFoldersDisabled}
+        />
       </div>
     ),
-    [handleCreateFolder, openImportDialog, syncing, t],
+    [
+      collapseFoldersDisabled,
+      expandFoldersDisabled,
+      folderTreeKeys,
+      handleAdd,
+      handleCreateFolder,
+      openImportDialog,
+      setAllExpanded,
+      syncing,
+      t,
+    ],
   );
 
   useLayoutEffect(() => {
@@ -1169,7 +1181,7 @@ export function HostListPanel({
       {!embedded ? (
         <div className="host-list-header window-drag-surface" data-tauri-drag-region>
           <h3>{t("ssh.sidebar.title")}</h3>
-          <span className="badge badge-muted">{resources.length}</span>
+          <SidebarCountBadge count={resources.length} />
           {toolbar}
         </div>
       ) : null}

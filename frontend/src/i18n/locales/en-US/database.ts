@@ -1480,7 +1480,6 @@ export default {
       filterRuleCount: "{count} rules",
       filterApply: "Apply filter",
       filterClear: "Clear filter",
-      filterClearColumn: "Clear this column",
       filterDragRow: "Drag to reorder",
       filterColumnHint: "Filter this column",
       filterAddCondition: "Add condition",

@@ -30,6 +30,16 @@ import {
   resolveSidebarTreeDeleteTargets,
 } from "@/components/ui/sidebar-tree";
 import {
+  ModuleSidebarSection,
+  ModuleSidebarTreeToolbar,
+  SidebarCountBadge,
+  SidebarIcon,
+  SidebarStatusDot,
+  type SidebarStatus,
+  usePersistedTreeExpanded,
+} from "@/components/ui/module-sidebar";
+import { usePersistedVerticalSplitSections } from "../../components/ui/sidebar/VerticalSplitSidebar";
+import {
   mergeConnectionOrder,
   moveConnectionInOrder,
   readConnectionOrder,
@@ -73,21 +83,6 @@ type ConnectionGroup = {
   sessions: TerminalSession[];
 };
 
-function readExpandedMap(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(EXPANDED_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, boolean>;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeExpandedMap(map: Record<string, boolean>): void {
-  localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(map));
-}
-
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
   if (diff < 60_000) return "now";
@@ -116,7 +111,7 @@ function connectionStatusToTopbarStatus(
   return "idle";
 }
 
-function sessionStatusDotClass(status: TopbarTabDef["status"]): string {
+function sessionStatusDotClass(status: TopbarTabDef["status"]): SidebarStatus {
   if (status === "connected" || status === "online") return "online";
   if (status === "connecting") return "connecting";
   if (status === "offline") return "offline";
@@ -133,14 +128,6 @@ function resolveSessionConnectionStatus(
   const detached = detachedRuntime[sessionId];
   if (detached) return connectionStatusToTopbarStatus(detached.status);
   return "idle";
-}
-
-function FolderIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="13" height="13" aria-hidden>
-      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-    </svg>
-  );
 }
 
 export interface TerminalSessionSidebarProps {
@@ -218,7 +205,14 @@ export function TerminalSessionSidebar({
     [activeSessionId, activeTabId, tabs],
   );
 
-  const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>(readExpandedMap);
+  // 连接组默认展开（缺省即展开）：与旧本地实现一致，storageKey 沿用不断用户现状。
+  const { isExpanded, ensureExpanded, set, setAllExpanded } = usePersistedTreeExpanded(
+    EXPANDED_STORAGE_KEY,
+  );
+  const { sections, toggleSection } = usePersistedVerticalSplitSections<"sessions">(
+    "omnipanel-terminal-session-sidebar-sections",
+    { sessions: true },
+  );
   const [connectionOrder, setConnectionOrder] = useState<string[]>(readConnectionOrder);
   const [draggingSourceId, setDraggingSourceId] = useState<string | null>(null);
   const [isPointerDragging, setIsPointerDragging] = useState(false);
@@ -312,24 +306,15 @@ export function TerminalSessionSidebar({
     }
   }, [connectionGroups, connectionOrder]);
 
-  const setExpanded = useCallback((resourceId: string, expanded: boolean) => {
-    setExpandedMap((prev) => {
-      const next = { ...prev, [resourceId]: expanded };
-      writeExpandedMap(next);
-      return next;
-    });
-  }, []);
-
   const toggleExpanded = useCallback(
     (resourceId: string) => {
       if (skipNextToggleRef.current) {
         skipNextToggleRef.current = false;
         return;
       }
-      const current = expandedMap[resourceId] ?? true;
-      setExpanded(resourceId, !current);
+      set(resourceId, !isExpanded(resourceId, true));
     },
-    [expandedMap, setExpanded],
+    [isExpanded, set],
   );
 
   const handleSessionContextMenu = useCallback(
@@ -398,25 +383,13 @@ export function TerminalSessionSidebar({
           id: "conn-expand-all",
           label: t("terminal.sessions.expandAll"),
           icon: contextMenuIcons.expand,
-          onClick: () => {
-            setExpandedMap((prev) => {
-              const next = { ...prev, [group.resourceId]: true };
-              writeExpandedMap(next);
-              return next;
-            });
-          },
+          onClick: () => set(group.resourceId, true),
         },
         {
           id: "conn-collapse-all",
           label: t("terminal.sessions.collapseAll"),
           icon: contextMenuIcons.collapse,
-          onClick: () => {
-            setExpandedMap((prev) => {
-              const next = { ...prev, [group.resourceId]: false };
-              writeExpandedMap(next);
-              return next;
-            });
-          },
+          onClick: () => set(group.resourceId, false),
         },
       ];
       if (onRenameConnection) {
@@ -453,7 +426,7 @@ export function TerminalSessionSidebar({
       }
       return items;
     },
-    [onCreateSession, onEndAllSessionsInConnection, onRenameConnection, t],
+    [onCreateSession, onEndAllSessionsInConnection, onRenameConnection, set, t],
   );
 
   const handleConfirmSessionRename = useCallback(
@@ -590,141 +563,186 @@ export function TerminalSessionSidebar({
     if (!resolvedActiveSessionId) return;
     const session = sessions.find((item) => item.id === resolvedActiveSessionId);
     if (session) {
-      setExpanded(session.session.resourceId, true);
+      ensureExpanded(session.session.resourceId);
     }
-  }, [resolvedActiveSessionId, sessions, setExpanded]);
+  }, [resolvedActiveSessionId, sessions, ensureExpanded]);
+
+  const groupIds = useMemo(
+    () => connectionGroups.map((group) => group.resourceId),
+    [connectionGroups],
+  );
+  const totalSessions = useMemo(
+    () => connectionGroups.reduce((sum, group) => sum + group.sessions.length, 0),
+    [connectionGroups],
+  );
+  /** Shift 范围选顺序：连接组头 + 其会话，按渲染顺序扁平。 */
+  const orderedKeys = useMemo(
+    () =>
+      connectionGroups.flatMap((group) => [
+        makeConnectionTreeKey(group.resourceId),
+        ...group.sessions.map((session) => makeSessionTreeKey(session.id)),
+      ]),
+    [connectionGroups],
+  );
+  const expandAllGroupsDisabled = useMemo(
+    () => groupIds.length === 0 || groupIds.every((id) => isExpanded(id, true)),
+    [groupIds, isExpanded],
+  );
+  const collapseAllGroupsDisabled = useMemo(
+    () => groupIds.length === 0 || groupIds.every((id) => !isExpanded(id, true)),
+    [groupIds, isExpanded],
+  );
+  const handleExpandAllGroups = useCallback(() => {
+    setAllExpanded(groupIds, true);
+  }, [groupIds, setAllExpanded]);
+  const handleCollapseAllGroups = useCallback(() => {
+    setAllExpanded(groupIds, false);
+  }, [groupIds, setAllExpanded]);
 
   return (
     <div className="term-session-tree">
       {isPointerDragging
         ? createPortal(<div className="term-session-tree__drag-cursor-layer" aria-hidden />, document.body)
         : null}
-      <SidebarTreeSelectionProvider onSelectedIdsChange={handleSelectedIdsChange}>
-        <div ref={treeBodyRef} className="term-session-tree__body">
-          <SidebarTreeRoot className="sidebar-tree-root">
-          {connectionGroups.length === 0 ? (
-            <SidebarTreeEmpty>{t("terminal.sessions.empty")}</SidebarTreeEmpty>
-          ) : (
-            connectionGroups.map((group) => {
-              const expanded = expandedMap[group.resourceId] ?? true;
-              const dropHint =
-                dropTarget?.resourceId === group.resourceId ? dropTarget.position : null;
-              const draggingSource = draggingSourceId === group.resourceId;
-              const connectionKey = makeConnectionTreeKey(group.resourceId);
+      <SidebarTreeSelectionProvider
+        orderedKeys={orderedKeys}
+        onSelectedIdsChange={handleSelectedIdsChange}
+      >
+        <ModuleSidebarSection
+          title={t("terminal.sessions.title")}
+          expanded={sections.sessions}
+          onToggle={() => toggleSection("sessions")}
+          count={totalSessions}
+          toolbar={
+            <ModuleSidebarTreeToolbar
+              onExpandAll={handleExpandAllGroups}
+              onCollapseAll={handleCollapseAllGroups}
+              expandDisabled={expandAllGroupsDisabled}
+              collapseDisabled={collapseAllGroupsDisabled}
+            />
+          }
+        >
+          <div ref={treeBodyRef} className="term-session-tree__body">
+            <SidebarTreeRoot className="sidebar-tree-root">
+              {connectionGroups.length === 0 ? (
+                <SidebarTreeEmpty>{t("terminal.sessions.empty")}</SidebarTreeEmpty>
+              ) : (
+                connectionGroups.map((group) => {
+                  const expanded = isExpanded(group.resourceId, true);
+                  const dropHint =
+                    dropTarget?.resourceId === group.resourceId ? dropTarget.position : null;
+                  const draggingSource = draggingSourceId === group.resourceId;
+                  const connectionKey = makeConnectionTreeKey(group.resourceId);
 
-              return (
-                <div key={group.resourceId} className="server-tree-category term-session-tree__group">
-                  <SidebarTreeNode
-                    depth={0}
-                    module="terminal"
-                    nodeType="connection"
-                    treeKey={connectionKey}
-                    label={group.name}
-                    icon={<FolderIcon />}
-                    hasChildren
-                    expanded={expanded}
-                    className={[
-                      "term-session-tree__connection-node",
-                      dropHint === "before" ? "term-session-tree__connection-node--drop-before" : "",
-                      dropHint === "after" ? "term-session-tree__connection-node--drop-after" : "",
-                      draggingSource ? "term-session-tree__connection-node--dragging" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    dataAttrs={{ "data-connection-id": group.resourceId }}
-                    onToggle={() => toggleExpanded(group.resourceId)}
-                    onActivate={() => toggleExpanded(group.resourceId)}
-                    onPointerDown={(event) => handleConnectionPointerDown(event, group.resourceId)}
-                    contextMenuItems={buildConnectionCtxItems(group)}
-                    trailing={
-                      <>
-                        <span className="server-tree-badge">{group.sessions.length}</span>
-                        <div className="tree-node-actions">
-                          <button
-                            type="button"
-                            className="tree-action-btn tree-action-btn--add"
-                            title={t("terminal.sessions.newUnderConnection")}
-                            aria-label={t("terminal.sessions.newUnderConnection")}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onCreateSession(group.resourceId, group.name);
-                            }}
-                          >
-                            +
-                          </button>
-                        </div>
-                      </>
-                    }
-                  />
-                  {expanded ? (
-                    <div className="server-tree-children">
-                      {group.sessions.map((session) => {
-                        const activityAt = resolveSessionActivityAt(session, blocksBySession);
-                        const isActive = resolvedActiveSessionId === session.id;
-                        const status = sessionStatusById.get(session.id) ?? "idle";
-                        const isAiNaming = aiNamingIds.has(session.id);
+                  return (
+                    <div key={group.resourceId} className="server-tree-category term-session-tree__group">
+                      <SidebarTreeNode
+                        depth={0}
+                        module="terminal"
+                        nodeType="connection"
+                        treeKey={connectionKey}
+                        label={group.name}
+                        icon={<SidebarIcon kind="connection" />}
+                        hasChildren
+                        expanded={expanded}
+                        className={[
+                          "term-session-tree__connection-node",
+                          dropHint === "before" ? "term-session-tree__connection-node--drop-before" : "",
+                          dropHint === "after" ? "term-session-tree__connection-node--drop-after" : "",
+                          draggingSource ? "term-session-tree__connection-node--dragging" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        dataAttrs={{ "data-connection-id": group.resourceId }}
+                        onToggle={() => toggleExpanded(group.resourceId)}
+                        onActivate={() => toggleExpanded(group.resourceId)}
+                        onPointerDown={(event) => handleConnectionPointerDown(event, group.resourceId)}
+                        contextMenuItems={buildConnectionCtxItems(group)}
+                        trailing={
+                          <>
+                            <SidebarCountBadge count={group.sessions.length} />
+                            <div className="tree-node-actions">
+                              <button
+                                type="button"
+                                className="tree-action-btn tree-action-btn--add"
+                                title={t("terminal.sessions.newUnderConnection")}
+                                aria-label={t("terminal.sessions.newUnderConnection")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  onCreateSession(group.resourceId, group.name);
+                                }}
+                              >
+                                {contextMenuIcons.plus}
+                              </button>
+                            </div>
+                          </>
+                        }
+                      />
+                      {expanded ? (
+                        <div className="server-tree-children">
+                          {group.sessions.map((session) => {
+                            const activityAt = resolveSessionActivityAt(session, blocksBySession);
+                            const isActive = resolvedActiveSessionId === session.id;
+                            const status = sessionStatusById.get(session.id) ?? "idle";
+                            const isAiNaming = aiNamingIds.has(session.id);
 
-                        return (
-                          <SidebarTreeNode
-                            key={session.id}
-                            depth={1}
-                            module="terminal"
-                            nodeType="session"
-                            treeKey={makeSessionTreeKey(session.id)}
-                            label={session.title}
-                            hasChildren={false}
-                            expanded={false}
-                            active={isActive}
-                            onToggle={() => {}}
-                            onActivate={() => onSelectSession(session.id)}
-                            onContextMenu={(event) => handleSessionContextMenu(event, session.id)}
-                            prefix={
-                              <span
-                                className={`topbar-tab-dot ${sessionStatusDotClass(status)}`}
-                                aria-hidden
+                            return (
+                              <SidebarTreeNode
+                                key={session.id}
+                                depth={1}
+                                module="terminal"
+                                nodeType="session"
+                                treeKey={makeSessionTreeKey(session.id)}
+                                label={session.title}
+                                hasChildren={false}
+                                expanded={false}
+                                active={isActive}
+                                onToggle={() => {}}
+                                onActivate={() => onSelectSession(session.id)}
+                                onContextMenu={(event) => handleSessionContextMenu(event, session.id)}
+                                prefix={<SidebarStatusDot status={sessionStatusDotClass(status)} />}
+                                afterLabel={
+                                  isAiNaming ? (
+                                    <span
+                                      className="term-session-tree__ai-spinner"
+                                      title={t("terminal.sessions.aiRenaming")}
+                                      aria-label={t("terminal.sessions.aiRenaming")}
+                                    />
+                                  ) : undefined
+                                }
+                                trailing={
+                                  <>
+                                    <span className="tree-meta term-session-tree__session-time">
+                                      {formatRelativeTime(activityAt)}
+                                    </span>
+                                    <div className="tree-node-actions">
+                                      <button
+                                        type="button"
+                                        className="tree-action-btn tree-action-btn--danger"
+                                        title={t("terminal.sessions.end")}
+                                        aria-label={t("terminal.sessions.end")}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          endSessionsForTarget(session.id);
+                                        }}
+                                      >
+                                        {contextMenuIcons.close}
+                                      </button>
+                                    </div>
+                                  </>
+                                }
                               />
-                            }
-                            afterLabel={
-                              isAiNaming ? (
-                                <span
-                                  className="term-session-tree__ai-spinner"
-                                  title={t("terminal.sessions.aiRenaming")}
-                                  aria-label={t("terminal.sessions.aiRenaming")}
-                                />
-                              ) : undefined
-                            }
-                            trailing={
-                              <>
-                                <span className="tree-meta term-session-tree__session-time">
-                                  {formatRelativeTime(activityAt)}
-                                </span>
-                                <div className="tree-node-actions">
-                                  <button
-                                    type="button"
-                                    className="tree-action-btn tree-action-btn--danger"
-                                    title={t("terminal.sessions.end")}
-                                    aria-label={t("terminal.sessions.end")}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      endSessionsForTarget(session.id);
-                                    }}
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              </>
-                            }
-                          />
-                        );
-                      })}
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-              );
-            })
-          )}
-          </SidebarTreeRoot>
-        </div>
+                  );
+                })
+              )}
+            </SidebarTreeRoot>
+          </div>
+        </ModuleSidebarSection>
       </SidebarTreeSelectionProvider>
       {sessionCtxMenu && (() => {
         const items: ContextMenuItem[] = [

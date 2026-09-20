@@ -175,6 +175,11 @@ for (const entry of readdirSync(samples, { withFileTypes: true })) {
   if (!existsSync(manifestPath)) continue;
   const raw = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (!raw.entry?.logic) continue;
+  // wasm-stub 只提交 logic.wat；Node smoke 用 vm 跑 JS，不能当 JS 装载 .wasm
+  if (String(raw.entry.logic).toLowerCase().endsWith(".wasm")) {
+    ok(`${entry.name} 跳过 WASM（仅校验 JS logic 样板）`);
+    continue;
+  }
   try {
     const call = loadLogic(dir, raw.entry.logic, makeHost());
     try {

@@ -63,6 +63,30 @@ export class Channel<T = unknown> {
   }
 }
 
+/** Tauri `PluginListener` 的 Web 占位（plugin-notification 等依赖）。 */
+export interface PluginListener {
+  unregister: () => Promise<void>;
+}
+
+/**
+ * `@tauri-apps/api/core` 的 `addPluginListener` Web 实现。
+ *
+ * 桌面上它走 `plugin:event|listen`；浏览器没有插件事件总线，这里复用 Web WS 事件总线，
+ * 以 `plugin:<plugin>:<event>` 作为事件名订阅，解绑即取消订阅。
+ */
+export async function addPluginListener<T>(
+  plugin: string,
+  event: string,
+  cb: (payload: T) => void,
+): Promise<PluginListener> {
+  const unlisten = await webListen<T>(`plugin:${plugin}:${event}`, (e) => cb(e.payload));
+  return {
+    unregister: async () => {
+      unlisten();
+    },
+  };
+}
+
 export function convertFileSrc(filePath: string, _protocol?: string): string {
   // 浏览器无 asset 协议，返回原路径（远程文件走 URL 直链）。
   return filePath;

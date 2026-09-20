@@ -43,8 +43,5 @@ async fn aliyun_logic_declares_unknown_method() {
         .await
         .err()
         .expect("未知方法应失败");
-    assert!(
-        err.to_string().contains("UnknownMethod"),
-        "actual: {err}"
-    );
+    assert!(err.to_string().contains("UnknownMethod"), "actual: {err}");
 }
