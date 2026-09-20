@@ -13,7 +13,8 @@ use crate::event::{
     SchemaIndexDiffPayload, SyncExecResultEvent, TableCountEvent, TableRowCompareEvent,
 };
 use crate::row_diff_cache::{
-    TableRowDiffPayload, build_row_diff_cache_id, load_row_diff_cache_all, save_row_diff_cache,
+    RowDiffCacheWriter, TableRowDiffPayload, build_row_diff_cache_id, for_each_row_diff,
+    load_row_diff_cache_all,
 };
 use crate::util::default_worker_count;
 use omnipanel_db::{DbColumnMeta, DbIndexMeta};
@@ -189,53 +190,11 @@ async fn compare_table_rows(
     let row_total = source_total.saturating_add(target_total).max(1);
     let row_completed = Arc::new(AtomicU32::new(0));
 
-    let table = table_name.to_string();
-    let cancel_source = cancel.clone();
-    let cancel_target = cancel.clone();
-    let row_completed_source = row_completed.clone();
-    let row_completed_target = row_completed.clone();
-    let report_source = report_rows.clone();
-    let report_target = report_rows.clone();
-    let source_conn = source.clone();
-    let target_conn = target.clone();
-
-    let (source_rows, target_rows) = match tokio::try_join!(
-        fetch_all_rows(
-            &source_conn,
-            &table,
-            &source_select_exprs,
-            source_order.as_deref(),
-            i64::from(source_total),
-            &cancel_source,
-            row_completed_source,
-            row_total,
-            report_source,
-        ),
-        fetch_all_rows(
-            &target_conn,
-            &table,
-            &target_select_exprs,
-            target_order.as_deref(),
-            i64::from(target_total),
-            &cancel_target,
-            row_completed_target,
-            row_total,
-            report_target,
-        ),
-    ) {
-        Ok(rows) => rows,
+    let cache_id = next_row_diff_cache_id(source, target, table_name, ignored_fields);
+    let mut writer = match RowDiffCacheWriter::create(&cache_id, table_name, MAX_DIFF_DETAIL_ROWS)
+    {
+        Ok(w) => w,
         Err(e) => {
-            if e == "cancelled" {
-                return TableRowCompareEvent {
-                    table: table_name.to_string(),
-                    status: "error".to_string(),
-                    diff_rows: None,
-                    diffs: Vec::new(),
-                    truncated: None,
-                    diff_cache_id: None,
-                    error: Some("cancelled".to_string()),
-                };
-            }
             return TableRowCompareEvent {
                 table: table_name.to_string(),
                 status: "error".to_string(),
@@ -248,36 +207,94 @@ async fn compare_table_rows(
         }
     };
 
+    let spill = match RowSpillStore::open() {
+        Ok(s) => s,
+        Err(e) => {
+            return TableRowCompareEvent {
+                table: table_name.to_string(),
+                status: "error".to_string(),
+                diff_rows: None,
+                diffs: Vec::new(),
+                truncated: None,
+                diff_cache_id: None,
+                error: Some(e),
+            };
+        }
+    };
+
+    // 阶段 1：源表分页写入磁盘 spill（不再整表进进程内存）
+    if let Err(e) = stream_rows_into_spill(
+        source,
+        table_name,
+        &source_select_exprs,
+        source_order.as_deref(),
+        i64::from(source_total),
+        &pk_columns,
+        &all_column_names,
+        &spill,
+        &cancel,
+        &row_completed,
+        row_total,
+        &report_rows,
+    )
+    .await
+    {
+        return compare_error_event(table_name, e);
+    }
+
     if cancel.load(Ordering::Relaxed) {
-        return TableRowCompareEvent {
-            table: table_name.to_string(),
-            status: "error".to_string(),
-            diff_rows: None,
-            diffs: Vec::new(),
-            truncated: None,
-            diff_cache_id: None,
-            error: Some("cancelled".to_string()),
-        };
+        return compare_error_event(table_name, "cancelled".to_string());
+    }
+
+    // 阶段 2：目标表分页探测 spill，边比较边落盘差异
+    if let Err(e) = stream_target_against_spill(
+        target,
+        table_name,
+        &target_select_exprs,
+        target_order.as_deref(),
+        i64::from(target_total),
+        &pk_columns,
+        &all_column_names,
+        ignored_fields,
+        &spill,
+        &mut writer,
+        &cancel,
+        &row_completed,
+        row_total,
+        &report_rows,
+    )
+    .await
+    {
+        return compare_error_event(table_name, e);
+    }
+
+    if cancel.load(Ordering::Relaxed) {
+        return compare_error_event(table_name, "cancelled".to_string());
+    }
+
+    // 阶段 3：spill 残留 = 仅源侧有
+    if let Err(e) = spill.drain_remaining(|key, display_key, source_row| {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        writer.push(TableRowDiffPayload {
+            row_key: key,
+            display_key,
+            kind: "sourceOnly".to_string(),
+            changed_fields: None,
+            source_row: Some(source_row),
+            target_row: None,
+        })
+    }) {
+        return compare_error_event(table_name, e);
     }
 
     report_rows(row_total, row_total);
 
-    let mut source_map: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
-    for row in source_rows {
-        let key = build_row_key(&row, &pk_columns, &all_column_names);
-        source_map.insert(key, row);
-    }
-
-    let mut target_map: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
-    for row in target_rows {
-        let key = build_row_key(&row, &pk_columns, &all_column_names);
-        target_map.insert(key, row);
-    }
-
-    let mut all_diffs: Vec<TableRowDiffPayload> = Vec::new();
-
-    for (key, source_row) in &source_map {
-        if cancel.load(Ordering::Relaxed) {
+    let (cache_id, diff_count, preview) = match writer.finish() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[db_sync] 保存行差异缓存失败: {e}");
             return TableRowCompareEvent {
                 table: table_name.to_string(),
                 status: "error".to_string(),
@@ -285,121 +302,319 @@ async fn compare_table_rows(
                 diffs: Vec::new(),
                 truncated: None,
                 diff_cache_id: None,
-                error: Some("cancelled".to_string()),
+                error: Some(e),
             };
         }
-        match target_map.get(key) {
-            None => {
-                all_diffs.push(TableRowDiffPayload {
-                    row_key: key.clone(),
-                    display_key: format_row_display_key(source_row, &pk_columns, &all_column_names),
-                    kind: "sourceOnly".to_string(),
-                    changed_fields: None,
-                    source_row: Some(source_row.clone()),
-                    target_row: None,
-                });
-            }
-            Some(target_row) => {
-                let mut changed: Vec<String> = Vec::new();
-                for col in &all_column_names {
-                    if is_ignored_compare_field(table_name, col, ignored_fields) {
-                        continue;
-                    }
-                    let sv = normalize_value(&row_value(source_row, col));
-                    let tv = normalize_value(&row_value(target_row, col));
-                    if sv != tv {
-                        changed.push(col.clone());
-                    }
-                }
-                if !changed.is_empty() {
-                    all_diffs.push(TableRowDiffPayload {
-                        row_key: key.clone(),
-                        display_key: format_row_display_key(
-                            source_row,
-                            &pk_columns,
-                            &all_column_names,
-                        ),
-                        kind: "changed".to_string(),
-                        changed_fields: Some(changed),
-                        source_row: Some(source_row.clone()),
-                        target_row: Some(target_row.clone()),
-                    });
-                }
-            }
-        }
-    }
-
-    for (key, target_row) in &target_map {
-        if cancel.load(Ordering::Relaxed) {
-            return TableRowCompareEvent {
-                table: table_name.to_string(),
-                status: "error".to_string(),
-                diff_rows: None,
-                diffs: Vec::new(),
-                truncated: None,
-                diff_cache_id: None,
-                error: Some("cancelled".to_string()),
-            };
-        }
-        if source_map.contains_key(key) {
-            continue;
-        }
-        all_diffs.push(TableRowDiffPayload {
-            row_key: key.clone(),
-            display_key: format_row_display_key(target_row, &pk_columns, &all_column_names),
-            kind: "targetOnly".to_string(),
-            changed_fields: None,
-            source_row: None,
-            target_row: Some(target_row.clone()),
-        });
-    }
-
-    let diff_count = all_diffs.len() as u32;
+    };
 
     if diff_count == 0 {
-        report_rows(row_total, row_total);
-        let cache_id = next_row_diff_cache_id(source, target, table_name, ignored_fields);
-        let diff_cache_id = match save_row_diff_cache(&cache_id, table_name, &[]) {
-            Ok(()) => Some(cache_id),
-            Err(e) => {
-                eprintln!("[db_sync] 保存行差异缓存失败: {e}");
-                None
-            }
-        };
         TableRowCompareEvent {
             table: table_name.to_string(),
             status: "match".to_string(),
             diff_rows: Some(0),
             diffs: Vec::new(),
             truncated: None,
-            diff_cache_id,
+            diff_cache_id: Some(cache_id),
             error: None,
         }
     } else {
-        report_rows(row_total, row_total);
-        let cache_id = next_row_diff_cache_id(source, target, table_name, ignored_fields);
-        let diff_cache_id = match save_row_diff_cache(&cache_id, table_name, &all_diffs) {
-            Ok(()) => Some(cache_id),
-            Err(e) => {
-                eprintln!("[db_sync] 保存行差异缓存失败: {e}");
-                None
-            }
-        };
-        let preview: Vec<TableRowDiffPayload> = all_diffs
-            .iter()
-            .take(MAX_DIFF_DETAIL_ROWS)
-            .cloned()
-            .collect();
         TableRowCompareEvent {
             table: table_name.to_string(),
             status: "diff".to_string(),
             diff_rows: Some(diff_count),
             diffs: preview,
             truncated: Some(diff_count as usize > MAX_DIFF_DETAIL_ROWS),
-            diff_cache_id,
+            diff_cache_id: Some(cache_id),
             error: None,
         }
     }
+}
+
+fn compare_error_event(table_name: &str, error: String) -> TableRowCompareEvent {
+    TableRowCompareEvent {
+        table: table_name.to_string(),
+        status: "error".to_string(),
+        diff_rows: None,
+        diffs: Vec::new(),
+        truncated: None,
+        diff_cache_id: None,
+        error: Some(error),
+    }
+}
+
+/// 源表行 spill：SQLite 临时库，按 row_key 索引，避免百万行 HashMap 撑爆内存。
+struct RowSpillStore {
+    _dir: tempfile::TempDir,
+    conn: rusqlite::Connection,
+}
+
+impl RowSpillStore {
+    fn open() -> Result<Self, String> {
+        let dir = tempfile::tempdir().map_err(|e| format!("创建行比较临时目录失败: {e}"))?;
+        let path = dir.path().join("row-spill.db");
+        let conn = rusqlite::Connection::open(&path)
+            .map_err(|e| format!("打开行比较临时库失败: {e}"))?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = OFF;
+             PRAGMA synchronous = OFF;
+             PRAGMA temp_store = MEMORY;
+             PRAGMA cache_size = -65536;
+             CREATE TABLE source_rows (
+               row_key TEXT PRIMARY KEY NOT NULL,
+               display_key TEXT NOT NULL,
+               payload BLOB NOT NULL
+             );",
+        )
+        .map_err(|e| format!("初始化行比较临时库失败: {e}"))?;
+        Ok(Self { _dir: dir, conn })
+    }
+
+    fn insert_batch(
+        &self,
+        rows: Vec<(String, String, HashMap<String, serde_json::Value>)>,
+    ) -> Result<(), String> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| format!("开启 spill 事务失败: {e}"))?;
+        {
+            let mut stmt = tx
+                .prepare_cached(
+                    "INSERT OR REPLACE INTO source_rows(row_key, display_key, payload) VALUES (?1, ?2, ?3)",
+                )
+                .map_err(|e| format!("准备 spill 写入失败: {e}"))?;
+            for (key, display_key, row) in rows {
+                let payload = serde_json::to_vec(&row)
+                    .map_err(|e| format!("序列化 spill 行失败: {e}"))?;
+                stmt.execute(rusqlite::params![key, display_key, payload])
+                    .map_err(|e| format!("写入 spill 行失败: {e}"))?;
+            }
+        }
+        tx.commit()
+            .map_err(|e| format!("提交 spill 事务失败: {e}"))?;
+        Ok(())
+    }
+
+    fn take(
+        &self,
+        key: &str,
+    ) -> Result<Option<(String, HashMap<String, serde_json::Value>)>, String> {
+        let row: Option<(String, Vec<u8>)> = self
+            .conn
+            .query_row(
+                "SELECT display_key, payload FROM source_rows WHERE row_key = ?1",
+                [key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| format!("查询 spill 行失败: {e}"))?;
+        let Some((display_key, payload)) = row else {
+            return Ok(None);
+        };
+        self.conn
+            .execute("DELETE FROM source_rows WHERE row_key = ?1", [key])
+            .map_err(|e| format!("删除 spill 行失败: {e}"))?;
+        let map: HashMap<String, serde_json::Value> = serde_json::from_slice(&payload)
+            .map_err(|e| format!("反序列化 spill 行失败: {e}"))?;
+        Ok(Some((display_key, map)))
+    }
+
+    fn drain_remaining<F>(&self, mut visit: F) -> Result<(), String>
+    where
+        F: FnMut(String, String, HashMap<String, serde_json::Value>) -> Result<(), String>,
+    {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT row_key, display_key, payload FROM source_rows")
+            .map_err(|e| format!("扫描 spill 残留失败: {e}"))?;
+        let rows = stmt
+            .query_map([], |r| {
+                let key: String = r.get(0)?;
+                let display: String = r.get(1)?;
+                let payload: Vec<u8> = r.get(2)?;
+                Ok((key, display, payload))
+            })
+            .map_err(|e| format!("迭代 spill 残留失败: {e}"))?;
+        for item in rows {
+            let (key, display, payload) =
+                item.map_err(|e| format!("读取 spill 残留失败: {e}"))?;
+            let map: HashMap<String, serde_json::Value> = serde_json::from_slice(&payload)
+                .map_err(|e| format!("反序列化 spill 残留失败: {e}"))?;
+            visit(key, display, map)?;
+        }
+        Ok(())
+    }
+}
+
+trait OptionalQuery<T> {
+    fn optional(self) -> Result<Option<T>, rusqlite::Error>;
+}
+
+impl<T> OptionalQuery<T> for Result<T, rusqlite::Error> {
+    fn optional(self) -> Result<Option<T>, rusqlite::Error> {
+        match self {
+            Ok(v) => Ok(Some(v)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+async fn stream_rows_into_spill(
+    connection: &DbConnectionConfig,
+    table_name: &str,
+    select_exprs: &[String],
+    order_by: Option<&str>,
+    total: i64,
+    pk_columns: &[String],
+    all_column_names: &[String],
+    spill: &RowSpillStore,
+    cancel: &AtomicBool,
+    row_completed: &AtomicU32,
+    row_total: u32,
+    report_rows: &Arc<dyn Fn(u32, u32) + Send + Sync>,
+) -> Result<(), String> {
+    if total <= 0 {
+        return Ok(());
+    }
+    let driver = db_ops::open_db_driver(connection).await?;
+    let db_type = connection.db_type.clone();
+    let mut offset = 0i64;
+    while offset < total {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let page_rows = preview_table_column_page(
+            driver.as_ref(),
+            &db_type,
+            table_name,
+            select_exprs,
+            PAGE_SIZE,
+            offset,
+            order_by,
+        )
+        .await?;
+        let fetched = page_rows.len() as u32;
+        if fetched == 0 {
+            break;
+        }
+        let mut batch = Vec::with_capacity(page_rows.len());
+        for row in page_rows {
+            let key = build_row_key(&row, pk_columns, all_column_names);
+            let display = format_row_display_key(&row, pk_columns, all_column_names);
+            batch.push((key, display, row));
+        }
+        spill.insert_batch(batch)?;
+        let done = row_completed.fetch_add(fetched, Ordering::Relaxed) + fetched;
+        if row_total > 0 {
+            report_rows(done.min(row_total), row_total);
+        }
+        offset += PAGE_SIZE;
+        if fetched < PAGE_SIZE as u32 {
+            break;
+        }
+    }
+    Ok(())
+}
+
+async fn stream_target_against_spill(
+    connection: &DbConnectionConfig,
+    table_name: &str,
+    select_exprs: &[String],
+    order_by: Option<&str>,
+    total: i64,
+    pk_columns: &[String],
+    all_column_names: &[String],
+    ignored_fields: &HashSet<String>,
+    spill: &RowSpillStore,
+    writer: &mut RowDiffCacheWriter,
+    cancel: &AtomicBool,
+    row_completed: &AtomicU32,
+    row_total: u32,
+    report_rows: &Arc<dyn Fn(u32, u32) + Send + Sync>,
+) -> Result<(), String> {
+    if total <= 0 {
+        return Ok(());
+    }
+    let driver = db_ops::open_db_driver(connection).await?;
+    let db_type = connection.db_type.clone();
+    let mut offset = 0i64;
+    while offset < total {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let page_rows = preview_table_column_page(
+            driver.as_ref(),
+            &db_type,
+            table_name,
+            select_exprs,
+            PAGE_SIZE,
+            offset,
+            order_by,
+        )
+        .await?;
+        let fetched = page_rows.len() as u32;
+        if fetched == 0 {
+            break;
+        }
+        for target_row in page_rows {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled".to_string());
+            }
+            let key = build_row_key(&target_row, pk_columns, all_column_names);
+            match spill.take(&key)? {
+                None => {
+                    writer.push(TableRowDiffPayload {
+                        row_key: key,
+                        display_key: format_row_display_key(
+                            &target_row,
+                            pk_columns,
+                            all_column_names,
+                        ),
+                        kind: "targetOnly".to_string(),
+                        changed_fields: None,
+                        source_row: None,
+                        target_row: Some(target_row),
+                    })?;
+                }
+                Some((display_key, source_row)) => {
+                    let mut changed: Vec<String> = Vec::new();
+                    for col in all_column_names {
+                        if is_ignored_compare_field(table_name, col, ignored_fields) {
+                            continue;
+                        }
+                        let sv = normalize_value(&row_value(&source_row, col));
+                        let tv = normalize_value(&row_value(&target_row, col));
+                        if sv != tv {
+                            changed.push(col.clone());
+                        }
+                    }
+                    if !changed.is_empty() {
+                        writer.push(TableRowDiffPayload {
+                            row_key: key,
+                            display_key,
+                            kind: "changed".to_string(),
+                            changed_fields: Some(changed),
+                            source_row: Some(source_row),
+                            target_row: Some(target_row),
+                        })?;
+                    }
+                }
+            }
+        }
+        let done = row_completed.fetch_add(fetched, Ordering::Relaxed) + fetched;
+        if row_total > 0 {
+            report_rows(done.min(row_total), row_total);
+        }
+        offset += PAGE_SIZE;
+        if fetched < PAGE_SIZE as u32 {
+            break;
+        }
+    }
+    Ok(())
 }
 
 fn column_signature(col: &DbColumnMeta) -> String {
@@ -948,53 +1163,6 @@ async fn preview_table_column_page(
     );
     let result = driver.execute(&sql).await.map_err(|e| e.user_message())?;
     Ok(db_ops::query_result_to_row_maps(result))
-}
-
-async fn fetch_all_rows(
-    connection: &DbConnectionConfig,
-    table_name: &str,
-    select_exprs: &[String],
-    order_by: Option<&str>,
-    total: i64,
-    cancel: &AtomicBool,
-    row_completed: Arc<AtomicU32>,
-    row_total: u32,
-    report_rows: Arc<dyn Fn(u32, u32) + Send + Sync>,
-) -> Result<Vec<HashMap<String, serde_json::Value>>, String> {
-    if total <= 0 {
-        return Ok(Vec::new());
-    }
-
-    let driver = db_ops::open_db_driver(connection).await?;
-    let db_type = connection.db_type.clone();
-    let mut rows = Vec::new();
-    let mut offset = 0i64;
-    while offset < total {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_string());
-        }
-        let page_rows = preview_table_column_page(
-            driver.as_ref(),
-            &db_type,
-            table_name,
-            select_exprs,
-            PAGE_SIZE,
-            offset,
-            order_by,
-        )
-        .await?;
-        let fetched = page_rows.len() as u32;
-        rows.extend(page_rows);
-        let done = row_completed.fetch_add(fetched, Ordering::Relaxed) + fetched;
-        if row_total > 0 {
-            report_rows(done.min(row_total), row_total);
-        }
-        offset += PAGE_SIZE;
-        if fetched < PAGE_SIZE as u32 {
-            break;
-        }
-    }
-    Ok(rows)
 }
 
 fn row_has_column(row: &HashMap<String, serde_json::Value>, col: &str) -> bool {
@@ -1707,42 +1875,125 @@ fn collect_table_sync_sql_from_diffs(
     }
 
     for diff in diffs {
-        match diff.kind.as_str() {
-            "sourceOnly" if modes.insert => {
-                if let Some(row) = &diff.source_row {
-                    for sql in
-                        build_insert_statement(db_type, table, columns, std::slice::from_ref(row))?
-                    {
-                        statements.push(format_sql_statement(&sql));
-                    }
-                    stats.inserted += 1;
-                }
-            }
-            "changed" if modes.merge => {
-                if let Some(row) = &diff.source_row {
-                    if let Some(sql) =
-                        build_update_statement(db_type, table, columns, pk_columns, row)?
-                    {
-                        statements.push(format_sql_statement(&sql));
-                        stats.updated += 1;
-                    }
-                }
-            }
-            "targetOnly" if modes.delete => {
-                if let Some(row) = &diff.target_row {
-                    if let Some(sql) =
-                        build_delete_statement(db_type, table, columns, pk_columns, row)?
-                    {
-                        statements.push(format_sql_statement(&sql));
-                        stats.deleted += 1;
-                    }
-                }
-            }
-            _ => {}
-        }
+        append_diff_sql(
+            db_type,
+            table,
+            columns,
+            pk_columns,
+            diff,
+            &modes,
+            &mut statements,
+            &mut stats,
+        )?;
     }
 
     Ok((statements, stats))
+}
+
+fn append_diff_sql(
+    db_type: &str,
+    table: &str,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+    diff: &TableRowDiffPayload,
+    modes: &DataSyncModes,
+    statements: &mut Vec<String>,
+    stats: &mut SyncWriteStats,
+) -> Result<(), String> {
+    match diff.kind.as_str() {
+        "sourceOnly" if modes.insert => {
+            if let Some(row) = &diff.source_row {
+                for sql in
+                    build_insert_statement(db_type, table, columns, std::slice::from_ref(row))?
+                {
+                    statements.push(format_sql_statement(&sql));
+                }
+                stats.inserted += 1;
+            }
+        }
+        "changed" if modes.merge => {
+            if let Some(row) = &diff.source_row {
+                if let Some(sql) =
+                    build_update_statement(db_type, table, columns, pk_columns, row)?
+                {
+                    statements.push(format_sql_statement(&sql));
+                    stats.updated += 1;
+                }
+            }
+        }
+        "targetOnly" if modes.delete => {
+            if let Some(row) = &diff.target_row {
+                if let Some(sql) =
+                    build_delete_statement(db_type, table, columns, pk_columns, row)?
+                {
+                    statements.push(format_sql_statement(&sql));
+                    stats.deleted += 1;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn collect_table_sync_sql_from_diff_cache(
+    cache_id: &str,
+    db_type: &str,
+    table: &str,
+    columns: &[DbColumnMeta],
+    pk_columns: &[String],
+    modes: DataSyncModes,
+) -> Result<(Vec<String>, SyncWriteStats), String> {
+    let mut statements: Vec<String> = Vec::new();
+    let mut stats = SyncWriteStats {
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+    };
+
+    if !modes.any_enabled() {
+        return Ok((vec!["-- 未启用任何同步方式，无 DML".to_string()], stats));
+    }
+
+    for_each_row_diff(cache_id, |diff| {
+        append_diff_sql(
+            db_type,
+            table,
+            columns,
+            pk_columns,
+            &diff,
+            &modes,
+            &mut statements,
+            &mut stats,
+        )?;
+        Ok(true)
+    })
+    .map_err(|err| {
+        format!("无法读取表 {table} 的行差异缓存，请先在目标侧完成「分析」后再试：{err}")
+    })?;
+
+    Ok((statements, stats))
+}
+
+fn diff_cache_needs_sql_enrich(
+    cache_id: &str,
+    columns: &[DbColumnMeta],
+) -> Result<bool, String> {
+    let mut needs = false;
+    for_each_row_diff(cache_id, |diff| {
+        if matches!(diff.kind.as_str(), "sourceOnly" | "changed")
+            && diff
+                .source_row
+                .as_ref()
+                .map(|row| row_needs_sql_enrich(row, columns))
+                .unwrap_or(false)
+        {
+            needs = true;
+            return Ok(false);
+        }
+        Ok(true)
+    })?;
+    Ok(needs)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -1802,27 +2053,48 @@ pub async fn generate_data_sync_sql_script(
             .collect();
 
         let (mut stmts, stats) = if let Some(cache_id) = exec_spec.diff_cache_id.as_deref() {
-            let mut diffs = load_row_diff_cache_all(cache_id).map_err(|err| {
-                format!("无法读取表 {table} 的行差异缓存，请先在目标侧完成「分析」后再试：{err}")
-            })?;
-            let mut source_for_enrich = source.clone();
-            source_for_enrich.database = source_db.clone();
-            enrich_diff_source_rows_for_sql(
-                &source_for_enrich,
-                &exec_spec.name,
-                &exec_spec.columns,
-                &pk_columns,
-                &mut diffs,
-            )
-            .await?;
-            collect_table_sync_sql_from_diffs(
-                &target.db_type,
-                &exec_spec.name,
-                &exec_spec.columns,
-                &pk_columns,
-                &diffs,
-                modes.clone(),
-            )?
+            let needs_enrich = diff_cache_needs_sql_enrich(cache_id, &exec_spec.columns).map_err(
+                |err| {
+                    format!(
+                        "无法读取表 {table} 的行差异缓存，请先在目标侧完成「分析」后再试：{err}"
+                    )
+                },
+            )?;
+            if needs_enrich {
+                // 旧缓存 / 缺列场景：回退整表装载并补全（新比较路径通常不走这里）
+                let mut diffs = load_row_diff_cache_all(cache_id).map_err(|err| {
+                    format!(
+                        "无法读取表 {table} 的行差异缓存，请先在目标侧完成「分析」后再试：{err}"
+                    )
+                })?;
+                let mut source_for_enrich = source.clone();
+                source_for_enrich.database = source_db.clone();
+                enrich_diff_source_rows_for_sql(
+                    &source_for_enrich,
+                    &exec_spec.name,
+                    &exec_spec.columns,
+                    &pk_columns,
+                    &mut diffs,
+                )
+                .await?;
+                collect_table_sync_sql_from_diffs(
+                    &target.db_type,
+                    &exec_spec.name,
+                    &exec_spec.columns,
+                    &pk_columns,
+                    &diffs,
+                    modes.clone(),
+                )?
+            } else {
+                collect_table_sync_sql_from_diff_cache(
+                    cache_id,
+                    &target.db_type,
+                    &exec_spec.name,
+                    &exec_spec.columns,
+                    &pk_columns,
+                    modes.clone(),
+                )?
+            }
         } else {
             return Err(format!(
                 "表 {table} 尚未完成行级分析，请先在目标侧点击「分析」后再生成 SQL"

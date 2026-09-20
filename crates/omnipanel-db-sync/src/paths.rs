@@ -21,7 +21,13 @@ pub fn sync_sql_dir() -> Result<PathBuf, String> {
 }
 
 /// 行级差异缓存目录：`~/.omnipd/database/sync-row-diffs`
+/// 测试可用 `OMNIPANEL_ROW_DIFF_CACHE_DIR` 覆盖。
 pub fn row_diff_cache_dir() -> Result<PathBuf, String> {
+    if let Ok(override_dir) = std::env::var("OMNIPANEL_ROW_DIFF_CACHE_DIR") {
+        let dir = PathBuf::from(override_dir);
+        fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败 (sync-row-diffs): {e}"))?;
+        return Ok(dir);
+    }
     ensure_subdir("sync-row-diffs")
 }
 

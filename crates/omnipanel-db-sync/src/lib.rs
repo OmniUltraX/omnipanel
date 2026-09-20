@@ -35,6 +35,6 @@ pub use paths::{
 };
 pub use row_diff_cache::{
     RowDiffKindCounts, RowDiffPageResult, TableRowDiffPayload, build_row_diff_cache_id,
-    load_row_diff_cache_all, row_diff_page, save_row_diff_cache,
+    for_each_row_diff, load_row_diff_cache_all, row_diff_page, save_row_diff_cache,
 };
 pub use util::default_worker_count;

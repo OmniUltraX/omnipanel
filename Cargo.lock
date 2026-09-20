@@ -5734,9 +5734,11 @@ dependencies = [
  "omnipanel-error",
  "omnipanel-ssh",
  "omnipanel-store",
+ "rusqlite",
  "serde",
  "serde_json",
  "specta",
+ "tempfile",
  "tokio",
 ]
 
