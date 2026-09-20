@@ -343,9 +343,11 @@ fn compare_error_event(table_name: &str, error: String) -> TableRowCompareEvent 
 }
 
 /// 源表行 spill：SQLite 临时库，按 row_key 索引，避免百万行 HashMap 撑爆内存。
+/// `Mutex` 包一层是为了让 `&RowSpillStore` 在跨 await 的 async Future 里满足 `Send`
+///（`rusqlite::Connection` 本身不是 `Sync`）。
 struct RowSpillStore {
     _dir: tempfile::TempDir,
-    conn: rusqlite::Connection,
+    conn: std::sync::Mutex<rusqlite::Connection>,
 }
 
 impl RowSpillStore {
@@ -366,7 +368,16 @@ impl RowSpillStore {
              );",
         )
         .map_err(|e| format!("初始化行比较临时库失败: {e}"))?;
-        Ok(Self { _dir: dir, conn })
+        Ok(Self {
+            _dir: dir,
+            conn: std::sync::Mutex::new(conn),
+        })
+    }
+
+    fn lock_conn(&self) -> Result<std::sync::MutexGuard<'_, rusqlite::Connection>, String> {
+        self.conn
+            .lock()
+            .map_err(|_| "行比较临时库锁已毒化".to_string())
     }
 
     fn insert_batch(
@@ -376,8 +387,8 @@ impl RowSpillStore {
         if rows.is_empty() {
             return Ok(());
         }
-        let tx = self
-            .conn
+        let conn = self.lock_conn()?;
+        let tx = conn
             .unchecked_transaction()
             .map_err(|e| format!("开启 spill 事务失败: {e}"))?;
         {
@@ -402,8 +413,8 @@ impl RowSpillStore {
         &self,
         key: &str,
     ) -> Result<Option<(String, HashMap<String, serde_json::Value>)>, String> {
-        let row: Option<(String, Vec<u8>)> = self
-            .conn
+        let conn = self.lock_conn()?;
+        let row: Option<(String, Vec<u8>)> = conn
             .query_row(
                 "SELECT display_key, payload FROM source_rows WHERE row_key = ?1",
                 [key],
@@ -414,9 +425,9 @@ impl RowSpillStore {
         let Some((display_key, payload)) = row else {
             return Ok(None);
         };
-        self.conn
-            .execute("DELETE FROM source_rows WHERE row_key = ?1", [key])
+        conn.execute("DELETE FROM source_rows WHERE row_key = ?1", [key])
             .map_err(|e| format!("删除 spill 行失败: {e}"))?;
+        drop(conn);
         let map: HashMap<String, serde_json::Value> = serde_json::from_slice(&payload)
             .map_err(|e| format!("反序列化 spill 行失败: {e}"))?;
         Ok(Some((display_key, map)))
@@ -426,26 +437,41 @@ impl RowSpillStore {
     where
         F: FnMut(String, String, HashMap<String, serde_json::Value>) -> Result<(), String>,
     {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT row_key, display_key, payload FROM source_rows")
-            .map_err(|e| format!("扫描 spill 残留失败: {e}"))?;
-        let rows = stmt
-            .query_map([], |r| {
-                let key: String = r.get(0)?;
-                let display: String = r.get(1)?;
-                let payload: Vec<u8> = r.get(2)?;
-                Ok((key, display, payload))
-            })
-            .map_err(|e| format!("迭代 spill 残留失败: {e}"))?;
-        for item in rows {
-            let (key, display, payload) =
-                item.map_err(|e| format!("读取 spill 残留失败: {e}"))?;
-            let map: HashMap<String, serde_json::Value> = serde_json::from_slice(&payload)
-                .map_err(|e| format!("反序列化 spill 残留失败: {e}"))?;
-            visit(key, display, map)?;
+        const BATCH: usize = 2000;
+        loop {
+            let batch = {
+                let conn = self.lock_conn()?;
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT row_key, display_key, payload FROM source_rows LIMIT ?1",
+                    )
+                    .map_err(|e| format!("扫描 spill 残留失败: {e}"))?;
+                let fetched: Vec<(String, String, Vec<u8>)> = stmt
+                    .query_map([BATCH], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                    })
+                    .map_err(|e| format!("迭代 spill 残留失败: {e}"))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| format!("读取 spill 残留失败: {e}"))?;
+                drop(stmt);
+                if fetched.is_empty() {
+                    return Ok(());
+                }
+                let mut out = Vec::with_capacity(fetched.len());
+                for (key, display, payload) in fetched {
+                    conn.execute("DELETE FROM source_rows WHERE row_key = ?1", [&key])
+                        .map_err(|e| format!("删除 spill 残留失败: {e}"))?;
+                    let map: HashMap<String, serde_json::Value> =
+                        serde_json::from_slice(&payload)
+                            .map_err(|e| format!("反序列化 spill 残留失败: {e}"))?;
+                    out.push((key, display, map));
+                }
+                out
+            };
+            for (key, display, map) in batch {
+                visit(key, display, map)?;
+            }
         }
-        Ok(())
     }
 }
 
