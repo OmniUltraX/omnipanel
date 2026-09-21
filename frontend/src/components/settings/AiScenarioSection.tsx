@@ -21,7 +21,7 @@ export function AiScenarioSection() {
   const options = useMemo(
     () =>
       cliOptions
-        .filter((opt) => opt.installed !== false && opt.group === "cli")
+        .filter((opt) => opt.installed !== false && (opt.group === "cli" || opt.group === "opencode"))
         .map((opt) => ({
           value: opt.value,
           label: opt.label,

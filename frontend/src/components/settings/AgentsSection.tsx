@@ -43,6 +43,7 @@ function SettingToggle({
 
 function protocolBadgeClass(protocol: string): string {
   const key = protocol.toLowerCase();
+  if (key === "http") return "anthropic";
   if (key === "acp") return "openai";
   return "anthropic";
 }

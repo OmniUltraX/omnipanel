@@ -4,7 +4,7 @@ import type { AiConversation } from "../stores/aiStore";
 import type { AiModelProvider } from "../stores/aiModelsStore";
 import { useAiModelsStore } from "../stores/aiModelsStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { firstCliSelectionId, isCliBackendId } from "./ai/inferenceBackend";
+import { firstCliSelectionId, isStructuredBackendId } from "./ai/inferenceBackend";
 
 /** 解析场景配置的模型；无效时回退到第一个可用智能体。 */
 export function resolveScenarioModelSelectionId(
@@ -12,7 +12,7 @@ export function resolveScenarioModelSelectionId(
   configuredId: string | null | undefined,
 ): string | null {
   const trimmed = configuredId?.trim();
-  if (trimmed && isCliBackendId(trimmed)) {
+  if (trimmed && isStructuredBackendId(trimmed)) {
     return trimmed;
   }
   return firstCliSelectionId();

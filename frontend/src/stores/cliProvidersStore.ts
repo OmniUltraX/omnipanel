@@ -65,42 +65,6 @@ function upsertProvider(list: CliProviderRecord[], next: CliProviderRecord): Cli
 
 
 
-function mergeProviderLists(
-
-  current: CliProviderRecord[],
-
-  incoming: CliProviderRecord[],
-
-): CliProviderRecord[] {
-
-  if (current.length === 0) return incoming;
-
-  const byId = new Map(current.map((p) => [p.id, p]));
-
-  return incoming.map((next) => {
-
-    const prev = byId.get(next.id);
-
-    if (!prev) return next;
-
-    return {
-
-      ...next,
-
-      // 保留展开 UI 期间已拉取的模型缓存对应字段，避免闪烁
-
-      manualModelNames: next.manualModelNames ?? prev.manualModelNames,
-
-      disabledModelNames: next.disabledModelNames ?? prev.disabledModelNames,
-
-    };
-
-  });
-
-}
-
-
-
 function syncAcpEnabled(id: string, enabled: boolean) {
 
   if (!isSupportedAgentKind(id)) return;
@@ -118,27 +82,27 @@ function syncAcpEnabled(id: string, enabled: boolean) {
 
 
 export function countEnabledCliModels(provider: CliProviderRecord, models: string[]): number {
-
-  const disabled = new Set(provider.disabledModelNames ?? []);
-
-  return models.filter((name) => !disabled.has(name)).length;
-
+  return models.filter((name) => isCliModelEnabled(provider, name)).length;
 }
-
-
 
 export function isCliModelEnabled(provider: CliProviderRecord, modelName: string): boolean {
-
-  return !(provider.disabledModelNames ?? []).includes(modelName);
-
+  const disabled = provider.disabledModelNames ?? [];
+  if (disabled.length === 0) return true;
+  const id = modelIdentityKey(modelName);
+  return !disabled.some((d) => d === modelName || modelIdentityKey(d) === id);
 }
 
-
-
 export function isManualCliModel(provider: CliProviderRecord, modelName: string): boolean {
+  const id = modelIdentityKey(modelName);
+  return (provider.manualModelNames ?? []).some(
+    (m) => m === modelName || modelIdentityKey(m) === id,
+  );
+}
 
-  return (provider.manualModelNames ?? []).includes(modelName);
-
+/** OpenCode 缓存可能带 `\u001f` 显示名；启用/禁用以稳定 id 为准。 */
+function modelIdentityKey(raw: string): string {
+  const sep = raw.indexOf("\u001f");
+  return sep < 0 ? raw : raw.slice(0, sep);
 }
 
 
@@ -218,12 +182,8 @@ export const useCliProvidersStore = create<CliProvidersState>()(
           const res = await commands.cliProviderListCmd();
 
           if (res.status === "ok") {
-
-            set({
-
-              providers: mergeProviderLists(get().providers, res.data),
-
-            });
+            // 以后端列表为准（含互斥收敛），避免 localStorage 快照盖住 enabled
+            set({ providers: res.data });
 
             const toRefresh = res.data.filter(
 
@@ -333,75 +293,56 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
 
       setProviderEnabled: async (id, enabled) => {
-
         if (!canUseAiBackend()) return false;
-
-        const prev = get().providers.find((p) => p.id === id);
-
+        const snapshot = get().providers;
+        const prev = snapshot.find((p) => p.id === id);
         if (!prev) return false;
 
-
-
-        set({
-
-          error: null,
-
-          providers: upsertProvider(get().providers, { ...prev, enabled }),
-
+        // 乐观互斥：启用 A 时立刻关掉其它，避免 UI 短暂/持续显示多开
+        const optimistic = snapshot.map((p) => {
+          if (p.id === id) return { ...p, enabled };
+          if (enabled && p.enabled) return { ...p, enabled: false };
+          return p;
         });
-
-        syncAcpEnabled(id, enabled);
-
-
-
-        try {
-
-          const res = await commands.cliProviderPatchCmd({ id, enabled });
-
-          if (res.status === "ok") {
-
-            set({ providers: upsertProvider(get().providers, res.data) });
-
-            syncAcpEnabled(id, res.data.enabled ?? enabled);
-
-            if (enabled && res.data.binary) {
-
-              void get().refreshModels(id, { silent: true }).catch(() => undefined);
-
-            }
-
-            return true;
-
-          }
-
-          set({
-
-            providers: upsertProvider(get().providers, prev),
-
-            error: res.error,
-
-          });
-
-          syncAcpEnabled(id, prev.enabled ?? false);
-
-          return false;
-
-        } catch (e) {
-
-          set({
-
-            providers: upsertProvider(get().providers, prev),
-
-            error: e instanceof Error ? e.message : String(e),
-
-          });
-
-          syncAcpEnabled(id, prev.enabled ?? false);
-
-          return false;
-
+        set({ error: null, providers: optimistic });
+        for (const p of optimistic) {
+          syncAcpEnabled(p.id, Boolean(p.enabled));
         }
 
+        try {
+          const res = await commands.cliProviderPatchCmd({ id, enabled });
+          if (res.status === "ok") {
+            const list = await commands.cliProviderListCmd();
+            if (list.status === "ok") {
+              set({ providers: list.data });
+              for (const p of list.data) {
+                syncAcpEnabled(p.id, Boolean(p.enabled));
+              }
+            } else {
+              set({ providers: upsertProvider(get().providers, res.data) });
+              syncAcpEnabled(id, res.data.enabled ?? enabled);
+            }
+            if (enabled && res.data.binary) {
+              void get().refreshModels(id, { silent: true }).catch(() => undefined);
+            }
+            return true;
+          }
+
+          set({ providers: snapshot, error: res.error });
+          for (const p of snapshot) {
+            syncAcpEnabled(p.id, Boolean(p.enabled));
+          }
+          return false;
+        } catch (e) {
+          set({
+            providers: snapshot,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          for (const p of snapshot) {
+            syncAcpEnabled(p.id, Boolean(p.enabled));
+          }
+          return false;
+        }
       },
 
 

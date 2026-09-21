@@ -11,6 +11,7 @@ import {
   isManualCliModel,
   useCliProvidersStore,
 } from "../../stores/cliProvidersStore";
+import { parseOpenCodeModelEntry } from "../../lib/ai/inferenceBackend";
 
 const PAGE_SIZE = 21;
 
@@ -57,7 +58,11 @@ export function CliProviderModelList({ providerId }: CliProviderModelListProps) 
   const toggleAllRef = useRef<HTMLInputElement>(null);
 
   const filtered = useMemo(
-    () => models.filter((name) => fuzzyMatchModelName(name, search)),
+    () =>
+      models.filter((raw) => {
+        const { id, label } = parseOpenCodeModelEntry(raw);
+        return fuzzyMatchModelName(label, search) || fuzzyMatchModelName(id, search);
+      }),
     [models, search],
   );
 
@@ -166,15 +171,16 @@ export function CliProviderModelList({ providerId }: CliProviderModelListProps) 
       ) : (
         <>
           <ul className="ai-provider-models">
-            {pageItems.map((modelName) => {
-              const enabled = isCliModelEnabled(provider, modelName);
-              const manual = isManualCliModel(provider, modelName);
+            {pageItems.map((modelRaw) => {
+              const { id: modelId, label: modelLabel } = parseOpenCodeModelEntry(modelRaw);
+              const enabled = isCliModelEnabled(provider, modelRaw);
+              const manual = isManualCliModel(provider, modelRaw);
               return (
-                <li key={modelName} className="ai-provider-model-item">
+                <li key={modelRaw} className="ai-provider-model-item">
                   <div className="ai-provider-model-item-main">
                     <div className="ai-provider-model-name-row">
-                      <span className="ai-provider-model-name" title={modelName}>
-                        {modelName}
+                      <span className="ai-provider-model-name" title={modelId}>
+                        {modelLabel}
                       </span>
                       <span
                         className={`ai-provider-model-source-tag ai-provider-model-source-tag--${manual ? "manual" : "api"}`}
@@ -186,12 +192,12 @@ export function CliProviderModelList({ providerId }: CliProviderModelListProps) 
                     </div>
                   </div>
 
-                  {confirmDeleteModel === modelName ? (
+                  {confirmDeleteModel === modelRaw ? (
                     <div className="ai-provider-model-delete-confirm">
                       <Button
                         variant="danger"
                         size="sm"
-                        onClick={() => void removeModel(provider.id, modelName)}
+                        onClick={() => void removeModel(provider.id, modelRaw)}
                       >
                         {t("settings.aiModels.confirmDelete")}
                       </Button>
@@ -203,10 +209,10 @@ export function CliProviderModelList({ providerId }: CliProviderModelListProps) 
                     <div className="ai-provider-model-item-actions">
                       <ModelToggle
                         enabled={Boolean(enabled && provider.enabled)}
-                        label={t("settings.aiModels.modelList.toggleModel", { name: modelName })}
+                        label={t("settings.aiModels.modelList.toggleModel", { name: modelLabel })}
                         onChange={(next) => {
                           if (!provider.enabled) return;
-                          void setModelEnabled(provider.id, modelName, next);
+                          void setModelEnabled(provider.id, modelRaw, next);
                         }}
                       />
                       <div className="ai-provider-model-item-btns">
@@ -216,8 +222,10 @@ export function CliProviderModelList({ providerId }: CliProviderModelListProps) 
                             size="sm"
                             className="ai-provider-model-item-btn ai-model-row-delete"
                             title={t("settings.aiModels.deleteBtn")}
-                            aria-label={t("settings.aiModels.modelList.deleteModel", { name: modelName })}
-                            onClick={() => setConfirmDeleteModel(modelName)}
+                            aria-label={t("settings.aiModels.modelList.deleteModel", {
+                              name: modelLabel,
+                            })}
+                            onClick={() => setConfirmDeleteModel(modelRaw)}
                           >
                             <svg
                               viewBox="0 0 24 24"

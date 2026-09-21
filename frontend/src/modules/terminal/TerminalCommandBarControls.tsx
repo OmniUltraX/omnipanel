@@ -44,7 +44,7 @@ export function TerminalCommandBarControls({
         .filter((opt) => opt.installed !== false)
         .map((opt) => ({
           value: opt.value,
-          label: `[智能体] ${opt.label}`,
+          label: opt.label,
           title: opt.subtitle ?? opt.label,
         })),
     [backendOptions],

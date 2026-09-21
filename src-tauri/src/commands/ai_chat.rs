@@ -390,17 +390,34 @@ pub async fn ai_chat_stream(
     let conversation_id = internal.conversation_id.clone();
 
     let parsed = omnipanel_ai::routing::parse_backend_id(&internal.backend_id)?;
-    let (agent_kind, model_id) = omnipanel_ai::routing::normalize_cli_backend(&parsed)?;
-    return run_acp_internal_turn(
-        &app,
-        &state,
-        &internal,
-        &conversation_id,
-        &agent_kind,
-        Some(model_id),
-        on_event,
-    )
-    .await;
+    match parsed.kind {
+        omnipanel_ai::routing::BackendKind::OpenCode => {
+            let (provider_id, model_id) =
+                omnipanel_ai::routing::normalize_opencode_backend(&parsed)?;
+            run_opencode_http_internal_turn(
+                &state,
+                &internal,
+                &conversation_id,
+                &provider_id,
+                &model_id,
+                on_event,
+            )
+            .await
+        }
+        omnipanel_ai::routing::BackendKind::Cli => {
+            let (agent_kind, model_id) = omnipanel_ai::routing::normalize_cli_backend(&parsed)?;
+            run_acp_internal_turn(
+                &app,
+                &state,
+                &internal,
+                &conversation_id,
+                &agent_kind,
+                Some(model_id),
+                on_event,
+            )
+            .await
+        }
+    }
 }
 
 #[tauri::command]
@@ -452,6 +469,68 @@ pub async fn ai_chat_tool_result(
         }
         None => Err(format!("未找到待处理的工具调用: {key}")),
     }
+}
+
+/// OpenCode HTTP 路径：ensure `opencode serve` → session/prompt/SSE → StreamEvent。
+/// OpenCode 自带工具循环；此处不注入 OmniPanel client tools。
+async fn run_opencode_http_internal_turn(
+    state: &AppState,
+    internal: &InternalChatRequest,
+    conversation_id: &str,
+    provider_id: &str,
+    model_id: &str,
+    on_event: Channel<StreamEvent>,
+) -> Result<(), String> {
+    let backend_id = internal.backend_id.clone();
+    let cwd = resolve_acp_session_cwd(&internal.context);
+
+    let binary = crate::commands::providers::cli_provider_list()
+        .ok()
+        .and_then(|list| {
+            list.into_iter()
+                .find(|p| p.id == "opencode")
+                .and_then(|p| p.binary)
+        });
+    let binary_path = binary.as_ref().map(std::path::PathBuf::from);
+
+    let mut prompt_text = internal.user_text.clone();
+    if let Some(append) = internal
+        .system_append
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        prompt_text = format!("{append}\n\n---\n\n{prompt_text}");
+    }
+
+    record_prompt_sent_trace(state, conversation_id, &backend_id, 0, 0, &prompt_text);
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(128);
+    let conversation_for_turn = conversation_id.to_string();
+    let cwd_owned = cwd.clone();
+    let provider_owned = provider_id.to_string();
+    let model_owned = model_id.to_string();
+    let prompt_owned = prompt_text.clone();
+    let turn_handle = tokio::spawn(async move {
+        omnipanel_ai::providers::opencode::run_opencode_http_turn(
+            binary_path.as_deref(),
+            &conversation_for_turn,
+            &cwd_owned,
+            &provider_owned,
+            &model_owned,
+            &prompt_owned,
+            tx,
+        )
+        .await
+    });
+
+    while let Some(event) = rx.recv().await {
+        record_internal_trace(state, conversation_id, &backend_id, 0, &event);
+        let _ = on_event.send(event);
+    }
+
+    turn_handle
+        .await
+        .map_err(|e| format!("OpenCode turn join 失败: {e}"))?
 }
 
 async fn execute_acp_web_tool(state: &AppState, name: &str, arguments: &str) -> (String, bool) {
@@ -978,21 +1057,79 @@ pub struct BackendInfo {
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_list_backends(state: State<'_, AppState>) -> Result<Vec<BackendInfo>, String> {
-    // 仅列举 CLI 智能体；HTTP/ACP 推理路径已移除
     let _ = state;
-    let cli_backends = tokio::task::spawn_blocking(list_cli_backend_infos)
+    // OpenCode 模型发现走 HTTP，需在 async 上下文；其余 CLI 用 blocking 池。
+    let mut backends = tokio::task::spawn_blocking(list_cli_backend_infos_except_opencode)
         .await
         .map_err(|e| format!("列举 CLI 后端失败: {e}"))?;
-    Ok(cli_backends)
+
+    if let Ok(Some(opencode)) = crate::commands::providers::cli_provider_list().map(|list| {
+        list.into_iter().find(|p| p.id == "opencode" && p.enabled)
+    }) {
+        let binary = opencode.binary.as_ref().map(std::path::PathBuf::from);
+        let installed = binary
+            .as_ref()
+            .is_some_and(|b| b.as_os_str().len() > 0);
+        match omnipanel_ai::providers::opencode::list_opencode_models(binary.as_deref()).await {
+            Ok(models) => {
+                for entry in models {
+                    let (key, name) =
+                        omnipanel_ai::providers::opencode::OpenCodeModel::parse_cache_entry(
+                            &entry,
+                        );
+                    if opencode.disabled_model_names.iter().any(|m| {
+                        m == &entry
+                            || m == &key
+                            || omnipanel_ai::providers::opencode::OpenCodeModel::parse_cache_entry(
+                                m,
+                            )
+                            .0 == key
+                    }) {
+                        continue;
+                    }
+                    let (provider_id, model_id) = match key.split_once('/') {
+                        Some((p, m)) => (p.to_string(), m.to_string()),
+                        None => ("opencode".to_string(), key.clone()),
+                    };
+                    backends.push(BackendInfo {
+                        id: omnipanel_ai::routing::build_opencode_backend_id(
+                            &provider_id,
+                            &model_id,
+                        ),
+                        label: name,
+                        kind: "opencode".to_string(),
+                        installed,
+                    });
+                }
+            }
+            Err(err) => {
+                tracing::warn!("列举 OpenCode 模型失败: {err}");
+                if installed {
+                    backends.push(BackendInfo {
+                        id: "opencode:opencode/default".to_string(),
+                        label: "OpenCode/default".to_string(),
+                        kind: "opencode".to_string(),
+                        installed: true,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(backends)
 }
 
-fn list_cli_backend_infos() -> Vec<BackendInfo> {
+fn list_cli_backend_infos_except_opencode() -> Vec<BackendInfo> {
     let Ok(providers) = crate::commands::providers::cli_provider_list() else {
         return Vec::new();
     };
     let mut backends = Vec::new();
     for provider in providers {
         if !provider.enabled {
+            continue;
+        }
+        // OpenCode 走独立 HTTP 路径，由 ai_list_backends 异步补全
+        if provider.id == "opencode" {
             continue;
         }
         let models = crate::commands::providers::provider_list_models(&provider.id)

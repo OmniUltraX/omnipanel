@@ -17,7 +17,8 @@ pub use providers::model_list::{
     FetchModelsError, RemoteModelInfo, fetch_provider_models, parse_models_payload,
 };
 pub use routing::{
-    BackendKind, HttpInferenceApi, ParsedBackendId, model_requires_anthropic_messages_api,
+    BackendKind, HttpInferenceApi, ParsedBackendId, build_opencode_backend_id,
+    model_requires_anthropic_messages_api, normalize_cli_backend, normalize_opencode_backend,
     parse_backend_id, resolve_anthropic_messages_base_url, resolve_http_inference_api,
 };
 pub use types::{

@@ -33,7 +33,7 @@ export function AiConversationModelSelect() {
         .filter((opt) => opt.installed !== false)
         .map((opt) => ({
           value: opt.value,
-          label: `[智能体] ${opt.label}`,
+          label: opt.label,
           subtitle: opt.subtitle,
           title: opt.subtitle ?? opt.label,
         })),

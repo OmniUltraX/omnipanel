@@ -179,16 +179,22 @@ pub async fn ai_chat_stream(state: &ServerState, args: AiChatStreamArgs) -> Resu
     let internal = to_internal(args.request)?;
     let conversation_id = internal.conversation_id.clone();
 
-    // 产品推理仅保留 CLI 智能体；Web 端无本地进程，明确拒绝。
+    // 产品推理仅保留本地智能体（cli / opencode）；Web 端无本地进程，明确拒绝。
     let _ = skill_ids;
     let _ = state;
     let _ = channel_id;
     let _ = conversation_id;
     let parsed = omnipanel_ai::routing::parse_backend_id(&internal.backend_id)?;
-    let _ = omnipanel_ai::routing::normalize_cli_backend(&parsed)?;
-    Err(
-        "Web 端暂不支持本地智能体（cli）；请使用桌面端 OmniPanel".to_string(),
-    )
+    match parsed.kind {
+        omnipanel_ai::routing::BackendKind::Cli => {
+            let _ = omnipanel_ai::routing::normalize_cli_backend(&parsed)?;
+            Err("Web 端暂不支持本地智能体（cli）；请使用桌面端 OmniPanel".to_string())
+        }
+        omnipanel_ai::routing::BackendKind::OpenCode => {
+            let _ = omnipanel_ai::routing::normalize_opencode_backend(&parsed)?;
+            Err("Web 端暂不支持 OpenCode HTTP；请使用桌面端 OmniPanel".to_string())
+        }
+    }
 }
 
 /// `ai_chat_cancel`：置位取消标志。

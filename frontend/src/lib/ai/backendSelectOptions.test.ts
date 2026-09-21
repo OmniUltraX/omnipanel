@@ -27,12 +27,13 @@ function cliProvider(partial: Partial<CliProviderRecord> & Pick<CliProviderRecor
 }
 
 describe("buildCliOptionsFromProviders", () => {
-  it("只输出已启用且已安装的提供者模型", () => {
+  it("OpenCode 显示友好名称，value 仍为 opencode:id", () => {
     const options = buildCliOptionsFromProviders(
       [
         cliProvider({
           id: "opencode",
           displayName: "OpenCode",
+          protocol: "http",
           enabled: true,
           binary: "C:/nvm4w/nodejs/opencode.cmd",
         }),
@@ -43,25 +44,31 @@ describe("buildCliOptionsFromProviders", () => {
           binary: "agent.cmd",
         }),
       ],
-      { opencode: ["opencode/big-pickle", "opencode-go/kimi-k3"] },
+      {
+        opencode: [
+          "opencode/big-pickle\u001fBig Pickle",
+          "opencode-go/kimi-k3\u001fKimi K3",
+        ],
+      },
     );
 
     expect(options.map((o) => o.value)).toEqual([
-      "cli:opencode::opencode/big-pickle",
-      "cli:opencode::opencode-go/kimi-k3",
+      "opencode:opencode/big-pickle",
+      "opencode:opencode-go/kimi-k3",
     ]);
-    expect(options.every((o) => o.group === "cli")).toBe(true);
+    expect(options.map((o) => o.label)).toEqual(["Big Pickle", "Kimi K3"]);
+    expect(options.every((o) => o.group === "opencode")).toBe(true);
   });
 
   it("无模型缓存时回退 default", () => {
     const options = buildCliOptionsFromProviders(
-      [cliProvider({ id: "opencode", displayName: "OpenCode" })],
+      [cliProvider({ id: "opencode", displayName: "OpenCode", protocol: "http" })],
       {},
     );
     expect(options).toEqual([
       expect.objectContaining({
-        value: "cli:opencode::default",
-        label: "OpenCode/default",
+        value: "opencode:opencode/default",
+        label: "default",
       }),
     ]);
   });
@@ -70,14 +77,14 @@ describe("buildCliOptionsFromProviders", () => {
     const options = buildCliOptionsFromProviders(
       [
         cliProvider({
-          id: "opencode",
-          displayName: "OpenCode",
+          id: "cursor",
+          displayName: "Cursor",
           disabledModelNames: ["skip-me"],
         }),
       ],
-      { opencode: ["keep-me", "skip-me"] },
+      { cursor: ["keep-me", "skip-me"] },
     );
-    expect(options.map((o) => o.value)).toEqual(["cli:opencode::keep-me"]);
+    expect(options.map((o) => o.value)).toEqual(["cli:cursor::keep-me"]);
   });
 });
 
@@ -85,15 +92,15 @@ describe("buildBackendSelectOptions", () => {
   it("store 智能体优先，API 仅补缺", () => {
     const api: BackendInfo[] = [
       {
-        id: "cli:opencode::from-api",
-        label: "OpenCode/from-api",
-        kind: "cli",
+        id: "opencode:opencode/from-api",
+        label: "From API",
+        kind: "opencode",
         installed: true,
       },
       {
-        id: "cli:opencode::shared",
-        label: "OpenCode/shared",
-        kind: "cli",
+        id: "opencode:opencode/shared",
+        label: "Shared",
+        kind: "opencode",
         installed: true,
       },
     ];
@@ -104,16 +111,22 @@ describe("buildBackendSelectOptions", () => {
         cliProvider({
           id: "opencode",
           displayName: "OpenCode",
+          protocol: "http",
         }),
       ],
-      { opencode: ["shared", "from-store"] },
+      {
+        opencode: [
+          "opencode/shared\u001fShared Name",
+          "opencode/from-store\u001fFrom Store",
+        ],
+      },
     );
 
-    const cli = options.filter((o) => o.group === "cli");
-    expect(cli.map((o) => o.value)).toEqual([
-      "cli:opencode::shared",
-      "cli:opencode::from-store",
-      "cli:opencode::from-api",
+    expect(options.map((o) => o.value)).toEqual([
+      "opencode:opencode/shared",
+      "opencode:opencode/from-store",
+      "opencode:opencode/from-api",
     ]);
+    expect(options.map((o) => o.label)).toEqual(["Shared Name", "From Store", "From API"]);
   });
 });

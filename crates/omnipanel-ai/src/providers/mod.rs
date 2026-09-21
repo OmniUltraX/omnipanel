@@ -3,3 +3,4 @@ pub mod anthropic;
 pub mod model_list;
 pub mod ollama;
 pub mod openai;
+pub mod opencode;

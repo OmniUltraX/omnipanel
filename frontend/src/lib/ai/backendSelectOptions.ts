@@ -8,27 +8,27 @@ import {
   isCliModelEnabled,
   useCliProvidersStore,
 } from "../../stores/cliProvidersStore";
-import { buildCliBackendId } from "./inferenceBackend";
+import { buildCliBackendId, buildOpenCodeBackendId, parseOpenCodeModelEntry } from "./inferenceBackend";
 
 export interface BackendSelectOption {
   value: string;
   label: string;
   subtitle?: string;
-  group: "cli";
+  group: "cli" | "opencode";
   installed?: boolean;
 }
 
-/** 从智能体 store 构造选择项（与设置页模型列表同源）。 */
+/** 从智能体 store 构造选择项（与设置页模型列表同源；同时只应有一个启用）。 */
 export function buildCliOptionsFromProviders(
   cliProviders: CliProviderRecord[],
   modelCache: Record<string, string[]>,
 ): BackendSelectOption[] {
   const options: BackendSelectOption[] = [];
-  for (const provider of cliProviders) {
-    if (!provider.enabled) continue;
-    const installed = Boolean(provider.binary?.trim());
-    if (!installed) continue;
-
+  // 单智能体互斥：只取当前启用者（若历史遗留多个，取第一个）
+  const active = cliProviders
+    .filter((p) => p.enabled && Boolean(p.binary?.trim()))
+    .slice(0, 1);
+  for (const provider of active) {
     let models = getCliProviderModels(provider, modelCache).filter((name) =>
       isCliModelEnabled(provider, name),
     );
@@ -37,14 +37,26 @@ export function buildCliOptionsFromProviders(
       models = ["default"];
     }
 
+    const isOpenCode = provider.id === "opencode";
     for (const model of models) {
-      options.push({
-        value: buildCliBackendId(provider.id, model),
-        label: `${provider.displayName}/${model}`,
-        subtitle: "智能体",
-        group: "cli",
-        installed: true,
-      });
+      if (isOpenCode) {
+        const { label } = parseOpenCodeModelEntry(model);
+        options.push({
+          value: buildOpenCodeBackendId(model),
+          label,
+          subtitle: "OpenCode",
+          group: "opencode",
+          installed: true,
+        });
+      } else {
+        options.push({
+          value: buildCliBackendId(provider.id, model),
+          label: `${provider.displayName}/${model}`,
+          subtitle: "智能体",
+          group: "cli",
+          installed: true,
+        });
+      }
     }
   }
   return options;
@@ -72,26 +84,26 @@ export function buildBackendSelectOptions(
 ): BackendSelectOption[] {
   const fromStore = buildCliOptionsFromProviders(cliProviders, modelCache);
 
-  const fromApiCli: BackendSelectOption[] = extraBackends
-    .filter((b) => b.kind === "cli")
+  const fromApi: BackendSelectOption[] = extraBackends
+    .filter((b) => b.kind === "cli" || b.kind === "opencode")
     .map((b) => ({
       value: b.id,
       label: b.label,
-      subtitle: b.installed ? "智能体" : "未安装",
-      group: "cli" as const,
+      subtitle: b.kind === "opencode" ? "OpenCode" : b.installed ? "智能体" : "未安装",
+      group: (b.kind === "opencode" ? "opencode" : "cli") as "cli" | "opencode",
       installed: b.installed,
     }));
 
   // store 优先（与设置页开关/禁用模型一致），API 补缺
-  return mergeBackendOptions(fromStore, fromApiCli);
+  return mergeBackendOptions(fromStore, fromApi);
 }
 
-async function fetchCliBackends(): Promise<BackendInfo[]> {
+async function fetchAgentBackends(): Promise<BackendInfo[]> {
   if (!canUseAiBackend()) return [];
   try {
     const res = await commands.aiListBackends();
     if (res.status !== "ok") return [];
-    return res.data.filter((b) => b.kind === "cli");
+    return res.data.filter((b) => b.kind === "cli" || b.kind === "opencode");
   } catch {
     return [];
   }
@@ -104,7 +116,7 @@ export function useBackendSelectOptions(providers: AiModelProvider[]) {
   const [extraBackends, setExtraBackends] = useState<BackendInfo[]>([]);
 
   const refreshBackends = useCallback(async () => {
-    const backends = await fetchCliBackends();
+    const backends = await fetchAgentBackends();
     setExtraBackends(backends);
   }, []);
 

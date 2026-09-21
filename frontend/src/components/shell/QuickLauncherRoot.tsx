@@ -121,7 +121,7 @@ function resolveQuickLauncherModelLabel(
   if (!selectionId) return null;
 
   const backend = resolveBackendFromSelection(providers, selectionId);
-  if (backend?.kind === "cli") {
+  if (backend?.kind === "cli" || backend?.kind === "opencode") {
     const short = backend.modelId || backend.providerId;
     return { short, full: backend.backendId };
   }

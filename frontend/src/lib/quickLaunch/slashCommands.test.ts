@@ -68,14 +68,14 @@ describe("matchSlashCatalog", () => {
 
 describe("buildSlashModelRows", () => {
   const models = [
-    { value: "cli:opencode::keep", label: "OpenCode/keep", subtitle: "智能体" },
-    { value: "cli:opencode::other", label: "OpenCode/other", subtitle: "智能体" },
+    { value: "opencode:opencode/keep", label: "OpenCode/keep", subtitle: "OpenCode" },
+    { value: "opencode:opencode/other", label: "OpenCode/other", subtitle: "OpenCode" },
     { value: "cli:cursor::agent", label: "Cursor/agent", subtitle: "智能体" },
   ];
 
   it("fuzzy-filters by model label", () => {
-    const rows = buildSlashModelRows(models, "keep", "cli:opencode::keep");
-    expect(rows.map((r) => r.selectionId)).toEqual(["cli:opencode::keep"]);
+    const rows = buildSlashModelRows(models, "keep", "opencode:opencode/keep");
+    expect(rows.map((r) => r.selectionId)).toEqual(["opencode:opencode/keep"]);
     expect(rows[0]?.current).toBe(true);
   });
 

@@ -198,10 +198,15 @@ fn builtin_cli_providers() -> Vec<CliProviderRecord> {
             };
             let installed = agent.installed;
             let is_legacy = agent.kind == AgentKind::Omniagent;
+            // 协议：OpenCode 走 HTTP Client；其余仍为 ACP
+            let protocol = match agent.kind {
+                AgentKind::Opencode => "http".to_string(),
+                _ => "acp".to_string(),
+            };
             CliProviderRecord {
                 id: id.to_string(),
                 display_name,
-                protocol: "acp".to_string(),
+                protocol,
                 binary: if installed {
                     agent.executable_path.clone()
                 } else {
@@ -211,7 +216,8 @@ fn builtin_cli_providers() -> Vec<CliProviderRecord> {
                 env: HashMap::new(),
                 cwd: None,
                 timeout_secs: Some(300),
-                enabled: installed && !is_legacy,
+                // 默认全部关闭；由用户显式启用，且同时只能开一个
+                enabled: false,
                 builtin: true,
                 static_models: if is_legacy {
                     vec!["default".to_string()]
@@ -265,7 +271,67 @@ pub fn cli_provider_list() -> Result<Vec<CliProviderRecord>, String> {
             provider.model_discovery_args.clear();
         }
     }
+    // 历史数据 / 多开关遗留：读列表时收敛为至多一个启用，并回写 overrides
+    enforce_single_enabled_persisted(&mut merged)?;
     Ok(merged)
+}
+
+/// 同时只允许一个智能体为 enabled；优先保留已启用的 OpenCode，否则保留第一个。
+fn enforce_single_enabled_persisted(providers: &mut [CliProviderRecord]) -> Result<(), String> {
+    let enabled_idxs: Vec<usize> = providers
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.enabled)
+        .map(|(i, _)| i)
+        .collect();
+    if enabled_idxs.len() <= 1 {
+        return Ok(());
+    }
+
+    let keep_idx = enabled_idxs
+        .iter()
+        .copied()
+        .find(|&i| providers[i].id == "opencode")
+        .unwrap_or(enabled_idxs[0]);
+    let keep_id = providers[keep_idx].id.clone();
+
+    let mut overrides = load_cli_provider_overrides()?;
+    let mut custom = load_custom_cli_providers()?;
+    let mut custom_changed = false;
+
+    for provider in providers.iter_mut() {
+        if provider.id == keep_id {
+            continue;
+        }
+        if !provider.enabled {
+            continue;
+        }
+        provider.enabled = false;
+        if provider.builtin {
+            overrides
+                .entry(provider.id.clone())
+                .or_default()
+                .enabled = Some(false);
+        } else if let Some(c) = custom.iter_mut().find(|c| c.id == provider.id) {
+            c.enabled = false;
+            custom_changed = true;
+        }
+    }
+    // 确保保留者在 overrides 里显式为 true（避免下次又靠模糊默认）
+    if let Some(keep) = providers.iter().find(|p| p.id == keep_id) {
+        if keep.builtin {
+            overrides
+                .entry(keep_id.clone())
+                .or_default()
+                .enabled = Some(true);
+        }
+    }
+
+    save_cli_provider_overrides(&overrides)?;
+    if custom_changed {
+        save_custom_cli_providers(&custom)?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -327,6 +393,37 @@ pub fn cli_provider_patch(input: CliProviderPatchInput) -> Result<CliProviderRec
             if builtin.binary.is_none() {
                 return Err(format!("{} 未安装，无法启用", builtin.display_name));
             }
+        }
+    }
+
+    // 单智能体互斥：启用 A 时自动关闭其它已启用者
+    if input.enabled == Some(true) {
+        let mut overrides = load_cli_provider_overrides()?;
+        let all_ids: Vec<String> = cli_provider_list()?
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        for other_id in all_ids {
+            if other_id == id {
+                continue;
+            }
+            overrides
+                .entry(other_id)
+                .or_default()
+                .enabled = Some(false);
+        }
+        save_cli_provider_overrides(&overrides)?;
+
+        let mut custom = load_custom_cli_providers()?;
+        let mut custom_changed = false;
+        for provider in &mut custom {
+            if provider.id != id && provider.enabled {
+                provider.enabled = false;
+                custom_changed = true;
+            }
+        }
+        if custom_changed {
+            save_custom_cli_providers(&custom)?;
         }
     }
 
@@ -446,7 +543,10 @@ pub fn provider_list_models(provider_id: &str) -> Result<Vec<String>, String> {
         .find(|p| p.id == key)
         .ok_or_else(|| format!("未找到 CLI 提供者: {key}"))?;
 
-    let mut models = if let Some(cmd) = provider.model_discovery_command.as_deref() {
+    let mut models = if key == "opencode" {
+        let binary = provider.binary.as_ref().map(std::path::PathBuf::from);
+        discover_opencode_models_http(binary.as_deref())?
+    } else if let Some(cmd) = provider.model_discovery_command.as_deref() {
         discover_models_cmd(cmd, &provider.model_discovery_args)?
     } else if !provider.static_models.is_empty() {
         provider.static_models.clone()
@@ -479,6 +579,15 @@ pub fn provider_list_models(provider_id: &str) -> Result<Vec<String>, String> {
         );
     }
     Ok(models)
+}
+
+fn discover_opencode_models_http(binary: Option<&std::path::Path>) -> Result<Vec<String>, String> {
+    // 本函数在 spawn_blocking 中调用；自建 current-thread runtime 跑 async HTTP。
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("创建 OpenCode 发现 runtime 失败: {e}"))?;
+    rt.block_on(omnipanel_ai::providers::opencode::list_opencode_models(binary))
 }
 
 fn spawn_model_discovery(command: &str, args: &[String]) -> Result<std::process::Output, String> {
