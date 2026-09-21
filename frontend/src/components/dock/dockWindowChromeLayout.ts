@@ -76,11 +76,30 @@ function resolveChromeGroups(
 }
 
 /**
- * ModuleSegmentDock 专用：单 group tab 栏固定挂载 drag-spacer + 窗口控制按钮。
+ * ModuleSegmentDock：窗口控制挂到右上角 group。
+ *
+ * 单 group 时 drag + controls 都挂在该 group；左右分屏时 controls 挂右侧，
+ * 拖拽区留在顶部左侧。layout 不可用或 group id 对不上时回退第一个 group，
+ * 避免分屏动画中短暂丢失窗控。
  */
 export function resolveSegmentWindowChromeHosts(
   groupIds: string[],
+  layout?: SerializedDockview | null,
 ): { dragGroupId: string | null; controlsGroupId: string | null } {
+  const chrome = resolveDockWindowChromeLayout(layout ?? null);
+  if (chrome) {
+    const liveIds = new Set(groupIds.filter(Boolean));
+    const idsOk =
+      liveIds.size === 0 ||
+      ((chrome.dragGroupId == null || liveIds.has(chrome.dragGroupId)) &&
+        (chrome.controlsGroupId == null || liveIds.has(chrome.controlsGroupId)));
+    if (idsOk && (chrome.dragGroupId || chrome.controlsGroupId)) {
+      return {
+        dragGroupId: chrome.dragGroupId,
+        controlsGroupId: chrome.controlsGroupId,
+      };
+    }
+  }
   const groupId = groupIds[0] ?? null;
   return { dragGroupId: groupId, controlsGroupId: groupId };
 }

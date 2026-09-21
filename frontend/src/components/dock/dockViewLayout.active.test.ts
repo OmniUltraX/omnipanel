@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SerializedDockview } from "dockview-core";
+import { Orientation } from "dockview-core";
 import {
   canApplyDockLayoutIncrementally,
   createDefaultLayout,
@@ -173,6 +174,51 @@ describe("normalizeDockLayout", () => {
     expect(leaves[0]!.data.id).toBe("same");
     expect(leaves[1]!.data.id).not.toBe("same");
     expect(isLayoutUsable(cleaned)).toBe(true);
+  });
+
+  it("横向根下的上下分栏嵌套 branch 不能剥扁，否则会丢 orientation", () => {
+    const layout = createDefaultLayout(["a", "b"], "a");
+    const nested: SerializedDockview = {
+      ...layout,
+      grid: {
+        ...layout.grid,
+        orientation: Orientation.HORIZONTAL,
+        root: {
+          type: "branch",
+          data: [
+            {
+              type: "branch",
+              data: [
+                {
+                  type: "leaf",
+                  data: { id: "g-top", views: ["a"], activeView: "a" },
+                  size: 500,
+                },
+                {
+                  type: "leaf",
+                  data: { id: "g-bottom", views: ["b"], activeView: "b" },
+                  size: 500,
+                },
+              ],
+              size: 1000,
+            },
+          ],
+        } as SerializedDockview["grid"]["root"],
+      },
+    };
+    const cleaned = normalizeDockLayout(nested);
+    const root = cleaned!.grid.root as {
+      type: "branch";
+      data: Array<{
+        type: string;
+        data: Array<{ type: "leaf"; data: { id: string } }> | { id: string };
+      }>;
+    };
+    expect(root.type).toBe("branch");
+    expect(root.data).toHaveLength(1);
+    expect(root.data[0]!.type).toBe("branch");
+    const inner = root.data[0]!.data as Array<{ type: "leaf"; data: { id: string } }>;
+    expect(inner.map((n) => n.data.id)).toEqual(["g-top", "g-bottom"]);
   });
 });
 

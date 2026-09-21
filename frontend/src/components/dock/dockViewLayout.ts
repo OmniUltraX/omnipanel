@@ -470,7 +470,13 @@ function pruneEmptyLeaves(node: SerializedNode): SerializedNode | null {
       .filter((child): child is SerializedNode => child !== null);
     if (children.length === 0) return null;
     if (children.length === 1) {
-      return { ...children[0]!, size: node.size };
+      const only = children[0]!;
+      // 只剥「branch 包一层 leaf」的根包装。若唯一子节点仍是 branch，
+      // 那是正交分屏（横向根下的上下栏），剥掉会弄丢 orientation，
+      // 窗控会被当成「右侧」挂到下栏。
+      if (isLeaf(only)) {
+        return { ...only, size: node.size };
+      }
     }
     return { ...node, data: children };
   }

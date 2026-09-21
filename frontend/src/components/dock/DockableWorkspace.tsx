@@ -317,7 +317,8 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   /** 当前 dock 内 panel 被跨 dockview 拖出后，通知业务 store 做迁出清理 */
   onPanelTransferredOut?: (panelId: string, targetScope: string) => void;
   /**
-   * segment：模块分段 Tab（ModuleSegmentDock），单 group tab 栏固定含 drag-spacer。
+   * segment：模块分段 Tab（ModuleSegmentDock）。单 group 时 tab 栏含
+   * drag-spacer + 窗控；分屏后窗控挂到右上角 group。
    * default：按布局树解析顶部/右上角 group。
    */
   windowChromeVariant?: "default" | "segment";
@@ -604,7 +605,7 @@ export function DockableWorkspace({
         api.groups.length > 0
           ? api.groups.map((g) => g.id)
           : (describeDockLayout(layout)?.groups.map((g) => g.id) ?? []);
-      next = resolveSegmentWindowChromeHosts(groupIds);
+      next = resolveSegmentWindowChromeHosts(groupIds, layout);
     } else {
       const chrome = resolveDockWindowChromeLayout(
         layout,
