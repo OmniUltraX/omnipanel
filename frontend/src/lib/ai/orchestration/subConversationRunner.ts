@@ -20,10 +20,7 @@ import {
 } from "../../../stores/aiOrchestrationStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useWorkspaceMembershipStore } from "../../../stores/workspaceMembershipStore";
-import {
-  resolveBackendFromSelection,
-  type HttpProviderSnapshot,
-} from "../inferenceBackend";
+import { resolveBackendFromSelection } from "../inferenceBackend";
 import { useAiModelsStore } from "../../../stores/aiModelsStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { resolveConversationModelSelectionId } from "../../aiScenarioModels";
@@ -270,7 +267,7 @@ async function runSingleChild(
     );
     const backend = resolveBackendFromSelection(providers, selectionId);
     if (!backend) {
-      throw new Error("子会话未配置 AI 模型；请在设置中配置并选择模型");
+      throw new Error("请先启用智能体");
     }
 
     // 解析 Agent runtime（子会话继承父会话的 agentId）
@@ -375,17 +372,16 @@ async function runSingleChild(
       }
     };
 
-    // 知识库 RAG 配置
-    const embeddingProvider =
-      agentRuntime.allowRag && backend.kind === "http"
-        ? resolveKnowledgeEmbeddingProvider(providers, {
-            knowledgeEmbeddingModelMode: useSettingsStore.getState().knowledgeEmbeddingModelMode,
-            knowledgeEmbeddingModelSelectionId:
-              useSettingsStore.getState().knowledgeEmbeddingModelSelectionId,
-            knowledgeEmbeddingOllamaModel:
-              useSettingsStore.getState().knowledgeEmbeddingOllamaModel,
-          })
-        : null;
+    // 知识库 RAG 配置（CLI 路径也允许按 allowRag 注入）
+    const embeddingProvider = agentRuntime.allowRag
+      ? resolveKnowledgeEmbeddingProvider(providers, {
+          knowledgeEmbeddingModelMode: useSettingsStore.getState().knowledgeEmbeddingModelMode,
+          knowledgeEmbeddingModelSelectionId:
+            useSettingsStore.getState().knowledgeEmbeddingModelSelectionId,
+          knowledgeEmbeddingOllamaModel:
+            useSettingsStore.getState().knowledgeEmbeddingOllamaModel,
+        })
+      : null;
 
     // 构建 historyJson（子会话已有 initial user message）
     const childMessages = childConv.messages.filter(
@@ -421,7 +417,7 @@ async function runSingleChild(
           conversationId,
           userText: spawnSpec.task,
           backendId: backend.backendId,
-          httpProvider: backend.kind === "http" ? (backend as { httpProvider: HttpProviderSnapshot }).httpProvider : null,
+          httpProvider: null,
           context: childContext,
           historyJson,
           toolsMode: (() => {

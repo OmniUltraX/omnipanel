@@ -150,7 +150,32 @@ pub fn read_version(exe: &Path) -> Option<String> {
     })
 }
 
+/// Windows 下优先真实 .exe / .cmd，把无扩展名的 npm shim（`#!/bin/sh`）放到最后。
+/// 无扩展名文件对 CreateProcess 无效，却常被 `where` 排在 `.cmd` 前面。
+pub fn prefer_windows_cli_bins(mut candidates: Vec<PathBuf>) -> Vec<PathBuf> {
+    candidates.sort_by_key(|path| {
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if name.ends_with(".exe") {
+            0u8
+        } else if name.ends_with(".cmd") || name.ends_with(".bat") {
+            1
+        } else if name.contains('.') {
+            2
+        } else {
+            3
+        }
+    });
+    candidates
+}
+
 pub fn detect_from_candidates(candidates: Vec<PathBuf>) -> (bool, Option<String>, Option<String>) {
+    #[cfg(windows)]
+    let candidates = prefer_windows_cli_bins(candidates);
+
     let mut fallback: Option<PathBuf> = None;
 
     for candidate in candidates {

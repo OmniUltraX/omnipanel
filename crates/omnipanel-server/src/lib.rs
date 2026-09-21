@@ -43,7 +43,6 @@ pub mod http_client;
 pub mod ipc;
 pub mod knowledge_cmds;
 pub mod knowledge_vector_cmds;
-pub mod local_runtime_cmds;
 pub mod log_search;
 pub mod log_tail;
 pub mod mcp;

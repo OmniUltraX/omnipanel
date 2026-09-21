@@ -1,69 +1,82 @@
 import { useMemo, useState } from "react";
 
 import { useI18n } from "../../i18n";
-import { useSettingsStore } from "../../stores/settingsStore";
-import { Button } from "../../components/ui/primitives/Button";
-import { TextInput } from "../../components/ui/form/TextInput";
-import { PasswordInput } from "../../components/ui/form/PasswordInput";
-import { TraceListView } from "./TraceListView";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { SegmentedControl } from "../../components/ui/primitives/SegmentedControl";
 import { OmniMcpToolsExposureSection } from "../../components/settings/OmniMcpToolsExposureSection";
-import { McpServiceToolList } from "../../components/settings/McpServiceToolList";
-import { OMNIMCP_BUILTIN_SERVICE_ID } from "../../lib/ai/context/moduleBuiltinCatalog";
-import {
-  DEFAULT_GATEWAY_PORT,
-  OMNIMCP_BUILTIN_MCP_URL,
-  RELEASE_GATEWAY_PORT,
-  resolveGatewayListenPort,
-} from "../../lib/ai/localServicePorts";
+import { OMNIMCP_BUILTIN_MCP_URL } from "../../lib/ai/localServicePorts";
 
-type Tab = "router" | "omnimcp" | "traces";
+type AgentSnippetId = "opencode" | "cursor" | "claudeCode" | "codex";
 
-const MCP_CURSOR_SNIPPET = `{
-  "mcpServers": {
+function buildAgentSnippets(url: string): { id: AgentSnippetId; language: "json" | "toml"; code: string }[] {
+  return [
+    {
+      id: "opencode",
+      language: "json",
+      code: `{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
     "omnipanel": {
-      "url": "${OMNIMCP_BUILTIN_MCP_URL}"
+      "type": "remote",
+      "url": "${url}",
+      "enabled": true
     }
   }
-}`;
-
-function SettingToggle({
-  value,
-  onChange,
-}: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div
-      className={`toggle ${value ? "on" : ""}`}
-      role="switch"
-      aria-checked={value}
-      onClick={() => onChange(!value)}
-      style={{ cursor: "pointer" }}
-    />
-  );
+}`,
+    },
+    {
+      id: "cursor",
+      language: "json",
+      code: `{
+  "mcpServers": {
+    "omnipanel": {
+      "url": "${url}"
+    }
+  }
+}`,
+    },
+    {
+      id: "claudeCode",
+      language: "json",
+      code: `{
+  "mcpServers": {
+    "omnipanel": {
+      "type": "http",
+      "url": "${url}"
+    }
+  }
+}`,
+    },
+    {
+      id: "codex",
+      language: "toml",
+      code: `[mcp_servers.omnipanel]
+url = "${url}"
+`,
+    },
+  ];
 }
 
+/** OmniPanel 对外只暴露一个 MCP Server（OmniMCP）。 */
 export function AiGatewaySettings() {
   const { t } = useI18n();
-  const [tab, setTab] = useState<Tab>("router");
-  const aiGatewayEnabled = useSettingsStore((s) => s.aiGatewayEnabled);
-  const aiGatewayPort = useSettingsStore((s) => s.aiGatewayPort);
-  const aiGatewayApiKey = useSettingsStore((s) => s.aiGatewayApiKey);
-  const aiGatewayBindLan = useSettingsStore((s) => s.aiGatewayBindLan);
-  const mcpExternalRequireApproval = useSettingsStore((s) => s.mcpExternalRequireApproval);
-  const setAiGatewaySettings = useSettingsStore((s) => s.setAiGatewaySettings);
+  const url = useMemo(() => OMNIMCP_BUILTIN_MCP_URL, []);
+  const snippets = useMemo(() => buildAgentSnippets(url), [url]);
+  const [activeAgent, setActiveAgent] = useState<AgentSnippetId>("opencode");
 
-  const listenPort = resolveGatewayListenPort(aiGatewayPort);
+  const agentOptions = useMemo(
+    () =>
+      snippets.map((snippet) => ({
+        value: snippet.id,
+        label: t(`settings.aiServices.omnimcp.agents.${snippet.id}.title`),
+      })),
+    [snippets, t],
+  );
 
-  const curlExample = useMemo(() => {
-    const auth = aiGatewayApiKey.trim()
-      ? `-H "Authorization: Bearer ${aiGatewayApiKey.trim()}" `
-      : "";
-    return `curl ${auth}-H "Content-Type: application/json" -H "X-Conversation-Id: demo" \\
-  http://127.0.0.1:${listenPort}/v1/chat/completions \\
-  -d '{"model":"http:provider_1::gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hello"}]}'`;
-  }, [listenPort, aiGatewayApiKey]);
+  const activeSnippet = useMemo(
+    () => snippets.find((s) => s.id === activeAgent) ?? snippets[0]!,
+    [snippets, activeAgent],
+  );
 
   const copyText = async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -75,155 +88,40 @@ export function AiGatewaySettings() {
         <div>
           <h2>{t("settings.aiServices.title")}</h2>
           <p className="section-desc">{t("settings.aiServices.desc")}</p>
-          <p className="section-desc">{t("settings.aiServices.appChatHint")}</p>
         </div>
       </div>
 
-      <div className="settings-tabs" role="tablist">
-        {(
-          [
-            ["router", t("settings.aiServices.tabRouter")],
-            ["omnimcp", t("settings.aiServices.tabOmniMcp")],
-            ["traces", t("settings.aiServices.tabTraces")],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            className={`settings-tab${tab === id ? " is-active" : ""}`}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="settings-subsection">
+        <div className="settings-subsection-title">{t("settings.aiServices.omnimcp.toolsTitle")}</div>
+        <p className="setting-hint settings-subsection-desc">
+          {t("settings.aiServices.omnimcp.toolsDesc")}
+        </p>
+        <OmniMcpToolsExposureSection />
       </div>
 
-      {tab === "router" ? (
-        <div className="settings-subsection">
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.aiServices.router.enabled")}</h4>
-              <p>{t("settings.aiServices.router.enabledDesc")}</p>
-            </div>
-            <SettingToggle
-              value={aiGatewayEnabled}
-              onChange={(v) => setAiGatewaySettings({ aiGatewayEnabled: v })}
-            />
-          </div>
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.aiServices.router.port")}</h4>
-              {import.meta.env.DEV &&
-              (aiGatewayPort || RELEASE_GATEWAY_PORT) === RELEASE_GATEWAY_PORT ? (
-                <p>
-                  {t("settings.aiServices.router.devPortRemapHint", {
-                    listen: String(listenPort),
-                  })}
-                </p>
-              ) : null}
-            </div>
-            <div className="setting-control setting-control--narrow">
-              <TextInput
-                size="sm"
-                value={String(aiGatewayPort || DEFAULT_GATEWAY_PORT)}
-                onChange={(v) =>
-                  setAiGatewaySettings({
-                    aiGatewayPort: Number(v) || DEFAULT_GATEWAY_PORT,
-                  })
-                }
-              />
-            </div>
-          </div>
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.aiServices.router.apiKey")}</h4>
-            </div>
-            <div className="setting-control setting-control--wide">
-              <PasswordInput
-                size="sm"
-                value={aiGatewayApiKey}
-                onChange={(v) => setAiGatewaySettings({ aiGatewayApiKey: v })}
-                placeholder={t("settings.aiServices.router.apiKeyPlaceholder")}
-              />
-            </div>
-          </div>
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.aiServices.router.bindLan")}</h4>
-              <p>{t("settings.aiServices.router.bindLanDesc")}</p>
-            </div>
-            <SettingToggle
-              value={aiGatewayBindLan}
-              onChange={(v) => setAiGatewaySettings({ aiGatewayBindLan: v })}
-            />
-          </div>
+      <div className="settings-section-divider" />
 
-          <div className="settings-section-divider" />
-
-          <div className="settings-subsection-title">{t("settings.aiServices.router.curlTitle")}</div>
-          <pre className="settings-code-block">{curlExample}</pre>
-          <Button variant="secondary" size="sm" onClick={() => void copyText(curlExample)}>
-            {t("settings.aiServices.router.copyCurl")}
-          </Button>
-        </div>
-      ) : null}
-
-      {tab === "omnimcp" ? (
-        <div className="settings-subsection">
-          <p className="setting-hint settings-subsection-desc">
-            {t("settings.aiServices.omnimcp.desc", { url: OMNIMCP_BUILTIN_MCP_URL })}
-          </p>
-          <div className="setting-row">
-            <div className="setting-label">
-              <h4>{t("settings.aiServices.omnimcp.requireApproval")}</h4>
-              <p>{t("settings.aiServices.omnimcp.requireApprovalDesc")}</p>
-            </div>
-            <SettingToggle
-              value={mcpExternalRequireApproval}
-              onChange={(v) => setAiGatewaySettings({ mcpExternalRequireApproval: v })}
-            />
-          </div>
-
-          <div className="settings-section-divider" />
-
-          <div className="settings-subsection-title">{t("settings.aiServices.omnimcp.toolsTitle")}</div>
-          <p className="setting-hint settings-subsection-desc">
-            {t("settings.aiServices.omnimcp.toolsDesc")}
-          </p>
-          <OmniMcpToolsExposureSection />
-
-          <div className="settings-section-divider" />
-
-          <div className="settings-subsection-title">{t("settings.aiServices.omnimcp.liveToolsTitle")}</div>
-          <p className="setting-hint settings-subsection-desc">
-            {t("settings.aiServices.omnimcp.liveToolsDesc")}
-          </p>
-          <McpServiceToolList serviceId={OMNIMCP_BUILTIN_SERVICE_ID} />
-
-          <div className="settings-section-divider" />
-
-          <div className="settings-subsection-title">{t("settings.aiServices.omnimcp.cursorTitle")}</div>
-          <pre className="settings-code-block">{MCP_CURSOR_SNIPPET}</pre>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void copyText(MCP_CURSOR_SNIPPET)}
-          >
-            {t("settings.aiServices.omnimcp.copyJson")}
-          </Button>
-        </div>
-      ) : null}
-
-      {tab === "traces" ? (
-        <div className="settings-subsection">
-          <p className="setting-hint settings-subsection-desc">
-            {t("settings.aiServices.traces.desc")}
-          </p>
-          <TraceListView />
-        </div>
-      ) : null}
+      <div className="settings-subsection">
+        <div className="settings-subsection-title">{t("settings.aiServices.omnimcp.agentsConfigTitle")}</div>
+        <p className="setting-hint settings-subsection-desc">
+          {t("settings.aiServices.omnimcp.agentsConfigDesc", { url })}
+        </p>
+        <SegmentedControl
+          options={agentOptions}
+          value={activeAgent}
+          onChange={setActiveAgent}
+          ariaLabel={t("settings.aiServices.omnimcp.agentsConfigTitle")}
+        />
+        <p className="setting-hint settings-subsection-desc">
+          {t(`settings.aiServices.omnimcp.agents.${activeSnippet.id}.hint`)}
+        </p>
+        <pre className="settings-code-block">{activeSnippet.code}</pre>
+        <WorkbenchActionButton onClick={() => void copyText(activeSnippet.code)}>
+          {activeSnippet.language === "toml"
+            ? t("settings.aiServices.omnimcp.copyToml")
+            : t("settings.aiServices.omnimcp.copyJson")}
+        </WorkbenchActionButton>
+      </div>
     </div>
   );
 }

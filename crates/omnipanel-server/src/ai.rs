@@ -1,29 +1,19 @@
-//! P2 AI 对话流（Web 端）：`ai_chat_stream` / `ai_http_stream_post` 等价实现。
-//!
-//! 复用 `omnipanel-ai::InternalOrchestrator`（与桌面端同一套推理编排），
-//! 事件经 Channel 帧（`@channel`）回传前端，等价桌面端 `Channel<StreamEvent>`。
+//! AI 对话流（Web 端）：`ai_chat_stream` / `ai_http_stream_post`。
 //!
 //! ## 传输语义（与桌面端对齐）
 //! - `ai_chat_stream` 请求体：`{ request: <InternalChatRequestDto>, onEvent: <channelId> }`
 //!   （Channel 序列化为自增 id 字符串，与 `frontend/src/shims/tauri/core-web.ts` 一致）。
 //! - `ai_http_stream_post` 请求体：`{ url, headers, body, timeoutMs, onEvent: <channelId> }`。
 //!
-//! ## 范围说明（诚实边界）
-//! - 支持 HTTP 后端（OpenAI / Anthropic 兼容）流式对话；`pure_text` oneshot 直通。
-//! - ACP / CLI 后端（依赖本地 Agent 进程）在 Web 端返回明确错误。
-//! - MCP 工具执行依赖桌面端 `ToolExecutor`，Web 端暂不注入工具（`tools_mode` 被忽略，
-//!   以 `pure_text` 语义直接推理），工具面能力在后续版本接入。
+//! ## 范围说明
+//! - 产品推理仅保留 CLI 智能体；Web 端无本地 Agent 进程，`ai_chat_stream` 明确拒绝。
+//! - `ai_http_stream_post` 仍可作通用 HTTP 代理（非对话编排路径）。
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 
-use omnipanel_ai::{
-    AiContextBundle, HttpProviderSnapshot, InternalChatRequest, InternalOrchestrator,
-    InternalToolsMode, RenamedProvider, StreamEvent, ToolExecutor,
-};
+use omnipanel_ai::{AiContextBundle, HttpProviderSnapshot, InternalChatRequest, InternalToolsMode};
 use serde::Deserialize;
 
-use crate::ai_tools::{ServerToolExecutor, filter_web_tools};
 use crate::state::ServerState;
 
 /// `ai_chat_stream` 外层请求体（对齐桌面端 Tauri 参数：`request` + `onEvent`）。
@@ -178,61 +168,6 @@ fn to_internal(req: InternalChatRequestDto) -> Result<InternalChatRequest, Strin
     })
 }
 
-/// 构造 HTTP Provider（复用 `omnipanel-ai` 的 OpenAI / Anthropic 实现）。
-fn build_http_provider(
-    snapshot: &HttpProviderSnapshot,
-    model_id: &str,
-) -> Result<Box<dyn omnipanel_ai::AiProvider>, String> {
-    let provider_id = snapshot.provider_id.trim();
-    if provider_id.is_empty() {
-        return Err("http_provider.provider_id 不能为空".to_string());
-    }
-    let base_url = snapshot.base_url.trim();
-    if base_url.is_empty() {
-        return Err("http_provider.base_url 不能为空".to_string());
-    }
-    let api_key = if snapshot.api_key.trim().is_empty() {
-        omnipanel_store::Vault::get(&omnipanel_store::ai_provider_key_ref(provider_id))
-            .unwrap_or_default()
-    } else {
-        snapshot.api_key.clone()
-    };
-    let api_key = if api_key.trim().is_empty() {
-        "sk-none".to_string()
-    } else {
-        api_key
-    };
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
-
-    match omnipanel_ai::routing::resolve_http_inference_api(&snapshot.api_standard, model_id) {
-        omnipanel_ai::routing::HttpInferenceApi::AnthropicMessages => {
-            let anthropic_base =
-                omnipanel_ai::routing::resolve_anthropic_messages_base_url(base_url);
-            let inner = omnipanel_ai::providers::anthropic::AnthropicProvider::with_client(
-                &api_key,
-                Some(&anthropic_base),
-                Vec::new(),
-                Some(client),
-            );
-            Ok(Box::new(RenamedProvider::new(provider_id, inner)))
-        }
-        omnipanel_ai::routing::HttpInferenceApi::OpenAiChatCompletions => Ok(Box::new(
-            omnipanel_ai::providers::openai::OpenAiProvider::with_client(
-                provider_id,
-                &api_key,
-                base_url,
-                Vec::new(),
-                Some(client),
-            ),
-        )),
-    }
-}
-
 /// `ai_chat_stream`：流式对话，事件经 Channel 帧回传。
 pub async fn ai_chat_stream(state: &ServerState, args: AiChatStreamArgs) -> Result<(), String> {
     let channel_id = args
@@ -241,137 +176,19 @@ pub async fn ai_chat_stream(state: &ServerState, args: AiChatStreamArgs) -> Resu
         .ok_or_else(|| "缺少 onEvent（Channel 未序列化）".to_string())?;
 
     let skill_ids = args.request.skill_ids.clone().unwrap_or_default();
-    let mut internal = to_internal(args.request)?;
+    let internal = to_internal(args.request)?;
     let conversation_id = internal.conversation_id.clone();
 
-    // 解析 backend：仅支持 HTTP（ACP/CLI 依赖本地进程，Web 端不支持）。
+    // 产品推理仅保留 CLI 智能体；Web 端无本地进程，明确拒绝。
+    let _ = skill_ids;
+    let _ = state;
+    let _ = channel_id;
+    let _ = conversation_id;
     let parsed = omnipanel_ai::routing::parse_backend_id(&internal.backend_id)?;
-    if parsed.kind != omnipanel_ai::routing::BackendKind::Http {
-        return Err(format!(
-            "Web 端暂不支持 backend: {}（ACP/CLI 后端依赖本地 Agent 进程）",
-            internal.backend_id
-        ));
-    }
-
-    let snapshot = internal
-        .http_provider
-        .as_ref()
-        .ok_or_else(|| "缺少 http_provider，无法发起 HTTP 推理".to_string())?;
-    let (_provider_id, model_id) = InternalOrchestrator::resolve_http_model(&internal.backend_id)?;
-    let provider = build_http_provider(snapshot, &model_id)?;
-
-    // 非 pure_text 时的 Skills / Agent 角色注入
-    if !internal.pure_text {
-        let mut append_parts: Vec<String> = Vec::new();
-        if let Some(role) = internal
-            .agent_id
-            .as_deref()
-            .map(omnipanel_store::agent_prompt)
-            .filter(|s| !s.trim().is_empty())
-        {
-            append_parts.push(format!("[Agent]\n{role}"));
-        }
-        let load_skill_available = match &internal.tools_mode {
-            InternalToolsMode::None => false,
-            InternalToolsMode::DirectInject { tool_allowlist, .. } => tool_allowlist
-                .as_ref()
-                .map(|list| list.iter().any(|n| n == "load_skill"))
-                .unwrap_or(true),
-        };
-        if let Ok(skills_text) =
-            omnipanel_store::build_skills_system_append_filtered(load_skill_available, &skill_ids)
-        {
-            if !skills_text.is_empty() {
-                append_parts.push(skills_text);
-            }
-        }
-        if !skill_ids.is_empty() {
-            if let Ok(selected) = omnipanel_store::build_selected_skills_bodies_append(&skill_ids) {
-                if !selected.is_empty() {
-                    append_parts.push(selected);
-                }
-            }
-        }
-        if !append_parts.is_empty() {
-            internal.system_append = Some(append_parts.join("\n\n---\n\n"));
-        }
-    }
-
-    // 取消标志（`ai_chat_cancel` 置位）
-    let cancel_flag = {
-        let mut flags = state.ai_chat_cancel_flags.lock().await;
-        let flag = Arc::new(AtomicBool::new(false));
-        flags.insert(conversation_id.clone(), flag.clone());
-        flag
-    };
-
-    // P3：Web 端工具面下沉。DirectInject 时从存储的 ToolRegistry 拉取工具定义，
-    // 过滤纯 UI 依赖工具后注入；执行器为服务端自执 `ServerToolExecutor`。
-    let (tools, executor) = match &internal.tools_mode {
-        InternalToolsMode::DirectInject {
-            module_filter,
-            tool_allowlist,
-        } => {
-            let filter = module_filter.as_deref();
-            let mut defs = omnipanel_mcp::ToolRegistry::new(state.storage.clone())
-                .to_tool_defs(filter)
-                .await
-                .map_err(|e| e.to_string())?;
-            // P4：并入启用中的外部 MCP 工具（与桌面端 `McpManager::to_internal_tool_defs` 一致）。
-            // 模块隔离下（非 master/web）不混入外部 MCP。
-            if matches!(filter, None | Some("master") | Some("web")) {
-                let external = crate::mcp::merge_external_tool_defs(state, filter).await?;
-                defs.extend(external);
-            }
-            // 若工具清单含纯 UI 工具则过滤（Web 端无浏览器回传）
-            if let Some(tool_allowlist) = tool_allowlist {
-                if !tool_allowlist.is_empty() {
-                    let allowed: std::collections::HashSet<&str> =
-                        tool_allowlist.iter().map(String::as_str).collect();
-                    defs.retain(|d| allowed.contains(d.function.name.as_str()));
-                }
-            }
-            let (tools, dropped) = filter_web_tools(defs);
-            if !dropped.is_empty() {
-                tracing::info!(
-                    conversation_id = %conversation_id,
-                    dropped = ?dropped,
-                    "Web 端过滤纯 UI 工具"
-                );
-            }
-            let executor = ServerToolExecutor::new(state, module_filter.clone())
-                .with_conversation(conversation_id.clone());
-            (Some(tools), Some(executor))
-        }
-        InternalToolsMode::None => (None, None),
-    };
-    let exec_ref: Option<&dyn ToolExecutor> = executor.as_ref().map(|e| e as &dyn ToolExecutor);
-
-    let bus = state.bus.clone();
-    let result = InternalOrchestrator::run_turn(
-        provider.as_ref(),
-        &model_id,
-        &internal,
-        tools,
-        exec_ref,
-        move |evt: StreamEvent| {
-            let payload = match serde_json::to_value(&evt) {
-                Ok(v) => v,
-                Err(_) => return,
-            };
-            bus.emit_channel(&channel_id, payload);
-        },
-        cancel_flag.clone(),
+    let _ = omnipanel_ai::routing::normalize_cli_backend(&parsed)?;
+    Err(
+        "Web 端暂不支持本地智能体（cli）；请使用桌面端 OmniPanel".to_string(),
     )
-    .await;
-
-    state
-        .ai_chat_cancel_flags
-        .lock()
-        .await
-        .remove(&conversation_id);
-
-    result
 }
 
 /// `ai_chat_cancel`：置位取消标志。
@@ -503,71 +320,10 @@ pub struct BackendInfo {
     pub installed: bool,
 }
 
-/// 列出可用后端：HTTP 模型来自 `ai-models.json`；CLI/ACP 后续可接 skills。
+/// 列出可用后端：仅 CLI 智能体；Web 端无本地进程，返回空列表。
 pub async fn ai_list_backends() -> Result<Vec<BackendInfo>, String> {
-    let file = crate::store_bridge::ai_models_load().await?;
-    let mut backends = Vec::new();
-    for provider in file.providers {
-        let Some(obj) = provider.as_object() else {
-            continue;
-        };
-        let provider_id = obj
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-        if provider_id.is_empty() {
-            continue;
-        }
-        let provider_name = obj
-            .get("providerName")
-            .or_else(|| obj.get("name"))
-            .and_then(|v| v.as_str())
-            .unwrap_or(provider_id.as_str())
-            .to_string();
-        let models = obj
-            .get("models")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        if models.is_empty() {
-            backends.push(BackendInfo {
-                id: format!("http:{provider_id}::default"),
-                label: format!("{provider_name} / default"),
-                kind: "http".to_string(),
-                installed: true,
-            });
-            continue;
-        }
-        for model in models {
-            let (model_id, model_name) = if let Some(m) = model.as_object() {
-                let id = m
-                    .get("id")
-                    .or_else(|| m.get("name"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("default")
-                    .to_string();
-                let name = m
-                    .get("name")
-                    .or_else(|| m.get("id"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(id.as_str())
-                    .to_string();
-                (id, name)
-            } else if let Some(s) = model.as_str() {
-                (s.to_string(), s.to_string())
-            } else {
-                continue;
-            };
-            backends.push(BackendInfo {
-                id: format!("http:{provider_id}::{model_id}"),
-                label: format!("{provider_name} / {model_name}"),
-                kind: "http".to_string(),
-                installed: true,
-            });
-        }
-    }
-    Ok(backends)
+    let _ = crate::store_bridge::ai_models_load().await;
+    Ok(Vec::new())
 }
 
 /// Web 端无嵌入式 Agent Router 进程：只同步 MCP 外部审批开关，其余参数忽略。

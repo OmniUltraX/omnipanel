@@ -1,173 +1,127 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-
-
-import { commands, type BackendInfo } from "../../ipc/bindings";
-
+import { commands, type BackendInfo, type CliProviderRecord } from "../../ipc/bindings";
 import { canUseAiBackend } from "../isTauriRuntime";
-
+import type { AiModelProvider } from "../../stores/aiModelsStore";
 import {
-
-  listModelSelections,
-
-  parseModelSelectionId,
-
-  type AiModelProvider,
-
-} from "../../stores/aiModelsStore";
-
-import { useCliProvidersStore } from "../../stores/cliProvidersStore";
-
-
+  getCliProviderModels,
+  isCliModelEnabled,
+  useCliProvidersStore,
+} from "../../stores/cliProvidersStore";
+import { buildCliBackendId } from "./inferenceBackend";
 
 export interface BackendSelectOption {
-
   value: string;
-
   label: string;
-
   subtitle?: string;
-
-  group: "http" | "cli" | "acp";
-
+  group: "cli";
   installed?: boolean;
-
 }
 
+/** 从智能体 store 构造选择项（与设置页模型列表同源）。 */
+export function buildCliOptionsFromProviders(
+  cliProviders: CliProviderRecord[],
+  modelCache: Record<string, string[]>,
+): BackendSelectOption[] {
+  const options: BackendSelectOption[] = [];
+  for (const provider of cliProviders) {
+    if (!provider.enabled) continue;
+    const installed = Boolean(provider.binary?.trim());
+    if (!installed) continue;
 
+    let models = getCliProviderModels(provider, modelCache).filter((name) =>
+      isCliModelEnabled(provider, name),
+    );
+    // 已启用但尚未拉到模型时仍露出 default，避免选择器为空
+    if (models.length === 0) {
+      models = ["default"];
+    }
+
+    for (const model of models) {
+      options.push({
+        value: buildCliBackendId(provider.id, model),
+        label: `${provider.displayName}/${model}`,
+        subtitle: "智能体",
+        group: "cli",
+        installed: true,
+      });
+    }
+  }
+  return options;
+}
+
+function mergeBackendOptions(
+  primary: BackendSelectOption[],
+  secondary: BackendSelectOption[],
+): BackendSelectOption[] {
+  const seen = new Set(primary.map((o) => o.value));
+  const merged = [...primary];
+  for (const opt of secondary) {
+    if (seen.has(opt.value)) continue;
+    seen.add(opt.value);
+    merged.push(opt);
+  }
+  return merged;
+}
 
 export function buildBackendSelectOptions(
-
-  providers: AiModelProvider[],
-
+  _providers: AiModelProvider[],
   extraBackends: BackendInfo[] = [],
-
+  cliProviders: CliProviderRecord[] = [],
+  modelCache: Record<string, string[]> = {},
 ): BackendSelectOption[] {
+  const fromStore = buildCliOptionsFromProviders(cliProviders, modelCache);
 
-  const httpOptions: BackendSelectOption[] = listModelSelections(providers).map(({ id }) => {
-
-    const parsed = parseModelSelectionId(id);
-
-    const provider = providers.find((p) => p.id === parsed?.providerId);
-
-    const modelName = parsed?.modelName ?? id;
-
-    const standard = provider?.apiStandard === "anthropic" ? "Anthropic" : "OpenAI";
-
-    return {
-
-      value: id,
-
-      label: modelName,
-
-      subtitle: provider ? `${provider.providerName} · ${standard}` : undefined,
-
-      group: "http" as const,
-
-      installed: true,
-
-    };
-
-  });
-
-
-
-  const cliOptions: BackendSelectOption[] = extraBackends
-
+  const fromApiCli: BackendSelectOption[] = extraBackends
     .filter((b) => b.kind === "cli")
-
     .map((b) => ({
-
       value: b.id,
-
       label: b.label,
-
-      subtitle: b.installed ? "CLI 提供者" : "未安装",
-
+      subtitle: b.installed ? "智能体" : "未安装",
       group: "cli" as const,
-
       installed: b.installed,
-
     }));
 
-
-
-  const acpOptions: BackendSelectOption[] = extraBackends
-
-    .filter((b) => b.kind === "acp")
-
-    .map((b) => ({
-
-      value: b.id,
-
-      label: b.label,
-
-      subtitle: "遗留 acp 别名",
-
-      group: "acp" as const,
-
-      installed: b.installed,
-
-    }));
-
-
-
-  return [...httpOptions, ...cliOptions, ...acpOptions];
-
+  // store 优先（与设置页开关/禁用模型一致），API 补缺
+  return mergeBackendOptions(fromStore, fromApiCli);
 }
-
-
 
 async function fetchCliBackends(): Promise<BackendInfo[]> {
-
   if (!canUseAiBackend()) return [];
-
-  const res = await commands.aiListBackends();
-
-  if (res.status !== "ok") return [];
-
-  return res.data.filter((b) => b.kind === "cli" || b.kind === "acp");
-
+  try {
+    const res = await commands.aiListBackends();
+    if (res.status !== "ok") return [];
+    return res.data.filter((b) => b.kind === "cli");
+  } catch {
+    return [];
+  }
 }
-
-
 
 export function useBackendSelectOptions(providers: AiModelProvider[]) {
-
   const cliProviders = useCliProvidersStore((s) => s.providers);
-
   const cliModelCache = useCliProvidersStore((s) => s.modelCache);
-
+  const syncProviders = useCliProvidersStore((s) => s.syncProviders);
   const [extraBackends, setExtraBackends] = useState<BackendInfo[]>([]);
 
-
-
   const refreshBackends = useCallback(async () => {
-
     const backends = await fetchCliBackends();
-
     setExtraBackends(backends);
-
   }, []);
 
-
+  useEffect(() => {
+    if (!canUseAiBackend()) return;
+    // 与设置页同源：先同步智能体与模型缓存，再拉 API 补缺
+    void syncProviders().finally(() => {
+      void refreshBackends();
+    });
+  }, [syncProviders, refreshBackends]);
 
   useEffect(() => {
-
     void refreshBackends();
-
-  }, [providers, cliProviders, cliModelCache, refreshBackends]);
-
-
+  }, [cliProviders, cliModelCache, refreshBackends]);
 
   return useMemo(
-
-    () => buildBackendSelectOptions(providers, extraBackends),
-
-    [providers, extraBackends],
-
+    () => buildBackendSelectOptions(providers, extraBackends, cliProviders, cliModelCache),
+    [providers, extraBackends, cliProviders, cliModelCache],
   );
-
 }
-
-

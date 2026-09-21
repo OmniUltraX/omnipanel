@@ -3967,38 +3967,6 @@ pub async fn dispatch(
             let ciphertext = get_str(&args, "ciphertext").unwrap_or_default();
             respond(crate::navicat::decrypt_navicat_password(ciphertext))
         }
-        "local_runtime_probe" => respond(crate::local_runtime_cmds::local_runtime_probe().await),
-        "local_runtime_refresh_catalog" => {
-            respond(crate::local_runtime_cmds::local_runtime_refresh_catalog().await)
-        }
-        "local_runtime_start_ollama" => {
-            respond(crate::local_runtime_cmds::local_runtime_start_ollama().await)
-        }
-        "local_runtime_install_ollama" => {
-            respond(crate::local_runtime_cmds::local_runtime_install_ollama().await)
-        }
-        "local_runtime_ollama_pull" => {
-            let model = get_str(&args, "model").unwrap_or_default();
-            respond(crate::local_runtime_cmds::local_runtime_ollama_pull(model).await)
-        }
-        "local_runtime_ollama_delete" => {
-            let model = get_str(&args, "model").unwrap_or_default();
-            respond(crate::local_runtime_cmds::local_runtime_ollama_delete(model).await)
-        }
-        "local_runtime_probe_openai_compat" => {
-            let base_url = get_str(&args, "baseUrl").unwrap_or_default();
-            respond(crate::local_runtime_cmds::local_runtime_probe_openai_compat(base_url).await)
-        }
-        "local_runtime_ollama_download_url" => {
-            respond(crate::local_runtime_cmds::local_runtime_ollama_download_url().await)
-        }
-        "bg_task_submit_ollama_install" => {
-            respond_omni(crate::bg_task_cmds::bg_task_submit_ollama_install(state).await)
-        }
-        "bg_task_submit_ollama_pull" => {
-            let model = get_str(&args, "model").unwrap_or_default();
-            respond_omni(crate::bg_task_cmds::bg_task_submit_ollama_pull(state, model).await)
-        }
 
         /* ---------------- 资源画像 ---------------- */
         "resource_collect_ssh_snapshot" => {

@@ -5,19 +5,7 @@ import {
   matchSlashCatalog,
   parseSlashLaunchQuery,
 } from "./slashCommands";
-import type { AiModelProvider } from "../../stores/aiModelsStore";
 import type { DashboardCatalogEntry } from "../dashboardCatalogSync";
-
-function provider(partial: Partial<AiModelProvider> & Pick<AiModelProvider, "id" | "modelNames">): AiModelProvider {
-  return {
-    providerName: partial.providerName ?? "Test",
-    apiStandard: partial.apiStandard ?? "openai",
-    baseUrl: "https://api.example.com",
-    apiKey: "",
-    createdAt: 1,
-    ...partial,
-  };
-}
 
 describe("parseSlashLaunchQuery", () => {
   it("returns null when not starting with /", () => {
@@ -79,30 +67,21 @@ describe("matchSlashCatalog", () => {
 });
 
 describe("buildSlashModelRows", () => {
-  const providers: AiModelProvider[] = [
-    provider({
-      id: "p1",
-      providerName: "OpenAI",
-      modelNames: ["gpt-4o", "o1-mini"],
-      disabledModelNames: ["o1-mini"],
-    }),
-    provider({
-      id: "p2",
-      providerName: "Anthropic",
-      apiStandard: "anthropic",
-      modelNames: ["claude-3-5-sonnet"],
-    }),
+  const models = [
+    { value: "cli:opencode::keep", label: "OpenCode/keep", subtitle: "智能体" },
+    { value: "cli:opencode::other", label: "OpenCode/other", subtitle: "智能体" },
+    { value: "cli:cursor::agent", label: "Cursor/agent", subtitle: "智能体" },
   ];
 
-  it("skips disabled models and fuzzy-filters", () => {
-    const rows = buildSlashModelRows(providers, "gpt4", "p1::gpt-4o");
-    expect(rows.map((r) => r.selectionId)).toEqual(["p1::gpt-4o"]);
+  it("fuzzy-filters by model label", () => {
+    const rows = buildSlashModelRows(models, "keep", "cli:opencode::keep");
+    expect(rows.map((r) => r.selectionId)).toEqual(["cli:opencode::keep"]);
     expect(rows[0]?.current).toBe(true);
   });
 
-  it("matches provider name", () => {
-    const rows = buildSlashModelRows(providers, "anthropic", null);
-    expect(rows.map((r) => r.selectionId)).toEqual(["p2::claude-3-5-sonnet"]);
+  it("matches subtitle", () => {
+    const rows = buildSlashModelRows(models, "cursor", null);
+    expect(rows.map((r) => r.selectionId)).toEqual(["cli:cursor::agent"]);
   });
 });
 

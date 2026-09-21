@@ -482,10 +482,15 @@ pub fn provider_list_models(provider_id: &str) -> Result<Vec<String>, String> {
 }
 
 fn spawn_model_discovery(command: &str, args: &[String]) -> Result<std::process::Output, String> {
-    use std::process::Command;
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    const DISCOVER_TIMEOUT: Duration = Duration::from_secs(20);
 
     #[cfg(windows)]
-    {
+    let child = {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let lower = command.to_lowercase();
@@ -494,25 +499,62 @@ fn spawn_model_discovery(command: &str, args: &[String]) -> Result<std::process:
                 .unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_string());
             let mut cmd_args = vec!["/c".to_string(), command.to_string()];
             cmd_args.extend(args.iter().cloned());
-            return Command::new(comspec)
+            Command::new(comspec)
                 .args(cmd_args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .map_err(|e| format!("执行模型发现命令失败: {e}"));
+                .spawn()
+                .map_err(|e| format!("执行模型发现命令失败: {e}"))?
+        } else {
+            Command::new(command)
+                .args(args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| format!("执行模型发现命令失败: {e}"))?
         }
-        return Command::new(command)
-            .args(args)
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("执行模型发现命令失败: {e}"));
-    }
+    };
 
     #[cfg(not(windows))]
-    {
-        Command::new(command)
-            .args(args)
-            .output()
-            .map_err(|e| format!("执行模型发现命令失败: {e}"))
+    let child = Command::new(command)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("执行模型发现命令失败: {e}"))?;
+
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    match rx.recv_timeout(DISCOVER_TIMEOUT) {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(e)) => Err(format!("执行模型发现命令失败: {e}")),
+        Err(_) => {
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill")
+                    .args(["-9", &pid.to_string()])
+                    .output();
+            }
+            Err(format!(
+                "模型发现命令超时（{}s）: {command}",
+                DISCOVER_TIMEOUT.as_secs()
+            ))
+        }
     }
 }
 
@@ -561,7 +603,12 @@ fn parse_model_list(raw: &str) -> Vec<String> {
             continue;
         }
         let lower = line.to_lowercase();
-        if lower == "available models" || lower.starts_with("tip:") {
+        if lower == "available models"
+            || lower.starts_with("tip:")
+            || lower.starts_with("no models")
+            || lower.contains("not available")
+            || lower.starts_with("error")
+        {
             continue;
         }
         let id = line.split(" - ").next().unwrap_or(line).trim();

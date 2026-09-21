@@ -677,7 +677,7 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 );
 
 export async function initCliProvidersStore(): Promise<void> {
-  // 启动时不拉取 CLI 提供者，使用 localStorage 缓存；进入设置页时再 sync
+  // 启动时不拉取智能体，使用 localStorage 缓存；进入设置页时再 sync
 }
 
 

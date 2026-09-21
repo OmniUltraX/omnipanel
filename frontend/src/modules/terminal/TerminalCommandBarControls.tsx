@@ -44,7 +44,7 @@ export function TerminalCommandBarControls({
         .filter((opt) => opt.installed !== false)
         .map((opt) => ({
           value: opt.value,
-          label: opt.group === "cli" ? `[CLI] ${opt.label}` : opt.label,
+          label: `[智能体] ${opt.label}`,
           title: opt.subtitle ?? opt.label,
         })),
     [backendOptions],

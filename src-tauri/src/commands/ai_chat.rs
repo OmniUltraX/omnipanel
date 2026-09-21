@@ -3,18 +3,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use omnipanel_ai::RenamedProvider;
 use omnipanel_ai::ir::StreamEvent;
 use omnipanel_ai::orchestrator::{
-    AiContextBundle, HttpProviderSnapshot, InternalChatRequest, InternalOrchestrator,
-    InternalToolsMode, ToolExecutor,
+    AiContextBundle, HttpProviderSnapshot, InternalChatRequest, InternalToolsMode,
 };
-use omnipanel_ai::provider::AiProvider;
-use omnipanel_ai::providers::anthropic::AnthropicProvider;
-use omnipanel_ai::providers::openai::OpenAiProvider;
-use omnipanel_ai::routing::BackendKind;
 use omnipanel_ai::types::{ChatMessage, ToolDef};
-use omnipanel_mcp::{ToolRegistry, external};
+use omnipanel_mcp::ToolRegistry;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, State, ipc::Channel};
@@ -81,104 +75,6 @@ fn ensure_tool_allowed_by_module_filter(
         None => Err(format!(
             "工具 {tool_name} 不在当前模块 ({filter}) 的允许范围内"
         )),
-    }
-}
-
-struct RegistryToolExecutor {
-    mcp_manager: omnipanel_mcp::SharedMcpManager,
-    conversation_id: String,
-    pending_internal: Arc<Mutex<HashMap<String, oneshot::Sender<(String, bool)>>>>,
-    mcp_external_require_approval: Arc<std::sync::atomic::AtomicBool>,
-    proxy_config: Arc<Mutex<crate::state::ProxyConfig>>,
-    /// 与本次请求 `tools_mode.module_filter` 一致；执行期二次校验，防止模型幻觉越权调用。
-    module_filter: Option<String>,
-}
-
-#[async_trait::async_trait]
-impl ToolExecutor for RegistryToolExecutor {
-    async fn execute(&self, tool_call_id: &str, name: &str, arguments: &str) -> (String, bool) {
-        if let Err(err) = ensure_tool_allowed_by_module_filter(name, self.module_filter.as_deref())
-        {
-            return (format!("Error: {err}"), false);
-        }
-
-        // 统一通道：
-        // - Native 工具（知识库等）后端直接执行；
-        // - 其余全部 UiDelegated（终端 / 数据库等）挂起等待前端 dispatchTool 回传
-        //   （前端根据工具名分派：终端→内联审批 dock，其它→对应 handler）。
-        if ToolRegistry::is_native_tool(name) {
-            let args: serde_json::Value =
-                serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}));
-            // load_skill 与其他 Native 工具一样走标准 ToolRegistry::execute_isolated 路径，
-            // 不再硬编码短路：统一由 omnipanel_store::load_skill_body 实现（含 enabled 检查）。
-            // 克隆 storage 句柄后立即释放 McpManager 锁。
-            let storage = {
-                let manager = self.mcp_manager.lock().await;
-                manager.tool_registry.storage_handle()
-            };
-            let proxy = {
-                let p = self.proxy_config.lock().await;
-                omnipanel_store::HttpProxyConfig {
-                    enabled: p.enabled,
-                    protocol: p.protocol.clone(),
-                    host: p.host.clone(),
-                    port: p.port,
-                    username: p.username.clone(),
-                    password: p.password.clone(),
-                    has_password: !p.password.is_empty(),
-                }
-            };
-            return match ToolRegistry::execute_isolated(storage, name, args, Some(proxy)).await {
-                Ok(pair) => pair,
-                Err(err) => (format!("Error: {err}"), false),
-            };
-        }
-
-        if let Some((service_id, tool_name)) = external::parse_registry_tool_name(name) {
-            if !self
-                .mcp_external_require_approval
-                .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                let args: serde_json::Value =
-                    serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}));
-                let start = std::time::Instant::now();
-                let manager = self.mcp_manager.lock().await;
-                let storage = manager.tool_registry.storage_handle();
-                let audit_name = format!("{service_id}::{tool_name}");
-                let outcome = manager
-                    .call_service_tool(&service_id, &tool_name, args)
-                    .await;
-                drop(manager);
-                let elapsed = start.elapsed().as_millis() as i64;
-                let ts = now_ms();
-                let (content, success) = match &outcome {
-                    Ok(result) => (result.content.clone(), !result.is_error),
-                    Err(err) => (format!("Error: {err}"), false),
-                };
-                let _ = storage.lock().await.builtin_tool_audit_append(
-                    "mcp_external",
-                    &audit_name,
-                    elapsed,
-                    success,
-                    "",
-                    ts,
-                );
-                return (content, success);
-            }
-            // 需审批时走 UiDelegated pending 通道（与终端/数据库工具一致）
-        }
-
-        let key = format!("{}:{}", self.conversation_id, tool_call_id);
-        let (tx, rx) = oneshot::channel();
-        self.pending_internal.lock().await.insert(key.clone(), tx);
-        match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => ("工具响应通道已关闭".to_string(), false),
-            Err(_) => {
-                self.pending_internal.lock().await.remove(&key);
-                ("工具执行超时（300s）".to_string(), false)
-            }
-        }
     }
 }
 
@@ -416,73 +312,6 @@ fn truncate_content(s: &str, max_chars: usize) -> String {
     result
 }
 
-async fn build_http_provider(
-    state: &AppState,
-    snapshot: &HttpProviderSnapshot,
-    model_id: &str,
-) -> Result<Box<dyn AiProvider>, String> {
-    let proxy_config = state.proxy_config.lock().await.clone();
-    let provider_id = snapshot.provider_id.trim();
-    if provider_id.is_empty() {
-        return Err("http_provider.provider_id 不能为空".to_string());
-    }
-
-    let base_url = snapshot.base_url.trim();
-    if base_url.is_empty() {
-        return Err("http_provider.base_url 不能为空".to_string());
-    }
-
-    let client = crate::commands::proxy::build_http_client_for_url(
-        base_url,
-        &proxy_config,
-        Duration::from_secs(300),
-    )?;
-
-    let api_key = crate::commands::ai_models::resolve_ai_provider_api_key(
-        &snapshot.provider_id,
-        &snapshot.api_key,
-    );
-    let api_key = if api_key.trim().is_empty() {
-        "sk-none".to_string()
-    } else {
-        api_key
-    };
-
-    match omnipanel_ai::routing::resolve_http_inference_api(&snapshot.api_standard, model_id) {
-        omnipanel_ai::routing::HttpInferenceApi::AnthropicMessages => {
-            let anthropic_base =
-                omnipanel_ai::routing::resolve_anthropic_messages_base_url(base_url);
-            let inner = AnthropicProvider::with_client(
-                &api_key,
-                Some(&anthropic_base),
-                Vec::new(),
-                Some(client),
-            );
-            Ok(Box::new(RenamedProvider::new(provider_id, inner)))
-        }
-        omnipanel_ai::routing::HttpInferenceApi::OpenAiChatCompletions => Ok(Box::new(
-            OpenAiProvider::with_client(provider_id, &api_key, base_url, Vec::new(), Some(client)),
-        )),
-    }
-}
-
-async fn ensure_http_provider_registered(
-    state: &AppState,
-    snapshot: &HttpProviderSnapshot,
-    model_id: &str,
-) -> Result<(), String> {
-    let provider_id = snapshot.provider_id.trim();
-    {
-        let registry = state.ai_registry.lock().await;
-        if registry.get(provider_id).is_some() {
-            return Ok(());
-        }
-    }
-    let provider = build_http_provider(state, snapshot, model_id).await?;
-    state.ai_registry.lock().await.register(provider);
-    Ok(())
-}
-
 #[tauri::command]
 pub async fn ai_chat_stream(
     app: AppHandle,
@@ -561,107 +390,17 @@ pub async fn ai_chat_stream(
     let conversation_id = internal.conversation_id.clone();
 
     let parsed = omnipanel_ai::routing::parse_backend_id(&internal.backend_id)?;
-
-    if parsed.kind == BackendKind::Acp || parsed.kind == BackendKind::Cli {
-        let agent_kind = if parsed.kind == BackendKind::Cli {
-            omnipanel_ai::routing::normalize_cli_backend(&parsed)?.0
-        } else {
-            parsed.provider_id.clone()
-        };
-        return run_acp_internal_turn(
-            &app,
-            &state,
-            &internal,
-            &conversation_id,
-            &agent_kind,
-            if parsed.kind == BackendKind::Cli {
-                Some(parsed.model_id.clone())
-            } else {
-                None
-            },
-            on_event,
-        )
-        .await;
-    }
-
-    if parsed.kind != BackendKind::Http {
-        return Err(format!("不支持的 backend: {}", internal.backend_id));
-    }
-
-    let snapshot = internal
-        .http_provider
-        .as_ref()
-        .ok_or_else(|| "缺少 http_provider，无法发起 HTTP 推理".to_string())?;
-    let (_provider_id, model_id) = InternalOrchestrator::resolve_http_model(&internal.backend_id)?;
-    ensure_http_provider_registered(&state, snapshot, &model_id).await?;
-
-    let provider = build_http_provider(&state, snapshot, &model_id).await?;
-
-    let (tools, _) = match &internal.tools_mode {
-        InternalToolsMode::DirectInject {
-            module_filter,
-            tool_allowlist,
-        } => {
-            let manager = state.mcp_manager.lock().await;
-            let filter = module_filter.as_deref();
-            let tool_defs = manager
-                .to_internal_tool_defs(filter)
-                .await
-                .map_err(|e| e.to_string())?;
-            let tool_defs = prioritize_cross_module_tools(apply_tool_allowlist(
-                tool_defs,
-                tool_allowlist.as_deref(),
-            ));
-            log_injected_tools(&conversation_id, filter, &tool_defs);
-            (Some(tool_defs), ())
-        }
-        InternalToolsMode::None => (None, ()),
-    };
-
-    let cancel_flag = {
-        let mut flags = state.internal_chat_cancel_flags.lock().await;
-        let flag = Arc::new(AtomicBool::new(false));
-        flags.insert(conversation_id.clone(), flag.clone());
-        flag
-    };
-
-    let tool_executor = RegistryToolExecutor {
-        mcp_manager: state.mcp_manager.clone(),
-        conversation_id: conversation_id.clone(),
-        pending_internal: state.pending_internal_tool_results.clone(),
-        mcp_external_require_approval: state.mcp_external_require_approval.clone(),
-        proxy_config: state.proxy_config.clone(),
-        module_filter: match &internal.tools_mode {
-            InternalToolsMode::DirectInject { module_filter, .. } => module_filter.clone(),
-            InternalToolsMode::None => None,
-        },
-    };
-    let exec_ref: Option<&dyn ToolExecutor> = match &internal.tools_mode {
-        InternalToolsMode::DirectInject { .. } => Some(&tool_executor),
-        InternalToolsMode::None => None,
-    };
-
-    let result = InternalOrchestrator::run_turn(
-        provider.as_ref(),
-        &model_id,
+    let (agent_kind, model_id) = omnipanel_ai::routing::normalize_cli_backend(&parsed)?;
+    return run_acp_internal_turn(
+        &app,
+        &state,
         &internal,
-        tools,
-        exec_ref,
-        |evt| {
-            record_internal_trace(&state, &conversation_id, &internal.backend_id, 0, &evt);
-            let _ = on_event.send(evt);
-        },
-        cancel_flag.clone(),
+        &conversation_id,
+        &agent_kind,
+        Some(model_id),
+        on_event,
     )
     .await;
-
-    state
-        .internal_chat_cancel_flags
-        .lock()
-        .await
-        .remove(&conversation_id);
-
-    result
 }
 
 #[tauri::command]
@@ -1239,24 +978,20 @@ pub struct BackendInfo {
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_list_backends(state: State<'_, AppState>) -> Result<Vec<BackendInfo>, String> {
+    // 仅列举 CLI 智能体；HTTP/ACP 推理路径已移除
+    let _ = state;
+    let cli_backends = tokio::task::spawn_blocking(list_cli_backend_infos)
+        .await
+        .map_err(|e| format!("列举 CLI 后端失败: {e}"))?;
+    Ok(cli_backends)
+}
+
+fn list_cli_backend_infos() -> Vec<BackendInfo> {
+    let Ok(providers) = crate::commands::providers::cli_provider_list() else {
+        return Vec::new();
+    };
     let mut backends = Vec::new();
-
-    let registry = state.ai_registry.lock().await;
-    for provider_name in registry.list() {
-        if let Some(provider) = registry.get(provider_name) {
-            for model in provider.models() {
-                backends.push(BackendInfo {
-                    id: format!("http:{provider_name}::{}", model.id),
-                    label: format!("{} / {}", provider_name, model.name),
-                    kind: "http".to_string(),
-                    installed: true,
-                });
-            }
-        }
-    }
-    drop(registry);
-
-    for provider in crate::commands::providers::cli_provider_list()? {
+    for provider in providers {
         if !provider.enabled {
             continue;
         }
@@ -1277,8 +1012,7 @@ pub async fn ai_list_backends(state: State<'_, AppState>) -> Result<Vec<BackendI
             });
         }
     }
-
-    Ok(backends)
+    backends
 }
 
 fn now_ms() -> i64 {

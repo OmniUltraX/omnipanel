@@ -6,7 +6,6 @@ use futures::StreamExt;
 use crate::ir::{StopReason, StreamEvent, ToolStatus};
 use crate::prompts::tool_routing_policy;
 use crate::provider::AiProvider;
-use crate::routing::{BackendKind, parse_backend_id};
 use crate::types::{ChatMessage, ChatRequest, FunctionCall, Role, ToolCall, ToolDef};
 
 use super::tools::ToolExecutor;
@@ -217,13 +216,9 @@ impl InternalOrchestrator {
     }
 
     pub fn resolve_http_model(backend_id: &str) -> Result<(String, String), String> {
-        let parsed = parse_backend_id(backend_id)?;
-        if parsed.kind != BackendKind::Http {
-            return Err(format!(
-                "backend_id 不是 HTTP 类型: {backend_id}（Phase 1 接入 ACP）"
-            ));
-        }
-        Ok((parsed.provider_id, parsed.model_id))
+        Err(format!(
+            "HTTP 推理路径已移除，无法解析: {backend_id}（请使用 cli:provider::model）"
+        ))
     }
 }
 

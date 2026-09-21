@@ -2,12 +2,6 @@
  * 快捷启动「/」斜杠命令：与 ssh/db 前缀解耦，便于扩展。
  */
 import { fuzzyMatchModelName } from "../fetchProviderModels";
-import {
-  isModelEnabled,
-  listModelSelections,
-  parseModelSelectionId,
-  type AiModelProvider,
-} from "../../stores/aiModelsStore";
 import type { DashboardCatalogEntry } from "../dashboardCatalogSync";
 
 export type SlashCommandId = "model" | "dash";
@@ -117,33 +111,27 @@ function bestScore(...scores: Array<number | null>): number | null {
   return best;
 }
 
-/** 列出可用 HTTP 模型（与设置 → AI 场景 → AI 助手一致），支持模糊过滤。 */
+/** 列出已启用的 CLI 模型，支持模糊过滤。 */
 export function buildSlashModelRows(
-  providers: AiModelProvider[],
+  models: Array<{ value: string; label: string; subtitle?: string }>,
   filter: string,
   currentSelectionId: string | null,
 ): SlashModelRow[] {
   const needle = filter.trim();
   const rows: SlashModelRow[] = [];
 
-  for (const { id } of listModelSelections(providers)) {
-    const parsed = parseModelSelectionId(id);
-    if (!parsed) continue;
-    const provider = providers.find((p) => p.id === parsed.providerId);
-    if (!provider || !isModelEnabled(provider, parsed.modelName)) continue;
-
-    const label = parsed.modelName;
-    const standard = provider.apiStandard === "anthropic" ? "Anthropic" : "OpenAI";
-    const subtitle = `${provider.providerName} · ${standard}`;
+  for (const model of models) {
+    const label = model.label;
+    const subtitle = model.subtitle ?? "";
     const score = bestScore(scoreHaystack(label, needle), scoreHaystack(subtitle, needle));
     if (score == null) continue;
 
     rows.push({
-      id: `slash-model:${id}`,
-      selectionId: id,
+      id: `slash-model:${model.value}`,
+      selectionId: model.value,
       label,
       subtitle,
-      current: currentSelectionId === id,
+      current: currentSelectionId === model.value,
       score,
     });
   }
@@ -157,26 +145,15 @@ export function buildSlashModelRows(
   return rows;
 }
 
-/** 解析当前助手场景配置到合法 selectionId（可能为 null）。 */
+/** 解析当前助手场景配置到合法 CLI selectionId（可能为 null）。 */
 export function resolveSlashModelCurrentId(
-  providers: AiModelProvider[],
+  models: Array<{ value: string }>,
   configuredId: string | null,
 ): string | null {
-  if (configuredId) {
-    const parsed = parseModelSelectionId(configuredId);
-    if (parsed) {
-      const provider = providers.find((p) => p.id === parsed.providerId);
-      if (
-        provider &&
-        provider.modelNames.includes(parsed.modelName) &&
-        isModelEnabled(provider, parsed.modelName)
-      ) {
-        return configuredId;
-      }
-    }
+  if (configuredId && models.some((m) => m.value === configuredId)) {
+    return configuredId;
   }
-  const first = listModelSelections(providers)[0];
-  return first?.id ?? null;
+  return models[0]?.value ?? null;
 }
 
 /**

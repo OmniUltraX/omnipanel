@@ -3,7 +3,13 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AcpStreamEvent, EmbeddingProviderConfig } from "../../ipc/bindings";
 import { commands } from "../../ipc/bindings";
 
-import type { HttpProviderSnapshot } from "./inferenceBackend";
+/** 兼容字段：前端推理已收口为 CLI，调用方恒传 null。 */
+export type HttpProviderSnapshot = {
+  providerId: string;
+  apiStandard: string;
+  baseUrl: string;
+  apiKey: string;
+};
 
 /** 内部聊天流事件：在 Acp 事件基础上补齐 Usage（ai_chat_stream 直传 StreamEvent） */
 export type InternalStreamEvent =

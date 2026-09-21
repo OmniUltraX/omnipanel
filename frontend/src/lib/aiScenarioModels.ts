@@ -1,30 +1,21 @@
 import { useMemo } from "react";
 
 import type { AiConversation } from "../stores/aiStore";
-import {
-  firstModelSelectionId,
-  resolveModelSelection,
-  type AiModelProvider,
-  useAiModelsStore,
-} from "../stores/aiModelsStore";
+import type { AiModelProvider } from "../stores/aiModelsStore";
+import { useAiModelsStore } from "../stores/aiModelsStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { isStructuredBackendId } from "./ai/inferenceBackend";
+import { firstCliSelectionId, isCliBackendId } from "./ai/inferenceBackend";
 
-/** 解析场景配置的模型；无效时回退到第一个可用模型。 */
+/** 解析场景配置的模型；无效时回退到第一个可用智能体。 */
 export function resolveScenarioModelSelectionId(
-  providers: AiModelProvider[],
+  _providers: AiModelProvider[],
   configuredId: string | null | undefined,
 ): string | null {
   const trimmed = configuredId?.trim();
-  if (trimmed) {
-    if (isStructuredBackendId(trimmed)) {
-      return trimmed;
-    }
-    if (resolveModelSelection(providers, trimmed)) {
-      return trimmed;
-    }
+  if (trimmed && isCliBackendId(trimmed)) {
+    return trimmed;
   }
-  return firstModelSelectionId(providers);
+  return firstCliSelectionId();
 }
 
 export function useAssistantScenarioModelSelectionId(): string | null {

@@ -49,17 +49,54 @@ impl AgentInstallStatus {
     }
 }
 
+/// npm / nvm 全局安装时常带无扩展名 shim；旁路真实二进制便于 CreateProcess。
+fn push_opencode_package_bins(
+    candidates: &mut Vec<PathBuf>,
+    seen: &mut std::collections::HashSet<PathBuf>,
+    node_prefix: &std::path::Path,
+) {
+    let bin_dir = node_prefix.join("node_modules/opencode-ai/bin");
+    #[cfg(windows)]
+    {
+        push_candidate(candidates, seen, bin_dir.join("opencode.exe"));
+    }
+    #[cfg(not(windows))]
+    {
+        push_candidate(candidates, seen, bin_dir.join("opencode"));
+    }
+}
+
+fn push_opencode_prefix(
+    candidates: &mut Vec<PathBuf>,
+    seen: &mut std::collections::HashSet<PathBuf>,
+    prefix: PathBuf,
+) {
+    #[cfg(windows)]
+    {
+        push_candidate(candidates, seen, prefix.join("opencode.cmd"));
+        push_candidate(candidates, seen, prefix.join("opencode.exe"));
+    }
+    push_candidate(candidates, seen, prefix.join("opencode"));
+    push_opencode_package_bins(candidates, seen, &prefix);
+}
+
 fn collect_opencode_candidates() -> Vec<PathBuf> {
     let mut seen = std::collections::HashSet::new();
     let mut candidates = Vec::new();
 
     if let Some(path) = resolve_in_path("opencode") {
-        push_candidate(&mut candidates, &mut seen, path);
+        push_candidate(&mut candidates, &mut seen, path.clone());
+        if let Some(parent) = path.parent() {
+            push_opencode_package_bins(&mut candidates, &mut seen, parent);
+        }
     }
 
     #[cfg(windows)]
     for path in where_all("opencode") {
-        push_candidate(&mut candidates, &mut seen, path);
+        push_candidate(&mut candidates, &mut seen, path.clone());
+        if let Some(parent) = path.parent() {
+            push_opencode_package_bins(&mut candidates, &mut seen, parent);
+        }
     }
 
     if let Some(home) = home_dir() {
@@ -84,23 +121,31 @@ fn collect_opencode_candidates() -> Vec<PathBuf> {
 
     if let Some(appdata) = std::env::var_os("APPDATA") {
         let npm = PathBuf::from(appdata).join("npm");
-        push_candidate(&mut candidates, &mut seen, npm.join("opencode.cmd"));
-        push_candidate(&mut candidates, &mut seen, npm.join("opencode"));
+        push_opencode_prefix(&mut candidates, &mut seen, npm);
     }
 
     for key in ["NVM_SYMLINK", "NVM_HOME"] {
         if let Some(dir) = std::env::var_os(key) {
-            let base = PathBuf::from(dir);
-            push_candidate(&mut candidates, &mut seen, base.join("opencode.cmd"));
-            push_candidate(&mut candidates, &mut seen, base.join("opencode.exe"));
-            push_candidate(&mut candidates, &mut seen, base.join("opencode"));
+            push_opencode_prefix(&mut candidates, &mut seen, PathBuf::from(dir));
+        }
+    }
+
+    // nvm4w 默认前缀（GUI 启动时常无 NVM_* 环境变量）
+    #[cfg(windows)]
+    {
+        push_opencode_prefix(&mut candidates, &mut seen, PathBuf::from(r"C:\nvm4w\nodejs"));
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            push_opencode_prefix(
+                &mut candidates,
+                &mut seen,
+                PathBuf::from(local).join("nvm"),
+            );
         }
     }
 
     if let Ok(program_files) = std::env::var("ProgramFiles") {
         let nodejs = PathBuf::from(program_files).join("nodejs");
-        push_candidate(&mut candidates, &mut seen, nodejs.join("opencode.cmd"));
-        push_candidate(&mut candidates, &mut seen, nodejs.join("opencode.exe"));
+        push_opencode_prefix(&mut candidates, &mut seen, nodejs);
     }
 
     candidates

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useI18n } from "../../i18n";
 import type { ModuleKey } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
 import { useBuiltinToolStore } from "../../stores/builtinToolStore";
 import { useWebSearchStore } from "../../stores/webSearchStore";
+import { SegmentedControl } from "../ui/primitives/SegmentedControl";
 
 function SettingToggle({
   value,
@@ -85,6 +86,7 @@ export function OmniMcpToolsExposureSection() {
   const webSearchConfig = useWebSearchStore((s) => s.config);
   const hydrateWebSearch = useWebSearchStore((s) => s.hydrate);
   const webSearchEnabled = webSearchConfig?.enabled ?? false;
+  const [activeModule, setActiveModule] = useState<string | null>(null);
 
   useEffect(() => {
     if (tools.length === 0) {
@@ -109,6 +111,30 @@ export function OmniMcpToolsExposureSection() {
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [tools, webSearchEnabled]);
 
+  const moduleOptions = useMemo(
+    () =>
+      grouped.map(([moduleKey, moduleTools]) => ({
+        value: moduleKey,
+        label: `${t(moduleLabelKey(moduleKey) as "settings.builtinTools.global")} (${moduleTools.length})`,
+      })),
+    [grouped, t],
+  );
+
+  const selectedModule = useMemo(() => {
+    if (grouped.length === 0) return null;
+    if (activeModule && grouped.some(([key]) => key === activeModule)) {
+      return activeModule;
+    }
+    return grouped[0]![0];
+  }, [activeModule, grouped]);
+
+  const activeTools = useMemo(() => {
+    if (!selectedModule) return [];
+    return grouped.find(([key]) => key === selectedModule)?.[1] ?? [];
+  }, [grouped, selectedModule]);
+
+  const actionable = selectedModule ? isToolActionable(selectedModule) : false;
+
   const handleExternalToggle = useCallback(
     async (toolName: string, moduleKey: string, exposed: boolean) => {
       if (!isToolActionable(moduleKey)) return;
@@ -123,54 +149,42 @@ export function OmniMcpToolsExposureSection() {
 
   return (
     <>
+      <SegmentedControl
+        options={moduleOptions}
+        value={selectedModule!}
+        onChange={setActiveModule}
+        ariaLabel={t("settings.aiServices.omnimcp.toolsTitle")}
+      />
+      <p className="setting-hint settings-subsection-desc">
+        {!actionable
+          ? t("settings.builtinTools.moduleClosedDesc")
+          : t("settings.builtinTools.moduleDesc", { count: activeTools.length })}
+      </p>
       <div className="setting-row builtin-tools-column-header">
         <div className="setting-label" aria-hidden="true" />
         <div className="setting-row-toggles setting-row-toggles--single">
           <span className="setting-toggle-label">{t("settings.builtinTools.external")}</span>
         </div>
       </div>
-      {grouped.map(([moduleKey, moduleTools], index) => {
-        const actionable = isToolActionable(moduleKey);
-        return (
-          <div key={moduleKey}>
-            {index > 0 ? <div className="settings-section-divider" /> : null}
-            <div className="settings-subsection-title">
-              {t(moduleLabelKey(moduleKey) as "settings.builtinTools.global")}
-            </div>
-            {!actionable ? (
-              <p className="setting-hint settings-subsection-desc">
-                {t("settings.builtinTools.moduleClosedDesc")}
-              </p>
-            ) : (
-              <p className="setting-hint settings-subsection-desc">
-                {t("settings.builtinTools.moduleDesc", { count: moduleTools.length })}
-              </p>
-            )}
-            {moduleTools.map((tool) => (
-              <div className="setting-row" key={tool.tool_name}>
-                <div className="setting-label">
-                  <h4 className="mcp-tool-name" title={tool.tool_name}>
-                    {tool.tool_name}
-                  </h4>
-                  {tool.description ? <p>{tool.description}</p> : null}
-                </div>
-                <div className="setting-row-toggles setting-row-toggles--single">
-                  <SettingToggle
-                    label={t("settings.builtinTools.external")}
-                    value={actionable && tool.external_exposed}
-                    disabled={!actionable}
-                    compact
-                    onChange={(v) => void handleExternalToggle(tool.tool_name, moduleKey, v)}
-                  />
-                </div>
-              </div>
-            ))}
+      {activeTools.map((tool) => (
+        <div className="setting-row" key={tool.tool_name}>
+          <div className="setting-label">
+            <h4 className="mcp-tool-name" title={tool.tool_name}>
+              {tool.tool_name}
+            </h4>
+            {tool.description ? <p>{tool.description}</p> : null}
           </div>
-        );
-      })}
-      <p className="setting-hint settings-subsection-desc">
-        {t("settings.aiServices.omnimcp.toolsUiDelegatedHint")}
-      </p>
+          <div className="setting-row-toggles setting-row-toggles--single">
+            <SettingToggle
+              label={t("settings.builtinTools.external")}
+              value={actionable && tool.external_exposed}
+              disabled={!actionable}
+              compact
+              onChange={(v) => void handleExternalToggle(tool.tool_name, selectedModule!, v)}
+            />
+          </div>
+        </div>
+      ))}
     </>
   );
 }

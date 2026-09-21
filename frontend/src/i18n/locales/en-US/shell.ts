@@ -146,9 +146,6 @@ export default {
         clickToDisconnect: "Click to disconnect {agent}",
         notLaunchable: "Cannot launch agent — check installation path",
       },
-      localRuntime: {
-        tooltip: "Local runtime · Ollama: {ollama} · LM Studio: {lms}",
-      },
     },
     connectionPool: {
       summary: "Connections {active} / {total}",

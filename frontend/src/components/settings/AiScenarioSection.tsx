@@ -1,32 +1,9 @@
 import { useMemo } from "react";
 
 import { useI18n } from "../../i18n";
-import {
-  listModelSelections,
-  parseModelSelectionId,
-  useAiModelsStore,
-} from "../../stores/aiModelsStore";
+import { useBackendSelectOptions } from "../../lib/ai/backendSelectOptions";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { Select } from "../ui/Select";
-
-function useModelSelectOptions() {
-  const providers = useAiModelsStore((s) => s.providers);
-
-  return useMemo(() => {
-    return listModelSelections(providers).map(({ id }) => {
-      const parsed = parseModelSelectionId(id);
-      const provider = providers.find((p) => p.id === parsed?.providerId);
-      const modelName = parsed?.modelName ?? id;
-      const standard =
-        provider?.apiStandard === "anthropic" ? "Anthropic" : "OpenAI";
-      return {
-        value: id,
-        label: modelName,
-        subtitle: provider ? `${provider.providerName} · ${standard}` : undefined,
-      };
-    });
-  }, [providers]);
-}
 
 function resolveSelectValue(
   options: { value: string }[],
@@ -40,7 +17,18 @@ function resolveSelectValue(
 
 export function AiScenarioSection() {
   const { t } = useI18n();
-  const options = useModelSelectOptions();
+  const cliOptions = useBackendSelectOptions([]);
+  const options = useMemo(
+    () =>
+      cliOptions
+        .filter((opt) => opt.installed !== false && opt.group === "cli")
+        .map((opt) => ({
+          value: opt.value,
+          label: opt.label,
+          subtitle: opt.subtitle,
+        })),
+    [cliOptions],
+  );
   const assistantModelId = useSettingsStore((s) => s.aiScenarioAssistantModelSelectionId);
   const setAiScenarioSettings = useSettingsStore((s) => s.setAiScenarioSettings);
 

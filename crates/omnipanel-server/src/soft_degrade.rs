@@ -298,16 +298,6 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "entryId": "", "chunkCount": null, "embeddedAt": null });
     }
 
-    if c == "local_runtime_install_ollama" {
-        // LocalRuntimeInstallResult arrays=[]
-        return serde_json::json!({ "method": "", "started": false, "message": "", "manualUrl": "" });
-    }
-
-    if c == "local_runtime_probe" || c == "local_runtime_refresh_catalog" {
-        // LocalRuntimeProbeResult arrays=[recommendedModels]
-        return serde_json::json!({ "recommendedModels": [], "ollama": null, "lmStudio": null, "hardware": null, "totalMemoryMb": null, "hardwareTier": "", "catalogSource": "" });
-    }
-
     if c == "local_log_open" || c == "sftp_log_open" {
         // LogSessionInfo arrays=[]
         return serde_json::json!({ "sizeBytes": null, "totalLines": null, "linesEstimated": false });
@@ -316,11 +306,6 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
     if c == "local_log_tail_start" || c == "sftp_log_tail_start" {
         // LogTailHandle arrays=[]
         return serde_json::json!({ "token": "" });
-    }
-
-    if c == "local_runtime_probe_openai_compat" {
-        // OpenAiCompatProbeResult arrays=[models]
-        return serde_json::json!({ "models": [], "reachable": false, "endpoint": "", "error": null });
     }
 
     if c == "detect_opencode_install" {

@@ -339,49 +339,6 @@ pub async fn bg_task_submit_db_schema_cache_refresh(
     .await
 }
 
-/// 提交 Ollama 安装后台任务。
-pub async fn bg_task_submit_ollama_install(state: &ServerState) -> Result<String, OmniError> {
-    let pool = state.worker_pool.clone();
-    pool.spawn(
-        "localModels",
-        "ollamaInstall",
-        "安装 Ollama",
-        100,
-        move |_task_id, cancel, progress| async move {
-            crate::local_runtime_cmds::install_ollama_with_progress(cancel, progress)
-                .await
-                .map(|_| ())
-        },
-    )
-    .await
-}
-
-/// 提交 Ollama 模型拉取后台任务。
-pub async fn bg_task_submit_ollama_pull(
-    state: &ServerState,
-    model: String,
-) -> Result<String, OmniError> {
-    let model = model.trim().to_string();
-    if model.is_empty() {
-        return Err(OmniError::invalid_input("模型名不能为空"));
-    }
-    let title = format!("拉取模型：{model}");
-    let pool = state.worker_pool.clone();
-    let model_for_job = model.clone();
-    pool.spawn(
-        "localModels",
-        "ollamaPull",
-        title,
-        100,
-        move |_task_id, cancel, progress| async move {
-            crate::local_runtime_cmds::pull_ollama_with_progress(model_for_job, cancel, progress)
-                .await
-                .map(|_| ())
-        },
-    )
-    .await
-}
-
 /// Web 端知识库向量化占位（桌面端完整实现）。
 pub async fn bg_task_submit_knowledge_vectorize(
     _state: &ServerState,

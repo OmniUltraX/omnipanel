@@ -18,7 +18,7 @@ export type AcpService = {
   name: string;
   executablePath: string;
   modelSelectionId: string | null;
-  /** 多启用：是否开启该 CLI 提供者 */
+  /** 多启用：是否开启该智能体 */
   enabled: boolean;
   /** 持久化兼容字段，读写时与 enabled 同步 */
   isActive: boolean;

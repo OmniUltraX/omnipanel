@@ -29,7 +29,6 @@ import {
 } from "../../lib/ai/agents";
 import { useAiStore } from "../../stores/aiStore";
 import { AiConversationModelSelect } from "../ai/assistant-ui/AiConversationModelSelect";
-import { AiConversationSkillSelect } from "../ai/assistant-ui/AiConversationSkillSelect";
 import { AiAgentBadge } from "../ai/assistant-ui/AiAgentBadge";
 import { AiContextStrip } from "../ai/AiContextStrip";
 import { ComposerAddContextButton } from "../ai/assistant-ui/ComposerAddContextButton";
@@ -583,7 +582,6 @@ const ComposerAction: FC = () => {
         <ComposerAddContextButton />
         <AiAgentBadge />
         <AiConversationModelSelect />
-        <AiConversationSkillSelect />
       </div>
       <div className="flex items-center gap-1.5">
         <ComposerContextUsage />

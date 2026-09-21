@@ -90,12 +90,13 @@ import {
 } from "../../stores/quickLauncherAskHistoryStore";
 import {
   initAiModelsStore,
-  resolveModelSelection,
   useAiModelsStore,
   type AiModelProvider,
 } from "../../stores/aiModelsStore";
 import { resolveScenarioModelSelectionId } from "../../lib/aiScenarioModels";
+import { buildCliOptionsFromProviders } from "../../lib/ai/backendSelectOptions";
 import { resolveBackendFromSelection } from "../../lib/ai/inferenceBackend";
+import { useCliProvidersStore } from "../../stores/cliProvidersStore";
 
 const CLIPBOARD_PREVIEW_H = 36;
 const SUGGESTION_SECTION_LABEL_H = 24;
@@ -111,7 +112,7 @@ type AiAskState = {
   errorMessage?: string;
 };
 
-/** 与页内询问 AI 相同的解析规则，展示当前将使用的模型名 */
+/** 与页内询问 AI 相同的解析规则，展示当前将使用的智能体名 */
 function resolveQuickLauncherModelLabel(
   providers: AiModelProvider[],
   configuredId: string | null | undefined,
@@ -120,24 +121,11 @@ function resolveQuickLauncherModelLabel(
   if (!selectionId) return null;
 
   const backend = resolveBackendFromSelection(providers, selectionId);
-  if (backend?.kind === "http") {
-    const resolved = resolveModelSelection(providers, selectionId);
-    const name = resolved?.name
-      ?? (backend.backendId.includes("::")
-        ? backend.backendId.slice(backend.backendId.lastIndexOf("::") + 2)
-        : backend.httpProvider.providerId);
-    const provider = providers.find((p) => p.id === backend.httpProvider.providerId);
-    const providerName = provider?.providerName?.trim() || backend.httpProvider.providerId;
-    return { short: name, full: `${providerName} / ${name}` };
-  }
   if (backend?.kind === "cli") {
     const short = backend.modelId || backend.providerId;
     return { short, full: backend.backendId };
   }
-  if (backend?.kind === "acp") {
-    return { short: backend.agentKind, full: backend.backendId };
-  }
-  return { short: selectionId, full: selectionId };
+  return null;
 }
 /** 与侧栏一致的模块图标行（点击打开独立窗） */
 const MODULE_ICON_DEFS: Array<{ key: ModuleKey; icon: ReactNode }> = [
@@ -448,6 +436,17 @@ export function QuickLauncherRoot() {
     (s) => s.toggleFavorite,
   );
   const aiProviders = useAiModelsStore((s) => s.providers);
+  const cliProviders = useCliProvidersStore((s) => s.providers);
+  const cliModelCache = useCliProvidersStore((s) => s.modelCache);
+  const slashCliModels = useMemo(
+    () =>
+      buildCliOptionsFromProviders(cliProviders, cliModelCache).map((opt) => ({
+        value: opt.value,
+        label: opt.label,
+        subtitle: opt.subtitle,
+      })),
+    [cliProviders, cliModelCache],
+  );
   const assistantModelSelectionId = useSettingsStore(
     (s) => s.aiScenarioAssistantModelSelectionId,
   );
@@ -719,11 +718,11 @@ export function QuickLauncherRoot() {
 
     if (parsedQuery.kind === "slash-model") {
       const currentId = resolveSlashModelCurrentId(
-        aiProviders,
+        slashCliModels,
         assistantModelSelectionId,
       );
       for (const row of buildSlashModelRows(
-        aiProviders,
+        slashCliModels,
         parsedQuery.filter,
         currentId,
       )) {
@@ -801,6 +800,7 @@ export function QuickLauncherRoot() {
     showAskHistory,
     askHistoryForDisplay,
     aiProviders,
+    slashCliModels,
     assistantModelSelectionId,
     dashboardCatalog,
     dashboardActiveTabId,

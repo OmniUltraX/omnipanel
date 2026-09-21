@@ -284,10 +284,6 @@ export const commands = {
 	bgTaskSubmitDbSchemaCacheRefresh: (connectionIds: string[] | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_db_schema_cache_refresh", { connectionIds })),
 	/**  提交知识库文档向量化后台任务。 */
 	bgTaskSubmitKnowledgeVectorize: (args: KnowledgeVectorizeArgs) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_knowledge_vectorize", { args })),
-	/**  提交 Ollama 授权安装后台任务。 */
-	bgTaskSubmitOllamaInstall: () => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_ollama_install")),
-	/**  提交 Ollama 模型拉取后台任务。 */
-	bgTaskSubmitOllamaPull: (model: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("bg_task_submit_ollama_pull", { model })),
 	/**  列出指定 MySQL 连接的数据库导出记录。 */
 	dbMysqlExportList: (connectionId: string) => typedError<MysqlExportRecord_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("db_mysql_export_list", { connectionId })),
 	/**  将导出文件复制到用户指定路径（需已通过 save 对话框授权）。 */
@@ -1052,22 +1048,6 @@ export const commands = {
 	apiKey: string,
 	apiStandard: string,
 } | null, OmniError_Serialize>(__TAURI_INVOKE("embedding_provider_get")),
-	/**  探测本机本地运行时（Ollama + LM Studio）与硬件推荐。 */
-	localRuntimeProbe: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_probe")),
-	/**  强制刷新 ollama.com/library 缓存并返回最新推荐。 */
-	localRuntimeRefreshCatalog: () => typedError<LocalRuntimeProbeResult, string>(__TAURI_INVOKE("local_runtime_refresh_catalog")),
-	/**  尝试启动已安装的 Ollama（`ollama serve` 后台）。 */
-	localRuntimeStartOllama: () => typedError<boolean, string>(__TAURI_INVOKE("local_runtime_start_ollama")),
-	/**  用户确认后安装 Ollama（兼容同步命令；进度走后台任务更佳）。 */
-	localRuntimeInstallOllama: () => typedError<LocalRuntimeInstallResult, string>(__TAURI_INVOKE("local_runtime_install_ollama")),
-	/**  拉取模型（兼容同步命令）。 */
-	localRuntimeOllamaPull: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_pull", { model })),
-	/**  删除本地 Ollama 模型。 */
-	localRuntimeOllamaDelete: (model: string) => typedError<null, string>(__TAURI_INVOKE("local_runtime_ollama_delete", { model })),
-	/**  探测任意 OpenAI 兼容本地端点。 */
-	localRuntimeProbeOpenaiCompat: (baseUrl: string) => typedError<OpenAiCompatProbeResult, string>(__TAURI_INVOKE("local_runtime_probe_openai_compat", { baseUrl })),
-	/**  返回官方下载页 URL（供前端打开）。 */
-	localRuntimeOllamaDownloadUrl: () => typedError<string, string>(__TAURI_INVOKE("local_runtime_ollama_download_url")),
 	/**  列出所有工作流。 */
 	workflowList: () => typedError<Workflow[], OmniError_Serialize>(__TAURI_INVOKE("workflow_list")),
 	/**  按 id 获取工作流详情（含步骤）。 */

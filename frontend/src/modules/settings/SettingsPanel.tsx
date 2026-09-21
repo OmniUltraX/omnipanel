@@ -6,12 +6,6 @@ import { FontFamilySelect } from "../../components/settings/FontFamilySelect";
 import { PasswordInput } from "../../components/ui/form/PasswordInput";
 import { TextInput } from "../../components/ui/form/TextInput";
 import {
-  countEnabledModels,
-  useAiModelsStore,
-  maskApiKey,
-  type AiModelProvider,
-} from "../../stores/aiModelsStore";
-import {
   useSettingsStore,
   LOCALE_OPTIONS,
   CLOSE_BEHAVIOR_OPTIONS,
@@ -54,8 +48,6 @@ import {
 } from "../../stores/shortcutsStore";
 import { SidebarWorkspace } from "../../components/ui/sidebar/SidebarWorkspace";
 import { ShortcutRecorder } from "../../components/settings/ShortcutRecorder";
-import { AddModelDialog } from "../../components/settings/AddModelDialog";
-import { ProviderModelList } from "../../components/settings/ProviderModelList";
 import { DataBackupSection } from "../../components/settings/DataBackupSection";
 import { SyncDeviceResetSection } from "../../components/settings/SyncDeviceResetSection";
 import { SyncTeamKeySection } from "../../components/settings/SyncTeamKeySection";
@@ -63,18 +55,10 @@ import { ModulesSettingsSection } from "../../components/settings/ModulesSetting
 import { PluginsSettingsSection } from "../../components/settings/PluginsSettingsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
-import { LocalModelsSection } from "../../components/settings/LocalModelsSection";
-import {
-  AgentConfigSection,
-  agentSectionId,
-  agentSettingsNavItems,
-  parseAgentSectionId,
-} from "../../components/settings/AgentConfigSection";
 import { ThirdPartyAccountsSection } from "../../components/settings/ThirdPartyAccountsSection";
 import { AiGatewaySettings } from "../ai-gateway/AiGatewaySettings";
 import { Button } from "../../components/ui/primitives/Button";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
-import { ModuleEmptyState } from "../../components/ui/feedback/ModuleEmptyState";
 import { Select } from "../../components/ui/form/Select";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
@@ -83,7 +67,6 @@ import { invoke } from "@tauri-apps/api/core";
 import type { FileIndexStorageInfo, UpdateInfo } from "../../ipc/bindings";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { formatFileSize } from "../files/utils";
-import { ALL_AGENT_IDS, type AgentId } from "../../lib/ai/agents";
 
 type Section =
   | "general"
@@ -99,9 +82,7 @@ type Section =
   | "database"
   | "files"
   | "protocol"
-  | "knowledge"
-  | "protocol"
-  | `agent:${AgentId}`;
+  | "knowledge";
 
 type NavGroupId = "general" | "ai" | "modules";
 
@@ -112,14 +93,7 @@ type NavLeaf = {
   icon: ReactNode;
 };
 
-type NavFolder = {
-  kind: "folder";
-  id: string;
-  label: string;
-  icon: ReactNode;
-};
-
-type NavEntry = NavLeaf | NavFolder;
+type NavEntry = NavLeaf;
 
 interface NavGroup {
   id: NavGroupId;
@@ -210,17 +184,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       {
         id: "ai",
-        label: "基础",
-        icon: (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
-            <path d="M12 17v4M8 21h8" />
-          </svg>
-        ),
-      },
-      {
-        kind: "folder",
-        id: "agents",
         label: "智能体",
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -232,7 +195,7 @@ const NAV_GROUPS: NavGroup[] = [
       },
       {
         id: "aiServices",
-        label: "服务",
+        label: "MCP Server",
         icon: (
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -301,13 +264,8 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 function navGroupIdForSection(section: Section): NavGroupId {
-  if (parseAgentSectionId(section)) return "ai";
   for (const group of NAV_GROUPS) {
-    if (
-      group.items.some(
-        (item) => item.kind !== "folder" && (item as NavLeaf).id === section,
-      )
-    ) {
+    if (group.items.some((item) => item.id === section)) {
       return group.id;
     }
   }
@@ -526,306 +484,6 @@ function KeybindingsSection() {
   );
 }
 
-function ModelsSection() {
-  const { t } = useI18n();
-  const providers = useAiModelsStore((s) => s.providers);
-  const removeProvider = useAiModelsStore((s) => s.removeProvider);
-  const refreshProviderModelsFromApi = useAiModelsStore((s) => s.refreshProviderModelsFromApi);
-
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<AiModelProvider | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set());
-  const [refreshNotice, setRefreshNotice] = useState<{
-    providerId: string;
-    kind: "ok" | "err";
-    message: string;
-  } | null>(null);
-
-  const openAddDialog = () => {
-    setEditingProvider(null);
-    setShowDialog(true);
-  };
-
-  const openEditDialog = (provider: AiModelProvider) => {
-    setConfirmDeleteId(null);
-    setEditingProvider(provider);
-    setShowDialog(true);
-  };
-
-  const closeDialog = () => {
-    setShowDialog(false);
-    setEditingProvider(null);
-  };
-
-  const handleProviderSaved = (providerId: string) => {
-    setExpandedIds((prev) => new Set(prev).add(providerId));
-  };
-
-  const formatRefreshError = (error: string) => {
-    if (error === "no_api_key") return t("settings.aiModels.refresh.noApiKey");
-    if (error === "invalid_base_url") return t("settings.aiModels.errors.baseUrlInvalid");
-    if (error === "empty_list") return t("settings.aiModels.refresh.emptyList");
-    if (error.startsWith("http_")) return t("settings.aiModels.refresh.httpError", { status: error.slice(5) });
-    return error;
-  };
-
-  const handleRefreshModels = async (provider: AiModelProvider) => {
-    setRefreshNotice(null);
-    setRefreshingIds((prev) => new Set(prev).add(provider.id));
-    try {
-      const result = await refreshProviderModelsFromApi(provider.id);
-      if (result.ok) {
-        setExpandedIds((prev) => new Set(prev).add(provider.id));
-        setRefreshNotice({
-          providerId: provider.id,
-          kind: "ok",
-          message: t("settings.aiModels.refresh.success", { count: result.count }),
-        });
-      } else {
-        setRefreshNotice({
-          providerId: provider.id,
-          kind: "err",
-          message: t("settings.aiModels.refresh.failed", { error: formatRefreshError(result.error) }),
-        });
-      }
-    } finally {
-      setRefreshingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(provider.id);
-        return next;
-      });
-    }
-  };
-
-  const toggleExpanded = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  return (
-    <div className="settings-section">
-      <div className="settings-section-header">
-        <div>
-          <h2>{t("settings.aiModels.title")}</h2>
-          <p className="section-desc">{t("settings.aiModels.description")}</p>
-        </div>
-        <WorkbenchActionButton
-          className="ai-models-add-btn"
-          onClick={openAddDialog}
-          title={t("settings.aiModels.add.title")}
-          aria-label={t("settings.aiModels.add.title")}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            width="14"
-            height="14"
-          >
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          <span>{t("settings.aiModels.add.title")}</span>
-        </WorkbenchActionButton>
-      </div>
-
-      {providers.length === 0 ? (
-        <div className="ai-models-empty">
-          <ModuleEmptyState
-            preset="robot"
-            title={t("settings.aiModels.empty.title")}
-            desc={t("settings.aiModels.empty.desc")}
-          />
-          <Button
-            variant="secondary"
-            size="sm"
-            style={{ marginTop: "var(--sp-3)" }}
-            onClick={openAddDialog}
-          >
-            {t("settings.aiModels.empty.cta")}
-          </Button>
-        </div>
-      ) : (
-        <ul className="ai-models-list">
-          {providers.map((provider) => {
-            const isConfirmingDelete = confirmDeleteId === provider.id;
-            const hasModels = provider.modelNames.length > 0;
-            const isExpanded = expandedIds.has(provider.id);
-            const enabledCount = countEnabledModels(provider);
-            const isRefreshing = refreshingIds.has(provider.id);
-            const notice =
-              refreshNotice?.providerId === provider.id ? refreshNotice : null;
-            return (
-              <li key={provider.id} className="ai-provider-card">
-                <div className="ai-provider-header">
-                  <div className="ai-provider-header-main">
-                    {hasModels ? (
-                      <button
-                        type="button"
-                        className="ai-provider-expand"
-                        aria-expanded={isExpanded}
-                        aria-label={t("settings.aiModels.toggleModels")}
-                        onClick={() => toggleExpanded(provider.id)}
-                      >
-                        {isExpanded ? "▾" : "▸"}
-                      </button>
-                    ) : (
-                      <span className="ai-provider-expand-placeholder" aria-hidden />
-                    )}
-                    <div className="ai-provider-summary">
-                      <div className="ai-provider-title-row">
-                        <span className="ai-provider-name">{provider.providerName}</span>
-                        <span
-                          className={`ai-model-row-standard ai-model-row-standard-${provider.apiStandard}`}
-                        >
-                          {provider.apiStandard === "openai" ? "OpenAI" : "Anthropic"}
-                        </span>
-                        {hasModels ? (
-                          <span className="ai-provider-model-count">
-                            {t("settings.aiModels.enabledCount", {
-                              enabled: enabledCount,
-                              total: provider.modelNames.length,
-                            })}
-                          </span>
-                        ) : (
-                          <span className="ai-provider-single-model">{t("settings.aiModels.noModelsYet")}</span>
-                        )}
-                      </div>
-                      <div className="ai-model-row-meta">
-                        <span className="ai-model-row-baseurl" title={provider.baseUrl}>
-                          {provider.baseUrl}
-                        </span>
-                        <span className="ai-model-row-sep">·</span>
-                        <span
-                          className="ai-model-row-key"
-                          title={
-                            provider.apiKey ||
-                            (provider.hasApiKey ? t("settings.aiModels.fields.apiKeyHintEdit") : "")
-                          }
-                        >
-                          {maskApiKey(provider.apiKey, Boolean(provider.hasApiKey))}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="ai-model-row-actions">
-                    {isConfirmingDelete ? (
-                      <>
-                        <WorkbenchActionButton
-                          danger
-                          onClick={() => {
-                            removeProvider(provider.id);
-                            setConfirmDeleteId(null);
-                          }}
-                        >
-                          {t("settings.aiModels.confirmDelete")}
-                        </WorkbenchActionButton>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setConfirmDeleteId(null)}
-                        >
-                          {t("settings.aiModels.cancelDelete")}
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="ai-model-row-refresh"
-                          title={t("settings.aiModels.refresh.title")}
-                          aria-label={t("settings.aiModels.refresh.title")}
-                          disabled={isRefreshing}
-                          onClick={() => void handleRefreshModels(provider)}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            width="14"
-                            height="14"
-                            className={isRefreshing ? "icon-spin" : undefined}
-                          >
-                            <path d="M23 4v6h-6M1 20v-6h6" />
-                            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-                          </svg>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="ai-model-row-edit"
-                          title={t("settings.aiModels.editBtn")}
-                          aria-label={t("settings.aiModels.editBtn")}
-                          onClick={() => openEditDialog(provider)}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            width="14"
-                            height="14"
-                          >
-                            <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-                          </svg>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="ai-model-row-delete"
-                          title={t("settings.aiModels.deleteBtn")}
-                          aria-label={t("settings.aiModels.deleteBtn")}
-                          onClick={() => setConfirmDeleteId(provider.id)}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            width="14"
-                            height="14"
-                          >
-                            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
-                          </svg>
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {notice && (
-                  <div
-                    className={`ai-provider-refresh-notice ai-provider-refresh-notice--${notice.kind}`}
-                  >
-                    {notice.message}
-                  </div>
-                )}
-
-                {hasModels && isExpanded ? <ProviderModelList provider={provider} /> : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      <AddModelDialog
-        open={showDialog}
-        onClose={closeDialog}
-        editProvider={editingProvider}
-        onSaved={handleProviderSaved}
-      />
-    </div>
-  );
-}
 
 function AiOtherSection() {
   const { t } = useI18n();
@@ -868,10 +526,6 @@ function AiServicesSection() {
 function AiSection() {
   return (
     <div className="settings-panel active">
-      <ModelsSection />
-      <div className="settings-section-divider" />
-      <LocalModelsSection />
-      <div className="settings-section-divider" />
       <AgentSectionContent />
       <div className="settings-section-divider" />
       <AiScenarioSection />
@@ -889,18 +543,11 @@ export function SettingsPanel() {
     ai: true,
     modules: true,
   }));
-  const [agentsFolderOpen, setAgentsFolderOpen] = useState(false);
-
-  const agentNavChildren = useMemo(() => agentSettingsNavItems(t), [t]);
-  const activeAgentId = parseAgentSectionId(activeSection);
 
   const selectSection = useCallback((section: Section) => {
     setActiveSection(section);
     const groupId = navGroupIdForSection(section);
     setOpenGroups((prev) => (prev[groupId] ? prev : { ...prev, [groupId]: true }));
-    if (parseAgentSectionId(section)) {
-      setAgentsFolderOpen(true);
-    }
   }, []);
 
   const toggleGroup = useCallback((groupId: NavGroupId) => {
@@ -1237,71 +884,16 @@ export function SettingsPanel() {
                 </button>
                 {expanded ? (
                   <div className="settings-nav-group__items">
-                    {group.items.map((item) => {
-                      if (item.kind === "folder") {
-                        const folderOpen = agentsFolderOpen;
-                        const childActive = Boolean(activeAgentId);
-                        return (
-                          <div
-                            key={item.id}
-                            className={`settings-nav-folder${folderOpen ? " is-open" : ""}`}
-                          >
-                            <button
-                              type="button"
-                              className={`settings-nav-folder__header${childActive ? " is-active" : ""}`}
-                              aria-expanded={folderOpen}
-                              onClick={() => {
-                                setAgentsFolderOpen((v) => !v);
-                                if (!folderOpen && !activeAgentId) {
-                                  selectSection(agentSectionId(ALL_AGENT_IDS[0]));
-                                }
-                              }}
-                            >
-                              <span className="settings-nav-folder__label">
-                                {item.icon}
-                                {item.label}
-                              </span>
-                              <svg
-                                className="settings-nav-folder__chevron"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                aria-hidden
-                              >
-                                <path d="M6 9l6 6 6-6" />
-                              </svg>
-                            </button>
-                            {folderOpen ? (
-                              <div className="settings-nav-folder__items">
-                                {agentNavChildren.map((child) => (
-                                  <div
-                                    key={child.id}
-                                    className={`settings-nav-item settings-nav-item--nested${
-                                      activeSection === child.id ? " active" : ""
-                                    }`}
-                                    onClick={() => selectSection(child.id)}
-                                  >
-                                    {child.label}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div
-                          key={item.id}
-                          className={`settings-nav-item ${activeSection === item.id ? "active" : ""}`}
-                          onClick={() => selectSection(item.id)}
-                        >
-                          {item.icon}
-                          {item.label}
-                        </div>
-                      );
-                    })}
+                    {group.items.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`settings-nav-item ${activeSection === item.id ? "active" : ""}`}
+                        onClick={() => selectSection(item.id)}
+                      >
+                        {item.icon}
+                        {item.label}
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </div>
@@ -1650,8 +1242,6 @@ export function SettingsPanel() {
 
         {/* AI (Models / Scenarios / Other) */}
         {activeSection === "ai" && <AiSection />}
-
-        {activeAgentId ? <AgentConfigSection agentId={activeAgentId} /> : null}
 
         {activeSection === "aiServices" && <AiServicesSection />}
 

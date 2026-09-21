@@ -1,24 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const fetchMock = vi.fn();
 const runInternalMock = vi.fn();
 
 let canUseIpc = true;
-let mockSelection = { baseUrl: "https://api.example.com", apiKey: "", name: "m1" };
-
-vi.mock("../fetchHeaders", () => ({
-  withOptionalBearerAuth: (headers: Record<string, string>) => headers,
-  fetchWithNetworkHint: (...args: unknown[]) => fetchMock(...args),
-}));
 
 vi.mock("../../stores/aiModelsStore", () => ({
   useAiModelsStore: { getState: () => ({ providers: mockProviders }) },
-  firstModelSelectionId: () => "p1::m1",
-  resolveModelSelection: () => mockSelection,
 }));
 
 vi.mock("../terminalScenarioModels", () => ({
-  resolveTerminalModelSelectionId: () => null,
+  resolveTerminalModelSelectionId: () => "cli:opencode::default",
 }));
 
 vi.mock("../isTauriRuntime", () => ({
@@ -33,15 +24,12 @@ vi.mock("./inferenceBackend", async (importOriginal) => {
   const mod = await importOriginal<typeof import("./inferenceBackend")>();
   return {
     ...mod,
+    firstCliSelectionId: () => "cli:opencode::default",
     resolveBackendFromSelection: () => ({
-      kind: "http",
-      backendId: "http:p1::m1",
-      httpProvider: {
-        providerId: "p1",
-        apiStandard: "openai",
-        baseUrl: "https://api.example.com",
-        apiKey: "",
-      },
+      kind: "cli",
+      backendId: "cli:opencode::default",
+      providerId: "opencode",
+      modelId: "default",
     }),
   };
 });
@@ -50,19 +38,10 @@ let mockProviders = [{ id: "p1" }];
 
 import { requestAiCompletionOnce } from "./requestAiCompletionOnce";
 
-function okJson(content: string) {
-  return {
-    ok: true,
-    json: async () => ({ choices: [{ message: { content } }] }),
-  };
-}
-
-describe("requestAiCompletionOnce 优先内置编排", () => {
+describe("requestAiCompletionOnce 仅走 CLI 内置编排", () => {
   beforeEach(() => {
-    fetchMock.mockReset();
     runInternalMock.mockReset();
     canUseIpc = true;
-    mockSelection = { baseUrl: "https://api.example.com", apiKey: "memory-key", name: "m1" };
     runInternalMock.mockImplementation(
       async (opts: { onEvent: (event: { type: string; text?: string }) => void }) => {
         opts.onEvent({ type: "content_delta", text: "标题" });
@@ -70,19 +49,22 @@ describe("requestAiCompletionOnce 优先内置编排", () => {
     );
   });
 
-  it("有 IPC 时即使内存有 API key 也走 runInternalAiChat", async () => {
+  it("有 IPC 时走 runInternalAiChat（CLI）", async () => {
     const ret = await requestAiCompletionOnce({ system: "s", user: "hi" });
     expect(ret).toEqual({ ok: true, content: "标题" });
-    expect(fetchMock).not.toHaveBeenCalled();
     expect(runInternalMock).toHaveBeenCalledTimes(1);
+    const call = runInternalMock.mock.calls[0]?.[0] as {
+      request: { httpProvider: unknown; backendId: string; pureText?: boolean };
+    };
+    expect(call.request.httpProvider).toBeNull();
+    expect(call.request.backendId).toBe("cli:opencode::default");
+    expect(call.request.pureText).toBe(true);
   });
 
-  it("无 IPC 且有明文 key 时才前端直连 HTTP", async () => {
+  it("无 IPC 时返回 no-provider（不再直连 HTTP）", async () => {
     canUseIpc = false;
-    fetchMock.mockResolvedValue(okJson("译文"));
     const ret = await requestAiCompletionOnce({ system: "s", user: "hi" });
-    expect(ret).toEqual({ ok: true, content: "译文" });
+    expect(ret).toEqual({ ok: false, reason: "no-provider" });
     expect(runInternalMock).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

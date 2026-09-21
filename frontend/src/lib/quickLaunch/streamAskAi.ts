@@ -1,24 +1,11 @@
 /**
- * 快捷启动「询问 AI」：仅在启动窗内 HTTP 流式补全。
- * 不走 ai_chat_stream / 会话体系，避免牵动主窗 AI 抽屉。
- *
- * 白名单：不能迁到 `requestAiCompletionOnce` / `runInternalAiChat`——调用方依赖
- * `onDelta` 页内流式，且必须与 Dock 会话完全隔离。新场景请走 oneshot / 编排。
+ * 快捷启动「询问 AI」：走 CLI 智能体 pureText 流式补全。
+ * 使用临时 conversationId，与主窗 AI 抽屉会话隔离。
  */
-import { streamModelChat, type ModelConfig } from "../../components/ai/assistant-ui/chatModel";
 import { resolveScenarioModelSelectionId } from "../aiScenarioModels";
-import {
-  isAcpBackendId,
-  isCliBackendId,
-  resolveBackendFromSelection,
-} from "../ai/inferenceBackend";
+import { resolveBackendFromSelection } from "../ai/inferenceBackend";
 import { canUseAiBackend } from "../isTauriRuntime";
-import {
-  initAiModelsStore,
-  resolveModelSelection,
-  resolveProviderApiKey,
-  useAiModelsStore,
-} from "../../stores/aiModelsStore";
+import { initAiModelsStore, useAiModelsStore } from "../../stores/aiModelsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 const SYSTEM_PROMPT =
@@ -34,38 +21,8 @@ export interface StreamQuickLauncherAskAiOptions {
   onDelta?: (text: string) => void;
 }
 
-async function resolveHttpModelConfig(): Promise<ModelConfig | null> {
-  const providers = useAiModelsStore.getState().providers;
-  if (providers.length === 0) return null;
-
-  const selectionId = resolveScenarioModelSelectionId(
-    providers,
-    useSettingsStore.getState().aiScenarioAssistantModelSelectionId,
-  );
-  if (!selectionId) return null;
-  if (isCliBackendId(selectionId) || isAcpBackendId(selectionId)) return null;
-
-  const backend = resolveBackendFromSelection(providers, selectionId);
-  if (!backend || backend.kind !== "http") return null;
-
-  const provider = providers.find((p) => p.id === backend.httpProvider.providerId);
-  if (!provider) return null;
-
-  const resolved = resolveModelSelection(providers, selectionId);
-  if (!resolved) return null;
-
-  const apiKey = (await resolveProviderApiKey(provider)).trim() || resolved.apiKey.trim();
-  // 无明文 key 时仍可走 streamPostViaTauri：后端会按 URL 代理；部分提供商需 key。
-  return {
-    apiStandard: resolved.apiStandard,
-    name: resolved.name,
-    baseUrl: resolved.baseUrl,
-    apiKey,
-  };
-}
-
 /**
- * 页内流式询问：优先 HTTP `streamModelChat`，与主窗会话完全隔离。
+ * 页内流式询问：CLI `runInternalAiChat`（pureText），与主窗会话隔离。
  */
 export async function streamQuickLauncherAskAi(
   options: StreamQuickLauncherAskAiOptions,
@@ -83,34 +40,48 @@ export async function streamQuickLauncherAskAi(
     return { ok: false, reason: "aborted" };
   }
 
-  const config = await resolveHttpModelConfig();
-  if (!config) {
+  const providers = useAiModelsStore.getState().providers;
+  const selectionId = resolveScenarioModelSelectionId(
+    providers,
+    useSettingsStore.getState().aiScenarioAssistantModelSelectionId,
+  );
+  const backend = resolveBackendFromSelection(providers, selectionId);
+  if (!backend) {
     return {
       ok: false,
       reason: "no-provider",
-      message: "需要已配置的 HTTP 模型（CLI/ACP 暂不支持快捷启动页内问答）",
+      message: "请先启用智能体",
     };
   }
 
+  const { runInternalAiChat } = await import("../ai/orchestrator");
   let content = "";
+  let sawError = false;
+  let errorMessage: string | undefined;
+
   try {
-    for await (const chunk of streamModelChat(
-      [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: prompt },
-      ],
-      config,
-      [],
-      { signal: options.signal },
-    )) {
-      if (options.signal?.aborted) {
-        return { ok: false, reason: "aborted" };
-      }
-      if (chunk.type === "text" && chunk.delta) {
-        content += chunk.delta;
-        options.onDelta?.(content);
-      }
-    }
+    await runInternalAiChat({
+      request: {
+        conversationId: `ql-ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        userText: `${SYSTEM_PROMPT}\n\n${prompt}`,
+        backendId: backend.backendId,
+        context: {},
+        toolsMode: "none",
+        httpProvider: null,
+        pureText: true,
+      },
+      signal: options.signal,
+      onEvent: (event) => {
+        if (event.type === "content_delta") {
+          content += event.text;
+          options.onDelta?.(content);
+        }
+        if (event.type === "error") {
+          sawError = true;
+          errorMessage = event.message;
+        }
+      },
+    });
   } catch (e) {
     if (options.signal?.aborted || (e as Error)?.name === "AbortError") {
       return { ok: false, reason: "aborted" };
@@ -124,6 +95,13 @@ export async function streamQuickLauncherAskAi(
 
   if (options.signal?.aborted) {
     return { ok: false, reason: "aborted" };
+  }
+  if (sawError) {
+    return {
+      ok: false,
+      reason: "request-failed",
+      message: errorMessage ?? "request-failed",
+    };
   }
   const trimmed = content.trim();
   if (!trimmed) {

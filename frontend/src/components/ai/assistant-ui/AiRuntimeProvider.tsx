@@ -849,7 +849,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     try {
         const backend = resolveBackendForGeneration(inline, convId);
         if (!backend) {
-          throw new Error("请先在设置中配置并选择 AI 模型或 Agent");
+          throw new Error("请先启用智能体");
         }
 
         const conversation = useAiStore
@@ -875,7 +875,7 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             conversationId: convId,
             userText,
             backendId: backend.backendId,
-            httpProvider: backend.kind === "http" ? backend.httpProvider : null,
+            httpProvider: null,
             context: aiContext,
             historyJson: inline
               ? await buildInlineAiHistoryJson(inline.blockId, {
@@ -886,11 +886,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             toolsMode: agentRuntime.toolsMode,
             agentId: agentRuntime.agentId,
             agentSystemRole: agentRuntime.systemRole,
-            // 知识库 RAG：按 Agent 策略；HTTP 后端时生效
-            embeddingProvider:
-              agentRuntime.allowRag && backend.kind === "http"
-                ? resolveKnowledgeEmbeddingProviderForRag()
-                : null,
+            // 知识库 RAG：按 Agent 策略；CLI 路径也允许注入
+            embeddingProvider: agentRuntime.allowRag
+              ? resolveKnowledgeEmbeddingProviderForRag()
+              : null,
             skillIds: agentRuntime.allowSkills
               ? conversation?.selectedSkillIds ??
                 useAiStore.getState().currentSkillIds

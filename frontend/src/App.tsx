@@ -23,7 +23,6 @@ import { SelectionFloatLayer } from "./components/plugin/SelectionFloatLayer";
 import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
 import { QuickInputHost } from "./components/ui/form/QuickInputHost";
 import { ToastHost } from "./components/ui/feedback/ToastHost";
-import { SkillEvolutionPrompt } from "./components/feedback/SkillEvolutionPrompt";
 import { Button } from "./components/ui/primitives/Button";
 import { WorkspaceShell } from "./components/workspace/WorkspaceShell";
 import { useBottomPanelStore } from "./stores/bottomPanelStore";
@@ -574,7 +573,6 @@ function AppShell() {
       <SelectionFloatLayer />
       <CloseBehaviorDialogHost />
       <ToastHost />
-      <SkillEvolutionPrompt />
       <CrossWindowDragVisualLayer />
       <SettingsWindow />
       <UserCenterWindow />

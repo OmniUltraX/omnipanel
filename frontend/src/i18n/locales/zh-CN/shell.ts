@@ -144,9 +144,6 @@ export default {
         clickToDisconnect: "点击断开 {agent}",
         notLaunchable: "无法启动 Agent，请检查安装路径",
       },
-      localRuntime: {
-        tooltip: "本地运行时 · Ollama: {ollama} · LM Studio: {lms}",
-      },
     },
     connectionPool: {
       summary: "连接 {active} / {total}",
