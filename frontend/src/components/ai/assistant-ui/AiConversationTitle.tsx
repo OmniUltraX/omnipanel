@@ -3,7 +3,9 @@ import { useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { TextInput } from "@/components/ui/form/TextInput";
 import { useI18n } from "../../../i18n";
+import { isDefaultOpenCodeTitle } from "../../../lib/ai/agentAdapters/sessionActions";
 import { useAiStore } from "../../../stores/aiStore";
+import { useAgentSessionStore } from "../../../stores/agentSessionStore";
 
 export interface AiConversationTitleProps {
   className?: string;
@@ -27,13 +29,23 @@ export function AiConversationTitle({
   const conversations = useAiStore((s) => s.conversations);
   const activeConversationId = useAiStore((s) => s.activeConversationId);
   const renameConversation = useAiStore((s) => s.renameConversation);
+  const agentSessionTitle = useAgentSessionStore((s) => {
+    const active = s.activeSessionId;
+    if (!active) return null;
+    return s.sessions.find((row) => row.id === active)?.title ?? null;
+  });
 
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const activeConv = conversations.find((c) => c.id === activeConversationId);
-  const displayTitle = activeConv?.title || t("ai.conversations.newChatTitle");
+  const rawTitle = agentSessionTitle || activeConv?.title || "";
+  const displayTitle =
+    !rawTitle ||
+    (activeConversationId && isDefaultOpenCodeTitle(rawTitle, activeConversationId))
+      ? t("ai.conversations.newChatTitle")
+      : rawTitle;
 
   const startEditing = useCallback(() => {
     if (!activeConv) return;

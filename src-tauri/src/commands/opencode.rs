@@ -1,6 +1,7 @@
 use crate::commands::agents;
 use omnipanel_ai::providers::opencode::{
-    OpenCodeChatMessage, OpenCodeClient, OpenCodeSessionInfo, ensure_opencode_service,
+    OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeSessionInfo,
+    ensure_opencode_service, sync_omnimcp_into_opencode_config,
 };
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -31,6 +32,39 @@ pub struct OpenCodeMessageDto {
     pub content: String,
     pub reasoning: Option<String>,
     pub created_at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeMcpSyncResult {
+    /// 写入的配置文件路径。
+    pub path: String,
+    /// 本次写入的 OmniMCP URL。
+    pub mcp_url: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeAgentDto {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// `primary` | `subagent` | `all`
+    pub mode: String,
+    pub hidden: bool,
+    pub color: Option<String>,
+}
+
+fn agent_to_dto(a: OpenCodeAgentInfo) -> OpenCodeAgentDto {
+    OpenCodeAgentDto {
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        mode: a.mode,
+        hidden: a.hidden,
+        color: a.color,
+    }
 }
 
 fn opencode_binary() -> Option<std::path::PathBuf> {
@@ -68,6 +102,26 @@ fn message_to_dto(m: OpenCodeChatMessage) -> OpenCodeMessageDto {
     }
 }
 
+fn omnimcp_url() -> String {
+    omnipanel_mcp::builtin_mcp_endpoint()
+}
+
+fn sync_omnimcp_config(enabled: bool) -> Result<OpenCodeMcpSyncResult, String> {
+    let mcp_url = omnimcp_url();
+    let path = sync_omnimcp_into_opencode_config(&mcp_url, enabled)?;
+    tracing::info!(
+        path = %path.display(),
+        mcp_url = %mcp_url,
+        enabled,
+        "已同步 OmniMCP 到 OpenCode 配置"
+    );
+    Ok(OpenCodeMcpSyncResult {
+        path: path.display().to_string(),
+        mcp_url,
+        enabled,
+    })
+}
+
 /// 检测本机是否已安装 OpenCode CLI。
 #[tauri::command]
 #[specta::specta]
@@ -76,20 +130,34 @@ pub async fn detect_opencode_install() -> Result<OpenCodeInstallStatus, omnipane
     Ok(agents::detect_opencode_for_legacy())
 }
 
-/// 确保 OpenCode HTTP 服务可用（`opencode serve`）。
+/// 确保 OpenCode HTTP 服务可用（`opencode serve`），并写入 OmniMCP 到 opencode.json。
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_ensure_service() -> Result<(), String> {
     let _ = ensure_opencode_service(opencode_binary().as_deref()).await?;
+    // 配置写入失败不阻断服务启动（用户仍可手动配）
+    if let Err(err) = sync_omnimcp_config(true) {
+        tracing::warn!(error = %err, "同步 OmniMCP → OpenCode 配置失败");
+    }
     Ok(())
 }
 
-/// 停止 OmniPanel 拉起的 `opencode serve`。
+/// 停止 OmniPanel 拉起的 `opencode serve`，并在 opencode.json 中禁用 OmniMCP 条目。
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_stop_service() -> Result<(), String> {
     omnipanel_ai::providers::opencode::stop_opencode_serve();
+    if let Err(err) = sync_omnimcp_config(false) {
+        tracing::warn!(error = %err, "禁用 OpenCode 中 OmniMCP 条目失败");
+    }
     Ok(())
+}
+
+/// 手动将 OmniMCP 合并进 `~/.config/opencode/opencode.json`。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_sync_omnimcp_config(enabled: bool) -> Result<OpenCodeMcpSyncResult, String> {
+    sync_omnimcp_config(enabled)
 }
 
 /// 列出 OpenCode 会话。
@@ -125,20 +193,8 @@ pub async fn opencode_create_session(
     let model_ref = model_pair
         .as_ref()
         .map(|(p, m)| (p.as_str(), m.as_str()));
-    let id = client.create_session(&cwd, model_ref).await?;
-    Ok(OpenCodeSessionDto {
-        id: id.clone(),
-        title: id,
-        updated_at: chrono_like_now_ms(),
-        directory: Some(cwd),
-    })
-}
-
-fn chrono_like_now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    let created = client.create_session(&cwd, model_ref).await?;
+    Ok(session_to_dto(created))
 }
 
 /// 删除 OpenCode 会话。
@@ -156,4 +212,33 @@ pub async fn opencode_get_messages(session_id: String) -> Result<Vec<OpenCodeMes
     let client = opencode_client().await?;
     let msgs = client.get_session_messages(&session_id).await?;
     Ok(msgs.into_iter().map(message_to_dto).collect())
+}
+
+/// 列出 OpenCode Agent（`GET /api/agent`）。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_list_agents() -> Result<Vec<OpenCodeAgentDto>, String> {
+    let client = opencode_client().await?;
+    let agents = client.list_agents().await?;
+    Ok(agents.into_iter().map(agent_to_dto).collect())
+}
+
+/// 获取单个 OpenCode Agent（`GET /api/agent/{agentID}`）。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_get_agent(agent_id: String) -> Result<OpenCodeAgentDto, String> {
+    let client = opencode_client().await?;
+    let agent = client.get_agent(&agent_id).await?;
+    Ok(agent_to_dto(agent))
+}
+
+/// 切换会话后续回合使用的 Agent（`POST /api/session/{id}/agent`）。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_switch_session_agent(
+    session_id: String,
+    agent: String,
+) -> Result<(), String> {
+    let client = opencode_client().await?;
+    client.switch_session_agent(&session_id, &agent).await
 }

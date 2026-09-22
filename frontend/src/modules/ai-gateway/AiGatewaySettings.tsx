@@ -19,7 +19,10 @@ function buildAgentSnippets(url: string): { id: AgentSnippetId; language: "json"
     "omnipanel": {
       "type": "remote",
       "url": "${url}",
-      "enabled": true
+      "enabled": true,
+      "headers": {
+        "X-Omni-Module": "master"
+      }
     }
   }
 }`,

@@ -154,7 +154,7 @@ export default {
         agents: {
           opencode: {
             title: "OpenCode",
-            hint: "写入 opencode.json / opencode.jsonc",
+            hint: "启用 OpenCode 时自动写入 ~/.config/opencode/opencode.json（含 X-Omni-Module）",
           },
           cursor: {
             title: "Cursor",

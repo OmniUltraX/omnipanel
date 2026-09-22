@@ -1263,10 +1263,12 @@ export const commands = {
 	aiModelsFetchList: (baseUrl: string, apiKey: string, apiStandard: string | null) => typedError<FetchedProviderModel_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("ai_models_fetch_list", { baseUrl, apiKey, apiStandard })),
 	/**  检测本机是否已安装 OpenCode CLI。 */
 	detectOpencodeInstall: () => typedError<OpenCodeInstallStatus, OmniError_Serialize>(__TAURI_INVOKE("detect_opencode_install")),
-	/**  确保 OpenCode HTTP 服务可用。 */
+	/**  确保 OpenCode HTTP 服务可用（`opencode serve`），并写入 OmniMCP 到 opencode.json。 */
 	opencodeEnsureService: () => typedError<null, string>(__TAURI_INVOKE("opencode_ensure_service")),
-	/**  停止 OmniPanel 拉起的 `opencode serve`。 */
+	/**  停止 OmniPanel 拉起的 `opencode serve`，并在 opencode.json 中禁用 OmniMCP 条目。 */
 	opencodeStopService: () => typedError<null, string>(__TAURI_INVOKE("opencode_stop_service")),
+	/**  手动将 OmniMCP 合并进 `~/.config/opencode/opencode.json`。 */
+	opencodeSyncOmnimcpConfig: (enabled: boolean) => typedError<OpenCodeMcpSyncResult, string>(__TAURI_INVOKE("opencode_sync_omnimcp_config", { enabled })),
 	/**  列出 OpenCode 会话。 */
 	opencodeListSessions: () => typedError<OpenCodeSessionDto[], string>(__TAURI_INVOKE("opencode_list_sessions")),
 	/**  新建 OpenCode 会话。`model` 形如 `providerID/modelID`。 */
@@ -1275,6 +1277,12 @@ export const commands = {
 	opencodeDeleteSession: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("opencode_delete_session", { sessionId })),
 	/**  拉取 OpenCode 会话消息（旧→新）。 */
 	opencodeGetMessages: (sessionId: string) => typedError<OpenCodeMessageDto[], string>(__TAURI_INVOKE("opencode_get_messages", { sessionId })),
+	/**  列出 OpenCode Agent（`GET /api/agent`）。 */
+	opencodeListAgents: () => typedError<OpenCodeAgentDto[], string>(__TAURI_INVOKE("opencode_list_agents")),
+	/**  获取单个 OpenCode Agent（`GET /api/agent/{agentID}`）。 */
+	opencodeGetAgent: (agentId: string) => typedError<OpenCodeAgentDto, string>(__TAURI_INVOKE("opencode_get_agent", { agentId })),
+	/**  切换会话后续回合使用的 Agent（`POST /api/session/{id}/agent`）。 */
+	opencodeSwitchSessionAgent: (sessionId: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("opencode_switch_session_agent", { sessionId, agent })),
 	/**  检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。 */
 	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
@@ -4864,6 +4872,24 @@ export type OpenCodeMessageDto = {
 	content: string,
 	reasoning: string | null,
 	createdAt: number,
+};
+
+export type OpenCodeMcpSyncResult = {
+	/**  写入的配置文件路径。 */
+	path: string,
+	/**  本次写入的 OmniMCP URL。 */
+	mcpUrl: string,
+	enabled: boolean,
+};
+
+export type OpenCodeAgentDto = {
+	id: string,
+	name: string,
+	description: string | null,
+	/**  `primary` | `subagent` | `all` */
+	mode: string,
+	hidden: boolean,
+	color: string | null,
 };
 
 export type PairingKeypairResult = {

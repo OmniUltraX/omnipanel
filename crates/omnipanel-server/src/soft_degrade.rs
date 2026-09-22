@@ -321,6 +321,33 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::Value::Null;
     }
 
+    if c == "opencode_sync_omnimcp_config" {
+        return serde_json::json!({
+            "path": "",
+            "mcpUrl": "",
+            "enabled": false
+        });
+    }
+
+    if c == "opencode_list_agents" {
+        return serde_json::json!([]);
+    }
+
+    if c == "opencode_get_agent" {
+        return serde_json::json!({
+            "id": "",
+            "name": "",
+            "description": null,
+            "mode": "primary",
+            "hidden": false,
+            "color": null
+        });
+    }
+
+    if c == "opencode_switch_session_agent" {
+        return serde_json::Value::Null;
+    }
+
     if c == "opencode_create_session" {
         return serde_json::json!({
             "id": "",

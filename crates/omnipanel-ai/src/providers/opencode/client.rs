@@ -34,6 +34,19 @@ pub struct OpenCodeChatMessage {
     pub created_at: i64,
 }
 
+/// OpenCode Agent（`GET /api/agent`）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeAgentInfo {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// `primary` | `subagent` | `all`
+    pub mode: String,
+    pub hidden: bool,
+    pub color: Option<String>,
+}
+
 impl OpenCodeModel {
     /// 选择器 / 会话用的稳定键：`{providerID}/{modelID}`。
     pub fn selection_key(&self) -> String {
@@ -246,14 +259,25 @@ impl OpenCodeClient {
         &self,
         directory: &str,
         model: Option<(&str, &str)>,
-    ) -> Result<String, String> {
+    ) -> Result<OpenCodeSessionInfo, String> {
         #[derive(Deserialize)]
         struct SessionData {
             id: String,
+            #[serde(default)]
+            title: String,
+            #[serde(default)]
+            time: SessionTime,
         }
         #[derive(Deserialize)]
         struct Envelope {
             data: SessionData,
+        }
+        #[derive(Deserialize, Default)]
+        struct SessionTime {
+            #[serde(default)]
+            updated: i64,
+            #[serde(default)]
+            created: i64,
         }
 
         let mut body = json!({ "directory": directory });
@@ -265,7 +289,32 @@ impl OpenCodeClient {
         }
 
         let env: Envelope = self.post_json("/api/session", &body).await?;
-        Ok(env.data.id)
+        let id = env.data.id;
+        let title = if env.data.title.trim().is_empty() {
+            id.clone()
+        } else {
+            env.data.title
+        };
+        let updated_at = if env.data.time.updated > 0 {
+            env.data.time.updated
+        } else if env.data.time.created > 0 {
+            env.data.time.created
+        } else {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0)
+        };
+        Ok(OpenCodeSessionInfo {
+            id,
+            title,
+            updated_at,
+            directory: if directory.is_empty() {
+                None
+            } else {
+                Some(directory.to_string())
+            },
+        })
     }
 
     /// 列出 OpenCode 会话（按更新时间倒序由调用方处理亦可）。
@@ -419,6 +468,129 @@ impl OpenCodeClient {
         Ok(())
     }
 
+    /// 列出已注册 Agent（`GET /api/agent`）。
+    pub async fn list_agents(&self) -> Result<Vec<OpenCodeAgentInfo>, String> {
+        #[derive(Deserialize)]
+        struct Envelope {
+            data: Vec<AgentRow>,
+        }
+        #[derive(Deserialize)]
+        struct AgentRow {
+            id: String,
+            #[serde(default)]
+            name: String,
+            #[serde(default)]
+            description: Option<String>,
+            #[serde(default)]
+            mode: String,
+            #[serde(default)]
+            hidden: bool,
+            #[serde(default)]
+            color: Option<String>,
+        }
+
+        let env: Envelope = self.get_json("/api/agent").await?;
+        Ok(env
+            .data
+            .into_iter()
+            .map(|row| {
+                let name = if row.name.trim().is_empty() {
+                    row.id.clone()
+                } else {
+                    row.name
+                };
+                OpenCodeAgentInfo {
+                    id: row.id,
+                    name,
+                    description: row.description.filter(|s| !s.trim().is_empty()),
+                    mode: if row.mode.trim().is_empty() {
+                        "all".into()
+                    } else {
+                        row.mode
+                    },
+                    hidden: row.hidden,
+                    color: row.color.filter(|s| !s.trim().is_empty()),
+                }
+            })
+            .collect())
+    }
+
+    /// 单个 Agent（`GET /api/agent/{agentID}`）。
+    pub async fn get_agent(&self, agent_id: &str) -> Result<OpenCodeAgentInfo, String> {
+        #[derive(Deserialize)]
+        struct Envelope {
+            data: AgentRow,
+        }
+        #[derive(Deserialize)]
+        struct AgentRow {
+            id: String,
+            #[serde(default)]
+            name: String,
+            #[serde(default)]
+            description: Option<String>,
+            #[serde(default)]
+            mode: String,
+            #[serde(default)]
+            hidden: bool,
+            #[serde(default)]
+            color: Option<String>,
+        }
+
+        let encoded = urlencoding_lite(agent_id);
+        let env: Envelope = self
+            .get_json(&format!("/api/agent/{encoded}"))
+            .await?;
+        let row = env.data;
+        let name = if row.name.trim().is_empty() {
+            row.id.clone()
+        } else {
+            row.name
+        };
+        Ok(OpenCodeAgentInfo {
+            id: row.id,
+            name,
+            description: row.description.filter(|s| !s.trim().is_empty()),
+            mode: if row.mode.trim().is_empty() {
+                "all".into()
+            } else {
+                row.mode
+            },
+            hidden: row.hidden,
+            color: row.color.filter(|s| !s.trim().is_empty()),
+        })
+    }
+
+    /// 切换会话后续回合使用的 Agent（`POST /api/session/{id}/agent`）。
+    pub async fn switch_session_agent(
+        &self,
+        session_id: &str,
+        agent: &str,
+    ) -> Result<(), String> {
+        let body = json!({ "agent": agent });
+        self.post_empty(&format!("/api/session/{session_id}/agent"), &body)
+            .await
+    }
+
+    async fn post_empty(&self, path: &str, body: &serde_json::Value) -> Result<(), String> {
+        let resp = self
+            .http
+            .post(self.url(path))
+            .basic_auth("opencode", Some(&self.endpoint.password))
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .timeout(std::time::Duration::from_secs(30))
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("OpenCode 请求失败 ({path}): {e}"))?;
+        let status = resp.status();
+        if status.is_success() || status.as_u16() == 204 {
+            return Ok(());
+        }
+        let text = resp.text().await.unwrap_or_default();
+        Err(format!("OpenCode {path} 返回 {status}: {text}"))
+    }
+
     /// 打开 `/api/event` SSE 字节流（调用方自行解析）。
     pub async fn open_event_stream(&self) -> Result<reqwest::Response, String> {
         self.sse
@@ -506,4 +678,18 @@ fn extract_reasoning_parts(content: Option<&serde_json::Value>) -> Option<String
     } else {
         Some(text)
     }
+}
+
+/// 路径段编码（Agent name 多为 ascii；非安全字符百分号编码）。
+fn urlencoding_lite(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for b in raw.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }

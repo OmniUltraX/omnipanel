@@ -18,6 +18,7 @@ import {
   leaveAgentSessionMode,
   refreshAgentSessions,
   selectAgentSession,
+  scheduleOpenCodeTitleRefresh,
 } from "../../../lib/ai/agentAdapters/sessionActions";
 import { runInternalAiChat, type InternalStreamEvent } from "../../../lib/ai/orchestrator";
 import {
@@ -953,9 +954,11 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           },
         });
       finishGeneration();
-      // 智能体会话：回合结束后与权威历史对齐
+      // 智能体会话：回合结束后与权威历史对齐，并延迟拉取 OpenCode 异步生成的标题
       if (agentOwned && agentAdapter && isAgentSessionId(convId)) {
-        void selectAgentSession(agentAdapter, convId);
+        void selectAgentSession(agentAdapter, convId).then(() => {
+          scheduleOpenCodeTitleRefresh(agentAdapter, convId);
+        });
       }
     } catch (err) {
       batcher.flushNow();

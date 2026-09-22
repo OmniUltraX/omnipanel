@@ -19,6 +19,6 @@ export function useActiveAgentAdapter(): AgentAdapter | null {
   return enabled ? openCodeAgentAdapter : null;
 }
 
-export type { AgentAdapter, AgentSessionSummary, AgentChatMessage } from "./types";
-export { isAgentSessionId } from "./types";
+export type { AgentAdapter, AgentSessionSummary, AgentChatMessage, OpenCodeAgentSummary } from "./types";
+export { isAgentSessionId, isSelectableOpenCodeAgent } from "./types";
 export { openCodeAgentAdapter } from "./opencodeAdapter";

@@ -5,6 +5,7 @@ import type {
   AgentChatMessage,
   AgentSessionSummary,
   CreateAgentSessionOptions,
+  OpenCodeAgentSummary,
 } from "./types";
 
 function mapSession(row: {
@@ -18,6 +19,24 @@ function mapSession(row: {
     title: row.title,
     updatedAt: row.updatedAt,
     directory: row.directory,
+  };
+}
+
+function mapAgent(row: {
+  id: string;
+  name: string;
+  description: string | null;
+  mode: string;
+  hidden: boolean;
+  color: string | null;
+}): OpenCodeAgentSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    mode: row.mode,
+    hidden: row.hidden,
+    color: row.color,
   };
 }
 
@@ -69,5 +88,19 @@ export const openCodeAgentAdapter: AgentAdapter = {
       console.error("[opencode] loadMessages failed:", msg);
       throw err;
     }
+  },
+
+  async listAgents() {
+    const rows = await unwrapCommand(commands.opencodeListAgents());
+    return rows.map(mapAgent);
+  },
+
+  async getAgent(agentId: string) {
+    const row = await unwrapCommand(commands.opencodeGetAgent(agentId));
+    return mapAgent(row);
+  },
+
+  async switchSessionAgent(sessionId: string, agent: string) {
+    await unwrapCommand(commands.opencodeSwitchSessionAgent(sessionId, agent));
   },
 };

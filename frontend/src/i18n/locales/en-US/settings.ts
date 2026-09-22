@@ -156,7 +156,7 @@ export default {
         agents: {
           opencode: {
             title: "OpenCode",
-            hint: "Add to opencode.json / opencode.jsonc",
+            hint: "Auto-written to ~/.config/opencode/opencode.json when OpenCode is enabled (includes X-Omni-Module)",
           },
           cursor: {
             title: "Cursor",

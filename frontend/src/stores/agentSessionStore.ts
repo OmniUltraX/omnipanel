@@ -1,13 +1,24 @@
 import { create } from "zustand";
 
 import type { AiMessage } from "./aiStore";
-import type { AgentAdapter, AgentSessionSummary } from "../lib/ai/agentAdapters/types";
+import type {
+  AgentAdapter,
+  AgentSessionSummary,
+  OpenCodeAgentSummary,
+} from "../lib/ai/agentAdapters/types";
 
 type AgentSessionState = {
   /** 当前适配器 id；null = 内置模式 */
   adapterId: string | null;
   sessions: AgentSessionSummary[];
   activeSessionId: string | null;
+  /** OpenCode `/api/agent` 列表 */
+  agents: OpenCodeAgentSummary[];
+  /** 当前会话选用的 OpenCode agent name（switch API 用 name） */
+  activeAgentName: string | null;
+  /** 按会话记住选用的 agent */
+  agentBySessionId: Record<string, string>;
+  loadingAgents: boolean;
   /** 内存消息缓存，不 persist */
   messagesBySessionId: Record<string, AiMessage[]>;
   loadingList: boolean;
@@ -23,6 +34,10 @@ type AgentSessionState = {
   setAdapterId: (id: string | null) => void;
   setSessions: (sessions: AgentSessionSummary[]) => void;
   setActiveSessionId: (id: string | null) => void;
+  setAgents: (agents: OpenCodeAgentSummary[]) => void;
+  setActiveAgentName: (name: string | null) => void;
+  setSessionAgent: (sessionId: string, agentName: string) => void;
+  setLoadingAgents: (v: boolean) => void;
   setMessages: (sessionId: string, messages: AiMessage[]) => void;
   setLoadingList: (v: boolean) => void;
   setLoadingMessages: (v: boolean) => void;
@@ -37,6 +52,10 @@ const initial = {
   adapterId: null as string | null,
   sessions: [] as AgentSessionSummary[],
   activeSessionId: null as string | null,
+  agents: [] as OpenCodeAgentSummary[],
+  activeAgentName: null as string | null,
+  agentBySessionId: {} as Record<string, string>,
+  loadingAgents: false,
   messagesBySessionId: {} as Record<string, AiMessage[]>,
   loadingList: false,
   loadingMessages: false,
@@ -51,6 +70,14 @@ export const useAgentSessionStore = create<AgentSessionState>((set) => ({
   setAdapterId: (adapterId) => set({ adapterId }),
   setSessions: (sessions) => set({ sessions }),
   setActiveSessionId: (activeSessionId) => set({ activeSessionId }),
+  setAgents: (agents) => set({ agents }),
+  setActiveAgentName: (activeAgentName) => set({ activeAgentName }),
+  setSessionAgent: (sessionId, agentName) =>
+    set((s) => ({
+      agentBySessionId: { ...s.agentBySessionId, [sessionId]: agentName },
+      activeAgentName: s.activeSessionId === sessionId ? agentName : s.activeAgentName,
+    })),
+  setLoadingAgents: (loadingAgents) => set({ loadingAgents }),
   setMessages: (sessionId, messages) =>
     set((s) => ({
       messagesBySessionId: { ...s.messagesBySessionId, [sessionId]: messages },
@@ -61,7 +88,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set) => ({
   setPendingDeleteId: (pendingDeleteId) => set({ pendingDeleteId }),
   setPendingDeleteAll: (pendingDeleteAll) => set({ pendingDeleteAll }),
   setError: (error) => set({ error }),
-  reset: () => set({ ...initial, messagesBySessionId: {} }),
+  reset: () => set({ ...initial, messagesBySessionId: {}, agentBySessionId: {} }),
 }));
 
 export function agentMessagesToAiMessages(
@@ -91,4 +118,3 @@ function stripOmniInjectedUserPrefix(content: string): string {
   const tail = text.slice(idx + sep.length).trim();
   return tail || content;
 }
-

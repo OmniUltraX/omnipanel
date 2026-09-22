@@ -9,10 +9,16 @@
 //! - 模型：`GET /api/model`
 
 mod client;
+mod mcp_config;
 mod service;
 mod turn;
 
-pub use client::{OpenCodeChatMessage, OpenCodeClient, OpenCodeModel, OpenCodeSessionInfo};
+pub use client::{
+    OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeModel, OpenCodeSessionInfo,
+};
+pub use mcp_config::{
+    merge_omnimcp_into_root, opencode_config_json_path, sync_omnimcp_into_opencode_config,
+};
 pub use service::{
     OpenCodeEndpoint, debug_log_path, ensure_opencode_service, list_opencode_models,
     probe_opencode_online, stop_opencode_serve,

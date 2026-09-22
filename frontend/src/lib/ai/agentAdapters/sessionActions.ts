@@ -1,4 +1,5 @@
 import type { AgentAdapter } from "./types";
+import { isSelectableOpenCodeAgent } from "./types";
 import { agentMessagesToAiMessages, useAgentSessionStore } from "../../../stores/agentSessionStore";
 import { useAiStore } from "../../../stores/aiStore";
 import { ASSISTANT_PAGE_AGENT_ID } from "../agents";
@@ -13,8 +14,11 @@ export async function refreshAgentSessions(
   store.setLoadingList(true);
   store.setError(null);
   try {
-    // 服务应在启用智能体时已拉起；此处只列会话，不再反复 ensure
-    const sessions = await adapter.listSessions();
+    // 并行：会话列表 + Agent 列表
+    const [sessions] = await Promise.all([
+      adapter.listSessions(),
+      refreshOpenCodeAgents(adapter),
+    ]);
     store.setSessions(sessions);
     // 清掉 aiStore 里已不存在的 ses_ 镜像（persist 残留 / 外部删除）
     pruneMissingAgentMirrors(sessions.map((s) => s.id));
@@ -47,6 +51,37 @@ export async function refreshAgentSessions(
   } finally {
     store.setLoadingList(false);
   }
+}
+
+/** 拉取并写入 OpenCode Agent 列表；默认选中第一个可切换 primary。 */
+export async function refreshOpenCodeAgents(adapter: AgentAdapter): Promise<void> {
+  const store = useAgentSessionStore.getState();
+  store.setLoadingAgents(true);
+  try {
+    const agents = await adapter.listAgents();
+    store.setAgents(agents);
+    const selectable = agents.filter(isSelectableOpenCodeAgent);
+    const current = store.activeAgentName;
+    if (!current || !selectable.some((a) => a.name === current || a.id === current)) {
+      const fallback = selectable[0]?.name ?? null;
+      store.setActiveAgentName(fallback);
+    }
+  } catch (err) {
+    store.setAgents([]);
+    store.setError(err instanceof Error ? err.message : String(err));
+  } finally {
+    store.setLoadingAgents(false);
+  }
+}
+
+/** 切换当前会话的 OpenCode Agent（写远端 + 本地记忆）。 */
+export async function switchOpenCodeSessionAgent(
+  adapter: AgentAdapter,
+  sessionId: string,
+  agentName: string,
+): Promise<void> {
+  await adapter.switchSessionAgent(sessionId, agentName);
+  useAgentSessionStore.getState().setSessionAgent(sessionId, agentName);
 }
 
 function isSessionNotFoundError(err: unknown): boolean {
@@ -84,6 +119,87 @@ function pruneMissingAgentMirrors(aliveIds: string[]): void {
   }
 }
 
+/** OpenCode 默认占位标题（尚未 LLM 生成）。 */
+export function isDefaultOpenCodeTitle(title: string, sessionId?: string): boolean {
+  const t = title.trim();
+  if (!t) return true;
+  if (sessionId && t === sessionId) return true;
+  return (
+    t.startsWith("New session - ") ||
+    t.startsWith("Child session - ") ||
+    /^ses_[A-Za-z0-9]+$/.test(t)
+  );
+}
+
+/** 把权威会话标题同步进 aiStore 镜像（不碰消息）。 */
+function syncSessionTitlesIntoAiStore(
+  sessions: { id: string; title: string; updatedAt: number }[],
+): void {
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  useAiStore.setState((s) => {
+    let changed = false;
+    const conversations = s.conversations.map((c) => {
+      if (!c.id.startsWith("ses_")) return c;
+      const meta = byId.get(c.id);
+      if (!meta) return c;
+      if (c.title === meta.title && c.updatedAt === meta.updatedAt) return c;
+      changed = true;
+      return { ...c, title: meta.title, updatedAt: meta.updatedAt };
+    });
+    return changed ? { conversations } : s;
+  });
+}
+
+/**
+ * 仅刷新会话列表元数据（标题 / 更新时间），不切换活动会话、不重拉消息。
+ * OpenCode 会在首轮对话后异步生成标题，需在回合结束后调用。
+ */
+export async function refreshAgentSessionMeta(adapter: AgentAdapter): Promise<void> {
+  try {
+    const sessions = await adapter.listSessions();
+    useAgentSessionStore.getState().setSessions(sessions);
+    syncSessionTitlesIntoAiStore(sessions);
+  } catch {
+    // 标题刷新失败静默；列表仍可用旧数据
+  }
+}
+
+const titleRefreshTimers = new Map<string, ReturnType<typeof setTimeout>[]>();
+
+/**
+ * 回合结束后多次拉取标题：OpenCode 的 ensureTitle 是异步 fork，首轮结束后可能尚未写回。
+ */
+export function scheduleOpenCodeTitleRefresh(
+  adapter: AgentAdapter,
+  sessionId: string,
+): void {
+  const prev = titleRefreshTimers.get(sessionId);
+  if (prev) {
+    for (const t of prev) clearTimeout(t);
+  }
+  const delays = [600, 2200, 5500];
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  for (const ms of delays) {
+    timers.push(
+      setTimeout(() => {
+        void refreshAgentSessionMeta(adapter).then(() => {
+          const row = useAgentSessionStore
+            .getState()
+            .sessions.find((s) => s.id === sessionId);
+          if (row && !isDefaultOpenCodeTitle(row.title, sessionId)) {
+            const left = titleRefreshTimers.get(sessionId);
+            if (left) {
+              for (const t of left) clearTimeout(t);
+              titleRefreshTimers.delete(sessionId);
+            }
+          }
+        });
+      }, ms),
+    );
+  }
+  titleRefreshTimers.set(sessionId, timers);
+}
+
 /** 选中智能体会话并加载历史到 aiStore（内存镜像，不持久化 ses_）。 */
 export async function selectAgentSession(
   adapter: AgentAdapter,
@@ -101,13 +217,34 @@ export async function selectAgentSession(
   store.setPendingSelectId(sessionId);
   store.setLoadingMessages(true);
   store.setError(null);
+  // 恢复该会话选中的 OpenCode Agent（Tab 语义）
+  {
+    const selectable = store.agents.filter(isSelectableOpenCodeAgent);
+    const remembered = store.agentBySessionId[sessionId];
+    const nextAgent =
+      (remembered &&
+        selectable.some((a) => a.name === remembered || a.id === remembered) &&
+        remembered) ||
+      (store.activeAgentName &&
+        selectable.some(
+          (a) => a.name === store.activeAgentName || a.id === store.activeAgentName,
+        ) &&
+        store.activeAgentName) ||
+      selectable[0]?.name ||
+      null;
+    if (nextAgent) {
+      store.setActiveAgentName(nextAgent);
+    }
+  }
   try {
-    const cached = store.messagesBySessionId[sessionId];
+    // 先刷列表标题，再拉消息，避免镜像沿用旧 title / ses_ id
+    await refreshAgentSessionMeta(adapter);
+    const latestSessions = useAgentSessionStore.getState().sessions;
+    const cached = useAgentSessionStore.getState().messagesBySessionId[sessionId];
     const rows = await adapter.loadMessages(sessionId);
     const messages = agentMessagesToAiMessages(rows);
-    store.setMessages(sessionId, messages);
-    mirrorSessionIntoAiStore(sessionId, messages, store.sessions);
-    // 若有缓存且与权威不一致，以权威为准（上面已写）
+    useAgentSessionStore.getState().setMessages(sessionId, messages);
+    mirrorSessionIntoAiStore(sessionId, messages, latestSessions);
     void cached;
   } catch (err) {
     if (isSessionNotFoundError(err)) {
@@ -202,6 +339,15 @@ export async function createAgentSession(
   const sessions = useAgentSessionStore.getState().sessions;
   mirrorSessionIntoAiStore(session.id, [], sessions);
   store.setActiveSessionId(session.id);
+  const agentName = store.activeAgentName;
+  if (agentName) {
+    try {
+      await adapter.switchSessionAgent(session.id, agentName);
+      store.setSessionAgent(session.id, agentName);
+    } catch {
+      // 新建后切 agent 失败不阻断；下次发送前可再切
+    }
+  }
   return session.id;
 }
 

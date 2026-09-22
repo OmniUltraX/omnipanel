@@ -10,6 +10,7 @@ import {
   createAgentSession,
   deleteAgentSession,
   deleteAllAgentSessions,
+  isDefaultOpenCodeTitle,
   selectAgentSession,
 } from "../../../lib/ai/agentAdapters/sessionActions";
 import { parseOpenCodeBackendId } from "../../../lib/ai/inferenceBackend";
@@ -28,6 +29,17 @@ function formatConversationTime(ts: number, t: (key: string, params?: Record<str
   if (hours < 24) return t("knowledge.time.hoursAgo", { n: hours });
   const days = Math.floor(hours / 24);
   return t("knowledge.time.daysAgo", { n: days });
+}
+
+function formatSessionTitle(
+  title: string,
+  id: string,
+  t: (key: string) => string,
+): string {
+  if (isDefaultOpenCodeTitle(title, id)) {
+    return t("ai.conversations.newChatTitle");
+  }
+  return title;
 }
 
 function resolveOpenCodeModelKey(): string | null {
@@ -305,7 +317,9 @@ export function AiConversationList({
                 aria-busy={rowBusy || undefined}
               >
                 <div className="ai-session-row-main">
-                  <div className="ai-session-row-title">{conv.title}</div>
+                  <div className="ai-session-row-title">
+                    {formatSessionTitle(conv.title, conv.id, t)}
+                  </div>
                   <div className="ai-session-row-meta">
                     {conv.pinnedWorkspaceId ? (
                       <span className="ai-session-row-workspace">
