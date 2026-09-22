@@ -16,11 +16,8 @@ import {
   type OverlayModuleKey,
 } from "../../lib/routePanels";
 import { PluginModuleHost } from "../plugin-module/PluginModuleHost";
-import { ensureBuiltinModulesRegistered } from "./builtinModules";
 import { getModule, listModules } from "./registry";
 import type { ModuleDescriptor, ModuleRegistryId } from "./types";
-
-ensureBuiltinModulesRegistered();
 
 const lazyViewCache = new Map<
   ModuleRegistryId,

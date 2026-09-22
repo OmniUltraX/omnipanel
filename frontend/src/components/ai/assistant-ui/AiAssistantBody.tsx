@@ -1,5 +1,6 @@
 import { ArrowLeftIcon } from "lucide-react";
 import { useAiStore } from "../../../stores/aiStore";
+import { useAgentSessionStore } from "../../../stores/agentSessionStore";
 import { Thread } from "../../assistant-ui/thread";
 import { ResizableSidePanel } from "../../ui/sidebar/ResizableSidePanel";
 import { AiConversationList } from "./AiConversationList";
@@ -24,6 +25,7 @@ export function AiAssistantBody({
     s.conversations.find((c) => c.id === viewingChildConversationId),
   );
   const setViewingChildConversation = useAiStore((s) => s.setViewingChildConversation);
+  const loadingMessages = useAgentSessionStore((s) => s.loadingMessages);
 
   return (
     <div className="ai-assistant-shell-body">
@@ -48,8 +50,14 @@ export function AiAssistantBody({
             </span>
           </div>
         ) : null}
-        <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 relative">
           <Thread />
+          {loadingMessages ? (
+            <div className="ai-session-thread-loading" aria-busy="true" aria-live="polite">
+              <span className="ai-session-thread-loading__spinner" aria-hidden />
+              <span>{t("ai.conversations.switching")}</span>
+            </div>
+          ) : null}
         </div>
       </div>
       {showSideConversationList ? (

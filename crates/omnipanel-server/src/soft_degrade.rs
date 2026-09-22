@@ -313,6 +313,23 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
         return serde_json::json!({ "installed": false, "executablePath": null, "version": null });
     }
 
+    if c == "opencode_list_sessions" || c == "opencode_get_messages" {
+        return serde_json::json!([]);
+    }
+
+    if c == "opencode_ensure_service" || c == "opencode_delete_session" {
+        return serde_json::Value::Null;
+    }
+
+    if c == "opencode_create_session" {
+        return serde_json::json!({
+            "id": "",
+            "title": "",
+            "updatedAt": 0,
+            "directory": null
+        });
+    }
+
     if c == "ssh_pool_probe_panels" {
         // PanelProbeResult arrays=[panels]
         return serde_json::json!({ "panels": [], "resourceId": "", "elapsedMs": 0, "probedAt": 0 });

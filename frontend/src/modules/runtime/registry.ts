@@ -2,13 +2,8 @@ import type { ModuleDescriptor, ModuleRegistryId } from "./types";
 
 const modules = new Map<ModuleRegistryId, ModuleDescriptor>();
 
-/** 开发期重复注册会覆盖并打日志，避免静默分叉 */
+/** 开发期重复注册会覆盖；HMR / 多入口 ensure 属预期，不打 error 刷屏 */
 export function registerModule(descriptor: ModuleDescriptor): void {
-  if (modules.has(descriptor.id)) {
-    console.error(
-      `[module-runtime] duplicate registerModule("${descriptor.id}"), overriding`,
-    );
-  }
   modules.set(descriptor.id, descriptor);
 }
 

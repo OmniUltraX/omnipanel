@@ -12,7 +12,7 @@ use omnipanel_mcp::ToolRegistry;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{AppHandle, State, ipc::Channel};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::Mutex;
 
 use crate::commands::knowledge_vector::{EmbeddingProviderConfig, fetch_provider_embeddings};
 use crate::state::AppState;
@@ -330,9 +330,17 @@ pub async fn ai_chat_stream(
         .filter(|s| !s.is_empty());
     let user_text_for_rag = request.user_text.clone();
     let mut internal = InternalChatRequest::try_from(request)?;
+    // OpenCode 等智能体自管 system/skills；禁止把 OmniPanel Agent 提示拼进用户消息，
+    // 否则会出现在 OpenCode session 历史里并被 UI 原样展示。
+    let skip_omni_system_inject =
+        matches!(
+            omnipanel_ai::routing::parse_backend_id(&internal.backend_id)
+                .map(|p| p.kind),
+            Ok(omnipanel_ai::routing::BackendKind::OpenCode)
+        );
     // pure_text 模式跳过 RAG / Skills / Agent 角色注入。
     // 注意：Skills/RAG 与工具解耦——plan Agent（tools_mode=None）仍可注入上下文。
-    if !internal.pure_text {
+    if !internal.pure_text && !skip_omni_system_inject {
         let mut append_parts: Vec<String> = Vec::new();
 
         // 优先读设置页配置的模块 Agent 提示词；否则回退前端传入的 systemRole。
@@ -471,18 +479,18 @@ pub async fn ai_chat_tool_result(
     }
 }
 
-/// OpenCode HTTP 路径：ensure `opencode serve` → session/prompt/SSE → StreamEvent。
+/// OpenCode HTTP 路径：ensure service → 既有 session 上 prompt/SSE → StreamEvent。
 /// OpenCode 自带工具循环；此处不注入 OmniPanel client tools。
+/// `conversation_id` 即 OpenCode `session_id`（由前端适配器管理）。
 async fn run_opencode_http_internal_turn(
     state: &AppState,
     internal: &InternalChatRequest,
     conversation_id: &str,
-    provider_id: &str,
-    model_id: &str,
+    _provider_id: &str,
+    _model_id: &str,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
     let backend_id = internal.backend_id.clone();
-    let cwd = resolve_acp_session_cwd(&internal.context);
 
     let binary = crate::commands::providers::cli_provider_list()
         .ok()
@@ -493,30 +501,18 @@ async fn run_opencode_http_internal_turn(
         });
     let binary_path = binary.as_ref().map(std::path::PathBuf::from);
 
-    let mut prompt_text = internal.user_text.clone();
-    if let Some(append) = internal
-        .system_append
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        prompt_text = format!("{append}\n\n---\n\n{prompt_text}");
-    }
+    // OpenCode 会话历史即用户可见消息：只发纯用户输入，绝不拼接 system_append。
+    let prompt_text = internal.user_text.clone();
 
     record_prompt_sent_trace(state, conversation_id, &backend_id, 0, 0, &prompt_text);
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamEvent>(128);
-    let conversation_for_turn = conversation_id.to_string();
-    let cwd_owned = cwd.clone();
-    let provider_owned = provider_id.to_string();
-    let model_owned = model_id.to_string();
+    let session_id = conversation_id.to_string();
     let prompt_owned = prompt_text.clone();
     let turn_handle = tokio::spawn(async move {
         omnipanel_ai::providers::opencode::run_opencode_http_turn(
             binary_path.as_deref(),
-            &conversation_for_turn,
-            &cwd_owned,
-            &provider_owned,
-            &model_owned,
+            &session_id,
             &prompt_owned,
             tx,
         )
@@ -526,6 +522,8 @@ async fn run_opencode_http_internal_turn(
     while let Some(event) = rx.recv().await {
         record_internal_trace(state, conversation_id, &backend_id, 0, &event);
         let _ = on_event.send(event);
+        // 让出执行权，便于 Channel 把 delta 立刻推到前端，而不是攒到 turn 结束
+        tokio::task::yield_now().await;
     }
 
     turn_handle

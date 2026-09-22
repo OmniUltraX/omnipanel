@@ -3,16 +3,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { AGENT_ADAPTERS, getAgentAdapter } from "../../lib/agents/registry";
 import type { AgentKind } from "../../lib/agents/types";
-import { formatLaunchCommand } from "../../lib/agents/types";
 import { statusByKind } from "../../lib/agents/detect";
 import { useAcpServicesStore } from "../../stores/acpServicesStore";
 import {
   countEnabledCliModels,
   getCliProviderModels,
+  resolveAgentOnlineStatus,
+  cliProviderOnlineStatusLabelKey,
   useCliProvidersStore,
 } from "../../stores/cliProvidersStore";
 import { isTauriRuntime } from "../../lib/isTauriRuntime";
 import { Button } from "../ui/primitives/Button";
+import { StatusDot } from "../ui/primitives/StatusDot";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { CliProviderModelList } from "./CliProviderModelList";
 
@@ -59,6 +61,7 @@ export function AgentsSection() {
   const loading = useCliProvidersStore((s) => s.loading);
   const syncing = useCliProvidersStore((s) => s.syncing);
   const refreshingModelIds = useCliProvidersStore((s) => s.refreshingModelIds);
+  const onlineStatusById = useCliProvidersStore((s) => s.onlineStatusById);
   const syncProviders = useCliProvidersStore((s) => s.syncProviders);
   const refreshModels = useCliProvidersStore((s) => s.refreshModels);
   const setProviderEnabled = useCliProvidersStore((s) => s.setProviderEnabled);
@@ -116,10 +119,14 @@ export function AgentsSection() {
           message: t("settings.cliProviders.refresh.success", { count: models.length }),
         });
       } catch {
+        const detail =
+          providerId === "opencode"
+            ? `${t("settings.cliProviders.refresh.failed")}（后端日志: %TEMP%\\omnipanel-opencode-debug.log）`
+            : t("settings.cliProviders.refresh.failed");
         setRefreshNotice({
           providerId,
           kind: "err",
-          message: t("settings.cliProviders.refresh.failed"),
+          message: detail,
         });
       }
     },
@@ -188,13 +195,16 @@ export function AgentsSection() {
             const isExpanded = expandedIds.has(provider.id);
             const enabledCount = countEnabledCliModels(provider, models);
             const isRefreshing = Boolean(refreshingModelIds[provider.id]);
+            const onlineStatus = resolveAgentOnlineStatus(
+              provider.id,
+              installed,
+              Boolean(provider.enabled),
+              onlineStatusById[provider.id],
+              isRefreshing,
+              models.length,
+            );
+            const onlineLabel = t(cliProviderOnlineStatusLabelKey(onlineStatus));
             const notice = refreshNotice?.providerId === provider.id ? refreshNotice : null;
-            const launchCommand =
-              status && adapter
-                ? formatLaunchCommand(status)
-                : provider.binary
-                  ? [provider.binary, ...(provider.args ?? [])].filter(Boolean).join(" ")
-                  : null;
 
             return (
               <li
@@ -212,7 +222,9 @@ export function AgentsSection() {
                         onClick={() => {
                           const willExpand = !isExpanded;
                           toggleExpanded(provider.id);
-                          if (willExpand && installed) void refreshModels(provider.id);
+                          if (willExpand && installed) {
+                            void refreshModels(provider.id).catch(() => undefined);
+                          }
                         }}
                       >
                         {isExpanded ? "▾" : "▸"}
@@ -222,8 +234,19 @@ export function AgentsSection() {
                     )}
                     <div className="ai-provider-summary">
                       <div className="ai-provider-title-row">
+                        <StatusDot
+                          status={onlineStatus}
+                          size="sm"
+                          title={onlineLabel}
+                          label={onlineLabel}
+                        />
                         <span className="ai-provider-name">
                           {adapter ? t(adapter.nameKey) : provider.displayName}
+                        </span>
+                        <span
+                          className={`ai-provider-online-tag ai-provider-online-tag--${onlineStatus}`}
+                        >
+                          {onlineLabel}
                         </span>
                         <span
                           className={`ai-model-row-standard ai-model-row-standard-${protocolBadgeClass(provider.protocol)}`}
@@ -249,14 +272,6 @@ export function AgentsSection() {
                         )}
                       </div>
                       <div className="ai-model-row-meta">
-                        {launchCommand ? (
-                          <span className="ai-model-row-baseurl" title={launchCommand}>
-                            {launchCommand}
-                          </span>
-                        ) : (
-                          <span className="ai-model-row-baseurl">{t("settings.cliProviders.notFound")}</span>
-                        )}
-                        <span className="ai-model-row-sep">·</span>
                         <span className="ai-model-row-key">
                           {installed
                             ? t("settings.cliProviders.installed")

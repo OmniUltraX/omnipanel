@@ -1263,6 +1263,18 @@ export const commands = {
 	aiModelsFetchList: (baseUrl: string, apiKey: string, apiStandard: string | null) => typedError<FetchedProviderModel_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("ai_models_fetch_list", { baseUrl, apiKey, apiStandard })),
 	/**  检测本机是否已安装 OpenCode CLI。 */
 	detectOpencodeInstall: () => typedError<OpenCodeInstallStatus, OmniError_Serialize>(__TAURI_INVOKE("detect_opencode_install")),
+	/**  确保 OpenCode HTTP 服务可用。 */
+	opencodeEnsureService: () => typedError<null, string>(__TAURI_INVOKE("opencode_ensure_service")),
+	/**  停止 OmniPanel 拉起的 `opencode serve`。 */
+	opencodeStopService: () => typedError<null, string>(__TAURI_INVOKE("opencode_stop_service")),
+	/**  列出 OpenCode 会话。 */
+	opencodeListSessions: () => typedError<OpenCodeSessionDto[], string>(__TAURI_INVOKE("opencode_list_sessions")),
+	/**  新建 OpenCode 会话。`model` 形如 `providerID/modelID`。 */
+	opencodeCreateSession: (directory: string | null, model: string | null) => typedError<OpenCodeSessionDto, string>(__TAURI_INVOKE("opencode_create_session", { directory, model })),
+	/**  删除 OpenCode 会话。 */
+	opencodeDeleteSession: (sessionId: string) => typedError<null, string>(__TAURI_INVOKE("opencode_delete_session", { sessionId })),
+	/**  拉取 OpenCode 会话消息（旧→新）。 */
+	opencodeGetMessages: (sessionId: string) => typedError<OpenCodeMessageDto[], string>(__TAURI_INVOKE("opencode_get_messages", { sessionId })),
 	/**  检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。 */
 	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
@@ -4837,6 +4849,21 @@ export type OpenCodeInstallStatus = {
 	executablePath: string | null,
 	/**  `opencode --version` 输出（若可用）。 */
 	version: string | null,
+};
+
+export type OpenCodeSessionDto = {
+	id: string,
+	title: string,
+	updatedAt: number,
+	directory: string | null,
+};
+
+export type OpenCodeMessageDto = {
+	id: string,
+	role: string,
+	content: string,
+	reasoning: string | null,
+	createdAt: number,
 };
 
 export type PairingKeypairResult = {

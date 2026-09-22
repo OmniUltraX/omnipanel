@@ -4,6 +4,7 @@ import { Select } from "../../ui/form/Select";
 import { useI18n } from "../../../i18n";
 import { commands, type SkillRecord } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
+import { useActiveAgentAdapter } from "../../../lib/ai/agentAdapters";
 import { useAiStore } from "../../../stores/aiStore";
 
 const NONE_VALUE = "";
@@ -11,6 +12,7 @@ const NONE_VALUE = "";
 /** 输入区：当前会话（或无会话时的草稿）Skills 单选 */
 export function AiConversationSkillSelect() {
   const { t } = useI18n();
+  const agentAdapter = useActiveAgentAdapter();
   const activeConversationId = useAiStore((s) => s.activeConversationId);
   const activeConversation = useAiStore((s) =>
     s.conversations.find((c) => c.id === s.activeConversationId),
@@ -23,6 +25,7 @@ export function AiConversationSkillSelect() {
   const [skills, setSkills] = useState<SkillRecord[]>([]);
 
   useEffect(() => {
+    if (agentAdapter) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -36,7 +39,7 @@ export function AiConversationSkillSelect() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [agentAdapter]);
 
   const options = useMemo(
     () => [
@@ -63,6 +66,7 @@ export function AiConversationSkillSelect() {
 
   // 历史多选 → 单选（只保留第一个有效 Skill）
   useEffect(() => {
+    if (agentAdapter) return;
     if (rawSkillIds.length <= 1) return;
     const allowed = new Set(skills.map((s) => s.id));
     const first = rawSkillIds.find((id) => allowed.has(id));
@@ -74,11 +78,15 @@ export function AiConversationSkillSelect() {
     }
   }, [
     activeConversationId,
+    agentAdapter,
     rawSkillIds,
     setConversationSkillIds,
     setDraftSkillIds,
     skills,
   ]);
+
+  // 智能体适配模式：Skills 由智能体自管，隐藏本控件
+  if (agentAdapter) return null;
 
   const handleChange = (next: string) => {
     const ids = next ? [next] : [];

@@ -528,13 +528,8 @@ fn invalidate_model_cache(provider_id: &str) {
 
 pub fn provider_list_models(provider_id: &str) -> Result<Vec<String>, String> {
     let key = provider_id.trim().to_lowercase();
-    {
-        let cache = MODEL_CACHE.lock().map_err(|e| e.to_string())?;
-        if let Some(entry) = cache.get(&key) {
-            if entry.expires > Instant::now() {
-                return Ok(entry.models.clone());
-            }
-        }
+    if let Some(cached) = read_model_cache(&key) {
+        return Ok(cached);
     }
 
     let providers = cli_provider_list()?;
@@ -544,8 +539,10 @@ pub fn provider_list_models(provider_id: &str) -> Result<Vec<String>, String> {
         .ok_or_else(|| format!("未找到 CLI 提供者: {key}"))?;
 
     let mut models = if key == "opencode" {
-        let binary = provider.binary.as_ref().map(std::path::PathBuf::from);
-        discover_opencode_models_http(binary.as_deref())?
+        return Err(
+            "OpenCode 模型发现须走 async 路径（provider_list_models_cmd）；勿在 Tokio worker 上同步 block_on"
+                .to_string(),
+        );
     } else if let Some(cmd) = provider.model_discovery_command.as_deref() {
         discover_models_cmd(cmd, &provider.model_discovery_args)?
     } else if !provider.static_models.is_empty() {
@@ -562,32 +559,54 @@ pub fn provider_list_models(provider_id: &str) -> Result<Vec<String>, String> {
         ));
     };
 
-    for manual in &provider.manual_model_names {
-        if !models.iter().any(|m| m == manual) {
-            models.push(manual.clone());
+    models = merge_manual_models(models, &provider.manual_model_names);
+    store_model_cache(&key, &models);
+    Ok(models)
+}
+
+fn read_model_cache(key: &str) -> Option<Vec<String>> {
+    let cache = MODEL_CACHE.lock().ok()?;
+    let entry = cache.get(key)?;
+    if entry.expires > Instant::now() {
+        Some(entry.models.clone())
+    } else {
+        None
+    }
+}
+
+fn merge_manual_models(mut models: Vec<String>, manual: &[String]) -> Vec<String> {
+    for name in manual {
+        if !models.iter().any(|m| m == name) {
+            models.push(name.clone());
         }
     }
     models.sort();
+    models
+}
 
+fn store_model_cache(key: &str, models: &[String]) {
     if let Ok(mut cache) = MODEL_CACHE.lock() {
         cache.insert(
-            key,
+            key.to_string(),
             ModelCacheEntry {
-                models: models.clone(),
+                models: models.to_vec(),
                 expires: Instant::now() + MODEL_CACHE_TTL,
             },
         );
     }
-    Ok(models)
 }
 
-fn discover_opencode_models_http(binary: Option<&std::path::Path>) -> Result<Vec<String>, String> {
-    // 本函数在 spawn_blocking 中调用；自建 current-thread runtime 跑 async HTTP。
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("创建 OpenCode 发现 runtime 失败: {e}"))?;
-    rt.block_on(omnipanel_ai::providers::opencode::list_opencode_models(binary))
+async fn provider_list_models_opencode(provider: &CliProviderRecord) -> Result<Vec<String>, String> {
+    let binary = provider.binary.as_ref().map(std::path::PathBuf::from);
+    eprintln!(
+        "[opencode] provider_list_models_opencode: binary={:?}",
+        binary.as_ref().map(|p| p.display().to_string())
+    );
+    let mut models =
+        omnipanel_ai::providers::opencode::list_opencode_models(binary.as_deref()).await?;
+    models = merge_manual_models(models, &provider.manual_model_names);
+    store_model_cache("opencode", &models);
+    Ok(models)
 }
 
 fn spawn_model_discovery(command: &str, args: &[String]) -> Result<std::process::Output, String> {
@@ -800,7 +819,45 @@ pub async fn provider_list_models_cmd(
     _state: State<'_, AppState>,
     provider_id: String,
 ) -> Result<Vec<String>, String> {
-    provider_list_models(&provider_id)
+    let key = provider_id.trim().to_lowercase();
+    eprintln!("[opencode] provider_list_models_cmd: begin id={key}");
+
+    if let Some(cached) = read_model_cache(&key) {
+        eprintln!("[opencode] provider_list_models_cmd: cache hit count={}", cached.len());
+        return Ok(cached);
+    }
+
+    let started = std::time::Instant::now();
+
+    // OpenCode：纯 async，避免 spawn_blocking + 嵌套 runtime 在 Tauri 里卡住
+    if key == "opencode" {
+        let providers = cli_provider_list()?;
+        let provider = providers
+            .iter()
+            .find(|p| p.id == key)
+            .ok_or_else(|| format!("未找到 CLI 提供者: {key}"))?;
+        let result = provider_list_models_opencode(provider).await;
+        eprintln!(
+            "[opencode] provider_list_models_cmd: async done elapsed={:?} ok={}",
+            started.elapsed(),
+            result.is_ok()
+        );
+        if let Err(ref e) = result {
+            eprintln!("[opencode] provider_list_models_cmd: error={e}");
+        }
+        return result;
+    }
+
+    let pid = provider_id.clone();
+    let result = tokio::task::spawn_blocking(move || provider_list_models(&pid))
+        .await
+        .map_err(|e| format!("模型发现任务失败: {e}"))?;
+    eprintln!(
+        "[opencode] provider_list_models_cmd: blocking done elapsed={:?} ok={}",
+        started.elapsed(),
+        result.is_ok()
+    );
+    result
 }
 
 #[tauri::command]

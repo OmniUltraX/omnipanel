@@ -55,14 +55,20 @@ fn push_opencode_package_bins(
     seen: &mut std::collections::HashSet<PathBuf>,
     node_prefix: &std::path::Path,
 ) {
-    let bin_dir = node_prefix.join("node_modules/opencode-ai/bin");
-    #[cfg(windows)]
-    {
-        push_candidate(candidates, seen, bin_dir.join("opencode.exe"));
-    }
-    #[cfg(not(windows))]
-    {
-        push_candidate(candidates, seen, bin_dir.join("opencode"));
+    // 现行包名 @opencode/cli；历史包名 opencode-ai
+    let package_bins = [
+        node_prefix.join("node_modules/@opencode/cli/bin"),
+        node_prefix.join("node_modules/opencode-ai/bin"),
+    ];
+    for bin_dir in package_bins {
+        #[cfg(windows)]
+        {
+            push_candidate(candidates, seen, bin_dir.join("opencode.exe"));
+        }
+        #[cfg(not(windows))]
+        {
+            push_candidate(candidates, seen, bin_dir.join("opencode"));
+        }
     }
 }
 
@@ -73,8 +79,9 @@ fn push_opencode_prefix(
 ) {
     #[cfg(windows)]
     {
-        push_candidate(candidates, seen, prefix.join("opencode.cmd"));
+        // 优先真实 .exe，避免 .cmd/.ps1 弹控制台
         push_candidate(candidates, seen, prefix.join("opencode.exe"));
+        push_candidate(candidates, seen, prefix.join("opencode.cmd"));
     }
     push_candidate(candidates, seen, prefix.join("opencode"));
     push_opencode_package_bins(candidates, seen, &prefix);

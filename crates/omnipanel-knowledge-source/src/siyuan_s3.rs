@@ -100,6 +100,7 @@ pub struct DejavuIndex {
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct DejavuFile {
     #[serde(default)]
+    #[allow(dead_code)]
     id: String,
     #[serde(default)]
     path: String,

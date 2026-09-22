@@ -55,7 +55,7 @@ export function ResizableSidePanel({
 
   return (
     <div
-      className="relative flex shrink-0"
+      className="relative flex shrink-0 self-stretch min-h-0"
       style={{ width: open ? width : 0, overflow: open ? undefined : "hidden" }}
     >
       <div
@@ -76,7 +76,7 @@ export function ResizableSidePanel({
           }}
         />
       </div>
-      <div className="min-w-0 flex-1 overflow-hidden">{children}</div>
+      <div className="min-w-0 min-h-0 flex-1 overflow-hidden flex flex-col h-full">{children}</div>
     </div>
   );
 }

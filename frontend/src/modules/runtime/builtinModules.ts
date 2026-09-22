@@ -5,7 +5,7 @@ import { createTerminalSessionService } from "../terminal/terminalSessionService
 import { createSshSessionService } from "../server/ssh/sshSessionService";
 import { createDockerSessionService } from "../docker/dockerSessionService";
 import { createDatabaseSessionService } from "../database/databaseSessionService";
-import { registerModule } from "./registry";
+import { registerModule, getModule } from "./registry";
 import { ensureSessionService } from "./sessionServices";
 import type { ModuleDescriptor } from "./types";
 
@@ -137,6 +137,11 @@ function overlayDescriptor(spec: OverlayBuiltinSpec): ModuleDescriptor {
 /** 幂等注册内建模块；App / ModuleHost 启动时调用 */
 export function ensureBuiltinModulesRegistered(): void {
   if (builtinsRegistered) return;
+  // HMR 后本模块标志会重置，但 registry Map 可能仍在 → 勿重复打一遍
+  if (getModule("dashboard")) {
+    builtinsRegistered = true;
+    return;
+  }
   registerModule(dashboardDescriptor());
   for (const spec of OVERLAY_BUILTINS) {
     registerModule(overlayDescriptor(spec));

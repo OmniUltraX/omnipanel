@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appConfirm } from "../../lib/appConfirm";
 import { useTerminalHistoryStore } from "../../stores/terminalHistoryStore";
@@ -37,6 +37,7 @@ import {
   type TerminalDefaultInputMode,
   type TerminalTmuxMode,
 } from "../../stores/settingsStore";
+import { useSettingsUiStore } from "../../stores/settingsUiStore";
 import { ProtocolLabSettingsSection } from "../../components/settings/ProtocolLabSettingsSection";
 import { KnowledgeEmbeddingModelSelect } from "../../components/knowledge/KnowledgeEmbeddingModelSelect";
 import {
@@ -537,7 +538,9 @@ function AiSection() {
 
 export function SettingsPanel() {
   const { t } = useI18n();
-  const [activeSection, setActiveSection] = useState<Section>("general");
+  const [activeSection, setActiveSection] = useState<Section>(
+    () => (useSettingsUiStore.getState().section as Section) || "general",
+  );
   const [openGroups, setOpenGroups] = useState<Record<NavGroupId, boolean>>(() => ({
     general: true,
     ai: true,
@@ -546,9 +549,22 @@ export function SettingsPanel() {
 
   const selectSection = useCallback((section: Section) => {
     setActiveSection(section);
+    useSettingsUiStore.getState().setSection(section);
     const groupId = navGroupIdForSection(section);
     setOpenGroups((prev) => (prev[groupId] ? prev : { ...prev, [groupId]: true }));
   }, []);
+
+  const settingsOpen = useSettingsUiStore((s) => s.open);
+  const storeSection = useSettingsUiStore((s) => s.section);
+
+  // store.section 为事实源：打开时带分区 / StrictMode 重挂载都能落到正确页
+  useLayoutEffect(() => {
+    if (!settingsOpen) return;
+    const next = storeSection as Section;
+    setActiveSection(next);
+    const groupId = navGroupIdForSection(next);
+    setOpenGroups((prev) => (prev[groupId] ? prev : { ...prev, [groupId]: true }));
+  }, [settingsOpen, storeSection]);
 
   const toggleGroup = useCallback((groupId: NavGroupId) => {
     setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));

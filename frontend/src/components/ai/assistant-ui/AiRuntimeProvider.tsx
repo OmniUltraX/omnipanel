@@ -11,7 +11,14 @@ import type { AcpStreamEvent } from "../../../lib/acp/acpStream";
 import { respondAcpPermission } from "../../../lib/acp/acpStream";
 import { commands } from "../../../ipc/bindings";
 import { canAutoAllowAcp } from "../../../lib/ai/toolGate";
-import { resolveBackendFromSelection } from "../../../lib/ai/inferenceBackend";
+import { resolveBackendFromSelection, parseOpenCodeBackendId } from "../../../lib/ai/inferenceBackend";
+import { resolveActiveAgentAdapter, isAgentSessionId } from "../../../lib/ai/agentAdapters";
+import {
+  createAgentSession,
+  leaveAgentSessionMode,
+  refreshAgentSessions,
+  selectAgentSession,
+} from "../../../lib/ai/agentAdapters/sessionActions";
 import { runInternalAiChat, type InternalStreamEvent } from "../../../lib/ai/orchestrator";
 import {
   appendChatOssEvent,
@@ -25,6 +32,7 @@ import { resolveConversationModelSelectionId } from "../../../lib/aiScenarioMode
 import { resolveTerminalModelSelectionId } from "../../../lib/terminalScenarioModels";
 import { useAiModelsStore } from "../../../stores/aiModelsStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { useCliProvidersStore } from "../../../stores/cliProvidersStore";
 import { useTerminalStore, findTerminalPane } from "../../../stores/terminalStore";
 import { registerAiPromptSubmit, type InlineTerminalAiTarget, AiPromptBusyError } from "../../../lib/ai/submitAiPrompt";
 import { registerAiGenerationCancel } from "../../../lib/ai/cancelAiGeneration";
@@ -432,6 +440,27 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
   const toolMetaRef = useRef(new Map<string, { name: string; args: string }>());
   const pendingToolBridgeRef = useRef(new Set<string>());
   const waitingToolDispatchRef = useRef(new Set<string>());
+
+  // OpenCode：启用时拉一次会话；服务应已在启用时 start 过
+  const opencodeEnabled = useCliProvidersStore((s) =>
+    s.providers.some((p) => p.id === "opencode" && p.enabled),
+  );
+  useEffect(() => {
+    if (!opencodeEnabled) {
+      leaveAgentSessionMode();
+      return;
+    }
+    const adapter = resolveActiveAgentAdapter();
+    if (!adapter) return;
+    void (async () => {
+      try {
+        await adapter.ensureService();
+      } catch {
+        // 启动失败时仍尝试列会话（可能已有外部 serve）
+      }
+      await refreshAgentSessions(adapter);
+    })();
+  }, [opencodeEnabled]);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
   // 子会话视图模式下，Thread 展示子会话消息；否则展示主会话消息
@@ -870,6 +899,9 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             .setConversationAgentId(convId, agentRuntime.agentId);
         }
 
+        const agentAdapter = resolveActiveAgentAdapter();
+        const agentOwned = !!agentAdapter || isAgentSessionId(convId);
+
         await runInternalAiChat({
           request: {
             conversationId: convId,
@@ -877,23 +909,28 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
             backendId: backend.backendId,
             httpProvider: null,
             context: aiContext,
-            historyJson: inline
-              ? await buildInlineAiHistoryJson(inline.blockId, {
-                  excludeLatestUser: true,
-                  sessionId: inline.sessionId,
-                })
-              : buildHistoryJson(convId),
-            toolsMode: agentRuntime.toolsMode,
-            agentId: agentRuntime.agentId,
-            agentSystemRole: agentRuntime.systemRole,
+            // 智能体自管上下文，不传本地 history
+            historyJson: agentOwned
+              ? null
+              : inline
+                ? await buildInlineAiHistoryJson(inline.blockId, {
+                    excludeLatestUser: true,
+                    sessionId: inline.sessionId,
+                  })
+                : buildHistoryJson(convId),
+            toolsMode: agentOwned ? "none" : agentRuntime.toolsMode,
+            agentId: agentOwned ? null : agentRuntime.agentId,
+            agentSystemRole: agentOwned ? null : agentRuntime.systemRole,
             // 知识库 RAG：按 Agent 策略；CLI 路径也允许注入
-            embeddingProvider: agentRuntime.allowRag
-              ? resolveKnowledgeEmbeddingProviderForRag()
-              : null,
-            skillIds: agentRuntime.allowSkills
-              ? conversation?.selectedSkillIds ??
-                useAiStore.getState().currentSkillIds
-              : null,
+            embeddingProvider:
+              agentOwned || !agentRuntime.allowRag
+                ? null
+                : resolveKnowledgeEmbeddingProviderForRag(),
+            skillIds:
+              agentOwned || !agentRuntime.allowSkills
+                ? null
+                : conversation?.selectedSkillIds ??
+                  useAiStore.getState().currentSkillIds,
             reasoningEffort: useAiStore.getState().reasoningEffort,
           },
           signal,
@@ -916,6 +953,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
           },
         });
       finishGeneration();
+      // 智能体会话：回合结束后与权威历史对齐
+      if (agentOwned && agentAdapter && isAgentSessionId(convId)) {
+        void selectAgentSession(agentAdapter, convId);
+      }
     } catch (err) {
       batcher.flushNow();
       if (inline) {
@@ -1001,7 +1042,25 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
     const wantedId = String(options?.conversationId || "").trim();
     let convId: string | null = null;
-    if (wantedId) {
+    const agentAdapter = resolveActiveAgentAdapter();
+
+    if (agentAdapter && !wantedId) {
+      // OpenCode 等：会话由智能体管理
+      const active = useAiStore.getState().activeConversationId;
+      if (options?.newConversation || !active || !isAgentSessionId(active)) {
+        const selection =
+          useAiStore.getState().currentModelSelectionId ||
+          useAiStore
+            .getState()
+            .conversations.find((c) => c.id === active)?.modelSelectionId ||
+          null;
+        const parsed = selection ? parseOpenCodeBackendId(selection) : null;
+        const model = parsed ? `${parsed.providerId}/${parsed.modelId}` : null;
+        convId = await createAgentSession(agentAdapter, { model });
+      } else {
+        convId = active;
+      }
+    } else if (wantedId) {
       // 助手端入站：强制投递到指定会话（已有则切过去，没有则按该 id 建）
       convId = useAiStore.getState().ensureConversationId(wantedId, {
         agentId: ASSISTANT_PAGE_AGENT_ID,

@@ -9147,6 +9147,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .ai-session-list-inner--compact .ai-session-list-body {
         max-height: 300px;
+        overflow-y: auto;
     }
 
     .ai-conversation-title {
@@ -11022,23 +11023,6 @@ button.omni-btn-tool[aria-pressed="true"] {
         gap: var(--sp-1);
     }
 
-    .statusbar-agent--disabled {
-        opacity: 0.65;
-        cursor: default;
-    }
-
-    .statusbar-agent--connected {
-        color: var(--fg);
-    }
-
-    .statusbar-agent--busy {
-        cursor: wait;
-    }
-
-    .statusbar-agent--error {
-        color: var(--danger);
-    }
-
     .statusbar-agent__name {
         font-weight: 600;
         color: var(--fg);
@@ -11050,15 +11034,24 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: var(--meta);
-    }
-
-    .statusbar-agent--connected .statusbar-agent__status {
         color: var(--fg-2);
     }
 
-    .statusbar-agent--error .statusbar-agent__status {
+    .statusbar-agent--online .statusbar-agent__status {
+        color: var(--success);
+    }
+
+    .statusbar-agent--connecting .statusbar-agent__status {
+        color: var(--warn);
+    }
+
+    .statusbar-agent--offline .statusbar-agent__status {
         color: var(--danger);
+    }
+
+    .statusbar-agent--idle .statusbar-agent__status,
+    .statusbar-agent--empty .statusbar-agent__status {
+        color: var(--meta, var(--fg-3));
     }
 
     /* 鈹€鈹€鈹€ 宸ヤ綔鍖哄脊灞?(WorkspacePopover) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
@@ -15922,11 +15915,23 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-width: 0;
         background: var(--bg-deeper);
         border-right: 1px solid var(--border);
+        overflow: hidden;
     }
 
     .ai-session-list--right {
         border-right: none;
         border-left: 1px solid var(--border);
+    }
+
+    /* 填满侧栏/下拉高度，让 body 成为唯一滚动容器 */
+    .ai-session-list-inner {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+        min-width: 0;
+        height: 100%;
+        overflow: hidden;
     }
 
     .ai-session-list-header {
@@ -15959,11 +15964,39 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--fg);
     }
 
+    .ai-session-list-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+    }
+
+    .ai-session-list-clear {
+        flex-shrink: 0;
+        color: var(--muted);
+    }
+
+    .ai-session-list-clear:hover:not(:disabled) {
+        color: var(--danger);
+    }
+
+    .ai-session-list-clear .ai-session-row-spinner {
+        width: 14px;
+        height: 14px;
+        margin-top: 0;
+    }
+
+    .ai-session-list-clear .ai-session-row-spinner__dot {
+        width: 12px;
+        height: 12px;
+    }
+
     .ai-session-list-body {
-        flex: 1;
+        flex: 1 1 auto;
         min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
+        overscroll-behavior: contain;
         padding: var(--sp-2);
         display: flex;
         flex-direction: column;
@@ -16063,6 +16096,70 @@ button.omni-btn-tool[aria-pressed="true"] {
     .ai-session-row-delete.disabled {
         pointer-events: none;
         opacity: 0.35;
+    }
+
+    .ai-session-row.is-busy {
+        pointer-events: none;
+        color: var(--fg);
+    }
+
+    .ai-session-row.is-dimmed {
+        opacity: 0.45;
+        pointer-events: none;
+    }
+
+    .ai-session-list-body.is-busy {
+        cursor: wait;
+    }
+
+    .ai-session-row-spinner {
+        width: 22px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        margin-top: 1px;
+    }
+
+    .ai-session-row-spinner__dot {
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid var(--border);
+        border-top-color: var(--accent, var(--fg));
+        border-radius: 50%;
+        animation: ai-session-spin 0.7s linear infinite;
+    }
+
+    .ai-session-thread-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 4;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: color-mix(in srgb, var(--bg) 72%, transparent);
+        backdrop-filter: blur(1px);
+        color: var(--meta);
+        font-size: 12px;
+        pointer-events: all;
+    }
+
+    .ai-session-thread-loading__spinner {
+        width: 22px;
+        height: 22px;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent, var(--fg));
+        border-radius: 50%;
+        animation: ai-session-spin 0.7s linear infinite;
+    }
+
+    @keyframes ai-session-spin {
+        to {
+            transform: rotate(360deg);
+        }
     }
 
     /* AI 鍘嗗彶浼氳瘽鎸夐挳锛堝祵鍏?chat pane 鍙充笂瑙掞級 */
@@ -19833,6 +19930,36 @@ button.omni-btn-tool[aria-pressed="true"] {
         gap: var(--sp-2);
         min-width: 0;
         flex-wrap: wrap;
+    }
+
+    .ai-provider-online-tag {
+        flex-shrink: 0;
+        font-size: 10px;
+        line-height: 1;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        color: var(--meta);
+        background: transparent;
+    }
+
+    .ai-provider-online-tag--online {
+        color: var(--success);
+        border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+    }
+
+    .ai-provider-online-tag--connecting {
+        color: var(--warn);
+        border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+    }
+
+    .ai-provider-online-tag--offline {
+        color: var(--danger);
+        border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+    }
+
+    .ai-provider-online-tag--idle {
+        color: var(--meta);
     }
 
     .ai-provider-name {

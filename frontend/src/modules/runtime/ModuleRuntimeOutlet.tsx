@@ -35,15 +35,12 @@ import { useWorkspaceBottomDockStore } from "../../stores/workspaceBottomDockSto
 import { useSettingsStore } from "../../stores/settingsStore";
 import { prepareModuleLocale } from "../../i18n";
 import { ModuleHost } from "./ModuleHost";
-import { ensureBuiltinModulesRegistered } from "./builtinModules";
 import { notifyModuleEvicted } from "./sessionServices";
 import { noteRouteLayoutCommit, recordRouteSwitch } from "../../lib/moduleSwitchPerf";
 import {
   listShellWarmRequested,
   subscribeModuleShellWarm,
 } from "../../lib/moduleWarmup";
-
-ensureBuiltinModulesRegistered();
 
 /**
  * 叠层保活 + ModuleHost + shell Routes。

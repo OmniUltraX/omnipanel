@@ -1148,8 +1148,12 @@ export const useAiStore = create<AiStore>()(
         return next;
       },
       partialize: (state) => ({
-        conversations: state.conversations,
-        activeConversationId: state.activeConversationId,
+        // OpenCode ses_* 会话由智能体自管，不落本地持久化
+        conversations: state.conversations.filter((c) => !c.id.startsWith("ses_")),
+        activeConversationId:
+          state.activeConversationId && state.activeConversationId.startsWith("ses_")
+            ? null
+            : state.activeConversationId,
         currentProvider: state.currentProvider,
         currentModel: state.currentModel,
         currentModelSelectionId: state.currentModelSelectionId,

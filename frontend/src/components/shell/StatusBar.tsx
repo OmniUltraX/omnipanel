@@ -18,7 +18,7 @@ import { useI18n } from "../../i18n";
 import { ConnectionPoolIndicator } from "./ConnectionPoolIndicator";
 import { BackgroundTasksWindow } from "./BackgroundTasksWindow";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
-import { StatusBarAiServicesIndicator } from "./StatusBarAiServicesIndicator";
+import { StatusBarAgentIndicator } from "./StatusBarAgentIndicator";
 import { StatusBarActionBar } from "./StatusBarActionBar";
 import { StatusBarInfoBar } from "./StatusBarInfoBar";
 import { useActionDraftStore } from "../../stores/actionDraftStore";
@@ -359,7 +359,7 @@ export function StatusBar() {
         <span className="statusbar-item">GPU: wgpu</span>
         <span className="statusbar-item">UTF-8</span>
         <span className="statusbar-item">LF</span>
-        <StatusBarAiServicesIndicator />
+        <StatusBarAgentIndicator />
         {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
       </div>
     );
@@ -375,7 +375,7 @@ export function StatusBar() {
       <span className="statusbar-spacer" />
       <StatusBarInfoBar />
       <StatusBarActionBar />
-      <StatusBarAiServicesIndicator />
+      <StatusBarAgentIndicator />
       {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
     </div>
   );

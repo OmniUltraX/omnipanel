@@ -13,6 +13,9 @@ import { canUseAiBackend } from "../lib/isTauriRuntime";
 
 import { useAcpServicesStore } from "./acpServicesStore";
 
+/** 智能体左侧在线状态：OpenCode 指 HTTP serve；其它 ACP 指已启用且已安装。 */
+export type CliProviderOnlineStatus = "online" | "connecting" | "offline" | "idle";
+
 
 
 interface CliProvidersState {
@@ -28,6 +31,9 @@ interface CliProvidersState {
   error: string | null;
 
   refreshingModelIds: Record<string, boolean>;
+
+  /** 运行时探活结果，不持久化 */
+  onlineStatusById: Record<string, CliProviderOnlineStatus>;
 
   syncProviders: (options?: { forceModels?: boolean }) => Promise<void>;
 
@@ -77,6 +83,78 @@ function syncAcpEnabled(id: string, enabled: boolean) {
 
   });
 
+}
+
+/** 非 OpenCode：启用且已安装即视为在线；OpenCode 需等模型发现/探活结果。 */
+function deriveBaselineOnline(
+  provider: CliProviderRecord,
+  installed: boolean,
+): CliProviderOnlineStatus {
+  if (!installed) return "offline";
+  if (!provider.enabled) return "idle";
+  if (provider.id === "opencode") return "connecting";
+  return "online";
+}
+
+/**
+ * 与设置页 Agents 列表同一套在线态推导。
+ * 优先级：未安装 → 刷新中 → store 探活 → 未启用 → OpenCode 有模型缓存视为在线。
+ */
+export function resolveAgentOnlineStatus(
+  providerId: string,
+  installed: boolean,
+  enabled: boolean,
+  stored: CliProviderOnlineStatus | undefined,
+  refreshing: boolean,
+  modelCount: number,
+): CliProviderOnlineStatus {
+  if (!installed) return "offline";
+  if (refreshing) return "connecting";
+  if (stored) return stored;
+  if (!enabled) return "idle";
+  // 已有模型缓存视为在线，避免 stored 未写入时 OpenCode 永久「连接中」
+  if (providerId === "opencode" && modelCount > 0) return "online";
+  return providerId === "opencode" ? "connecting" : "online";
+}
+
+export function cliProviderOnlineStatusLabelKey(status: CliProviderOnlineStatus): string {
+  switch (status) {
+    case "online":
+      return "settings.cliProviders.online";
+    case "connecting":
+      return "settings.cliProviders.connecting";
+    case "offline":
+      return "settings.cliProviders.offline";
+    default:
+      return "settings.cliProviders.idle";
+  }
+}
+
+function opencodeDbg(...args: unknown[]) {
+  // 调试「连接中」卡住：DevTools Console 过滤 `[opencode-online]`
+  console.info("[opencode-online]", new Date().toISOString(), ...args);
+}
+
+const OPENCODE_IPC_TIMEOUT_MS = 45_000;
+
+/** 同一 provider 的 refreshModels 去重，避免设置页/选择器/启用 连环打 ensure+/model */
+const refreshModelsInflight = new Map<string, Promise<string[]>>();
+
+function withIpcTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `${label} 超时（${ms / 1000}s）；请查看 %TEMP%\\omnipanel-opencode-debug.log 与终端 [opencode] 日志`,
+            ),
+          ),
+        ms,
+      );
+    }),
+  ]);
 }
 
 
@@ -155,6 +233,8 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
       refreshingModelIds: {},
 
+      onlineStatusById: {},
+
 
 
       clearError: () => set({ error: null }),
@@ -183,12 +263,22 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
           if (res.status === "ok") {
             // 以后端列表为准（含互斥收敛），避免 localStorage 快照盖住 enabled
-            set({ providers: res.data });
+            const baseline: Record<string, CliProviderOnlineStatus> = {};
+            for (const p of res.data) {
+              const installed = Boolean(p.binary?.trim());
+              baseline[p.id] = deriveBaselineOnline(p, installed);
+            }
+            set({ providers: res.data, onlineStatusById: { ...get().onlineStatusById, ...baseline } });
+            opencodeDbg("syncProviders:baseline", baseline);
 
             const toRefresh = res.data.filter(
 
               (p) => p.enabled && Boolean(p.binary?.trim()) && (options?.forceModels || !get().modelCache[p.id]?.length),
 
+            );
+            opencodeDbg(
+              "syncProviders:toRefresh",
+              toRefresh.map((p) => p.id),
             );
 
             await Promise.all(
@@ -229,29 +319,50 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
         if (!canUseAiBackend()) return get().modelCache[providerId] ?? [];
 
-        if (!options?.silent) {
-
-          set({
-
-            refreshingModelIds: { ...get().refreshingModelIds, [providerId]: true },
-
-            error: null,
-
-          });
-
+        const existing = refreshModelsInflight.get(providerId);
+        if (existing) {
+          opencodeDbg("refreshModels:reuse-inflight", { providerId });
+          return existing;
         }
+
+        const silent = Boolean(options?.silent);
+        const t0 = performance.now();
+        opencodeDbg("refreshModels:begin", { providerId, silent, prevOnline: get().onlineStatusById[providerId] });
+
+        const run = (async (): Promise<string[]> => {
+        set({
+          onlineStatusById: { ...get().onlineStatusById, [providerId]: "connecting" },
+          ...(silent
+            ? {}
+            : {
+                refreshingModelIds: { ...get().refreshingModelIds, [providerId]: true },
+                error: null,
+              }),
+        });
 
         try {
 
-          const res = await commands.providerListModelsCmd(providerId);
+          const ipcPromise = commands.providerListModelsCmd(providerId);
+          const res = await (providerId === "opencode"
+            ? withIpcTimeout(ipcPromise, OPENCODE_IPC_TIMEOUT_MS, "OpenCode 模型发现")
+            : ipcPromise);
+          opencodeDbg("refreshModels:ipc", {
+            providerId,
+            status: res.status,
+            elapsedMs: Math.round(performance.now() - t0),
+            count: res.status === "ok" ? res.data.length : undefined,
+            error: res.status === "ok" ? undefined : (res as { error?: unknown }).error,
+          });
 
           if (res.status === "ok") {
 
             set({
 
               modelCache: { ...get().modelCache, [providerId]: res.data },
+              onlineStatusById: { ...get().onlineStatusById, [providerId]: "online" },
 
             });
+            opencodeDbg("refreshModels:online", { providerId, count: res.data.length });
 
             return res.data;
 
@@ -265,18 +376,22 @@ export const useCliProvidersStore = create<CliProvidersState>()(
         } catch (e) {
 
           const message = e instanceof Error ? e.message : String(e);
+          opencodeDbg("refreshModels:offline", {
+            providerId,
+            elapsedMs: Math.round(performance.now() - t0),
+            message,
+          });
 
-          if (!options?.silent) {
-
-            set({ error: message });
-
-          }
+          set({
+            onlineStatusById: { ...get().onlineStatusById, [providerId]: "offline" },
+            ...(silent ? {} : { error: message }),
+          });
 
           throw e;
 
         } finally {
 
-          if (!options?.silent) {
+          if (!silent) {
 
             const next = { ...get().refreshingModelIds };
 
@@ -285,7 +400,20 @@ export const useCliProvidersStore = create<CliProvidersState>()(
             set({ refreshingModelIds: next });
 
           }
+          opencodeDbg("refreshModels:finally", {
+            providerId,
+            online: get().onlineStatusById[providerId],
+            elapsedMs: Math.round(performance.now() - t0),
+          });
 
+        }
+        })();
+
+        refreshModelsInflight.set(providerId, run);
+        try {
+          return await run;
+        } finally {
+          refreshModelsInflight.delete(providerId);
         }
 
       },
@@ -295,6 +423,7 @@ export const useCliProvidersStore = create<CliProvidersState>()(
       setProviderEnabled: async (id, enabled) => {
         if (!canUseAiBackend()) return false;
         const snapshot = get().providers;
+        const onlineSnapshot = get().onlineStatusById;
         const prev = snapshot.find((p) => p.id === id);
         if (!prev) return false;
 
@@ -304,7 +433,16 @@ export const useCliProvidersStore = create<CliProvidersState>()(
           if (enabled && p.enabled) return { ...p, enabled: false };
           return p;
         });
-        set({ error: null, providers: optimistic });
+        const onlinePatch: Record<string, CliProviderOnlineStatus> = { ...onlineSnapshot };
+        for (const p of optimistic) {
+          const installed = Boolean(p.binary?.trim());
+          if (p.id === id && enabled && installed) {
+            onlinePatch[p.id] = p.id === "opencode" ? "connecting" : "online";
+          } else {
+            onlinePatch[p.id] = deriveBaselineOnline(p, installed);
+          }
+        }
+        set({ error: null, providers: optimistic, onlineStatusById: onlinePatch });
         for (const p of optimistic) {
           syncAcpEnabled(p.id, Boolean(p.enabled));
         }
@@ -314,21 +452,53 @@ export const useCliProvidersStore = create<CliProvidersState>()(
           if (res.status === "ok") {
             const list = await commands.cliProviderListCmd();
             if (list.status === "ok") {
-              set({ providers: list.data });
+              const nextOnline = { ...get().onlineStatusById };
               for (const p of list.data) {
+                const installed = Boolean(p.binary?.trim());
+                // OpenCode 启用中由 refreshModels 写最终 online/offline
+                if (!(p.id === id && enabled && installed && p.id === "opencode")) {
+                  nextOnline[p.id] = deriveBaselineOnline(p, installed);
+                }
                 syncAcpEnabled(p.id, Boolean(p.enabled));
               }
+              set({ providers: list.data, onlineStatusById: nextOnline });
             } else {
               set({ providers: upsertProvider(get().providers, res.data) });
               syncAcpEnabled(id, res.data.enabled ?? enabled);
             }
             if (enabled && res.data.binary) {
-              void get().refreshModels(id, { silent: true }).catch(() => undefined);
+              opencodeDbg("setProviderEnabled:trigger refreshModels", {
+                id,
+                binary: res.data.binary,
+              });
+              // OpenCode：先启动一次服务，再拉模型；不要在失败路径里连环 ensure
+              void (async () => {
+                if (id === "opencode") {
+                  try {
+                    await commands.opencodeEnsureService();
+                  } catch (err) {
+                    opencodeDbg("setProviderEnabled:ensure failed", err);
+                  }
+                }
+                await get().refreshModels(id, { silent: true });
+              })().catch((err) => {
+                opencodeDbg("setProviderEnabled:refreshModels rejected", err);
+              });
+            } else if (!enabled) {
+              if (id === "opencode") {
+                void commands.opencodeStopService().catch(() => undefined);
+              }
+              set({
+                onlineStatusById: {
+                  ...get().onlineStatusById,
+                  [id]: Boolean(res.data.binary?.trim()) ? "idle" : "offline",
+                },
+              });
             }
             return true;
           }
 
-          set({ providers: snapshot, error: res.error });
+          set({ providers: snapshot, error: res.error, onlineStatusById: onlineSnapshot });
           for (const p of snapshot) {
             syncAcpEnabled(p.id, Boolean(p.enabled));
           }
@@ -336,6 +506,7 @@ export const useCliProvidersStore = create<CliProvidersState>()(
         } catch (e) {
           set({
             providers: snapshot,
+            onlineStatusById: onlineSnapshot,
             error: e instanceof Error ? e.message : String(e),
           });
           for (const p of snapshot) {

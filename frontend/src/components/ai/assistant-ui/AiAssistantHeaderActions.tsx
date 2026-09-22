@@ -21,6 +21,9 @@ import {
   useSettingsStore,
   type AiDisplayMode,
 } from "../../../stores/settingsStore";
+import { useActiveAgentAdapter } from "../../../lib/ai/agentAdapters";
+import { createAgentSession } from "../../../lib/ai/agentAdapters/sessionActions";
+import { parseOpenCodeBackendId } from "../../../lib/ai/inferenceBackend";
 import { AiConversationList } from "./AiConversationList";
 import { AiConversationTitle } from "./AiConversationTitle";
 import { useAiDockOpen } from "../../../lib/ai/useAiDockOpen";
@@ -215,6 +218,7 @@ export function AiConversationSwitcher() {
   const { t } = useI18n();
   const isGenerating = useAiStore((s) => s.isGenerating);
   const createConversation = useAiStore((s) => s.createConversation);
+  const adapter = useActiveAgentAdapter();
   const {
     menuId,
     open,
@@ -226,9 +230,21 @@ export function AiConversationSwitcher() {
   } = useToolbarDropdown(280);
 
   const handleCreate = useCallback(() => {
+    if (adapter) {
+      const selection =
+        useAiStore.getState().currentModelSelectionId ||
+        useAiStore.getState().conversations.find(
+          (c) => c.id === useAiStore.getState().activeConversationId,
+        )?.modelSelectionId ||
+        null;
+      const parsed = selection ? parseOpenCodeBackendId(selection) : null;
+      const model = parsed ? `${parsed.providerId}/${parsed.modelId}` : null;
+      void createAgentSession(adapter, { model }).then(() => setOpen(false));
+      return;
+    }
     createConversation();
     setOpen(false);
-  }, [createConversation, setOpen]);
+  }, [adapter, createConversation, setOpen]);
 
   return (
     <div className="ai-toolbar-dropdown" ref={wrapRef}>
