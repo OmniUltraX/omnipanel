@@ -77,48 +77,48 @@ export default {
         run: "Agent",
       },
       plan: {
-        label: "Plan assistant",
-        description: "Builds an execution plan; can use global tools and save a Plan document to Knowledge",
+        label: "Plan",
+        description: "",
       },
       run: {
-        label: "Run assistant",
-        description: "Can use all tools to execute ops and engineering tasks directly",
+        label: "Run",
+        description: "",
       },
       terminal: {
-        label: "Terminal agent",
-        description: "Local + SSH: service/resource checks, env install & config",
+        label: "Terminal",
+        description: "",
       },
       database: {
-        label: "Database agent",
-        description: "Independent database-module agent",
+        label: "Database",
+        description: "",
       },
       docker: {
-        label: "Docker agent",
-        description: "Independent Docker-module agent",
+        label: "Docker",
+        description: "",
       },
       server: {
-        label: "Server agent",
-        description: "Independent server-module agent",
+        label: "Server",
+        description: "",
       },
       files: {
-        label: "Files agent",
-        description: "Independent files-module agent",
+        label: "Files",
+        description: "",
       },
       knowledge: {
-        label: "Knowledge agent",
-        description: "Independent knowledge-module agent",
+        label: "Knowledge",
+        description: "",
       },
       protocol: {
-        label: "Protocol agent",
-        description: "Independent protocol-module agent",
+        label: "Protocol",
+        description: "",
       },
       workflow: {
-        label: "Workflow agent",
-        description: "Independent workflow-module agent",
+        label: "Workflow",
+        description: "",
       },
       tasks: {
-        label: "Tasks agent",
-        description: "Independent tasks-module agent",
+        label: "Tasks",
+        description: "",
       },
     },
     composerContext: {
@@ -137,15 +137,12 @@ export default {
       emptySearch: "No matching context",
     },
     welcome: {
-      title: "Turn goals into a plan document",
-      subtitle:
-        "Describe what you need done — I’ll draft a Plan document and save it to Knowledge.",
-      titlePlan: "Turn goals into a plan document",
-      subtitlePlan:
-        "Describe what you need done — I’ll draft a Plan document and save it to Knowledge.",
-      titleRun: "Execute your tasks directly",
-      subtitleRun:
-        "In Run mode I can use all tools to investigate and apply changes; high-risk actions ask for confirmation first.",
+      title: "Plan",
+      subtitle: "",
+      titlePlan: "Plan",
+      subtitlePlan: "",
+      titleRun: "Run",
+      subtitleRun: "",
       suggestions: {
         weeklyOps: {
           title: "Weekly ops checklist",
@@ -185,7 +182,7 @@ export default {
     follow: {
       on: "Follow: on",
       off: "Follow: off",
-      hint: "When on, the left panels navigate as AI tools run",
+      hint: "",
     },
     promote: {
       toDock: "Continue in sidebar",

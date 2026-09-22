@@ -14,7 +14,7 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::client::{OpenCodeClient, OpenCodeModel};
 
@@ -197,9 +197,7 @@ fn kill_port_occupant() {
         for pid in text.split_whitespace() {
             if let Ok(pid) = pid.parse::<i32>() {
                 dbg_log(format!("reclaim port {PORT}: kill {pid}"));
-                let _ = Command::new("kill")
-                    .args(["-9", &pid.to_string()])
-                    .status();
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
             }
         }
     }
@@ -230,12 +228,8 @@ fn spawn_serve(binary: &Path, password: &str) -> Result<Child, String> {
 
     let stderr_path = serve_stderr_path();
     let _ = fs::remove_file(&stderr_path);
-    let stderr_file = fs::File::create(&stderr_path).map_err(|e| {
-        format!(
-            "无法创建 stderr 日志 {}: {e}",
-            stderr_path.display()
-        )
-    })?;
+    let stderr_file = fs::File::create(&stderr_path)
+        .map_err(|e| format!("无法创建 stderr 日志 {}: {e}", stderr_path.display()))?;
 
     let mut cmd = Command::new(&native);
     cmd.args(["serve", "--hostname", HOST, "--port", &PORT.to_string()])
@@ -291,9 +285,7 @@ pub async fn ensure_opencode_service(binary: Option<&Path>) -> Result<OpenCodeEn
 
     // 端口被占但密码不对（例如手动 `opencode serve` 随机密码）→ 回收后重起
     if port_listening() {
-        dbg_log(format!(
-            "port {PORT} occupied but auth mismatch → reclaim"
-        ));
+        dbg_log(format!("port {PORT} occupied but auth mismatch → reclaim"));
         kill_port_occupant();
         // 等端口释放
         for _ in 0..20 {
@@ -308,8 +300,10 @@ pub async fn ensure_opencode_service(binary: Option<&Path>) -> Result<OpenCodeEn
     let mut child = spawn_serve(binary, &pw)?;
 
     // 等监听就绪（最多 ~15s，间隔 300ms）
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
-    let mut last_err = String::new();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    // 多轮探活会覆盖 last_err；仅超时路径读取最终值
+    #[allow(unused_assignments)]
+    let mut last_err: Option<String> = None;
     loop {
         match health_probe_err(&ep).await {
             None => {
@@ -317,7 +311,7 @@ pub async fn ensure_opencode_service(binary: Option<&Path>) -> Result<OpenCodeEn
                 store_ready(ep.clone(), Some(child));
                 return Ok(ep);
             }
-            Some(e) => last_err = e,
+            Some(e) => last_err = Some(e),
         }
         // 子进程已退出 → 启动失败
         if let Ok(Some(status)) = child.try_wait() {
@@ -333,12 +327,13 @@ pub async fn ensure_opencode_service(binary: Option<&Path>) -> Result<OpenCodeEn
                 debug_log_path().display()
             ));
         }
-        if std::time::Instant::now() >= deadline {
+        if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
             let stderr = read_serve_stderr();
+            let last = last_err.as_deref().unwrap_or("(no probe yet)");
             return Err(format!(
-                "等待 `opencode serve` 就绪超时（{}）; last={last_err}{}; 日志 {}",
+                "等待 `opencode serve` 就绪超时（{}）; last={last}{}; 日志 {}",
                 ep.base_url,
                 if stderr.is_empty() {
                     String::new()
@@ -393,8 +388,7 @@ mod tests {
     #[test]
     fn resolve_native_from_cmd_shim() {
         let cmd = PathBuf::from(r"C:\nvm4w\nodejs\opencode.cmd");
-        let exe =
-            PathBuf::from(r"C:\nvm4w\nodejs\node_modules\@opencode\cli\bin\opencode.exe");
+        let exe = PathBuf::from(r"C:\nvm4w\nodejs\node_modules\@opencode\cli\bin\opencode.exe");
         if exe.is_file() {
             assert_eq!(resolve_native_binary(&cmd), exe);
         }

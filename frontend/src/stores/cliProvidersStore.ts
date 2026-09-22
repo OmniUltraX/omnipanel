@@ -85,20 +85,27 @@ function syncAcpEnabled(id: string, enabled: boolean) {
 
 }
 
-/** 非 OpenCode：启用且已安装即视为在线；OpenCode 需等模型发现/探活结果。 */
+/** 非 OpenCode：启用且已安装即视为在线；OpenCode 保留已探活结果，避免打开设置把 online 刷成 connecting。 */
 function deriveBaselineOnline(
   provider: CliProviderRecord,
   installed: boolean,
+  opts?: { previous?: CliProviderOnlineStatus; hasModels?: boolean },
 ): CliProviderOnlineStatus {
   if (!installed) return "offline";
   if (!provider.enabled) return "idle";
-  if (provider.id === "opencode") return "connecting";
+  if (provider.id === "opencode") {
+    if (opts?.previous === "online" || opts?.previous === "offline") {
+      return opts.previous;
+    }
+    if (opts?.hasModels) return "online";
+    return "connecting";
+  }
   return "online";
 }
 
 /**
  * 与设置页 Agents 列表同一套在线态推导。
- * 优先级：未安装 → 刷新中 → store 探活 → 未启用 → OpenCode 有模型缓存视为在线。
+ * 优先级：未安装 → 未启用 → 已 offline → 已 online / 有模型缓存 → 刷新中或 connecting。
  */
 export function resolveAgentOnlineStatus(
   providerId: string,
@@ -109,11 +116,13 @@ export function resolveAgentOnlineStatus(
   modelCount: number,
 ): CliProviderOnlineStatus {
   if (!installed) return "offline";
-  if (refreshing) return "connecting";
-  if (stored) return stored;
   if (!enabled) return "idle";
-  // 已有模型缓存视为在线，避免 stored 未写入时 OpenCode 永久「连接中」
-  if (providerId === "opencode" && modelCount > 0) return "online";
+  if (stored === "offline") return "offline";
+  // 已探活成功或已有模型缓存 → 在线（后台刷新 / syncProviders 残留 connecting 不降级）
+  if (stored === "online" || (providerId === "opencode" && modelCount > 0)) {
+    return "online";
+  }
+  if (refreshing || stored === "connecting") return "connecting";
   return providerId === "opencode" ? "connecting" : "online";
 }
 
@@ -130,11 +139,6 @@ export function cliProviderOnlineStatusLabelKey(status: CliProviderOnlineStatus)
   }
 }
 
-function opencodeDbg(...args: unknown[]) {
-  // 调试「连接中」卡住：DevTools Console 过滤 `[opencode-online]`
-  console.info("[opencode-online]", new Date().toISOString(), ...args);
-}
-
 const OPENCODE_IPC_TIMEOUT_MS = 45_000;
 
 /** 同一 provider 的 refreshModels 去重，避免设置页/选择器/启用 连环打 ensure+/model */
@@ -145,12 +149,7 @@ function withIpcTimeout<T>(promise: Promise<T>, ms: number, label: string): Prom
     promise,
     new Promise<T>((_, reject) => {
       setTimeout(
-        () =>
-          reject(
-            new Error(
-              `${label} 超时（${ms / 1000}s）；请查看 %TEMP%\\omnipanel-opencode-debug.log 与终端 [opencode] 日志`,
-            ),
-          ),
+        () => reject(new Error(`${label} 超时（${ms / 1000}s）`)),
         ms,
       );
     }),
@@ -263,22 +262,22 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
           if (res.status === "ok") {
             // 以后端列表为准（含互斥收敛），避免 localStorage 快照盖住 enabled
+            const prevOnline = get().onlineStatusById;
+            const modelCache = get().modelCache;
             const baseline: Record<string, CliProviderOnlineStatus> = {};
             for (const p of res.data) {
               const installed = Boolean(p.binary?.trim());
-              baseline[p.id] = deriveBaselineOnline(p, installed);
+              baseline[p.id] = deriveBaselineOnline(p, installed, {
+                previous: prevOnline[p.id],
+                hasModels: (modelCache[p.id]?.length ?? 0) > 0,
+              });
             }
-            set({ providers: res.data, onlineStatusById: { ...get().onlineStatusById, ...baseline } });
-            opencodeDbg("syncProviders:baseline", baseline);
+            set({ providers: res.data, onlineStatusById: { ...prevOnline, ...baseline } });
 
             const toRefresh = res.data.filter(
 
               (p) => p.enabled && Boolean(p.binary?.trim()) && (options?.forceModels || !get().modelCache[p.id]?.length),
 
-            );
-            opencodeDbg(
-              "syncProviders:toRefresh",
-              toRefresh.map((p) => p.id),
             );
 
             await Promise.all(
@@ -321,17 +320,21 @@ export const useCliProvidersStore = create<CliProvidersState>()(
 
         const existing = refreshModelsInflight.get(providerId);
         if (existing) {
-          opencodeDbg("refreshModels:reuse-inflight", { providerId });
           return existing;
         }
 
         const silent = Boolean(options?.silent);
-        const t0 = performance.now();
-        opencodeDbg("refreshModels:begin", { providerId, silent, prevOnline: get().onlineStatusById[providerId] });
 
         const run = (async (): Promise<string[]> => {
+        const prevOnline = get().onlineStatusById[providerId];
+        const hasModels = (get().modelCache[providerId]?.length ?? 0) > 0;
+        // 已在线时静默/后台刷新不降级为「连接中」，避免设置页打开或展开模型时闪烁
+        const nextStatus: CliProviderOnlineStatus =
+          prevOnline === "online" || (providerId === "opencode" && hasModels && prevOnline !== "offline")
+            ? "online"
+            : "connecting";
         set({
-          onlineStatusById: { ...get().onlineStatusById, [providerId]: "connecting" },
+          onlineStatusById: { ...get().onlineStatusById, [providerId]: nextStatus },
           ...(silent
             ? {}
             : {
@@ -346,13 +349,6 @@ export const useCliProvidersStore = create<CliProvidersState>()(
           const res = await (providerId === "opencode"
             ? withIpcTimeout(ipcPromise, OPENCODE_IPC_TIMEOUT_MS, "OpenCode 模型发现")
             : ipcPromise);
-          opencodeDbg("refreshModels:ipc", {
-            providerId,
-            status: res.status,
-            elapsedMs: Math.round(performance.now() - t0),
-            count: res.status === "ok" ? res.data.length : undefined,
-            error: res.status === "ok" ? undefined : (res as { error?: unknown }).error,
-          });
 
           if (res.status === "ok") {
 
@@ -362,7 +358,6 @@ export const useCliProvidersStore = create<CliProvidersState>()(
               onlineStatusById: { ...get().onlineStatusById, [providerId]: "online" },
 
             });
-            opencodeDbg("refreshModels:online", { providerId, count: res.data.length });
 
             return res.data;
 
@@ -376,11 +371,6 @@ export const useCliProvidersStore = create<CliProvidersState>()(
         } catch (e) {
 
           const message = e instanceof Error ? e.message : String(e);
-          opencodeDbg("refreshModels:offline", {
-            providerId,
-            elapsedMs: Math.round(performance.now() - t0),
-            message,
-          });
 
           set({
             onlineStatusById: { ...get().onlineStatusById, [providerId]: "offline" },
@@ -400,11 +390,6 @@ export const useCliProvidersStore = create<CliProvidersState>()(
             set({ refreshingModelIds: next });
 
           }
-          opencodeDbg("refreshModels:finally", {
-            providerId,
-            online: get().onlineStatusById[providerId],
-            elapsedMs: Math.round(performance.now() - t0),
-          });
 
         }
         })();
@@ -439,7 +424,10 @@ export const useCliProvidersStore = create<CliProvidersState>()(
           if (p.id === id && enabled && installed) {
             onlinePatch[p.id] = p.id === "opencode" ? "connecting" : "online";
           } else {
-            onlinePatch[p.id] = deriveBaselineOnline(p, installed);
+            onlinePatch[p.id] = deriveBaselineOnline(p, installed, {
+              previous: onlineSnapshot[p.id],
+              hasModels: (get().modelCache[p.id]?.length ?? 0) > 0,
+            });
           }
         }
         set({ error: null, providers: optimistic, onlineStatusById: onlinePatch });
@@ -457,7 +445,10 @@ export const useCliProvidersStore = create<CliProvidersState>()(
                 const installed = Boolean(p.binary?.trim());
                 // OpenCode 启用中由 refreshModels 写最终 online/offline
                 if (!(p.id === id && enabled && installed && p.id === "opencode")) {
-                  nextOnline[p.id] = deriveBaselineOnline(p, installed);
+                  nextOnline[p.id] = deriveBaselineOnline(p, installed, {
+                    previous: nextOnline[p.id],
+                    hasModels: (get().modelCache[p.id]?.length ?? 0) > 0,
+                  });
                 }
                 syncAcpEnabled(p.id, Boolean(p.enabled));
               }
@@ -467,10 +458,6 @@ export const useCliProvidersStore = create<CliProvidersState>()(
               syncAcpEnabled(id, res.data.enabled ?? enabled);
             }
             if (enabled && res.data.binary) {
-              opencodeDbg("setProviderEnabled:trigger refreshModels", {
-                id,
-                binary: res.data.binary,
-              });
               // OpenCode：先启动 serve，再拉模型；Cursor：走 ACP 连接
               void (async () => {
                 if (id === "opencode") {
@@ -479,8 +466,8 @@ export const useCliProvidersStore = create<CliProvidersState>()(
                     const { disconnectActiveAgent } = await import("../lib/acp/agentConnection");
                     await disconnectActiveAgent().catch(() => undefined);
                     await commands.opencodeEnsureService();
-                  } catch (err) {
-                    opencodeDbg("setProviderEnabled:ensure failed", err);
+                  } catch {
+                    // ensure 失败时仍尝试 refreshModels（可能已有外部 serve）
                   }
                 } else if (id === "cursor") {
                   try {
@@ -493,14 +480,12 @@ export const useCliProvidersStore = create<CliProvidersState>()(
                     }
                     const { connectActiveAcpAgent } = await import("../lib/acp/acpStream");
                     await connectActiveAcpAgent();
-                  } catch (err) {
-                    opencodeDbg("setProviderEnabled:cursor connect failed", err);
+                  } catch {
+                    // ACP 连接失败由 refreshModels / 状态栏反映
                   }
                 }
                 await get().refreshModels(id, { silent: true });
-              })().catch((err) => {
-                opencodeDbg("setProviderEnabled:refreshModels rejected", err);
-              });
+              })().catch(() => undefined);
             } else if (!enabled) {
               if (id === "opencode") {
                 void commands.opencodeStopService().catch(() => undefined);

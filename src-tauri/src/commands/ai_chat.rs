@@ -332,12 +332,10 @@ pub async fn ai_chat_stream(
     let mut internal = InternalChatRequest::try_from(request)?;
     // OpenCode 等智能体自管 system/skills；禁止把 OmniPanel Agent 提示拼进用户消息，
     // 否则会出现在 OpenCode session 历史里并被 UI 原样展示。
-    let skip_omni_system_inject =
-        matches!(
-            omnipanel_ai::routing::parse_backend_id(&internal.backend_id)
-                .map(|p| p.kind),
-            Ok(omnipanel_ai::routing::BackendKind::OpenCode)
-        );
+    let skip_omni_system_inject = matches!(
+        omnipanel_ai::routing::parse_backend_id(&internal.backend_id).map(|p| p.kind),
+        Ok(omnipanel_ai::routing::BackendKind::OpenCode)
+    );
     // pure_text 模式跳过 RAG / Skills / Agent 角色注入。
     // 注意：Skills/RAG 与工具解耦——plan Agent（tools_mode=None）仍可注入上下文。
     if !internal.pure_text && !skip_omni_system_inject {
@@ -1061,20 +1059,16 @@ pub async fn ai_list_backends(state: State<'_, AppState>) -> Result<Vec<BackendI
         .await
         .map_err(|e| format!("列举 CLI 后端失败: {e}"))?;
 
-    if let Ok(Some(opencode)) = crate::commands::providers::cli_provider_list().map(|list| {
-        list.into_iter().find(|p| p.id == "opencode" && p.enabled)
-    }) {
+    if let Ok(Some(opencode)) = crate::commands::providers::cli_provider_list()
+        .map(|list| list.into_iter().find(|p| p.id == "opencode" && p.enabled))
+    {
         let binary = opencode.binary.as_ref().map(std::path::PathBuf::from);
-        let installed = binary
-            .as_ref()
-            .is_some_and(|b| b.as_os_str().len() > 0);
+        let installed = binary.as_ref().is_some_and(|b| b.as_os_str().len() > 0);
         match omnipanel_ai::providers::opencode::list_opencode_models(binary.as_deref()).await {
             Ok(models) => {
                 for entry in models {
                     let (key, name) =
-                        omnipanel_ai::providers::opencode::OpenCodeModel::parse_cache_entry(
-                            &entry,
-                        );
+                        omnipanel_ai::providers::opencode::OpenCodeModel::parse_cache_entry(&entry);
                     if opencode.disabled_model_names.iter().any(|m| {
                         m == &entry
                             || m == &key

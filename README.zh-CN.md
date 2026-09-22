@@ -97,7 +97,7 @@ UI 层        │  Tauri 2（React / TypeScript + Rust 后端）
 SSH          │  russh + russh-sftp
 数据库       │  sqlx | tiberius | redis-rs | mongodb
 Docker       │  bollard
-AI           │  rig | async-openai | Ollama | CLI Agent 适配
+AI           │  OpenAI 兼容 / Anthropic / Ollama · OpenCode · Cursor ACP
 存储         │  rusqlite / SQLCipher | keyring-core
 ```
 

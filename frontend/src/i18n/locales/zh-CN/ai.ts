@@ -78,47 +78,47 @@ export default {
       },
       plan: {
         label: "计划助手",
-        description: "制定执行计划；可调用全局工具，并将 Plan 文档写入知识库",
+        description: "",
       },
       run: {
         label: "执行助手",
-        description: "可调用全部工具，直接执行运维与工程任务",
+        description: "",
       },
       terminal: {
-        label: "终端 Agent",
-        description: "本地终端与 SSH：服务/资源巡检、环境安装与配置",
+        label: "终端",
+        description: "",
       },
       database: {
-        label: "数据库 Agent",
-        description: "数据库模块独立 Agent，仅数据库相关工具",
+        label: "数据库",
+        description: "",
       },
       docker: {
-        label: "Docker Agent",
-        description: "Docker 模块独立 Agent，仅 Docker 相关工具",
+        label: "Docker",
+        description: "",
       },
       server: {
-        label: "服务器 Agent",
-        description: "服务器模块独立 Agent",
+        label: "服务器",
+        description: "",
       },
       files: {
-        label: "文件 Agent",
-        description: "文件模块独立 Agent",
+        label: "文件",
+        description: "",
       },
       knowledge: {
-        label: "知识库 Agent",
-        description: "知识库模块独立 Agent",
+        label: "知识库",
+        description: "",
       },
       protocol: {
-        label: "协议 Agent",
-        description: "协议调试模块独立 Agent",
+        label: "协议",
+        description: "",
       },
       workflow: {
-        label: "工作流 Agent",
-        description: "工作流模块独立 Agent",
+        label: "工作流",
+        description: "",
       },
       tasks: {
-        label: "任务 Agent",
-        description: "任务模块独立 Agent",
+        label: "任务",
+        description: "",
       },
     },
     composerContext: {
@@ -137,12 +137,12 @@ export default {
       emptySearch: "没有匹配的上下文",
     },
     welcome: {
-      title: "把目标整理成计划文档",
-      subtitle: "描述你要完成的事，我来整理成计划文档并写入知识库。",
-      titlePlan: "把目标整理成计划文档",
-      subtitlePlan: "描述你要完成的事，我来整理成计划文档并写入知识库。",
-      titleRun: "直接执行你的任务",
-      subtitleRun: "切换到 Run 模式后，我可以调用全部工具帮你排查与落地；高风险操作会先征得确认。",
+      title: "整理成计划",
+      subtitle: "",
+      titlePlan: "整理成计划",
+      subtitlePlan: "",
+      titleRun: "执行任务",
+      subtitleRun: "",
       suggestions: {
         weeklyOps: {
           title: "本周运维巡检",
@@ -178,7 +178,7 @@ export default {
     follow: {
       on: "跟随：开",
       off: "跟随：关",
-      hint: "开启后，AI 调用工具时左侧会自动跳转到对应面板",
+      hint: "",
     },
     promote: {
       toDock: "在侧栏继续",

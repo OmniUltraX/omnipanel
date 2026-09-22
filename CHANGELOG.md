@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.8.32-alpha.1] - 2026-09-22
+
+### 新增
+
+- **智能体 · OpenCode**：启用后托管本机 `opencode serve`（HTTP + Basic auth），同步 OmniMCP 到 `opencode.json`，支持会话 / Agent / 模型列表
+- **智能体 · Cursor**：保留 ACP 路径；与 OpenCode 互斥启用
+
+### 变更
+
+- **智能体**：移除 OmniAgent / Qwen / 内置 Run·Plan；设置页只保留 OpenCode 与 Cursor
+- **检测**：打开设置不再强制重扫 PATH；「重新检测」才 force
+
+### 修复
+
+- **OpenCode 在线态**：打开设置 / 展开模型时不再把已在线误显示为「连接中」
+- **编译**：消除 `omnipanel-app` / `omnipanel-ai` 相关 dead_code 警告；`cargo fmt` 对齐
+
 ## [0.8.32] - 2026-09-19
 
 ### 修复

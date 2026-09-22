@@ -113,6 +113,7 @@ fn redact_provider_for_frontend(mut p: AiModelProvider) -> AiModelProvider {
 }
 
 /// 供 chat 路径按 provider id 取密钥。
+#[allow(dead_code)]
 pub fn resolve_ai_provider_api_key(provider_id: &str, request_key: &str) -> String {
     if !request_key.trim().is_empty() {
         return request_key.to_string();

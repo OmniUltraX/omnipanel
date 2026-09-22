@@ -54,8 +54,7 @@ pub async fn run_opencode_http_turn(
                         if payload.is_empty() || payload == "[DONE]" {
                             continue;
                         }
-                        if payload.contains(&session_filter)
-                            || payload.contains("server.connected")
+                        if payload.contains(&session_filter) || payload.contains("server.connected")
                         {
                             if sse_tx.send(payload.to_string()).await.is_err() {
                                 return;

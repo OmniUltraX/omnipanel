@@ -278,6 +278,19 @@ fn collect_cursor_candidates() -> Vec<PathBuf> {
 }
 
 pub fn detect_all_agents_sync() -> Vec<AgentInstallStatus> {
+    detect_all_agents_cached(false)
+}
+
+pub fn detect_all_agents_sync_force() -> Vec<AgentInstallStatus> {
+    detect_all_agents_cached(true)
+}
+
+static DETECT_CACHE: std::sync::Mutex<Option<(std::time::Instant, Vec<AgentInstallStatus>)>> =
+    std::sync::Mutex::new(None);
+
+const DETECT_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+fn detect_all_agents_uncached() -> Vec<AgentInstallStatus> {
     vec![
         {
             let (installed, path, version) = detect_from_candidates(collect_cursor_candidates());
@@ -300,4 +313,21 @@ pub fn detect_all_agents_sync() -> Vec<AgentInstallStatus> {
             )
         },
     ]
+}
+
+fn detect_all_agents_cached(force: bool) -> Vec<AgentInstallStatus> {
+    if !force {
+        if let Ok(guard) = DETECT_CACHE.lock() {
+            if let Some((at, cached)) = guard.as_ref() {
+                if at.elapsed() < DETECT_CACHE_TTL {
+                    return cached.clone();
+                }
+            }
+        }
+    }
+    let fresh = detect_all_agents_uncached();
+    if let Ok(mut guard) = DETECT_CACHE.lock() {
+        *guard = Some((std::time::Instant::now(), fresh.clone()));
+    }
+    fresh
 }

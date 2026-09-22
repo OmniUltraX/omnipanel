@@ -2,9 +2,7 @@ mod detect_common;
 
 #[cfg(windows)]
 use detect_common::where_all;
-use detect_common::{
-    detect_from_candidates, home_dir, push_candidate, resolve_in_path,
-};
+use detect_common::{detect_from_candidates, home_dir, push_candidate, resolve_in_path};
 use omnipanel_error::OmniError;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -136,13 +134,13 @@ fn collect_opencode_candidates() -> Vec<PathBuf> {
     // nvm4w 默认前缀（GUI 启动时常无 NVM_* 环境变量）
     #[cfg(windows)]
     {
-        push_opencode_prefix(&mut candidates, &mut seen, PathBuf::from(r"C:\nvm4w\nodejs"));
+        push_opencode_prefix(
+            &mut candidates,
+            &mut seen,
+            PathBuf::from(r"C:\nvm4w\nodejs"),
+        );
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            push_opencode_prefix(
-                &mut candidates,
-                &mut seen,
-                PathBuf::from(local).join("nvm"),
-            );
+            push_opencode_prefix(&mut candidates, &mut seen, PathBuf::from(local).join("nvm"));
         }
     }
 
@@ -219,18 +217,54 @@ pub fn agent_kind_key(kind: AgentKind) -> &'static str {
     }
 }
 
-pub fn detect_all_agents_sync(_bundled_resource_dir: Option<PathBuf>) -> Vec<AgentInstallStatus> {
+static DETECT_CACHE: std::sync::Mutex<Option<(std::time::Instant, Vec<AgentInstallStatus>)>> =
+    std::sync::Mutex::new(None);
+
+/// 进程内检测缓存：避免每次打开设置都扫 PATH。手动「重新检测」走 `force`。
+const DETECT_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+fn detect_all_agents_uncached(_bundled_resource_dir: Option<PathBuf>) -> Vec<AgentInstallStatus> {
     vec![detect_cursor_sync(), detect_opencode_sync()]
 }
 
-/// 检测 Cursor / OpenCode 的安装情况。
+pub fn detect_all_agents_sync(bundled_resource_dir: Option<PathBuf>) -> Vec<AgentInstallStatus> {
+    detect_all_agents_cached(bundled_resource_dir, false)
+}
+
+pub fn detect_all_agents_sync_force(
+    bundled_resource_dir: Option<PathBuf>,
+) -> Vec<AgentInstallStatus> {
+    detect_all_agents_cached(bundled_resource_dir, true)
+}
+
+fn detect_all_agents_cached(
+    bundled_resource_dir: Option<PathBuf>,
+    force: bool,
+) -> Vec<AgentInstallStatus> {
+    if !force {
+        if let Ok(guard) = DETECT_CACHE.lock() {
+            if let Some((at, cached)) = guard.as_ref() {
+                if at.elapsed() < DETECT_CACHE_TTL {
+                    return cached.clone();
+                }
+            }
+        }
+    }
+    let fresh = detect_all_agents_uncached(bundled_resource_dir);
+    if let Ok(mut guard) = DETECT_CACHE.lock() {
+        *guard = Some((std::time::Instant::now(), fresh.clone()));
+    }
+    fresh
+}
+
+/// 检测 Cursor / OpenCode 的安装情况（强制刷新，供「重新检测」）。
 #[tauri::command]
 #[specta::specta]
 pub async fn detect_all_agents(
     app: tauri::AppHandle,
 ) -> Result<Vec<AgentInstallStatus>, OmniError> {
     let resource_dir = app.path().resource_dir().ok();
-    tokio::task::spawn_blocking(move || detect_all_agents_sync(resource_dir))
+    tokio::task::spawn_blocking(move || detect_all_agents_sync_force(resource_dir))
         .await
         .map_err(|e| OmniError::internal(format!("Agent 检测失败: {e}")))
 }

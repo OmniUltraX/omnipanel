@@ -174,6 +174,8 @@ export const useAcpServicesStore = create<AcpServicesState>()(
           enabled: s.enabled ?? s.isActive,
           isActive: s.enabled ?? s.isActive,
         })),
+        // 缓存上次检测结果，避免每次进设置都触发「正在检测」
+        installStatuses: state.installStatuses,
       }),
       merge: (persisted, current) => {
         const raw = persisted as {
@@ -183,6 +185,7 @@ export const useAcpServicesStore = create<AcpServicesState>()(
             enabled?: boolean;
             isActive?: boolean;
           }>;
+          installStatuses?: AgentInstallStatus[];
         } | undefined;
         const enabledKinds = new Set<AgentKind>();
         if (raw?.services) {
@@ -193,7 +196,10 @@ export const useAcpServicesStore = create<AcpServicesState>()(
             }
           }
         }
-        const services = buildDefaultServices(enabledKinds, current.installStatuses);
+        const cachedStatuses = Array.isArray(raw?.installStatuses)
+          ? raw!.installStatuses!.filter((s) => isSupportedAgentKind(s.kind))
+          : current.installStatuses;
+        const services = buildDefaultServices(enabledKinds, cachedStatuses);
         if (raw?.services) {
           for (const saved of raw.services) {
             if (!saved.id || !isSupportedAgentKind(saved.id)) continue;
@@ -209,7 +215,7 @@ export const useAcpServicesStore = create<AcpServicesState>()(
             }
           }
         }
-        return { ...current, services };
+        return { ...current, services, installStatuses: cachedStatuses };
       },
     },
   ),

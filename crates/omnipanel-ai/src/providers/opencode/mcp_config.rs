@@ -112,8 +112,8 @@ fn read_json_object(path: &Path) -> Result<Value, String> {
     if trimmed.is_empty() {
         return Ok(json!({}));
     }
-    let value: Value = serde_json::from_str(trimmed)
-        .map_err(|e| format!("解析 {} 失败: {e}", path.display()))?;
+    let value: Value =
+        serde_json::from_str(trimmed).map_err(|e| format!("解析 {} 失败: {e}", path.display()))?;
     if value.is_object() {
         Ok(value)
     } else {
@@ -146,7 +146,10 @@ mod tests {
         });
         merge_omnimcp_into_root(&mut root, "http://127.0.0.1:12757/mcp", true);
         assert!(root["mcp"]["context7"].is_object());
-        assert_eq!(root["mcp"]["omnipanel"]["url"], "http://127.0.0.1:12757/mcp");
+        assert_eq!(
+            root["mcp"]["omnipanel"]["url"],
+            "http://127.0.0.1:12757/mcp"
+        );
     }
 
     #[test]
@@ -180,7 +183,10 @@ mod tests {
             }
         });
         merge_omnimcp_into_root(&mut root, "http://127.0.0.1:12756/mcp", true);
-        assert_eq!(root["mcp"]["omnipanel"]["url"], "http://127.0.0.1:12756/mcp");
+        assert_eq!(
+            root["mcp"]["omnipanel"]["url"],
+            "http://127.0.0.1:12756/mcp"
+        );
         assert_eq!(root["mcp"]["omnipanel"]["enabled"], true);
         assert_eq!(
             root["mcp"]["servers"]["omnipanel"]["url"],

@@ -25,7 +25,6 @@ export function AiScenarioSection() {
         .map((opt) => ({
           value: opt.value,
           label: opt.label,
-          subtitle: opt.subtitle,
         })),
     [cliOptions],
   );
@@ -35,7 +34,6 @@ export function AiScenarioSection() {
   return (
     <div className="settings-section">
       <h2>{t("settings.aiScenarios.title")}</h2>
-      <p className="section-desc">{t("settings.aiScenarios.description")}</p>
 
       {options.length === 0 ? (
         <p className="settings-ai-scenario-empty">{t("settings.aiScenarios.noModel")}</p>
@@ -43,7 +41,6 @@ export function AiScenarioSection() {
         <div className="setting-row">
           <div className="setting-label">
             <h4>{t("settings.aiScenarios.assistant.label")}</h4>
-            <p>{t("settings.aiScenarios.assistant.desc")}</p>
           </div>
           <Select
             className="setting-select settings-ai-scenario-select"

@@ -98,7 +98,7 @@ Terminal      │  xterm.js (frontend) · portable-pty / ConPTY
 SSH           │  russh + russh-sftp
 Database      │  sqlx | tiberius | redis-rs | mongodb
 Docker        │  bollard
-AI            │  rig | async-openai | Ollama | CLI Agent adapter
+AI            │  OpenAI-compatible / Anthropic / Ollama · OpenCode · Cursor ACP
 Storage       │  rusqlite / SQLCipher | keyring-core
 ```
 

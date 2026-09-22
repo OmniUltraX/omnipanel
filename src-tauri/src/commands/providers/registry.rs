@@ -300,10 +300,7 @@ fn enforce_single_enabled_persisted(providers: &mut [CliProviderRecord]) -> Resu
         }
         provider.enabled = false;
         if provider.builtin {
-            overrides
-                .entry(provider.id.clone())
-                .or_default()
-                .enabled = Some(false);
+            overrides.entry(provider.id.clone()).or_default().enabled = Some(false);
         } else if let Some(c) = custom.iter_mut().find(|c| c.id == provider.id) {
             c.enabled = false;
             custom_changed = true;
@@ -312,10 +309,7 @@ fn enforce_single_enabled_persisted(providers: &mut [CliProviderRecord]) -> Resu
     // 确保保留者在 overrides 里显式为 true（避免下次又靠模糊默认）
     if let Some(keep) = providers.iter().find(|p| p.id == keep_id) {
         if keep.builtin {
-            overrides
-                .entry(keep_id.clone())
-                .or_default()
-                .enabled = Some(true);
+            overrides.entry(keep_id.clone()).or_default().enabled = Some(true);
         }
     }
 
@@ -391,18 +385,12 @@ pub fn cli_provider_patch(input: CliProviderPatchInput) -> Result<CliProviderRec
     // 单智能体互斥：启用 A 时自动关闭其它已启用者
     if input.enabled == Some(true) {
         let mut overrides = load_cli_provider_overrides()?;
-        let all_ids: Vec<String> = cli_provider_list()?
-            .into_iter()
-            .map(|p| p.id)
-            .collect();
+        let all_ids: Vec<String> = cli_provider_list()?.into_iter().map(|p| p.id).collect();
         for other_id in all_ids {
             if other_id == id {
                 continue;
             }
-            overrides
-                .entry(other_id)
-                .or_default()
-                .enabled = Some(false);
+            overrides.entry(other_id).or_default().enabled = Some(false);
         }
         save_cli_provider_overrides(&overrides)?;
 
@@ -588,12 +576,10 @@ fn store_model_cache(key: &str, models: &[String]) {
     }
 }
 
-async fn provider_list_models_opencode(provider: &CliProviderRecord) -> Result<Vec<String>, String> {
+async fn provider_list_models_opencode(
+    provider: &CliProviderRecord,
+) -> Result<Vec<String>, String> {
     let binary = provider.binary.as_ref().map(std::path::PathBuf::from);
-    eprintln!(
-        "[opencode] provider_list_models_opencode: binary={:?}",
-        binary.as_ref().map(|p| p.display().to_string())
-    );
     let mut models =
         omnipanel_ai::providers::opencode::list_opencode_models(binary.as_deref()).await?;
     models = merge_manual_models(models, &provider.manual_model_names);
@@ -666,9 +652,7 @@ fn spawn_model_discovery(command: &str, args: &[String]) -> Result<std::process:
             }
             #[cfg(not(windows))]
             {
-                let _ = Command::new("kill")
-                    .args(["-9", &pid.to_string()])
-                    .output();
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
             }
             Err(format!(
                 "模型发现命令超时（{}s）: {command}",
@@ -812,14 +796,10 @@ pub async fn provider_list_models_cmd(
     provider_id: String,
 ) -> Result<Vec<String>, String> {
     let key = provider_id.trim().to_lowercase();
-    eprintln!("[opencode] provider_list_models_cmd: begin id={key}");
 
     if let Some(cached) = read_model_cache(&key) {
-        eprintln!("[opencode] provider_list_models_cmd: cache hit count={}", cached.len());
         return Ok(cached);
     }
-
-    let started = std::time::Instant::now();
 
     // OpenCode：纯 async，避免 spawn_blocking + 嵌套 runtime 在 Tauri 里卡住
     if key == "opencode" {
@@ -828,28 +808,13 @@ pub async fn provider_list_models_cmd(
             .iter()
             .find(|p| p.id == key)
             .ok_or_else(|| format!("未找到 CLI 提供者: {key}"))?;
-        let result = provider_list_models_opencode(provider).await;
-        eprintln!(
-            "[opencode] provider_list_models_cmd: async done elapsed={:?} ok={}",
-            started.elapsed(),
-            result.is_ok()
-        );
-        if let Err(ref e) = result {
-            eprintln!("[opencode] provider_list_models_cmd: error={e}");
-        }
-        return result;
+        return provider_list_models_opencode(provider).await;
     }
 
     let pid = provider_id.clone();
-    let result = tokio::task::spawn_blocking(move || provider_list_models(&pid))
+    tokio::task::spawn_blocking(move || provider_list_models(&pid))
         .await
-        .map_err(|e| format!("模型发现任务失败: {e}"))?;
-    eprintln!(
-        "[opencode] provider_list_models_cmd: blocking done elapsed={:?} ok={}",
-        started.elapsed(),
-        result.is_ok()
-    );
-    result
+        .map_err(|e| format!("模型发现任务失败: {e}"))?
 }
 
 #[tauri::command]

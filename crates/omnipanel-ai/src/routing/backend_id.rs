@@ -60,9 +60,9 @@ pub fn normalize_cli_backend(parsed: &ParsedBackendId) -> Result<(String, String
             }
             Ok((parsed.provider_id.clone(), parsed.model_id.clone()))
         }
-        BackendKind::OpenCode => Err(
-            "backend 为 OpenCode HTTP，请使用 normalize_opencode_backend".to_string(),
-        ),
+        BackendKind::OpenCode => {
+            Err("backend 为 OpenCode HTTP，请使用 normalize_opencode_backend".to_string())
+        }
     }
 }
 
@@ -75,9 +75,7 @@ pub fn normalize_opencode_backend(parsed: &ParsedBackendId) -> Result<(String, S
             }
             Ok((parsed.provider_id.clone(), parsed.model_id.clone()))
         }
-        BackendKind::Cli => Err(
-            "backend 为 CLI，请使用 normalize_cli_backend".to_string(),
-        ),
+        BackendKind::Cli => Err("backend 为 CLI，请使用 normalize_cli_backend".to_string()),
     }
 }
 

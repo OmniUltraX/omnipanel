@@ -494,11 +494,9 @@ function AiOtherSection() {
   return (
     <div className="settings-section">
       <h2>{t("settings.aiOther.title")}</h2>
-      <p className="section-desc">{t("settings.aiOther.desc")}</p>
       <div className="setting-row">
         <div className="setting-label">
           <h4>{t("settings.aiDisplay.label")}</h4>
-          <p>{t("settings.aiDisplay.desc")}</p>
         </div>
         <Select
           className="setting-select"
@@ -924,7 +922,7 @@ export function SettingsPanel() {
           <div className="settings-panel active">
             <div className="settings-section">
               <h2>常规</h2>
-              <p className="section-desc">应用行为、启动和会话恢复设置</p>
+              <p className="section-desc">应用与启动</p>
               <div className="setting-row">
                 <div className="setting-label">
                   <h4>{t("settings.closeBehavior.label")}</h4>
@@ -1175,7 +1173,7 @@ export function SettingsPanel() {
           <div className="settings-panel active">
             <div className="settings-section">
               <h2>外观</h2>
-              <p className="section-desc">主题、字体和界面密度设置</p>
+              <p className="section-desc">主题与界面</p>
               <div className="setting-row">
                 <div className="setting-label">
                   <h4>主题</h4>
@@ -1266,7 +1264,7 @@ export function SettingsPanel() {
           <div className="settings-panel active">
             <div className="settings-section">
               <h2>安全</h2>
-              <p className="section-desc">凭据存储、AI 安全和操作策略</p>
+              <p className="section-desc">安全与凭据</p>
               <div className="setting-row">
                 <div className="setting-label">
                   <h4>凭据存储</h4>

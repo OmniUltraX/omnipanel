@@ -44,13 +44,6 @@ function SettingToggle({
   );
 }
 
-function protocolBadgeClass(protocol: string): string {
-  const key = protocol.toLowerCase();
-  if (key === "http") return "anthropic";
-  if (key === "acp") return "openai";
-  return "anthropic";
-}
-
 export function AgentsSection() {
   const { t } = useI18n();
   const installStatuses = useAcpServicesStore((s) => s.installStatuses);
@@ -77,11 +70,9 @@ export function AgentsSection() {
   } | null>(null);
 
   useEffect(() => {
+    // 打开设置：只同步启用态 / 已缓存路径，不强制重扫 PATH。
+    // 「重新检测」按钮才会 refreshDetection（后端 force）。
     void syncProviders();
-    if (installStatuses.length === 0) {
-      void refreshDetection();
-    }
-    // 仅在进入设置页时后台增量同步，保留 localStorage 中的上次状态
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -120,10 +111,7 @@ export function AgentsSection() {
           message: t("settings.cliProviders.refresh.success", { count: models.length }),
         });
       } catch {
-        const detail =
-          providerId === "opencode"
-            ? `${t("settings.cliProviders.refresh.failed")}（后端日志: %TEMP%\\omnipanel-opencode-debug.log）`
-            : t("settings.cliProviders.refresh.failed");
+        const detail = t("settings.cliProviders.refresh.failed");
         setRefreshNotice({
           providerId,
           kind: "err",
@@ -150,15 +138,16 @@ export function AgentsSection() {
       <div className="settings-section-header">
         <div>
           <h2>{t("settings.cliProviders.title")}</h2>
-          <p className="section-desc">{t("settings.cliProviders.description")}</p>
         </div>
         <Button
           variant="secondary"
           size="sm"
           disabled={detecting || syncing || !isTauriRuntime()}
           onClick={() => {
-            void refreshDetection();
-            void syncProviders({ forceModels: true });
+            void (async () => {
+              await refreshDetection();
+              await syncProviders({ forceModels: true });
+            })();
           }}
         >
           {detecting ? t("settings.cliProviders.detecting") : t("settings.cliProviders.redetect")}
@@ -225,7 +214,8 @@ export function AgentsSection() {
                           const willExpand = !isExpanded;
                           toggleExpanded(provider.id);
                           if (willExpand && installed) {
-                            void refreshModels(provider.id).catch(() => undefined);
+                            // 静默刷新：已在线时不闪「连接中」
+                            void refreshModels(provider.id, { silent: true }).catch(() => undefined);
                           }
                         }}
                       >
@@ -249,11 +239,6 @@ export function AgentsSection() {
                           className={`ai-provider-online-tag ai-provider-online-tag--${onlineStatus}`}
                         >
                           {onlineLabel}
-                        </span>
-                        <span
-                          className={`ai-model-row-standard ai-model-row-standard-${protocolBadgeClass(provider.protocol)}`}
-                        >
-                          {provider.protocol.toUpperCase()}
                         </span>
                         {hasModels ? (
                           <span className="ai-provider-model-count">

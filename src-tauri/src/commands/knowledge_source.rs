@@ -243,6 +243,7 @@ fn find_source_methods(
 /// 解析后的源声明（构造适配器用）。
 struct ResolvedSource {
     namespace: String,
+    #[allow(dead_code)]
     title: String,
     list_method: String,
     list_documents_method: String,

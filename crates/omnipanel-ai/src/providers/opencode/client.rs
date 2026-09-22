@@ -123,11 +123,7 @@ impl OpenCodeClient {
     }
 
     fn url(&self, path: &str) -> String {
-        format!(
-            "{}{}",
-            self.endpoint.base_url.trim_end_matches('/'),
-            path
-        )
+        format!("{}{}", self.endpoint.base_url.trim_end_matches('/'), path)
     }
 
     async fn get_json<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, String> {
@@ -537,9 +533,7 @@ impl OpenCodeClient {
         }
 
         let encoded = urlencoding_lite(agent_id);
-        let env: Envelope = self
-            .get_json(&format!("/api/agent/{encoded}"))
-            .await?;
+        let env: Envelope = self.get_json(&format!("/api/agent/{encoded}")).await?;
         let row = env.data;
         let name = if row.name.trim().is_empty() {
             row.id.clone()
@@ -561,11 +555,7 @@ impl OpenCodeClient {
     }
 
     /// 切换会话后续回合使用的 Agent（`POST /api/session/{id}/agent`）。
-    pub async fn switch_session_agent(
-        &self,
-        session_id: &str,
-        agent: &str,
-    ) -> Result<(), String> {
+    pub async fn switch_session_agent(&self, session_id: &str, agent: &str) -> Result<(), String> {
         let body = json!({ "agent": agent });
         self.post_empty(&format!("/api/session/{session_id}/agent"), &body)
             .await
@@ -653,10 +643,7 @@ fn map_opencode_message(row: &serde_json::Value) -> Option<OpenCodeChatMessage> 
 
 fn extract_text_parts(content: Option<&serde_json::Value>) -> String {
     let Some(arr) = content.and_then(|c| c.as_array()) else {
-        return content
-            .and_then(|c| c.as_str())
-            .unwrap_or("")
-            .to_string();
+        return content.and_then(|c| c.as_str()).unwrap_or("").to_string();
     };
     arr.iter()
         .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"))

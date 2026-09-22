@@ -402,7 +402,6 @@ export function McpServicesSection({
           ) : (
             <h2>{t("settings.mcpServices.title")}</h2>
           )}
-          <p className="section-desc">{t("settings.mcpServices.description")}</p>
         </div>
         {renderToolbar()}
       </div>

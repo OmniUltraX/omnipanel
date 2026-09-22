@@ -190,9 +190,7 @@ pub async fn opencode_create_session(
             Some((provider.to_string(), model_id.to_string()))
         }
     });
-    let model_ref = model_pair
-        .as_ref()
-        .map(|(p, m)| (p.as_str(), m.as_str()));
+    let model_ref = model_pair.as_ref().map(|(p, m)| (p.as_str(), m.as_str()));
     let created = client.create_session(&cwd, model_ref).await?;
     Ok(session_to_dto(created))
 }

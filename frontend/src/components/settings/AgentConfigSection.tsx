@@ -271,9 +271,6 @@ export function AgentConfigSection({ agentId }: { agentId: AgentId }) {
   } else {
     main = (
       <div className="settings-subsection">
-        <p className="setting-hint settings-subsection-desc">
-          {t("settings.mcpServices.description")}
-        </p>
         <McpServicesSection contentOnly externalOnly />
       </div>
     );
@@ -283,7 +280,6 @@ export function AgentConfigSection({ agentId }: { agentId: AgentId }) {
     <div className="settings-panel active agent-config-workspace">
       <header className="agent-config-header">
         <h2 className="agent-config-header__title">{t(def.labelKey)}</h2>
-        <p className="agent-config-header__desc">{t(def.descriptionKey)}</p>
       </header>
       <div className="settings-tabs agent-config-tabs" role="tablist" aria-label={t(def.labelKey)}>
         {AGENT_CONFIG_TABS.map((item) => (

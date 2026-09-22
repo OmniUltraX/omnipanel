@@ -44,7 +44,6 @@ export function buildCliOptionsFromProviders(
         options.push({
           value: buildOpenCodeBackendId(model),
           label,
-          subtitle: "OpenCode",
           group: "opencode",
           installed: true,
         });
@@ -52,7 +51,6 @@ export function buildCliOptionsFromProviders(
         options.push({
           value: buildCliBackendId(provider.id, model),
           label: `${provider.displayName}/${model}`,
-          subtitle: "智能体",
           group: "cli",
           installed: true,
         });
