@@ -8,10 +8,8 @@ use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum AgentKind {
-    Omniagent,
     Cursor,
     Opencode,
-    Qwen,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -43,10 +41,8 @@ impl AgentInstallStatus {
 
 pub fn agent_kind_key(kind: AgentKind) -> &'static str {
     match kind {
-        AgentKind::Omniagent => "omniagent",
         AgentKind::Cursor => "cursor",
         AgentKind::Opencode => "opencode",
-        AgentKind::Qwen => "qwen",
     }
 }
 
@@ -281,44 +277,8 @@ fn collect_cursor_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-fn collect_qwen_candidates() -> Vec<PathBuf> {
-    let mut seen = HashSet::new();
-    let mut candidates = Vec::new();
-    if let Some(path) = resolve_in_path("qwen") {
-        push_candidate(&mut candidates, &mut seen, path);
-    }
-    #[cfg(windows)]
-    for path in where_all("qwen") {
-        push_candidate(&mut candidates, &mut seen, path);
-    }
-    if let Some(home) = home_dir() {
-        push_candidate(&mut candidates, &mut seen, home.join(".local/bin/qwen"));
-        push_candidate(&mut candidates, &mut seen, home.join(".local/bin/qwen.exe"));
-    }
-    candidates
-}
-
-fn detect_omniagent_sync() -> AgentInstallStatus {
-    let node = resolve_in_path("node");
-    let installed = node.is_some();
-    let version = if installed {
-        node.as_ref()
-            .and_then(|p| command_output(p.to_str()?, &["--version"]))
-    } else {
-        None
-    };
-    AgentInstallStatus::from_detection(
-        AgentKind::Omniagent,
-        vec!["--import", "tsx", "index.ts"],
-        installed,
-        node.map(|p| p.to_string_lossy().into_owned()),
-        version,
-    )
-}
-
 pub fn detect_all_agents_sync() -> Vec<AgentInstallStatus> {
     vec![
-        detect_omniagent_sync(),
         {
             let (installed, path, version) = detect_from_candidates(collect_cursor_candidates());
             AgentInstallStatus::from_detection(
@@ -334,16 +294,6 @@ pub fn detect_all_agents_sync() -> Vec<AgentInstallStatus> {
             AgentInstallStatus::from_detection(
                 AgentKind::Opencode,
                 vec!["acp"],
-                installed,
-                path,
-                version,
-            )
-        },
-        {
-            let (installed, path, version) = detect_from_candidates(collect_qwen_candidates());
-            AgentInstallStatus::from_detection(
-                AgentKind::Qwen,
-                vec!["--acp"],
                 installed,
                 path,
                 version,

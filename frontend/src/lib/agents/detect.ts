@@ -13,20 +13,15 @@ function mapStatus(raw: IpcAgentInstallStatus): AgentInstallStatus {
   };
 }
 
-/** 检测 Cursor / OpenCode / Qwen 安装情况。 */
+/** 检测 Cursor / OpenCode 安装情况。 */
 export async function detectAllAgents(): Promise<AgentInstallStatus[]> {
   if (!isTauriRuntime()) {
     return AGENT_ADAPTERS.map((adapter) => ({
       kind: adapter.kind,
-      installed: adapter.kind === "omniagent",
-      executablePath: adapter.kind === "omniagent" ? "node" : null,
+      installed: false,
+      executablePath: null,
       version: null,
-      launchArgs:
-        adapter.kind === "omniagent"
-          ? ["--import", "tsx", "index.ts"]
-          : adapter.kind === "qwen"
-            ? ["--acp"]
-            : ["acp"],
+      launchArgs: ["acp"],
     }));
   }
 
@@ -34,7 +29,9 @@ export async function detectAllAgents(): Promise<AgentInstallStatus[]> {
   if (result.status === "error") {
     throw new Error(typeof result.error === "string" ? result.error : result.error.message ?? "Agent 检测失败");
   }
-  return result.data.map(mapStatus);
+  return result.data
+    .map(mapStatus)
+    .filter((s): s is AgentInstallStatus => s.kind === "cursor" || s.kind === "opencode");
 }
 
 export function statusByKind(

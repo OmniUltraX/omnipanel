@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// Information about a CLI backend for `/v1/models` listing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CliBackendInfo {
-    /// e.g. `"cursor"`, `"opencode"`, `"qwen"`
+    /// e.g. `"cursor"`, `"opencode"`
     pub provider_id: String,
     /// e.g. `"Cursor"`, `"OpenCode"`
     pub display_name: String,

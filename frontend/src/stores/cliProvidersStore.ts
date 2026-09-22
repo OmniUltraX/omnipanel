@@ -471,13 +471,30 @@ export const useCliProvidersStore = create<CliProvidersState>()(
                 id,
                 binary: res.data.binary,
               });
-              // OpenCode：先启动一次服务，再拉模型；不要在失败路径里连环 ensure
+              // OpenCode：先启动 serve，再拉模型；Cursor：走 ACP 连接
               void (async () => {
                 if (id === "opencode") {
                   try {
+                    // 切到 OpenCode 时断开可能残留的 ACP（Cursor）
+                    const { disconnectActiveAgent } = await import("../lib/acp/agentConnection");
+                    await disconnectActiveAgent().catch(() => undefined);
                     await commands.opencodeEnsureService();
                   } catch (err) {
                     opencodeDbg("setProviderEnabled:ensure failed", err);
+                  }
+                } else if (id === "cursor") {
+                  try {
+                    await commands.opencodeStopService().catch(() => undefined);
+                    // 确保检测结果就绪，再按「已启用」连接 ACP
+                    const { useAcpServicesStore } = await import("./acpServicesStore");
+                    const acp = useAcpServicesStore.getState();
+                    if (acp.installStatuses.length === 0) {
+                      await acp.refreshDetection();
+                    }
+                    const { connectActiveAcpAgent } = await import("../lib/acp/acpStream");
+                    await connectActiveAcpAgent();
+                  } catch (err) {
+                    opencodeDbg("setProviderEnabled:cursor connect failed", err);
                   }
                 }
                 await get().refreshModels(id, { silent: true });
@@ -487,6 +504,10 @@ export const useCliProvidersStore = create<CliProvidersState>()(
             } else if (!enabled) {
               if (id === "opencode") {
                 void commands.opencodeStopService().catch(() => undefined);
+              } else if (id === "cursor") {
+                void import("../lib/acp/agentConnection")
+                  .then(({ disconnectActiveAgent }) => disconnectActiveAgent())
+                  .catch(() => undefined);
               }
               set({
                 onlineStatusById: {

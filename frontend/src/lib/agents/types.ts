@@ -1,10 +1,10 @@
 /** 与 Rust `AgentKind` 对齐的受支持 Agent 类型。 */
-export type AgentKind = "omniagent" | "cursor" | "opencode" | "qwen";
+export type AgentKind = "cursor" | "opencode";
 
-export const SUPPORTED_AGENT_KINDS: AgentKind[] = ["omniagent", "cursor", "opencode", "qwen"];
+export const SUPPORTED_AGENT_KINDS: AgentKind[] = ["cursor", "opencode"];
 
-/** 默认激活的 Agent（内置 OmniAgent）。 */
-export const DEFAULT_AGENT_KIND: AgentKind = "omniagent";
+/** 无启用项时的回退（不表示已连接）。 */
+export const DEFAULT_AGENT_KIND: AgentKind = "cursor";
 
 /** Rust `detect_all_agents` 返回的安装状态。 */
 export interface AgentInstallStatus {
@@ -23,9 +23,6 @@ export interface AgentAdapter {
 
   /** 根据检测结果构建 `acp_connect` 命令行。 */
   buildLaunchCommand(status: AgentInstallStatus): string | null;
-
-  /** 连接前是否需写入 acp-agent-config.json。 */
-  requiresOmniPanelConfig(): boolean;
 
   /** 是否通过 ACP session/new 注入 OmniPanel MCP。 */
   usesOmniPanelMcp(): boolean;

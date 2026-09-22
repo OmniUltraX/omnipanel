@@ -318,7 +318,7 @@ export default {
     cliProviders: {
       title: "智能体",
       description:
-        "接入本机第三方智能体（OpenCode / Cursor / Qwen 等）。提示词与 Skills 由各智能体自行维护；OmniPanel 通过 MCP Server 提供工具面。",
+        "接入本机第三方智能体（OpenCode / Cursor）。提示词与 Skills 由各智能体自行维护；OmniPanel 通过 MCP Server 提供工具面。",
       detecting: "正在检测…",
       redetect: "重新检测",
       loading: "正在加载智能体…",
@@ -331,7 +331,6 @@ export default {
       idle: "未启用",
       noneEnabled: "未启用任何智能体",
       enabledCount: "已启用 {count} 个智能体",
-      legacyHint: "遗留可选路径",
       toggleProvider: "启用 {name}",
       providerDisabled: "请先启用该智能体",
       refresh: {
@@ -634,28 +633,20 @@ export default {
     agents: {
       title: "Agent",
       description:
-        "选择本地 ACP 智能体。对话模型来自已启用的智能体；也可切换为 Cursor、OpenCode 或 Qwen CLI。",
+        "选择本地智能体。对话模型来自已启用的智能体；可切换为 Cursor 或 OpenCode。",
       detecting: "正在检测…",
       redetect: "重新检测",
       installed: "已安装",
       notFound: "未检测到",
       installHint: "未安装或未加入 PATH",
       notInstalled: "{name} 未安装，请先安装对应 CLI",
-      omniagent: {
-        name: "OmniAgent",
-        desc: "OmniPanel 内置 Agent（DeepAgents + Skills + MCP），通过 acp-agent-config.json 使用「AI」中的模型与 MCP 服务。",
-      },
       cursor: {
         name: "Cursor",
         desc: "使用 Cursor CLI（agent acp）作为本地 Agent，鉴权由 Cursor 账号管理。",
       },
       opencode: {
         name: "OpenCode",
-        desc: "使用 OpenCode CLI（opencode acp）作为本地 Agent。",
-      },
-      qwen: {
-        name: "Qwen",
-        desc: "使用 Qwen Code CLI（qwen --acp）作为本地 Agent。",
+        desc: "使用 OpenCode CLI（opencode serve / HTTP）作为本地 Agent。",
       },
     },
     aiScenarios: {
@@ -664,16 +655,16 @@ export default {
       noModel: "请先在上方启用智能体。",
       assistant: {
         label: "AI 助手",
-        desc: "AI 助手对话的默认模型；OmniAgent 连接时使用此模型（写入 acp-agent-config.json）。",
+        desc: "AI 助手对话的默认模型（未启用 OpenCode / Cursor 时由内置编排使用）。",
       },
     },
     acpServices: {
       title: "ACP 服务",
       description:
-        "内置 OmniPanel Agent（/agent）会在应用启动时自动连接；也可添加其他 ACP 服务器。同一时刻只能有一个被标记为「当前使用」。",
+        "通过设置中的「智能体」启用 Cursor（ACP）或 OpenCode（HTTP）。同一时刻建议只启用一个。",
       builtinBadge: "内置",
       builtinName: "OmniPanel Agent",
-      builtinPath: "内置 /agent（应用启动时自动解析路径）",
+      builtinPath: "已移除；请改用 Cursor 或 OpenCode",
       activeBadge: "当前使用",
       activateTitle: "设为当前使用",
       activeTitle: "已是当前使用",
@@ -686,7 +677,7 @@ export default {
       browse: "浏览…",
       empty: {
         title: "还没有 ACP 服务",
-        desc: "添加一个 ACP 服务器应用的可执行文件路径以开始使用本地 Agent。",
+        desc: "在「智能体」中启用 Cursor 或 OpenCode。",
         cta: "添加服务",
       },
       add: {
@@ -701,8 +692,8 @@ export default {
         confirm: "保存修改",
       },
       editBuiltin: {
-        title: "编辑内置 Agent",
-        subtitle: "选择 LLM 模型；应用启动时会自动连接此 Agent。",
+        title: "编辑 Agent",
+        subtitle: "请在「智能体」设置中管理 Cursor / OpenCode。",
       },
       fields: {
         name: "名称",
@@ -734,7 +725,7 @@ export default {
       },
       hintLabel: "示例命令：",
       mcpEmbeddedDesc:
-        "管理 MCP 服务并同步到 OmniAgent 配置文件；已启用且运行的服务会在 Agent 会话中加载为工具。",
+        "管理 MCP 服务；已启用且运行的服务会在 Agent 会话中加载为工具（经 OmniMCP / 内置编排注入）。",
     },
     mcpServices: {
       title: "MCP",

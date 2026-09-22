@@ -200,53 +200,14 @@ pub struct AgentLaunchSpec {
     pub display_command: String,
 }
 
-/// 开发态：优先仓库根 `agent/`，其次同级 `omniagent/`。
-fn resolve_repo_agent_dir() -> Option<PathBuf> {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for relative in ["../../agent", "../../../omniagent"] {
-        let agent_dir = manifest.join(relative);
-        if agent_dir.join("index.ts").exists() {
-            return agent_dir.canonicalize().ok();
-        }
-    }
-    None
-}
-
-fn resolve_default_agent_launch() -> Option<AgentLaunchSpec> {
-    let agent_dir = resolve_repo_agent_dir()?;
-    let agent_dir = agent_dir.canonicalize().ok()?;
-    Some(AgentLaunchSpec {
-        binary: "node".to_string(),
-        args: vec![
-            "--import".to_string(),
-            "tsx".to_string(),
-            "index.ts".to_string(),
-        ],
-        cwd: Some(agent_dir.clone()),
-        display_command: format!("node --import tsx index.ts  (cwd: {})", agent_dir.display()),
-    })
-}
-
 fn infer_spawn_cwd(args: &[String]) -> Option<PathBuf> {
     for arg in args.iter().rev() {
         let path = PathBuf::from(arg);
-        if path.file_name().and_then(|name| name.to_str()) == Some("index.ts") {
-            if path.is_absolute() {
-                if let Some(parent) = path.parent() {
-                    if parent.exists() {
-                        return Some(parent.to_path_buf());
-                    }
-                }
-            } else if let Some(agent_dir) = resolve_repo_agent_dir() {
-                return Some(agent_dir);
-            }
+        if path.is_absolute() && path.is_file() {
+            return path.parent().map(|p| p.to_path_buf());
         }
     }
-    resolve_repo_agent_dir()
-}
-
-fn resolve_default_agent_command() -> Option<String> {
-    resolve_default_agent_launch().map(|spec| spec.display_command)
+    None
 }
 
 fn stream_event_to_acp(event: StreamEvent) -> Option<AcpStreamEvent> {
@@ -432,14 +393,12 @@ pub async fn acp_connect(state: &ServerState, command_line: String) -> Result<Ac
     .await
 }
 
-pub async fn acp_connect_default(state: &ServerState) -> Result<AcpStatus, String> {
-    let spec = resolve_default_agent_launch()
-        .ok_or_else(|| "未找到默认 agent/index.ts，请在 agent 目录执行 npm install".to_string())?;
-    connect_agent(state, spec).await
+pub async fn acp_connect_default(_state: &ServerState) -> Result<AcpStatus, String> {
+    Err("内置 OmniAgent 已移除，请在设置中启用 Cursor 或 OpenCode".to_string())
 }
 
 pub fn acp_get_default_command() -> Result<String, String> {
-    resolve_default_agent_command().ok_or_else(|| "未找到内置 agent/index.ts".to_string())
+    Err("内置 OmniAgent 已移除，请在设置中启用 Cursor 或 OpenCode".to_string())
 }
 
 pub async fn acp_disconnect(state: &ServerState) -> Result<AcpStatus, String> {

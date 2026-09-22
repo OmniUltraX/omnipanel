@@ -180,8 +180,6 @@ fn list_models_args_for(kind: AgentKind) -> Vec<String> {
     match kind {
         AgentKind::Cursor => vec!["--list-models".to_string()],
         AgentKind::Opencode => vec!["models".to_string()],
-        AgentKind::Qwen => vec!["--list-models".to_string()],
-        AgentKind::Omniagent => Vec::new(),
     }
 }
 
@@ -191,13 +189,10 @@ fn builtin_cli_providers() -> Vec<CliProviderRecord> {
         .map(|agent| {
             let id = agent_kind_key(agent.kind);
             let display_name = match agent.kind {
-                AgentKind::Omniagent => "OmniAgent（遗留）".to_string(),
                 AgentKind::Cursor => "Cursor".to_string(),
                 AgentKind::Opencode => "OpenCode".to_string(),
-                AgentKind::Qwen => "Qwen Code".to_string(),
             };
             let installed = agent.installed;
-            let is_legacy = agent.kind == AgentKind::Omniagent;
             // 协议：OpenCode 走 HTTP Client；其余仍为 ACP
             let protocol = match agent.kind {
                 AgentKind::Opencode => "http".to_string(),
@@ -219,19 +214,15 @@ fn builtin_cli_providers() -> Vec<CliProviderRecord> {
                 // 默认全部关闭；由用户显式启用，且同时只能开一个
                 enabled: false,
                 builtin: true,
-                static_models: if is_legacy {
-                    vec!["default".to_string()]
-                } else {
-                    Vec::new()
-                },
+                static_models: Vec::new(),
                 manual_model_names: Vec::new(),
                 disabled_model_names: Vec::new(),
-                model_discovery_command: if installed && !is_legacy {
+                model_discovery_command: if installed {
                     agent.executable_path.clone()
                 } else {
                     None
                 },
-                model_discovery_args: if installed && !is_legacy {
+                model_discovery_args: if installed {
                     list_models_args_for(agent.kind)
                 } else {
                     Vec::new()
@@ -276,7 +267,8 @@ pub fn cli_provider_list() -> Result<Vec<CliProviderRecord>, String> {
     Ok(merged)
 }
 
-/// 同时只允许一个智能体为 enabled；优先保留已启用的 OpenCode，否则保留第一个。
+/// 同时只允许一个智能体为 enabled；若有多个，优先保留 OpenCode，否则保留第一个已启用项。
+/// 允许全部关闭（零启用）。
 fn enforce_single_enabled_persisted(providers: &mut [CliProviderRecord]) -> Result<(), String> {
     let enabled_idxs: Vec<usize> = providers
         .iter()

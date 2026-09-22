@@ -48,7 +48,7 @@ export async function getAcpStatus() {
   return result.data;
 }
 
-/** 连接当前激活的 Agent（由设置页手动触发）。 */
+/** 连接当前已启用的 Agent；无一启用则跳过。 */
 let connectInFlight: Promise<void> | null = null;
 
 export async function connectActiveAcpAgent(): Promise<void> {
@@ -60,30 +60,29 @@ export async function connectActiveAcpAgent(): Promise<void> {
   connectInFlight = (async () => {
     const {
       getActiveAgentKind,
-      resolveAcpModelSelectionId,
       useAcpServicesStore,
     } = await import("../../stores/acpServicesStore");
 
     const state = useAcpServicesStore.getState();
     const kind = getActiveAgentKind(state.services);
+    if (!kind) {
+      console.warn("[ACP] 未启用任何智能体，跳过连接");
+      return;
+    }
+    // OpenCode 走 HTTP serve，不走 ACP 子进程
+    if (kind === "opencode") {
+      return;
+    }
+
     const installStatus = statusByKind(state.installStatuses, kind);
-    const adapter = getAgentAdapter(kind);
+    getAgentAdapter(kind);
 
     if (!installStatus?.installed) {
-      console.warn(`[ACP] ${kind} 未安装，跳过 Agent 自动连接`);
+      console.warn(`[ACP] ${kind} 未安装，跳过 Agent 连接`);
       return;
     }
 
-    const modelSelectionId = adapter.requiresOmniPanelConfig()
-      ? resolveAcpModelSelectionId(state.services.find((s) => s.enabled) ?? null)
-      : null;
-
-    if (adapter.requiresOmniPanelConfig() && !modelSelectionId) {
-      console.warn("[ACP] 未配置 AI 模型，跳过 Agent 自动启动");
-      return;
-    }
-
-    await connectAgentByKind(kind, installStatus, modelSelectionId);
+    await connectAgentByKind(kind, installStatus);
   })().catch((error) => {
     console.warn("[ACP] 启动连接失败:", error);
   }).finally(() => {

@@ -1341,7 +1341,7 @@ pub async fn ai_gateway_configure(
     let bind = format!("{host}:{port}");
 
     // Build the ACP resolver so the gateway can serve CLI backends
-    // (Cursor / OpenCode / Qwen / OmniAgent) via /v1/chat/completions.
+    // (Cursor / OpenCode) via /v1/chat/completions.
     let acp_resolver: Arc<dyn omnipanel_gateway::AcpResolver> =
         Arc::new(crate::agent::GatewayAcpResolver::new(
             state.app_handle.clone(),

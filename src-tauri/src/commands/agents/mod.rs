@@ -3,22 +3,18 @@ mod detect_common;
 #[cfg(windows)]
 use detect_common::where_all;
 use detect_common::{
-    command_output, detect_from_candidates, home_dir, push_candidate, resolve_in_path,
+    detect_from_candidates, home_dir, push_candidate, resolve_in_path,
 };
 use omnipanel_error::OmniError;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::Manager;
 
-use crate::agent_paths::{resolve_bundled_agent_dir, resolve_repo_agent_dir};
-
 #[derive(Debug, Clone, Copy, Serialize, specta::Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentKind {
-    Omniagent,
     Cursor,
     Opencode,
-    Qwen,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -206,73 +202,6 @@ fn collect_cursor_candidates() -> Vec<PathBuf> {
     candidates
 }
 
-fn collect_qwen_candidates() -> Vec<PathBuf> {
-    let mut seen = std::collections::HashSet::new();
-    let mut candidates = Vec::new();
-
-    if let Some(path) = resolve_in_path("qwen") {
-        push_candidate(&mut candidates, &mut seen, path);
-    }
-
-    #[cfg(windows)]
-    for path in where_all("qwen") {
-        push_candidate(&mut candidates, &mut seen, path);
-    }
-
-    if let Some(home) = home_dir() {
-        push_candidate(&mut candidates, &mut seen, home.join(".local/bin/qwen"));
-        push_candidate(&mut candidates, &mut seen, home.join(".local/bin/qwen.exe"));
-    }
-
-    if let Some(appdata) = std::env::var_os("APPDATA") {
-        let npm = PathBuf::from(appdata).join("npm");
-        push_candidate(&mut candidates, &mut seen, npm.join("qwen.cmd"));
-        push_candidate(&mut candidates, &mut seen, npm.join("qwen"));
-    }
-
-    for key in ["NVM_SYMLINK", "NVM_HOME"] {
-        if let Some(dir) = std::env::var_os(key) {
-            let base = PathBuf::from(dir);
-            push_candidate(&mut candidates, &mut seen, base.join("qwen.cmd"));
-            push_candidate(&mut candidates, &mut seen, base.join("qwen.exe"));
-            push_candidate(&mut candidates, &mut seen, base.join("qwen"));
-        }
-    }
-
-    if let Ok(program_files) = std::env::var("ProgramFiles") {
-        let nodejs = PathBuf::from(program_files).join("nodejs");
-        push_candidate(&mut candidates, &mut seen, nodejs.join("qwen.cmd"));
-        push_candidate(&mut candidates, &mut seen, nodejs.join("qwen.exe"));
-    }
-
-    candidates
-}
-
-fn detect_node_version() -> Option<String> {
-    let node = resolve_in_path("node")?;
-    command_output(node.to_str()?, &["--version"])
-}
-
-fn detect_omniagent_sync(bundled_resource_dir: Option<&PathBuf>) -> AgentInstallStatus {
-    let node = resolve_in_path("node");
-    // 开发态：repo agent 子目录；发布态：Tauri resource 目录下的 agent/
-    let agent_dir = resolve_repo_agent_dir()
-        .or_else(|| bundled_resource_dir.and_then(|rd| resolve_bundled_agent_dir(rd)));
-    let installed = node.is_some() && agent_dir.is_some();
-    let version = if installed {
-        detect_node_version()
-    } else {
-        None
-    };
-    AgentInstallStatus::from_detection(
-        AgentKind::Omniagent,
-        vec!["--import", "tsx", "index.ts"],
-        installed,
-        node.map(|p| p.to_string_lossy().into_owned()),
-        version,
-    )
-}
-
 fn detect_opencode_sync() -> AgentInstallStatus {
     let (installed, path, version) = detect_from_candidates(collect_opencode_candidates());
     AgentInstallStatus::from_detection(AgentKind::Opencode, vec!["acp"], installed, path, version)
@@ -283,30 +212,18 @@ fn detect_cursor_sync() -> AgentInstallStatus {
     AgentInstallStatus::from_detection(AgentKind::Cursor, vec!["acp"], installed, path, version)
 }
 
-fn detect_qwen_sync() -> AgentInstallStatus {
-    let (installed, path, version) = detect_from_candidates(collect_qwen_candidates());
-    AgentInstallStatus::from_detection(AgentKind::Qwen, vec!["--acp"], installed, path, version)
-}
-
 pub fn agent_kind_key(kind: AgentKind) -> &'static str {
     match kind {
-        AgentKind::Omniagent => "omniagent",
         AgentKind::Cursor => "cursor",
         AgentKind::Opencode => "opencode",
-        AgentKind::Qwen => "qwen",
     }
 }
 
-pub fn detect_all_agents_sync(bundled_resource_dir: Option<PathBuf>) -> Vec<AgentInstallStatus> {
-    vec![
-        detect_omniagent_sync(bundled_resource_dir.as_ref()),
-        detect_cursor_sync(),
-        detect_opencode_sync(),
-        detect_qwen_sync(),
-    ]
+pub fn detect_all_agents_sync(_bundled_resource_dir: Option<PathBuf>) -> Vec<AgentInstallStatus> {
+    vec![detect_cursor_sync(), detect_opencode_sync()]
 }
 
-/// 检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。
+/// 检测 Cursor / OpenCode 的安装情况。
 #[tauri::command]
 #[specta::specta]
 pub async fn detect_all_agents(

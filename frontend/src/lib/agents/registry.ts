@@ -1,21 +1,6 @@
 import type { AgentAdapter, AgentInstallStatus } from "./types";
 import { formatLaunchCommand } from "./types";
 
-export const omniAgentAdapter: AgentAdapter = {
-  kind: "omniagent",
-  nameKey: "settings.agents.omniagent.name",
-  descriptionKey: "settings.agents.omniagent.desc",
-  buildLaunchCommand(status: AgentInstallStatus) {
-    return formatLaunchCommand(status);
-  },
-  requiresOmniPanelConfig() {
-    return true;
-  },
-  usesOmniPanelMcp() {
-    return true;
-  },
-};
-
 function createExternalAcpAdapter(
   kind: AgentAdapter["kind"],
   nameKey: string,
@@ -27,9 +12,6 @@ function createExternalAcpAdapter(
     descriptionKey,
     buildLaunchCommand(status: AgentInstallStatus) {
       return formatLaunchCommand(status);
-    },
-    requiresOmniPanelConfig() {
-      return false;
     },
     usesOmniPanelMcp() {
       return true;
@@ -49,17 +31,9 @@ export const opencodeAgentAdapter = createExternalAcpAdapter(
   "settings.agents.opencode.desc",
 );
 
-export const qwenAgentAdapter = createExternalAcpAdapter(
-  "qwen",
-  "settings.agents.qwen.name",
-  "settings.agents.qwen.desc",
-);
-
 export const AGENT_ADAPTERS: AgentAdapter[] = [
-  omniAgentAdapter,
   cursorAgentAdapter,
   opencodeAgentAdapter,
-  qwenAgentAdapter,
 ];
 
 export function getAgentAdapter(kind: AgentAdapter["kind"]): AgentAdapter {

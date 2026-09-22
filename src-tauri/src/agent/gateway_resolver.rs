@@ -15,7 +15,7 @@ use crate::commands::agents::{AgentKind, agent_kind_key, detect_all_agents_sync}
 /// Concrete `AcpResolver` backed by the Tauri `AgentRegistry` + `AcpState`.
 ///
 /// Created in `ai_gateway_configure` and passed to `spawn_gateway` so the
-/// gateway can resolve CLI backends (Cursor / OpenCode / Qwen / OmniAgent)
+/// gateway can resolve CLI backends (Cursor / OpenCode)
 /// for the `/v1/chat/completions` and `/v1/models` endpoints.
 pub struct GatewayAcpResolver {
     app_handle: AppHandle,
@@ -81,8 +81,6 @@ impl AcpResolver for GatewayAcpResolver {
                 let display_name = match a.kind {
                     AgentKind::Cursor => "Cursor",
                     AgentKind::Opencode => "OpenCode",
-                    AgentKind::Qwen => "Qwen",
-                    AgentKind::Omniagent => "OmniAgent",
                 }
                 .to_string();
                 // List a "default" model; the agent will use its configured model.

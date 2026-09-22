@@ -1283,7 +1283,7 @@ export const commands = {
 	opencodeGetAgent: (agentId: string) => typedError<OpenCodeAgentDto, string>(__TAURI_INVOKE("opencode_get_agent", { agentId })),
 	/**  切换会话后续回合使用的 Agent（`POST /api/session/{id}/agent`）。 */
 	opencodeSwitchSessionAgent: (sessionId: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("opencode_switch_session_agent", { sessionId, agent })),
-	/**  检测 OmniAgent / Cursor / OpenCode / Qwen 的安装情况。 */
+	/**  检测 Cursor / OpenCode 的安装情况。 */
 	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
 	dbSqlFilesSave: (file: DbSqlFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_sql_files_save", { file })),
@@ -1601,7 +1601,7 @@ export type AgentInstallStatus = {
 	launchArgs: string[],
 };
 
-export type AgentKind = "omniagent" | "cursor" | "opencode" | "qwen";
+export type AgentKind = "cursor" | "opencode";
 
 /**  提示词条目（设置页编辑）。 */
 export type AgentPromptEntry = {

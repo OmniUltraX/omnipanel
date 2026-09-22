@@ -13,7 +13,6 @@ use specta::Type;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
-use crate::agent_paths::{resolve_bundled_agent_dir, resolve_repo_agent_dir};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -179,46 +178,14 @@ pub struct AgentLaunchSpec {
     pub display_command: String,
 }
 
-fn resolve_default_agent_launch(app: &AppHandle) -> Option<AgentLaunchSpec> {
-    let agent_dir = resolve_repo_agent_dir().or_else(|| {
-        app.path()
-            .resource_dir()
-            .ok()
-            .and_then(|resource_dir| resolve_bundled_agent_dir(&resource_dir))
-    })?;
-    let agent_dir = agent_dir.canonicalize().ok()?;
-    Some(AgentLaunchSpec {
-        binary: "node".to_string(),
-        args: vec![
-            "--import".to_string(),
-            "tsx".to_string(),
-            "index.ts".to_string(),
-        ],
-        cwd: Some(agent_dir.clone()),
-        display_command: format!("node --import tsx index.ts  (cwd: {})", agent_dir.display()),
-    })
-}
-
 fn infer_spawn_cwd(args: &[String]) -> Option<PathBuf> {
     for arg in args.iter().rev() {
         let path = PathBuf::from(arg);
-        if path.file_name().and_then(|name| name.to_str()) == Some("index.ts") {
-            if path.is_absolute() {
-                if let Some(parent) = path.parent() {
-                    if parent.exists() {
-                        return Some(parent.to_path_buf());
-                    }
-                }
-            } else if let Some(agent_dir) = resolve_repo_agent_dir() {
-                return Some(agent_dir);
-            }
+        if path.is_absolute() && path.is_file() {
+            return path.parent().map(|p| p.to_path_buf());
         }
     }
-    resolve_repo_agent_dir()
-}
-
-fn resolve_default_agent_command(app: &AppHandle) -> Option<String> {
-    resolve_default_agent_launch(app).map(|spec| spec.display_command)
+    None
 }
 
 fn stream_event_to_acp(event: StreamEvent) -> Option<AcpStreamEvent> {
@@ -342,7 +309,7 @@ pub async fn connect_agent_with_acp_state(
     spec: AgentLaunchSpec,
 ) -> Result<AcpStatus, String> {
     let config_path = agent_config_path(app)?;
-    // 外部 Agent（Cursor / OpenCode / Qwen）使用各自 CLI 鉴权，不依赖配置文件。
+    // 外部 Agent（Cursor / OpenCode）使用各自 CLI 鉴权，不依赖配置文件。
     let spawn_env = if config_path.exists() {
         build_spawn_env(&config_path)
     } else {
@@ -404,18 +371,16 @@ pub async fn acp_connect(
 #[tauri::command]
 #[specta::specta]
 pub async fn acp_connect_default(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    _app: AppHandle,
+    _state: State<'_, AppState>,
 ) -> Result<AcpStatus, String> {
-    let spec = resolve_default_agent_launch(&app)
-        .ok_or_else(|| "未找到默认 agent/index.ts，请在 agent 目录执行 npm install".to_string())?;
-    connect_agent(&app, &state, spec).await
+    Err("内置 OmniAgent 已移除，请在设置中启用 Cursor 或 OpenCode".to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn acp_get_default_command(app: AppHandle) -> Result<String, String> {
-    resolve_default_agent_command(&app).ok_or_else(|| "未找到内置 agent/index.ts".to_string())
+pub fn acp_get_default_command(_app: AppHandle) -> Result<String, String> {
+    Err("内置 OmniAgent 已移除，请在设置中启用 Cursor 或 OpenCode".to_string())
 }
 
 #[tauri::command]

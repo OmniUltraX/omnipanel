@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
 import { AGENT_ADAPTERS, getAgentAdapter } from "../../lib/agents/registry";
 import type { AgentKind } from "../../lib/agents/types";
+import { isSupportedAgentKind } from "../../lib/agents/types";
 import { statusByKind } from "../../lib/agents/detect";
 import { useAcpServicesStore } from "../../stores/acpServicesStore";
 import {
@@ -135,11 +136,13 @@ export function AgentsSection() {
 
   const sortedProviders = useMemo(() => {
     const order = AGENT_ADAPTERS.map((a) => a.kind);
-    return [...providers].sort((a, b) => {
-      const ai = order.indexOf(a.id as AgentKind);
-      const bi = order.indexOf(b.id as AgentKind);
-      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-    });
+    return [...providers]
+      .filter((p) => isSupportedAgentKind(p.id))
+      .sort((a, b) => {
+        const ai = order.indexOf(a.id as AgentKind);
+        const bi = order.indexOf(b.id as AgentKind);
+        return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+      });
   }, [providers]);
 
   return (
@@ -187,7 +190,6 @@ export function AgentsSection() {
               ? getAgentAdapter(kind)
               : null;
             const status = statusByKind(installStatuses, kind);
-            const isLegacy = kind === "omniagent";
             const installed =
               status !== undefined ? status.installed : Boolean(provider.binary?.trim());
             const models = getCliProviderModels(provider, modelCache);
@@ -209,7 +211,7 @@ export function AgentsSection() {
             return (
               <li
                 key={provider.id}
-                className={`ai-provider-card${provider.enabled ? " ai-provider-card--active" : ""}${isLegacy ? " ai-provider-card--legacy" : ""}${!installed ? " ai-provider-card--disabled" : ""}`}
+                className={`ai-provider-card${provider.enabled ? " ai-provider-card--active" : ""}${!installed ? " ai-provider-card--disabled" : ""}`}
               >
                 <div className="ai-provider-header">
                   <div className="ai-provider-header-main">
@@ -253,11 +255,6 @@ export function AgentsSection() {
                         >
                           {provider.protocol.toUpperCase()}
                         </span>
-                        {provider.builtin ? (
-                          <span className="ai-model-row-standard ai-model-row-standard-active">
-                            {t("settings.mcpServices.builtinBadge")}
-                          </span>
-                        ) : null}
                         {hasModels ? (
                           <span className="ai-provider-model-count">
                             {t("settings.aiModels.enabledCount", {
@@ -278,9 +275,6 @@ export function AgentsSection() {
                             : t("settings.cliProviders.notFound")}
                         </span>
                       </div>
-                      {adapter && isLegacy ? (
-                        <p className="setting-hint">{t("settings.cliProviders.legacyHint")}</p>
-                      ) : null}
                     </div>
                   </div>
 

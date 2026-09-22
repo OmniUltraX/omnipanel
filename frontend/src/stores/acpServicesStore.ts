@@ -4,7 +4,7 @@ import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 
 import { detectAllAgents } from "../lib/agents/detect";
 import type { AgentInstallStatus, AgentKind } from "../lib/agents/types";
-import { agentKindToServiceId, DEFAULT_AGENT_KIND, isSupportedAgentKind, SUPPORTED_AGENT_KINDS } from "../lib/agents/types";
+import { agentKindToServiceId, isSupportedAgentKind, SUPPORTED_AGENT_KINDS } from "../lib/agents/types";
 import {
   firstModelSelectionId,
   resolveModelSelection,
@@ -54,7 +54,7 @@ function createService(
     enabled,
     isActive: enabled,
     createdAt: 0,
-    builtin: kind === DEFAULT_AGENT_KIND,
+    builtin: false,
   };
 }
 
@@ -92,10 +92,6 @@ export function resolveAcpModelSelectionId(active: AcpService | null): string | 
   }
 
   return firstModelSelectionId(providers);
-}
-
-export function isBuiltinAcpService(service: AcpService): boolean {
-  return service.id === "omniagent";
 }
 
 export const useAcpServicesStore = create<AcpServicesState>()(
@@ -244,13 +240,15 @@ export function getEnabledAcpServices(services: AcpService[]): AcpService[] {
   return services.filter((s) => s.enabled ?? s.isActive);
 }
 
+/** 当前已启用的智能体；无一启用时返回 null（禁止回退到未启用项）。 */
 export function getActiveAcpService(services: AcpService[]): AcpService | null {
-  return getEnabledAcpServices(services)[0] ?? services[0] ?? null;
+  return getEnabledAcpServices(services)[0] ?? null;
 }
 
-export function getActiveAgentKind(services: AcpService[]): AgentKind {
+/** 已启用智能体的 kind；无一启用时返回 null。 */
+export function getActiveAgentKind(services: AcpService[]): AgentKind | null {
   const active = getActiveAcpService(services);
-  return active && isSupportedAgentKind(active.id) ? active.id : DEFAULT_AGENT_KIND;
+  return active && isSupportedAgentKind(active.id) ? active.id : null;
 }
 
 export { agentKindToServiceId, SUPPORTED_AGENT_KINDS };

@@ -320,7 +320,7 @@ export default {
     cliProviders: {
       title: "Agents",
       description:
-        "Connect local third-party agents (OpenCode / Cursor / Qwen, etc.). Prompts and Skills stay with each agent; OmniPanel exposes tools via its MCP Server.",
+        "Connect local third-party agents (OpenCode / Cursor). Prompts and Skills stay with each agent; OmniPanel exposes tools via its MCP Server.",
       detecting: "Detecting…",
       redetect: "Re-detect",
       loading: "Loading agents…",
@@ -333,7 +333,6 @@ export default {
       idle: "Idle",
       noneEnabled: "No agents enabled",
       enabledCount: "{count} agent(s) enabled",
-      legacyHint: "Legacy optional path",
       toggleProvider: "Enable {name}",
       providerDisabled: "Enable this agent first",
       refresh: {
@@ -639,28 +638,20 @@ export default {
     agents: {
       title: "Agent",
       description:
-        "Choose a local ACP agent. Conversation models come from enabled agents; you can also switch to Cursor, OpenCode, or Qwen CLI.",
+        "Choose a local agent. Conversation models come from enabled agents; switch between Cursor and OpenCode.",
       detecting: "Detecting…",
       redetect: "Detect again",
       installed: "Installed",
       notFound: "Not found",
       installHint: "Not installed or not on PATH",
       notInstalled: "{name} is not installed. Install the CLI first.",
-      omniagent: {
-        name: "OmniAgent",
-        desc: "Built-in OmniPanel agent (DeepAgents + Skills + MCP). Uses AI models and MCP services via acp-agent-config.json.",
-      },
       cursor: {
         name: "Cursor",
         desc: "Use Cursor CLI (agent acp) as the local agent; auth is managed by your Cursor account.",
       },
       opencode: {
         name: "OpenCode",
-        desc: "Use OpenCode CLI (opencode acp) as the local agent.",
-      },
-      qwen: {
-        name: "Qwen",
-        desc: "Use Qwen Code CLI (qwen --acp) as the local agent.",
+        desc: "Use OpenCode CLI (opencode serve / HTTP) as the local agent.",
       },
     },
     aiScenarios: {
@@ -669,16 +660,16 @@ export default {
       noModel: "Enable an agent above first.",
       assistant: {
         label: "AI Assistant",
-        desc: "Default model for AI assistant chats; OmniAgent uses this model (written to acp-agent-config.json).",
+        desc: "Default model for AI assistant chats (used by the built-in orchestrator when OpenCode / Cursor are not enabled).",
       },
     },
     acpServices: {
       title: "ACP Services",
       description:
-        "The built-in OmniPanel Agent (/agent) connects automatically on startup. You can also add other ACP servers. Only one service can be active at a time.",
+        "Enable Cursor (ACP) or OpenCode (HTTP) under Agents. Prefer enabling only one at a time.",
       builtinBadge: "Built-in",
       builtinName: "OmniPanel Agent",
-      builtinPath: "Built-in /agent (path resolved automatically on startup)",
+      builtinPath: "Removed; use Cursor or OpenCode instead",
       activeBadge: "Active",
       activateTitle: "Set as active",
       activeTitle: "Currently active",
@@ -691,7 +682,7 @@ export default {
       browse: "Browse…",
       empty: {
         title: "No ACP services yet",
-        desc: "Add an ACP server application's executable path to start using a local agent.",
+        desc: "Enable Cursor or OpenCode under Agents.",
         cta: "Add Service",
       },
       add: {
@@ -706,8 +697,8 @@ export default {
         confirm: "Save Changes",
       },
       editBuiltin: {
-        title: "Edit Built-in Agent",
-        subtitle: "Select the LLM model. This agent connects automatically on app startup.",
+        title: "Edit Agent",
+        subtitle: "Manage Cursor / OpenCode under Agents settings.",
       },
       fields: {
         name: "Name",
@@ -739,7 +730,7 @@ export default {
       },
       hintLabel: "Example command:",
       mcpEmbeddedDesc:
-        "Manage MCP services and sync them into the OmniAgent config file; enabled running services are loaded as tools in Agent sessions.",
+        "Manage MCP services; enabled running services are loaded as tools in Agent sessions (via OmniMCP / the built-in orchestrator).",
     },
     mcpServices: {
       title: "MCP",

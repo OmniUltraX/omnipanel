@@ -536,17 +536,18 @@ fn builtin_cli_providers() -> Vec<CliProviderRecord> {
         .map(|agent| {
             let id = crate::agents_detect::agent_kind_key(agent.kind);
             let display_name = match agent.kind {
-                crate::agents_detect::AgentKind::Omniagent => "OmniAgent（遗留）".to_string(),
                 crate::agents_detect::AgentKind::Cursor => "Cursor".to_string(),
                 crate::agents_detect::AgentKind::Opencode => "OpenCode".to_string(),
-                crate::agents_detect::AgentKind::Qwen => "Qwen Code".to_string(),
             };
             let installed = agent.installed;
-            let is_legacy = agent.kind == crate::agents_detect::AgentKind::Omniagent;
+            let protocol = match agent.kind {
+                crate::agents_detect::AgentKind::Opencode => "http".to_string(),
+                _ => "acp".to_string(),
+            };
             CliProviderRecord {
                 id: id.to_string(),
                 display_name,
-                protocol: "acp".to_string(),
+                protocol,
                 binary: if installed {
                     agent.executable_path.clone()
                 } else {
@@ -556,28 +557,22 @@ fn builtin_cli_providers() -> Vec<CliProviderRecord> {
                 env: std::collections::HashMap::new(),
                 cwd: None,
                 timeout_secs: Some(300),
-                enabled: installed && !is_legacy,
+                enabled: false,
                 builtin: true,
-                static_models: if is_legacy {
-                    vec!["default".to_string()]
-                } else {
-                    Vec::new()
-                },
+                static_models: Vec::new(),
                 manual_model_names: Vec::new(),
                 disabled_model_names: Vec::new(),
-                model_discovery_command: if installed && !is_legacy {
+                model_discovery_command: if installed {
                     agent.executable_path.clone()
                 } else {
                     None
                 },
-                model_discovery_args: if installed && !is_legacy {
+                model_discovery_args: if installed {
                     match agent.kind {
                         crate::agents_detect::AgentKind::Cursor => {
                             vec!["--list-models".to_string()]
                         }
                         crate::agents_detect::AgentKind::Opencode => vec!["models".to_string()],
-                        crate::agents_detect::AgentKind::Qwen => vec!["--list-models".to_string()],
-                        crate::agents_detect::AgentKind::Omniagent => Vec::new(),
                     }
                 } else {
                     Vec::new()

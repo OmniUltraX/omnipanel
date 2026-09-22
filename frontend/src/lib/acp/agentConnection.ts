@@ -4,7 +4,6 @@ import { statusByKind } from "../agents/detect";
 import { getAgentAdapter } from "../agents/registry";
 import {
   getActiveAgentKind,
-  resolveAcpModelSelectionId,
   useAcpServicesStore,
 } from "../../stores/acpServicesStore";
 import { isTauriRuntime } from "../isTauriRuntime";
@@ -44,6 +43,7 @@ type ConnectActiveAgentMessages = {
   notInstalled: (agentLabel: string) => string;
   modelRequired: string;
   notLaunchable: string;
+  noneEnabled: string;
 };
 
 export async function connectActiveAgent(
@@ -55,6 +55,13 @@ export async function connectActiveAgent(
 
   const state = useAcpServicesStore.getState();
   const kind = getActiveAgentKind(state.services);
+  if (!kind) {
+    throw new Error(messages.noneEnabled);
+  }
+  if (kind === "opencode") {
+    return;
+  }
+
   const installStatus = statusByKind(state.installStatuses, kind);
   const adapter = getAgentAdapter(kind);
 
@@ -62,18 +69,10 @@ export async function connectActiveAgent(
     throw new Error(messages.notInstalled(adapter.nameKey));
   }
 
-  const modelSelectionId = adapter.requiresOmniPanelConfig()
-    ? resolveAcpModelSelectionId(state.services.find((s) => s.enabled) ?? null)
-    : null;
-
-  if (adapter.requiresOmniPanelConfig() && !modelSelectionId) {
-    throw new Error(messages.modelRequired);
-  }
-
   const commandLine = adapter.buildLaunchCommand(installStatus);
   if (!commandLine) {
     throw new Error(messages.notLaunchable);
   }
 
-  await connectAgentByKind(kind, installStatus, modelSelectionId);
+  await connectAgentByKind(kind, installStatus);
 }
