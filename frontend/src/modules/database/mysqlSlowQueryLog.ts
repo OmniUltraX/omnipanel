@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { commands } from "../../ipc/bindings";
+import { sshPoolExecWithPresence } from "../../lib/sshPresence";
 import type { Connection } from "../../ipc/bindings";
 import { parseSshConfig } from "../server/panel/serverConnection";
 import { useSshConnectionStore } from "../../stores/sshConnectionStore";
-import { useConnectionStore } from "../../stores/connectionStore";
 import { isSshAuthHeld } from "../server/ssh/sshAuthHold";
 import { forceReleaseSshPoolSession } from "../../stores/sshPoolSessionStore";
 import { useTerminalStore } from "../../stores/terminalStore";
@@ -16,8 +16,8 @@ import { probeMysqlDeployment } from "./mysqlDeploymentDetect";
 
 const LOCALHOST_ALIASES = new Set(["localhost", "127.0.0.1", "::1"]);
 
-/** 单次从日志文件尾部读取的字节数（慢查询日志可能很大，默认只读尾部）。 */
-export const MYSQL_SLOW_LOG_CHUNK_BYTES = 32 * 1024;
+/** 单页读取字节数。慢日志只按页从尾部取，避免一次拉完整份文件。 */
+export const MYSQL_SLOW_LOG_CHUNK_BYTES = 512 * 1024;
 
 /** 计算慢查询日志分页总数（第 1 页为最新一段）。 */
 export function slowLogTotalPages(
@@ -174,7 +174,7 @@ const SSH_EXEC_PROBE = "echo 1";
 
 async function probeSshPoolExec(sshConnectionId: string): Promise<boolean> {
   try {
-    const res = await commands.sshPoolExecCommand(sshConnectionId, SSH_EXEC_PROBE, null);
+    const res = await sshPoolExecWithPresence(sshConnectionId, SSH_EXEC_PROBE);
     if (res.status !== "ok") {
       return false;
     }
@@ -226,7 +226,10 @@ export function isSshConnectionEstablished(sshConnectionId: string): boolean {
   return remotePaneConnected(sshConnectionId);
 }
 
-/** 确保 SSH 连接池或终端会话可用于远程命令执行。 */
+/**
+ * 确保 SSH 连接池可用于远程命令。
+ * 只探测已有终端会话或连接池，不调用 sshConnectConnection，避免慢日志/部署探测弹出交互式命令窗口。
+ */
 export async function ensureSshReady(sshConnectionId: string): Promise<boolean> {
   if (isSshAuthHeld(sshConnectionId)) {
     return false;
@@ -237,46 +240,10 @@ export async function ensureSshReady(sshConnectionId: string): Promise<boolean> 
 
   try {
     const res = await commands.sshPoolFetchStats(sshConnectionId);
-    if (res.status === "ok") {
-      return true;
-    }
-    // 池中无资源 / 配置无效：不要回退交互式连接（无密码占位 SSH 会卡数秒）
-    const code =
-      typeof res.error === "object" && res.error && "code" in res.error
-        ? String((res.error as { code?: string }).code ?? "")
-        : "";
-    if (
-      code === "notFound" ||
-      code === "invalidInput" ||
-      code === "auth" ||
-      code === "NotFound" ||
-      code === "InvalidInput" ||
-      code === "Auth"
-    ) {
-      return false;
-    }
+    return res.status === "ok";
   } catch {
-    // 回退终端连接
-  }
-
-  // 资源未注册到 SSH 池时不要尝试 sshConnectConnection（会再次 notFound）
-  const known = useConnectionStore
-    .getState()
-    .connections.some((c) => c.kind === "ssh" && c.id === sshConnectionId);
-  if (!known) {
     return false;
   }
-
-  try {
-    const res = await commands.sshConnectConnection(sshConnectionId, 80, 24, null);
-    if (res.status === "ok") {
-      return true;
-    }
-  } catch {
-    // ignore
-  }
-
-  return isSshConnectionEstablished(sshConnectionId);
 }
 
 function shellQuote(value: string): string {
@@ -407,7 +374,7 @@ function isConnectionEnabledForProbe(connection: DbConnectionConfig): boolean {
 }
 
 function sshExec(sshConnectionId: string, command: string): Promise<{ stdout: string; stderr: string }> {
-  return commands.sshPoolExecCommand(sshConnectionId, command, null).then((res) => {
+  return sshPoolExecWithPresence(sshConnectionId, command).then((res) => {
     if (res.status !== "ok") {
       throw new Error(res.error.message);
     }
@@ -560,4 +527,43 @@ export async function readMysqlSlowLogFileSize(
     return readMysqlSlowLogFileSizeDocker(sshConnectionId, containerId, logFilePath);
   }
   return readMysqlSlowLogFileSizeSsh(sshConnectionId, logFilePath);
+}
+
+function newestPageScript(quotedFile: string, maxBytes: number): string {
+  const count = Math.max(1, Math.floor(maxBytes));
+  return `size=$(stat -c %s ${quotedFile} 2>/dev/null || wc -c < ${quotedFile}); printf 'OMNI_SIZE %s\n' "$size"; tail -c ${count} ${quotedFile} 2>/dev/null || true`;
+}
+
+export function parseMysqlSlowLogNewestOutput(stdout: string): { size: number; text: string } {
+  const nl = stdout.indexOf("\n");
+  const first = (nl >= 0 ? stdout.slice(0, nl) : stdout).replace(/\r$/, "");
+  if (!first.startsWith("OMNI_SIZE ")) {
+    return { size: 0, text: stdout };
+  }
+  const size = Number.parseInt(first.slice("OMNI_SIZE ".length).trim(), 10);
+  return {
+    size: Number.isFinite(size) && size >= 0 ? size : 0,
+    text: nl >= 0 ? stdout.slice(nl + 1) : "",
+  };
+}
+
+/**
+ * 一次 SSH 取文件大小和最新一页。
+ * 用 tail -c 从文件末尾读，避免 tail -c +offset 把后半段整段送进管道。
+ */
+export async function readMysqlSlowLogNewest(
+  sshConnectionId: string,
+  logFilePath: string,
+  maxBytes: number,
+  deploymentKind?: "host" | "docker",
+  containerId?: string,
+): Promise<{ size: number; text: string }> {
+  const quoted = shellQuote(logFilePath);
+  const script = newestPageScript(quoted, maxBytes);
+  const command =
+    deploymentKind === "docker" && containerId
+      ? `docker exec ${shellQuote(containerId)} sh -c ${shellQuote(script)}`
+      : script;
+  const res = await sshExec(sshConnectionId, command);
+  return parseMysqlSlowLogNewestOutput(res.stdout || res.stderr);
 }

@@ -24,6 +24,19 @@ export type LogBackend = {
   id?: string;
 };
 
+/**
+ * 大日志表面契约。LargeLogViewer 已实现跟踪 / 正反搜 / 跳行。
+ * Docker 容器日志与站点日志若迁入，对齐这三项，不另做一套工具条。
+ */
+export type LogSurfaceControls = {
+  toggleFollow(): void | Promise<void>;
+  search(
+    pattern: string,
+    opts: { reverse: boolean; isRegex: boolean },
+  ): Promise<void>;
+  jumpToLine(lineNo: number): Promise<void>;
+};
+
 function unwrap<T>(res: CommandResult<T, IpcErrorLike>, op: string): T {
   return unwrapCommandResult(res, { logLabel: "[logViewer]", debugContext: { op } });
 }

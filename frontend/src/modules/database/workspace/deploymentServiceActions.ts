@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { commands } from "../../../ipc/bindings";
+import { sshPoolExecWithPresence } from "../../../lib/sshPresence";
 import type { TextEditorIO } from "../../../components/textEditor/types";
 import type { RemoteConfigDeployment } from "../../../components/textEditor/io/remoteConfigTextIO";
 import type { DbConnectionConfig } from "../api";
@@ -46,7 +46,7 @@ async function sshExec(sshId: string, command: string): Promise<string> {
   if (!ok) {
     throw new Error("ssh_not_connected");
   }
-  const res = await commands.sshPoolExecCommand(sshId, command, null);
+  const res = await sshPoolExecWithPresence(sshId, command);
   if (res.status !== "ok") {
     throw new Error(res.error?.message ?? "ssh_exec_failed");
   }

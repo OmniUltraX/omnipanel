@@ -652,16 +652,30 @@ pub async fn dispatch(
             )
             .await,
         ),
+        "presence_issue_leased" => {
+            let action = get_str(&args, "action").unwrap_or_default();
+            let target = get_str(&args, "target").unwrap_or_default();
+            respond(
+                state
+                    .presence_tokens
+                    .issue_under_lease(&action, &target)
+                    .map(|issued| serde_json::to_value(issued).unwrap_or_default())
+                    .map_err(|e| e.to_string()),
+            )
+        }
         "presence_issue_typed" => {
             let action = get_str(&args, "action").unwrap_or_default();
             let target = get_str(&args, "target").unwrap_or_default();
             let typed = get_str(&args, "typed").unwrap_or_default();
             respond(match omnipanel_presence::expected_typed(&action, &target) {
-                Ok(expected) if typed.trim() == expected => state
-                    .presence_tokens
-                    .issue(&action, &target)
-                    .map(|issued| serde_json::to_value(issued).unwrap_or_default())
-                    .map_err(|e| e.to_string()),
+                Ok(expected) if typed.trim() == expected => {
+                    state.presence_tokens.open_lease(&action, &target);
+                    state
+                        .presence_tokens
+                        .issue(&action, &target)
+                        .map(|issued| serde_json::to_value(issued).unwrap_or_default())
+                        .map_err(|e| e.to_string())
+                }
                 Ok(_) => Err("输入内容不匹配".into()),
                 Err(e) => Err(e.to_string()),
             })

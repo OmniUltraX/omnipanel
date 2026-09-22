@@ -531,14 +531,18 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
             if (focusLine > 0) jumpToLineRef.current(focusLine);
           } else {
             setActiveHitLine(null);
-            setError("无匹配结果");
+            setError(t("files.preview.log.noMatch"));
           }
           return;
         }
 
         if (hits.length === 0) {
           setSearchExhausted(true);
-          setError(mode === "continueUp" ? "上面没有更多匹配" : "下面没有更多匹配");
+          setError(
+            mode === "continueUp"
+              ? t("files.preview.log.noMoreAbove")
+              : t("files.preview.log.noMoreBelow"),
+          );
           return;
         }
 
@@ -571,6 +575,7 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
       searchSkip,
       searchResults,
       sortHitsAsc,
+      t,
     ],
   );
 
@@ -591,11 +596,11 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
       }
     }
     if (searchExhausted && searchResults.length > 0) {
-      setError("上面没有更多匹配");
+      setError(t("files.preview.log.noMoreAbove"));
       return;
     }
     await runSearch(searchResults.length === 0 ? "fresh" : "continueUp");
-  }, [searchPattern, searchResults, activeHitLine, searchExhausted, runSearch]);
+  }, [searchPattern, searchResults, activeHitLine, searchExhausted, runSearch, t]);
 
   /** 向下：先在已有结果里找更新命中，没有再翻页 */
   const goSearchDown = useCallback(async () => {
@@ -614,16 +619,16 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
       }
     }
     if (searchExhausted && searchResults.length > 0 && !searchReverse) {
-      setError("下面没有更多匹配");
+      setError(t("files.preview.log.noMoreBelow"));
       return;
     }
     // 反搜默认从末尾开始，向下 = 在已加载结果里往更新方向；若已在最新则提示
     if (searchReverse && searchResults.length > 0) {
-      setError("已在最近一处匹配（反搜从末尾开始，请点「向上」看更早记录）");
+      setError(t("files.preview.log.reverseAtLatest"));
       return;
     }
     await runSearch(searchResults.length === 0 ? "fresh" : "continueDown");
-  }, [searchPattern, searchResults, activeHitLine, searchExhausted, searchReverse, runSearch]);
+  }, [searchPattern, searchResults, activeHitLine, searchExhausted, searchReverse, runSearch, t]);
 
   // ---------- 跳转 ----------
   const jumpToLine = useCallback(
@@ -669,7 +674,9 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
             }
           } else if (fromEnd != null && fromEnd > SEARCH_JUMP_TAIL_MAX) {
             setError(
-              `该命中距末尾约 ${fromEnd.toLocaleString()} 行，超出快速定位范围；请在右侧结果列表查看内容，或继续点「↑ 向上」浏览更早命中`,
+              t("files.preview.log.jumpTooFar", {
+                lines: fromEnd.toLocaleString(),
+              }),
             );
           } else {
             // 无总行数：小范围 sed，失败则提示
@@ -692,7 +699,7 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
           }
         } catch (e) {
           setError(
-            `${fmtError(e)}（大文件请用搜索结果列表查看，避免跨段 sed 读取）`,
+            t("files.preview.log.jumpReadFailed", { message: fmtError(e) }),
           );
         } finally {
           setJumpBusy(false);
@@ -720,6 +727,7 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
       totalLines,
       sessionInfo,
       loadTailWindow,
+      t,
     ],
   );
   jumpToLineRef.current = (lineNo) => {
@@ -756,9 +764,13 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
       const shown = Math.max(0, viewEndLine - viewStartLine + 1);
       const total = totalLines > 0 ? totalLines.toLocaleString() : "?";
       const approx = sessionInfo.linesEstimated ? "≈ " : "";
-      return `显示末尾 ${shown.toLocaleString()} 行 · ${approx}${total} 行`;
+      return t("files.preview.log.windowLines", {
+        shown: shown.toLocaleString(),
+        approx,
+        total,
+      });
     }
-    return `${rowCount.toLocaleString()} 行`;
+    return t("files.preview.log.rowCount", { count: rowCount.toLocaleString() });
   })();
 
   if (loading) {
@@ -784,18 +796,18 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
           type="button"
           className={`log-viewer__btn${tailRunning ? " active" : ""}`}
           onClick={() => void toggleTail()}
-          title={tailRunning ? "停止跟踪" : "开始跟踪"}
+          title={tailRunning ? t("files.preview.log.stopFollow") : t("files.preview.log.startFollow")}
         >
-          {tailRunning ? "■ 停止跟踪" : "▶ 跟踪"}
+          {tailRunning ? `■ ${t("files.preview.log.stopFollow")}` : `▶ ${t("files.preview.log.startFollow")}`}
         </button>
         {tailRunning && (
           <button
             type="button"
             className={`log-viewer__btn${following ? " active" : ""}`}
             onClick={() => setFollowing((v) => !v)}
-            title={following ? "暂停跟随" : "回到最新"}
+            title={following ? t("files.preview.log.pauseFollow") : t("files.preview.log.resumeFollow")}
           >
-            {following ? "⏸ 暂停跟随" : "↓ 回到最新"}
+            {following ? `⏸ ${t("files.preview.log.pauseFollow")}` : `↓ ${t("files.preview.log.resumeFollow")}`}
           </button>
         )}
 
@@ -805,13 +817,13 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
             className="log-viewer__btn"
             disabled={loadingMore || windowSize >= WINDOW_MAX}
             onClick={() => void loadMoreHistory()}
-            title="向上加载更多历史行（tail）"
+            title={t("files.preview.log.loadMoreTitle")}
           >
             {loadingMore
-              ? "加载中..."
+              ? t("files.preview.log.loading")
               : windowSize >= WINDOW_MAX
-                ? "已达上限"
-                : "↑ 加载更多历史"}
+                ? t("files.preview.log.windowMax")
+                : t("files.preview.log.loadMore")}
           </button>
         )}
 
@@ -826,7 +838,11 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
             type="text"
             value={searchPattern}
             onChange={(e) => setSearchPattern(e.target.value)}
-            placeholder={searchReverse ? "反搜（从后往前）..." : "正搜（从前往后）..."}
+            placeholder={
+              searchReverse
+                ? t("files.preview.log.searchReversePlaceholder")
+                : t("files.preview.log.searchForwardPlaceholder")
+            }
             className="log-viewer__input"
           />
           <button
@@ -837,9 +853,9 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
               setSearchSkip(0);
               setSearchExhausted(false);
             }}
-            title="反搜：从文件末尾往前找（默认，适合大日志）"
+            title={t("files.preview.log.searchReverseTitle")}
           >
-            反搜
+            {t("files.preview.log.searchReverse")}
           </button>
           <button
             type="button"
@@ -849,38 +865,42 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
               setSearchSkip(0);
               setSearchExhausted(false);
             }}
-            title="正搜：从文件开头往后找"
+            title={t("files.preview.log.searchForwardTitle")}
           >
-            正搜
+            {t("files.preview.log.searchForward")}
           </button>
           <button
             type="button"
             className={`log-viewer__btn log-viewer__btn--toggle${isRegex ? " active" : ""}`}
             onClick={() => setIsRegex((v) => !v)}
-            title={isRegex ? "正则模式（点击切换为普通文本）" : "普通文本（点击切换为正则）"}
+            title={
+              isRegex
+                ? t("files.preview.log.regexOn")
+                : t("files.preview.log.regexOff")
+            }
           >
             .*
           </button>
           <button type="submit" className="log-viewer__btn" disabled={searching}>
-            {searching ? "搜索中..." : "搜索"}
+            {searching ? t("files.preview.log.searching") : t("files.preview.log.search")}
           </button>
           <button
             type="button"
             className="log-viewer__btn"
             disabled={searching || !searchPattern.trim()}
             onClick={() => void goSearchUp()}
-            title="向上找更早的匹配；当前页翻完后自动加载下一页"
+            title={t("files.preview.log.searchUpTitle")}
           >
-            {searching ? "…" : "↑ 向上"}
+            {searching ? "…" : t("files.preview.log.searchUp")}
           </button>
           <button
             type="button"
             className="log-viewer__btn"
             disabled={searching || !searchPattern.trim()}
             onClick={() => void goSearchDown()}
-            title="向下找更新的匹配"
+            title={t("files.preview.log.searchDownTitle")}
           >
-            ↓ 向下
+            {t("files.preview.log.searchDown")}
           </button>
           {searchResults.length > 0 && (
             <button
@@ -889,8 +909,11 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
               onClick={() => setSearchPanelOpen((v) => !v)}
             >
               {searchPanelOpen
-                ? "隐藏结果"
-                : `结果 ${searchResults.length}${searchExhausted ? "" : "+"}`}
+                ? t("files.preview.log.hideResults")
+                : t("files.preview.log.results", {
+                    count: searchResults.length,
+                    more: searchExhausted ? "" : "+",
+                  })}
             </button>
           )}
         </form>
@@ -901,22 +924,22 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
             inputMode="numeric"
             value={jumpInput}
             onChange={(e) => setJumpInput(e.target.value)}
-            placeholder="跳转行号"
+            placeholder={t("files.preview.log.jumpPlaceholder")}
             className="log-viewer__input log-viewer__input--narrow"
             disabled={jumpBusy}
           />
           <button type="submit" className="log-viewer__btn" disabled={jumpBusy}>
-            {jumpBusy ? "跳转中..." : "跳转"}
+            {jumpBusy ? t("files.preview.log.jumping") : t("files.preview.log.jump")}
           </button>
         </form>
 
         <div className="log-viewer__meta">
           {sessionInfo && (
             <>
-              <span title="文件大小">{formatFileSize(sessionInfo.sizeBytes)}</span>
-              <span title="行数信息">{metaLinesLabel}</span>
+              <span title={t("files.preview.log.fileSize")}>{formatFileSize(sessionInfo.sizeBytes)}</span>
+              <span title={t("files.preview.log.lineInfo")}>{metaLinesLabel}</span>
               {sessionInfo.linesEstimated && (
-                <span title="总行数由采样估算">估算</span>
+                <span title={t("files.preview.log.estimatedTitle")}>{t("files.preview.log.estimated")}</span>
               )}
               {tailRunning && <span className="log-viewer__live">● LIVE</span>}
             </>
@@ -960,8 +983,8 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
           <div className="log-viewer__search-panel">
             <div className="log-viewer__search-header">
               <span>
-                命中 {searchResults.length} 条（正序）
-                {searchExhausted ? "" : " · 可继续↑"}
+                {t("files.preview.log.hits", { count: searchResults.length })}
+                {searchExhausted ? "" : t("files.preview.log.hitsMore")}
               </span>
               <button
                 type="button"
@@ -991,7 +1014,7 @@ export function LargeLogViewer({ sshId, local = false, path, className }: LargeL
                 );
               })}
               {searchResults.length === 0 && (
-                <div className="log-viewer__empty">无命中</div>
+                <div className="log-viewer__empty">{t("files.preview.log.noHits")}</div>
               )}
             </div>
           </div>

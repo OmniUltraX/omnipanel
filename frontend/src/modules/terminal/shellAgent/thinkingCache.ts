@@ -357,6 +357,87 @@ export function clearShellAgentConfirmFreeze(sessionId: string): void {
   confirmFreezeIntent.delete(sessionId);
 }
 
+/** 询问卡提交/跳过后冻结：保留选项标签与文字，并区分已回答 / 已跳过 */
+export type AskFreezeStatus = "answered" | "skipped";
+
+export type AskFreezeLine = {
+  prompt: string;
+  text: string;
+};
+
+export type AskFreezeSnapshot = {
+  status: AskFreezeStatus;
+  lines: AskFreezeLine[];
+};
+
+const askFreezeIntent = new Map<string, AskFreezeSnapshot>();
+
+export function markShellAgentAskFreeze(
+  sessionId: string,
+  snapshot: AskFreezeSnapshot,
+): void {
+  askFreezeIntent.set(sessionId, snapshot);
+}
+
+export function consumeShellAgentAskFreeze(
+  sessionId: string,
+): AskFreezeSnapshot | null {
+  const snapshot = askFreezeIntent.get(sessionId) ?? null;
+  if (snapshot) askFreezeIntent.delete(sessionId);
+  return snapshot;
+}
+
+function escapeAskFreezeText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function askFreezeStatusLabel(status: AskFreezeStatus): string {
+  const lang =
+    typeof document !== "undefined" ? document.documentElement.lang || "zh-CN" : "zh-CN";
+  const en = lang.toLowerCase().startsWith("en");
+  if (status === "skipped") return en ? "Skipped" : "已跳过";
+  return en ? "Answered" : "已回答";
+}
+
+/** 把提交前的完整表单冻成可回看摘要：状态文案、答案列表、按钮失效 */
+export function applyFrozenAskHtml(
+  liveHtml: string,
+  snapshot: AskFreezeSnapshot | null,
+): string {
+  let html = liveHtml.trim();
+  if (!html) return html;
+  const status = snapshot?.status ?? "answered";
+  const label = askFreezeStatusLabel(status);
+  html = html.replace(/\bdata-status="pending"/g, `data-status="${status}"`);
+  html = html
+    .replace(/>\s*待回答\s*</g, `>${label}<`)
+    .replace(/>\s*Pending\s*</gi, `>${label}<`);
+  html = html.replace(/<button\b(?![^>]*\bdisabled\b)/gi, "<button disabled");
+  if (snapshot && snapshot.lines.length > 0) {
+    const items = snapshot.lines
+      .map(
+        (line) =>
+          `<li><span>${escapeAskFreezeText(line.prompt)}</span><span> · </span><span>${escapeAskFreezeText(line.text)}</span></li>`,
+      )
+      .join("");
+    const list = `<ul class="term-shell-agent-ask-frozen-answers" data-shell-agent-ask-answers="1">${items}</ul>`;
+    if (html.includes('data-slot="user-question-form"')) {
+      html = html.replace(
+        /(<div\b[^>]*data-slot="user-question-form"[^>]*>)/,
+        `$1${list}`,
+      );
+    } else {
+      html = `${list}${html}`;
+    }
+  }
+  if (/\bdata-shell-agent-frozen-ask=/.test(html)) return html;
+  return html;
+}
+
 /** @deprecated 用 markShellAgentConfirmFreeze(sessionId, "agreed") */
 export function markShellAgentAgreedFreeze(sessionId: string): void {
   markShellAgentConfirmFreeze(sessionId, "agreed");

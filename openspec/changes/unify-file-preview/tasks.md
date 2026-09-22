@@ -24,11 +24,11 @@
 
 ## 4. LogSurface 预留（可后置）
 
-- [ ] 4.1 抽出与 LargeLog 一致的搜索/跟踪 UI 契约文档或薄组件边界（不强制迁完 Docker）
-- [ ] 4.2 （可选）Docker 容器日志迁入共享表面（`modules/docker/subwindows/DockerContainerLogsView.tsx`）
-- [ ] 4.3 （可选）站点面板日志迁入（`modules/server/panel/WebsiteActionSubWindows.tsx`）
+- [x] 4.1 薄契约 `LogSurfaceControls`（`frontend/src/modules/files/logApi.ts`）：跟踪 / 正反搜 / 跳行。Docker 与站点日志本次不迁
+- [x] 4.2 （后置，本次不做）Docker 容器日志仍用现有 `DockerContainerLogsView`
+- [x] 4.3 （后置，本次不做）站点面板日志仍用现有面板日志视图
 
 ## 5. 收尾
 
-- [ ] 5.1 i18n 文案（zh-CN/en-US）覆盖查找/替换、大日志本地错误提示
+- [x] 5.1 i18n：查找/替换走 `ui.editorSearch`；大日志工具条与本地错误走 `files.preview.log`（zh-CN / en-US）
 - [ ] 5.2 对照 specs 做一次端到端手工验收并勾选 tasks

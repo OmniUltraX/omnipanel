@@ -1,4 +1,6 @@
 ﻿import { invoke } from "@tauri-apps/api/core";
+import { commands } from "../../../../ipc/bindings";
+import { resolveSshExecToken } from "../../../../lib/sshPresence";
 
 import type { BuiltinToolRegistration } from "../../../../lib/ai/context";
 import { optionalString, requireString } from "../../../../lib/ai/mcpToolArgs";
@@ -6,7 +8,6 @@ import { redactSecretsInText } from "../../../../lib/ai/redactSecrets";
 import { runWithToolGate } from "../../../../lib/ai/toolGate";
 import type {
   HostSystemStats,
-  SshExecOutput,
   SshTunnelInfo,
 } from "../../../../ipc/bindings";
 
@@ -23,24 +24,23 @@ import type {
  *   AI 可先调用 Native 工具 `omni_ssh_list_connections` 获取候选主机。
  * - exec 命令直接走连接池的 exec channel（非交互式 capture），返回结构化
  *   `{stdout, stderr, exit_code}`，不会污染终端 UI。
- * - 危险命令的审批目前依赖后端 exec channel 的语义；后续若加危险命令
- *   拦截，可在 `ssh_pool_exec_command` 实现层统一加。
+ * - 高危命令（rm -rf 等）会先走在场验证，再把 token 传给 `ssh_pool_exec_command`。
  */
-
-interface SshExecInvokeArgs {
-  resourceId: string;
-  command: string;
-}
 
 async function sshExec(args: Record<string, unknown>): Promise<string> {
   const resource_id = requireString(args, "resource_id");
   const command = requireString(args, "command");
 
   const run = async () => {
-    const output = await invoke<SshExecOutput>("ssh_pool_exec_command", {
-      resourceId: resource_id,
-      command,
-    } satisfies SshExecInvokeArgs);
+    const presenceToken = await resolveSshExecToken(resource_id, command);
+    if (presenceToken === null) {
+      throw new Error("已取消在场验证");
+    }
+    const res = await commands.sshPoolExecCommand(resource_id, command, presenceToken ?? null);
+    if (res.status !== "ok") {
+      throw new Error(res.error.message);
+    }
+    const output = res.data;
     return redactSecretsInText(
       JSON.stringify(
         {

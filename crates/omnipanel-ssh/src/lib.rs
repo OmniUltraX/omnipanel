@@ -916,6 +916,9 @@ impl SshSession {
             channel.exec(true, command).await.map_err(|e| {
                 OmniError::new(ErrorCode::Ssh, "发起 SSH 命令失败").with_cause(e.to_string())
             })?;
+            // 与 exec_stream 相同：通道打开后立刻放闸。长命令（如扫描大 binlog）
+            // 若一直占着唯一名额，同连接上的慢日志/二进制日志探测会一直排队，右键打开没有反应。
+            drop(_exec_permit);
 
             let mut stdout: Vec<u8> = Vec::new();
             let mut stderr: Vec<u8> = Vec::new();

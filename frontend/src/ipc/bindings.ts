@@ -122,6 +122,7 @@ export const commands = {
 	presenceSetOsEnabled: (enabled: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("presence_set_os_enabled", { enabled })),
 	presenceVerify: (action: string, target: string, reason: string) => typedError<PresenceTokenIssued, OmniError_Serialize>(__TAURI_INVOKE("presence_verify", { action, target, reason })),
 	presenceIssueTyped: (action: string, target: string, typed: string) => typedError<PresenceTokenIssued, OmniError_Serialize>(__TAURI_INVOKE("presence_issue_typed", { action, target, typed })),
+	presenceIssueLeased: (action: string, target: string) => typedError<PresenceTokenIssued, OmniError_Serialize>(__TAURI_INVOKE("presence_issue_leased", { action, target })),
 	dbRestartService: (sshConnectionId: string, service: string, kind: string, location: string, presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_restart_service", { sshConnectionId, service, kind, location, presenceToken })),
 	dbDropTable: (connection: DbConnectionConfig, objects: DbDropObject[], presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_drop_table", { connection, objects, presenceToken })),
 	dbDropDatabase: (connection: DbConnectionConfig, databases: string[], presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_drop_database", { connection, databases, presenceToken })),

@@ -1,4 +1,5 @@
 import { commands, type DiskStats } from "../../../ipc/bindings";
+import { sshPoolExecWithPresence } from "../../../lib/sshPresence";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import {
   findSshConnectionForDbHost,
@@ -81,10 +82,9 @@ export async function fetchHostDiskTotalBytes(
 
     const dir = pathHint.trim();
     if (!dir) return null;
-    const exec = await commands.sshPoolExecCommand(
+    const exec = await sshPoolExecWithPresence(
       ssh.id,
       `df -kP ${shellQuote(dir)} 2>/dev/null | awk 'NR==2 {print $2}'`,
-      null,
     );
     if (exec.status !== "ok") return null;
     const kib = parsePositiveNumber(exec.data.stdout.trim().split(/\s+/)[0]);

@@ -1,10 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { commands } from "../../ipc/bindings";
+import { sshPoolExecWithPresence } from "../../lib/sshPresence";
 import type { Connection } from "../../ipc/bindings";
 import type { DbConnectionConfig } from "./api";
 import { isMysqlConnectionInfoCapable } from "./api";
 import {
-  ensureSshReady,
+  ensureSshExecReady,
   findSshConnectionForDbHost,
 } from "./mysqlSlowQueryLog";
 import { makeQueryRunId } from "./sql/queryRun";
@@ -62,7 +62,7 @@ async function sshExec(
   sshConnectionId: string,
   command: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  const res = await commands.sshPoolExecCommand(sshConnectionId, command, null);
+  const res = await sshPoolExecWithPresence(sshConnectionId, command);
   if (res.status !== "ok") {
     throw new Error(res.error.message);
   }
@@ -177,7 +177,7 @@ export async function probeMysqlDeployment(
     return { kind: "unknown", reason: "no_ssh", pidFile, mysqlPort };
   }
 
-  const sshReady = await ensureSshReady(ssh.id);
+  const sshReady = await ensureSshExecReady(ssh.id, connection, sshConnections);
   if (!sshReady) {
     return {
       kind: "unknown",

@@ -1,4 +1,4 @@
-import { commands } from "../../ipc/bindings";
+import { sshPoolExecWithPresence } from "../../lib/sshPresence";
 import type { Connection } from "../../ipc/bindings";
 import type { DbConnectionConfig } from "./api";
 import { isRedisConnection, redisConfigGet } from "./api";
@@ -51,7 +51,7 @@ async function sshExec(
   sshConnectionId: string,
   command: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  const res = await commands.sshPoolExecCommand(sshConnectionId, command, null);
+  const res = await sshPoolExecWithPresence(sshConnectionId, command);
   if (res.status !== "ok") {
     throw new Error(res.error.message);
   }

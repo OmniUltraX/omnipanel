@@ -495,7 +495,7 @@ export const FilePreviewContent = forwardRef<FilePreviewContentHandle, FilePrevi
         setError(
           t("files.preview.tooLarge", {
             limit: formatFileSize(FORCE_PREVIEW_MAX_BYTES),
-          }) + "（建议用外部工具打开）",
+          }) + t("files.preview.tooLargeExternal"),
         );
         return () => {
           cancelled = true;

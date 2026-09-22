@@ -9,6 +9,9 @@ use specta::Type;
 use crate::presence_denied;
 
 pub const TOKEN_TTL_MS: u64 = 120_000;
+/// 一次在场确认后，同一 action+target 可再签发的短时额度（覆盖分片执行）。
+pub const LEASE_TTL_MS: u64 = 15 * 60 * 1000;
+pub const LEASE_BUDGET: u32 = 256;
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -25,8 +28,14 @@ struct Grant {
     expires_at_ms: u64,
 }
 
+struct Lease {
+    expires_at_ms: u64,
+    remaining: u32,
+}
+
 pub struct TokenStore {
     grants: Mutex<HashMap<String, Grant>>,
+    leases: Mutex<HashMap<String, Lease>>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
@@ -40,6 +49,7 @@ impl TokenStore {
     pub fn system() -> Self {
         Self {
             grants: Mutex::new(HashMap::new()),
+            leases: Mutex::new(HashMap::new()),
             clock: Arc::new(now_unix_ms),
         }
     }
@@ -47,6 +57,7 @@ impl TokenStore {
     pub fn with_clock(clock: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
         Self {
             grants: Mutex::new(HashMap::new()),
+            leases: Mutex::new(HashMap::new()),
             clock: Arc::new(clock),
         }
     }
@@ -81,6 +92,44 @@ impl TokenStore {
         Ok(issued)
     }
 
+    /// 用户刚完成一次在场确认后，允许同一 action+target 在额度内再签发，避免分片任务反复弹验证。
+    pub fn open_lease(&self, action: &str, target: &str) {
+        if action.trim().is_empty() || target.trim().is_empty() {
+            return;
+        }
+        let expires_at_ms = self.now().saturating_add(LEASE_TTL_MS);
+        self.leases
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                lease_key(action, target),
+                Lease {
+                    expires_at_ms,
+                    remaining: LEASE_BUDGET,
+                },
+            );
+    }
+
+    pub fn issue_under_lease(&self, action: &str, target: &str) -> OmniResult<PresenceTokenIssued> {
+        let now = self.now();
+        {
+            let mut map = self.leases.lock().unwrap_or_else(|e| e.into_inner());
+            let key = lease_key(action, target);
+            let Some(lease) = map.get_mut(&key) else {
+                return Err(presence_denied("在场验证已失效，请重新确认"));
+            };
+            if now > lease.expires_at_ms || lease.remaining == 0 {
+                map.remove(&key);
+                return Err(presence_denied("在场验证已过期，请重新确认"));
+            }
+            lease.remaining = lease.remaining.saturating_sub(1);
+            if lease.remaining == 0 {
+                map.remove(&key);
+            }
+        }
+        self.issue(action, target)
+    }
+
     pub fn consume(&self, token: &str, action: &str, target: &str) -> OmniResult<()> {
         let now = self.now();
         let mut map = self.grants.lock().unwrap_or_else(|e| e.into_inner());
@@ -102,6 +151,10 @@ pub fn now_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn lease_key(action: &str, target: &str) -> String {
+    format!("{action}\n{target}")
 }
 
 fn random_hex_32() -> OmniResult<String> {
@@ -164,6 +217,17 @@ mod tests {
         let issued = store.issue("db.service.restart", "t1").unwrap();
         clock.store(1_000 + TOKEN_TTL_MS + 1, Ordering::SeqCst);
         assert!(require_grant(&store, Some(&issued.token), "db.service.restart", "t1").is_err());
+    }
+
+    #[test]
+    fn lease_reissues_then_expires() {
+        let (store, clock) = store_at(1_000);
+        store.open_lease("ssh.exec", "host|rm");
+        let first = store.issue_under_lease("ssh.exec", "host|rm").unwrap();
+        require_grant(&store, Some(&first.token), "ssh.exec", "host|rm").unwrap();
+        assert!(store.issue_under_lease("ssh.exec", "other|rm").is_err());
+        clock.store(1_000 + LEASE_TTL_MS + 1, Ordering::SeqCst);
+        assert!(store.issue_under_lease("ssh.exec", "host|rm").is_err());
     }
 
     #[test]

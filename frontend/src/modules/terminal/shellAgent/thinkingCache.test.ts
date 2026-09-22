@@ -21,6 +21,7 @@ import {
   setShellAgentThinkingFull,
   formatShellAgentToolResult,
   stampFrozenCmdResultInRoot,
+  applyFrozenAskHtml,
   transformPendingConfirmToAgreedHtml,
   transformPendingConfirmToRejectedHtml,
 } from "./thinkingCache";
@@ -270,6 +271,37 @@ describe("formatShellAgentToolResult", () => {
     stampFrozenCmdResultInRoot(root, "s1", "t1", '{"output":"2026-08-18 08:42:14"}');
     const card = root.querySelector("[data-shell-agent-frozen-cmd='1']");
     expect(card?.getAttribute("data-tool-result")).toContain("2026-08-18");
+  });
+});
+
+describe("applyFrozenAskHtml", () => {
+  const live = `
+    <div class="term-shell-agent-card term-shell-agent-card--ask">
+      <div data-slot="user-question-form" data-status="pending">
+        <span>待回答</span>
+        <button type="button">提交</button>
+      </div>
+    </div>`;
+
+  it("提交后写入答案并标成已回答", () => {
+    const html = applyFrozenAskHtml(live, {
+      status: "answered",
+      lines: [{ prompt: "用哪个环境", text: "生产" }],
+    });
+    expect(html).toContain('data-status="answered"');
+    expect(html).toContain(">已回答<");
+    expect(html).toContain("用哪个环境");
+    expect(html).toContain("生产");
+    expect(html).toContain("<button disabled");
+    expect(html).not.toContain("待回答");
+  });
+
+  it("跳过后标成已跳过，不塞答案列表", () => {
+    const html = applyFrozenAskHtml(live, { status: "skipped", lines: [] });
+    expect(html).toContain('data-status="skipped"');
+    expect(html).toContain(">已跳过<");
+    expect(html).not.toContain("data-shell-agent-ask-answers");
+    expect(html).not.toContain(">已回答<");
   });
 });
 

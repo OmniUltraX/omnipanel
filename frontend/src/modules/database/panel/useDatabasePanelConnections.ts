@@ -49,6 +49,37 @@ import type { Connection } from "../../../ipc/bindings";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
+type AvailabilitySnap = { enabled: boolean; reason?: string };
+
+/**
+ * 同步结果是 `checking` 时，保留上一次真正探测过的结论。
+ * 「连接已关闭」只反映当时的开关，连接打开后必须重新探测，不能一直挡着入口。
+ */
+export function mergeLogAvailability<T extends AvailabilitySnap>(
+  syncMap: Record<string, T>,
+  prev: Record<string, T>,
+): Record<string, T> {
+  const next = { ...syncMap };
+  for (const [id, prevAvail] of Object.entries(prev)) {
+    if (prevAvail.reason === "connection_disabled") continue;
+    if (prevAvail.enabled || (prevAvail.reason && prevAvail.reason !== "checking")) {
+      if (next[id]?.reason === "checking" || next[id] == null) {
+        next[id] = prevAvail;
+      }
+    }
+  }
+  return next;
+}
+
+function reuseCachedAvailability<T extends AvailabilitySnap>(
+  cached: T | undefined,
+  connection: DbConnectionConfig,
+): cached is T {
+  if (!cached || cached.reason === "checking") return false;
+  if (cached.reason === "connection_disabled" && isConnectionEnabled(connection)) return false;
+  return true;
+}
+
 export type UseDatabasePanelConnectionsDeps = {
   connections: DbConnectionConfig[];
   setConnections: Dispatch<SetStateAction<DbConnectionConfig[]>>;
@@ -211,7 +242,7 @@ export function useDatabasePanelConnections(deps: UseDatabasePanelConnectionsDep
   const ensureSlowLogAvailability = useCallback(
     async (connection: DbConnectionConfig): Promise<SlowLogAvailability> => {
       const cached = slowLogAvailabilityByConnId[connection.id];
-      if (cached && cached.reason !== "checking") {
+      if (reuseCachedAvailability(cached, connection)) {
         return cached;
       }
       const result = await probeSlowLogAvailability(connection, sshConnections);
@@ -224,7 +255,7 @@ export function useDatabasePanelConnections(deps: UseDatabasePanelConnectionsDep
   const ensureBinlogAvailability = useCallback(
     async (connection: DbConnectionConfig): Promise<BinlogAvailability> => {
       const cached = binlogAvailabilityByConnId[connection.id];
-      if (cached && cached.reason !== "checking") {
+      if (reuseCachedAvailability(cached, connection)) {
         return cached;
       }
       const result = await probeBinlogAvailability(connection, sshConnections);
@@ -250,18 +281,7 @@ export function useDatabasePanelConnections(deps: UseDatabasePanelConnectionsDep
       }
       syncMap[conn.id] = resolveSlowLogAvailabilitySync(conn, sshConnections);
     }
-    setSlowLogAvailabilityByConnId((prev) => {
-      const next = { ...syncMap };
-      // 保留已异步探测成功的结果，避免被 sync 覆盖回 checking
-      for (const [id, prevAvail] of Object.entries(prev)) {
-        if (prevAvail.enabled || (prevAvail.reason && prevAvail.reason !== "checking")) {
-          if (next[id]?.reason === "checking" || next[id] == null) {
-            next[id] = prevAvail;
-          }
-        }
-      }
-      return next;
-    });
+    setSlowLogAvailabilityByConnId((prev) => mergeLogAvailability(syncMap, prev));
   }, [connections, sshConnections]);
 
   useEffect(() => {
@@ -279,17 +299,7 @@ export function useDatabasePanelConnections(deps: UseDatabasePanelConnectionsDep
       }
       syncMap[conn.id] = resolveBinlogAvailabilitySync(conn, sshConnections);
     }
-    setBinlogAvailabilityByConnId((prev) => {
-      const next = { ...syncMap };
-      for (const [id, prevAvail] of Object.entries(prev)) {
-        if (prevAvail.enabled || (prevAvail.reason && prevAvail.reason !== "checking")) {
-          if (next[id]?.reason === "checking" || next[id] == null) {
-            next[id] = prevAvail;
-          }
-        }
-      }
-      return next;
-    });
+    setBinlogAvailabilityByConnId((prev) => mergeLogAvailability(syncMap, prev));
   }, [connections, sshConnections]);
   const toggleConnectionEnabled = useCallback(
     async (connId: string, enabled: boolean) => {

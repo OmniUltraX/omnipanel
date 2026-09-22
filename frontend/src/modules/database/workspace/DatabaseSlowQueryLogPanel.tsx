@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { MultiSelect } from "../../../components/ui/form/MultiSelect";
 import { useI18n } from "../../../i18n";
 import { useConnectionStore } from "../../../stores/connectionStore";
-import type { DbConnectionConfig } from "../api";
+import { listDatabases, listTables, type DbConnectionConfig } from "../api";
 import {
+  MYSQL_SLOW_LOG_CHUNK_BYTES,
   probeSlowLogAvailability,
   readMysqlSlowLogFileSize,
+  readMysqlSlowLogNewest,
   readMysqlSlowLogRange,
   slowLogPageByteRange,
   slowLogTotalPages,
 } from "../mysqlSlowQueryLog";
+import {
+  compileSlowLogFilter,
+  EMPTY_SLOW_LOG_FILTERS,
+  hasActiveSlowLogFilters,
+  type SlowLogFilters,
+} from "../slowLogFilters";
 
 interface SlowLogCacheValue {
   text: string;
@@ -28,14 +38,6 @@ interface SlowQueryEntry {
   sql: string;
   count: number;
 }
-
-interface SlowLogFilters {
-  dateFrom: string;
-  dateTo: string;
-  minQueryTime: string;
-}
-
-const EMPTY_FILTERS: SlowLogFilters = { dateFrom: "", dateTo: "", minQueryTime: "" };
 
 interface DatabaseSlowQueryLogPanelProps {
   connection: DbConnectionConfig;
@@ -73,8 +75,20 @@ const SQL_KEYWORDS = new Set([
   "EXCEPT", "INTERSECT",
 ]);
 
+const SQL_HIGHLIGHT_LIMIT = 8000;
+const SLOW_LOG_ROW_HEIGHT = 32;
+
 function highlightSql(sql: string): string {
-  let escaped = sql
+  const source = sql.length > SQL_HIGHLIGHT_LIMIT ? sql.slice(0, SQL_HIGHLIGHT_LIMIT) : sql;
+  const tail =
+    sql.length > SQL_HIGHLIGHT_LIMIT
+      ? sql
+          .slice(SQL_HIGHLIGHT_LIMIT)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+      : "";
+  let escaped = source
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
@@ -88,7 +102,7 @@ function highlightSql(sql: string): string {
       return match;
     },
   );
-  return escaped;
+  return escaped + tail;
 }
 
 function parseSlowQueryLog(text: string): SlowQueryEntry[] {
@@ -151,98 +165,7 @@ function mergeConsecutiveEntries(entries: SlowQueryEntry[]): SlowQueryEntry[] {
   return merged;
 }
 
-/** 朴素日期时间（不做时区换算，按日志/表单上可见的时钟时间比较）。 */
-interface NaiveDateTime {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-}
-
-function parseNaiveDateTime(value: string): NaiveDateTime | null {
-  const s = value.trim();
-  if (!s) return null;
-
-  // datetime-local：2024-06-15T08:09 或 2024-06-15T08:09:10
-  const local = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (local) {
-    return {
-      year: Number.parseInt(local[1], 10),
-      month: Number.parseInt(local[2], 10),
-      day: Number.parseInt(local[3], 10),
-      hour: Number.parseInt(local[4], 10),
-      minute: Number.parseInt(local[5], 10),
-      second: local[6] ? Number.parseInt(local[6], 10) : 0,
-    };
-  }
-
-  // MySQL ISO：2024-06-15T08:09:10.123456Z / +08:00（忽略时区后缀，按字面时钟比较）
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
-  if (iso) {
-    return {
-      year: Number.parseInt(iso[1], 10),
-      month: Number.parseInt(iso[2], 10),
-      day: Number.parseInt(iso[3], 10),
-      hour: Number.parseInt(iso[4], 10),
-      minute: Number.parseInt(iso[5], 10),
-      second: Number.parseInt(iso[6], 10),
-    };
-  }
-
-  // 传统格式：YYMMDD HH:MM:SS
-  const legacy = s.match(/^(\d{2})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})/);
-  if (legacy) {
-    return {
-      year: 2000 + Number.parseInt(legacy[1], 10),
-      month: Number.parseInt(legacy[2], 10),
-      day: Number.parseInt(legacy[3], 10),
-      hour: Number.parseInt(legacy[4], 10),
-      minute: Number.parseInt(legacy[5], 10),
-      second: Number.parseInt(legacy[6], 10),
-    };
-  }
-
-  return null;
-}
-
-function compareNaiveDateTime(a: NaiveDateTime, b: NaiveDateTime): number {
-  if (a.year !== b.year) return a.year - b.year;
-  if (a.month !== b.month) return a.month - b.month;
-  if (a.day !== b.day) return a.day - b.day;
-  if (a.hour !== b.hour) return a.hour - b.hour;
-  if (a.minute !== b.minute) return a.minute - b.minute;
-  return a.second - b.second;
-}
-
-function hasActiveFilters(filters: SlowLogFilters): boolean {
-  return Boolean(filters.dateFrom || filters.dateTo || filters.minQueryTime.trim());
-}
-
-function matchesSlowLogFilters(entry: SlowQueryEntry, filters: SlowLogFilters): boolean {
-  if (filters.minQueryTime.trim()) {
-    const minSeconds = Number.parseFloat(filters.minQueryTime);
-    if (Number.isFinite(minSeconds) && entry.queryTime <= minSeconds) {
-      return false;
-    }
-  }
-
-  if (filters.dateFrom || filters.dateTo) {
-    const timestamp = parseNaiveDateTime(entry.time);
-    if (!timestamp) return false;
-    if (filters.dateFrom) {
-      const from = parseNaiveDateTime(filters.dateFrom);
-      if (from && compareNaiveDateTime(timestamp, from) < 0) return false;
-    }
-    if (filters.dateTo) {
-      const to = parseNaiveDateTime(filters.dateTo);
-      if (to && compareNaiveDateTime(timestamp, to) > 0) return false;
-    }
-  }
-
-  return true;
-}
+const SYSTEM_DB_SKIP = new Set(["information_schema", "performance_schema", "mysql", "sys"]);
 
 function formatDuration(seconds: number): string {
   if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
@@ -257,7 +180,7 @@ async function copyText(text: string): Promise<void> {
   }
 }
 
-function SlowQueryCard({ entry }: { entry: SlowQueryEntry }) {
+function SlowQueryDetail({ entry }: { entry: SlowQueryEntry }) {
   const { t } = useI18n();
   const highlighted = useMemo(() => highlightSql(entry.sql), [entry.sql]);
   const [copied, setCopied] = useState(false);
@@ -270,41 +193,37 @@ function SlowQueryCard({ entry }: { entry: SlowQueryEntry }) {
   }, [entry.sql]);
 
   return (
-    <div className="slow-query-card">
-      <div className="slow-query-card__header">
-        <div className="slow-query-card__time">{entry.time}</div>
+    <div className="db-slow-log-panel__detail">
+      <div className="db-slow-log-panel__detail-bar">
+        <span className="db-slow-log-panel__detail-meta">{entry.time || "—"}</span>
+        <span className="db-slow-log-panel__detail-meta">
+          {t("database.slowQueryLog.tagQuery")}: {formatDuration(entry.queryTime)}
+        </span>
+        <span className="db-slow-log-panel__detail-meta">
+          {t("database.slowQueryLog.tagLock")}: {formatDuration(entry.lockTime)}
+        </span>
+        <span className="db-slow-log-panel__detail-meta">
+          {t("database.slowQueryLog.tagSent")}: {entry.rowsSent.toLocaleString()}
+        </span>
+        <span className="db-slow-log-panel__detail-meta">
+          {t("database.slowQueryLog.tagExamined")}: {entry.rowsExamined.toLocaleString()}
+        </span>
         {entry.count > 1 ? (
-          <span className="slow-query-card__count-badge">{entry.count}x</span>
+          <span className="db-slow-log-panel__detail-meta">{entry.count}x</span>
         ) : null}
-        <div className="slow-query-card__user">{entry.userHost}</div>
-      </div>
-
-      <div className="slow-query-card__sql">
+        <span className="db-slow-log-panel__detail-user">{entry.userHost}</span>
         <button
           type="button"
-          className="slow-query-card__copy-btn"
+          className="log-viewer-panel__btn"
           onClick={handleCopy}
-          title={t("database.slowQueryLog.copy")}
         >
           {copied ? t("database.slowQueryLog.copied") : t("database.slowQueryLog.copy")}
         </button>
-        <pre className="slow-query-card__sql-text" dangerouslySetInnerHTML={{ __html: highlighted }} />
       </div>
-
-      <div className="slow-query-card__tags">
-        <span className="slow-query-card__tag slow-query-card__tag--danger">
-          {t("database.slowQueryLog.tagQuery")}: {formatDuration(entry.queryTime)}
-        </span>
-        <span className="slow-query-card__tag slow-query-card__tag--warn">
-          {t("database.slowQueryLog.tagLock")}: {formatDuration(entry.lockTime)}
-        </span>
-        <span className="slow-query-card__tag slow-query-card__tag--success">
-          {t("database.slowQueryLog.tagSent")}: {entry.rowsSent.toLocaleString()}
-        </span>
-        <span className="slow-query-card__tag">
-          {t("database.slowQueryLog.tagExamined")}: {entry.rowsExamined.toLocaleString()}
-        </span>
-      </div>
+      <pre
+        className="db-slow-log-panel__detail-sql"
+        dangerouslySetInnerHTML={{ __html: highlighted }}
+      />
     </div>
   );
 }
@@ -324,11 +243,15 @@ export function DatabaseSlowQueryLogPanel({
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [pageLength, setPageLength] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [draftFilters, setDraftFilters] = useState<SlowLogFilters>(EMPTY_FILTERS);
-  const [appliedFilters, setAppliedFilters] = useState<SlowLogFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<SlowLogFilters>(EMPTY_SLOW_LOG_FILTERS);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [databaseOptions, setDatabaseOptions] = useState<string[]>([]);
+  const [tableOptions, setTableOptions] = useState<string[]>([]);
   const loadedBytesRef = useRef(0);
   const loadingRef = useRef(false);
-  const bodyRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const fileSizeRef = useRef<number | null>(fileSize);
+  fileSizeRef.current = fileSize;
   const deploymentRef = useRef<ResolvedDeployment | null>(
     initialDeploymentKind
       ? { deploymentKind: initialDeploymentKind, containerId: initialContainerId }
@@ -368,26 +291,45 @@ export function DatabaseSlowQueryLogPanel({
       setError(null);
       try {
         const deployment = await resolveDeployment();
-        const size = await readMysqlSlowLogFileSize(
-          sshConnectionId,
-          logFilePath,
-          deployment.deploymentKind,
-          deployment.containerId,
-        );
+        let size = 0;
+        let raw = "";
+        if (page === 1) {
+          const newest = await readMysqlSlowLogNewest(
+            sshConnectionId,
+            logFilePath,
+            MYSQL_SLOW_LOG_CHUNK_BYTES,
+            deployment.deploymentKind,
+            deployment.containerId,
+          );
+          size = newest.size;
+          raw = newest.text;
+        } else {
+          size =
+            fileSizeRef.current ??
+            (await readMysqlSlowLogFileSize(
+              sshConnectionId,
+              logFilePath,
+              deployment.deploymentKind,
+              deployment.containerId,
+            ));
+          const safe = Math.max(1, Math.min(page, slowLogTotalPages(size)));
+          const range = slowLogPageByteRange(safe, size);
+          raw =
+            range.length > 0
+              ? await readMysqlSlowLogRange(
+                  sshConnectionId,
+                  logFilePath,
+                  range.start,
+                  range.length,
+                  deployment.deploymentKind,
+                  deployment.containerId,
+                )
+              : "";
+        }
         setFileSize(size);
 
         const safePage = Math.max(1, Math.min(page, slowLogTotalPages(size)));
-        const { start, length } = slowLogPageByteRange(safePage, size);
-        const raw = length > 0
-          ? await readMysqlSlowLogRange(
-              sshConnectionId,
-              logFilePath,
-              start,
-              length,
-              deployment.deploymentKind,
-              deployment.containerId,
-            )
-          : "";
+        const { length } = slowLogPageByteRange(safePage, size);
         const chunk = trimPartialLeadingEntry(raw);
         setText(chunk);
         setPageLength(length);
@@ -416,8 +358,8 @@ export function DatabaseSlowQueryLogPanel({
     (page: number) => {
       const nextPage = Math.max(1, Math.min(page, totalPages));
       setCurrentPage(nextPage);
-      if (bodyRef.current) {
-        bodyRef.current.scrollTop = 0;
+      if (listRef.current) {
+        listRef.current.scrollTop = 0;
       }
       void loadPage(nextPage);
     },
@@ -453,8 +395,6 @@ export function DatabaseSlowQueryLogPanel({
 
   const textRef = useRef(text);
   textRef.current = text;
-  const fileSizeRef = useRef(fileSize);
-  fileSizeRef.current = fileSize;
   const currentPageRef = useRef(currentPage);
   currentPageRef.current = currentPage;
   useEffect(() => {
@@ -473,8 +413,8 @@ export function DatabaseSlowQueryLogPanel({
   const handleRefresh = useCallback(() => {
     slowLogCache.delete(cacheKey);
     setCurrentPage(1);
-    if (bodyRef.current) {
-      bodyRef.current.scrollTop = 0;
+    if (listRef.current) {
+      listRef.current.scrollTop = 0;
     }
     void loadPage(1);
   }, [cacheKey, loadPage]);
@@ -484,30 +424,100 @@ export function DatabaseSlowQueryLogPanel({
     return mergeConsecutiveEntries(parsed.reverse());
   }, [text]);
 
+  const matchEntry = useMemo(() => compileSlowLogFilter(filters), [filters]);
+
   const filteredEntries = useMemo(() => {
-    if (!hasActiveFilters(appliedFilters)) return entries;
-    return entries.filter((entry) => matchesSlowLogFilters(entry, appliedFilters));
-  }, [appliedFilters, entries]);
+    if (!hasActiveSlowLogFilters(filters)) return entries;
+    return entries.filter((entry) => matchEntry(entry));
+  }, [entries, filters, matchEntry]);
 
-  const filtersActive = hasActiveFilters(appliedFilters);
+  const filtersActive = hasActiveSlowLogFilters(filters);
 
-  const handleApplyFilters = useCallback(() => {
-    setAppliedFilters({ ...draftFilters });
-    if (bodyRef.current) {
-      bodyRef.current.scrollTop = 0;
+  const databaseSelectOptions = useMemo(
+    () => databaseOptions.map((name) => ({ value: name, label: name })),
+    [databaseOptions],
+  );
+
+  const tableSelectOptions = useMemo(
+    () => tableOptions.map((name) => ({ value: name, label: name })),
+    [tableOptions],
+  );
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    void listDatabases(connection)
+      .then((names) => {
+        if (cancelled) return;
+        setDatabaseOptions(names.filter((name) => !SYSTEM_DB_SKIP.has(name.toLowerCase())));
+      })
+      .catch(() => {
+        if (!cancelled) setDatabaseOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, connection]);
+
+  useEffect(() => {
+    if (!active) return;
+    if (filters.databases.length === 0) {
+      setTableOptions([]);
+      setFilters((prev) => (prev.tables.length === 0 ? prev : { ...prev, tables: [] }));
+      return;
     }
-  }, [draftFilters]);
+    let cancelled = false;
+    void Promise.all(
+      filters.databases.map(async (db) => {
+        const tables = await listTables(connection, db);
+        return tables.map((table) => `${db}.${table}`);
+      }),
+    )
+      .then((groups) => {
+        if (cancelled) return;
+        const next = groups.flat();
+        setTableOptions(next);
+        setFilters((prev) => {
+          const tables = prev.tables.filter((value) => next.includes(value));
+          if (tables.length === prev.tables.length) return prev;
+          return { ...prev, tables };
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTableOptions([]);
+          setFilters((prev) => (prev.tables.length === 0 ? prev : { ...prev, tables: [] }));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, connection, filters.databases]);
 
   const handleClearFilters = useCallback(() => {
-    setDraftFilters(EMPTY_FILTERS);
-    setAppliedFilters(EMPTY_FILTERS);
-    if (bodyRef.current) {
-      bodyRef.current.scrollTop = 0;
+    setFilters(EMPTY_SLOW_LOG_FILTERS);
+    if (listRef.current) {
+      listRef.current.scrollTop = 0;
     }
   }, []);
 
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [text]);
+
+  const safeSelectedIndex =
+    filteredEntries.length === 0 ? -1 : Math.min(selectedIndex, filteredEntries.length - 1);
+  const selectedEntry = safeSelectedIndex >= 0 ? filteredEntries[safeSelectedIndex] : null;
+
+  const listVirtualizer = useVirtualizer({
+    count: filteredEntries.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => SLOW_LOG_ROW_HEIGHT,
+    overscan: 16,
+    useFlushSync: false,
+  });
+
   const showInitialLoading = loading && filteredEntries.length === 0 && !filtersActive;
-  const showPageLoading = loading && (filteredEntries.length > 0 || filtersActive);
   const showFilterNoMatch =
     !loading && !error && filtersActive && filteredEntries.length === 0 && entries.length > 0;
 
@@ -541,74 +551,6 @@ export function DatabaseSlowQueryLogPanel({
         >
           {t("common.refresh")}
         </button>
-        <div className="db-slow-log-panel__filters">
-          <label className="db-slow-log-panel__filter-field">
-            <span className="db-slow-log-panel__filter-label">
-              {t("database.slowQueryLog.filterDateFrom")}
-            </span>
-            <input
-              type="datetime-local"
-              step={1}
-              className="db-slow-log-panel__filter-input db-slow-log-panel__filter-input--datetime"
-              value={draftFilters.dateFrom}
-              onChange={(event) =>
-                setDraftFilters((prev) => ({ ...prev, dateFrom: event.target.value }))
-              }
-            />
-          </label>
-          <label className="db-slow-log-panel__filter-field">
-            <span className="db-slow-log-panel__filter-label">
-              {t("database.slowQueryLog.filterDateTo")}
-            </span>
-            <input
-              type="datetime-local"
-              step={1}
-              className="db-slow-log-panel__filter-input db-slow-log-panel__filter-input--datetime"
-              value={draftFilters.dateTo}
-              min={draftFilters.dateFrom || undefined}
-              onChange={(event) =>
-                setDraftFilters((prev) => ({ ...prev, dateTo: event.target.value }))
-              }
-            />
-          </label>
-          <label className="db-slow-log-panel__filter-field">
-            <span className="db-slow-log-panel__filter-label">
-              {t("database.slowQueryLog.filterMinQueryTime")}
-            </span>
-            <input
-              type="number"
-              min={0}
-              step={0.001}
-              className="db-slow-log-panel__filter-input db-slow-log-panel__filter-input--number"
-              value={draftFilters.minQueryTime}
-              placeholder={t("database.slowQueryLog.filterMinQueryTimePlaceholder")}
-              onChange={(event) =>
-                setDraftFilters((prev) => ({ ...prev, minQueryTime: event.target.value }))
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter") handleApplyFilters();
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            className="log-viewer-panel__btn"
-            disabled={loading}
-            onClick={handleApplyFilters}
-          >
-            {t("database.filter.apply")}
-          </button>
-          {filtersActive ? (
-            <button
-              type="button"
-              className="log-viewer-panel__btn"
-              disabled={loading}
-              onClick={handleClearFilters}
-            >
-              {t("database.slowQueryLog.filterClear")}
-            </button>
-          ) : null}
-        </div>
         <div className="db-slow-log-panel__pagination">
           <button
             type="button"
@@ -655,29 +597,186 @@ export function DatabaseSlowQueryLogPanel({
           </button>
         </div>
       </div>
-
-      <div className="db-slow-log-panel__body" ref={bodyRef}>
-        <div className="db-slow-log-panel__list">
-          {showInitialLoading ? (
-            <div className="db-slow-log-panel__loading">{t("database.slowQueryLog.loading")}</div>
+      <div className="db-slow-log-panel__filters">
+          <label className="db-slow-log-panel__filter-field">
+            <span className="db-slow-log-panel__filter-label">
+              {t("database.slowQueryLog.filterDateFrom")}
+            </span>
+            <input
+              type="datetime-local"
+              step={1}
+              className="db-slow-log-panel__filter-input db-slow-log-panel__filter-input--datetime"
+              value={filters.dateFrom}
+              onChange={(event) =>
+                setFilters((prev) => ({ ...prev, dateFrom: event.target.value }))
+              }
+            />
+          </label>
+          <label className="db-slow-log-panel__filter-field">
+            <span className="db-slow-log-panel__filter-label">
+              {t("database.slowQueryLog.filterDateTo")}
+            </span>
+            <input
+              type="datetime-local"
+              step={1}
+              className="db-slow-log-panel__filter-input db-slow-log-panel__filter-input--datetime"
+              value={filters.dateTo}
+              min={filters.dateFrom || undefined}
+              onChange={(event) =>
+                setFilters((prev) => ({ ...prev, dateTo: event.target.value }))
+              }
+            />
+          </label>
+          <label className="db-slow-log-panel__filter-field db-slow-log-panel__filter-field--narrow">
+            <span className="db-slow-log-panel__filter-label">
+              {t("database.slowQueryLog.filterMinQueryTime")}
+            </span>
+            <input
+              type="number"
+              min={0}
+              step={0.001}
+              className="db-slow-log-panel__filter-input db-slow-log-panel__filter-input--number"
+              value={filters.minQueryTime}
+              placeholder={t("database.slowQueryLog.filterMinQueryTimePlaceholder")}
+              onChange={(event) =>
+                setFilters((prev) => ({ ...prev, minQueryTime: event.target.value }))
+              }
+            />
+          </label>
+          <label className="db-slow-log-panel__filter-field db-slow-log-panel__filter-field--select">
+            <span className="db-slow-log-panel__filter-label">
+              {t("database.slowQueryLog.filterDatabase")}
+            </span>
+            <MultiSelect
+              size="sm"
+              className="db-slow-log-panel__multi"
+              values={filters.databases}
+              onChange={(databases) => setFilters((prev) => ({ ...prev, databases }))}
+              options={databaseSelectOptions}
+              emptyMeansAll={false}
+              searchable
+              panelMinWidth={240}
+              searchPlaceholder={t("database.slowQueryLog.filterSearch")}
+              placeholder={t("database.slowQueryLog.filterDatabaseAll")}
+              formatDisplayLabel={(labels) =>
+                labels.length === 0
+                  ? t("database.slowQueryLog.filterDatabaseAll")
+                  : labels.length <= 2
+                    ? labels.join("、")
+                    : t("database.slowQueryLog.filterSelectedCount", { count: labels.length })
+              }
+              aria-label={t("database.slowQueryLog.filterDatabase")}
+            />
+          </label>
+          <label className="db-slow-log-panel__filter-field db-slow-log-panel__filter-field--select">
+            <span className="db-slow-log-panel__filter-label">
+              {t("database.slowQueryLog.filterTables")}
+            </span>
+            <MultiSelect
+              size="sm"
+              className="db-slow-log-panel__multi"
+              values={filters.tables}
+              onChange={(tables) => setFilters((prev) => ({ ...prev, tables }))}
+              options={tableSelectOptions}
+              emptyMeansAll={false}
+              searchable
+              panelMinWidth={260}
+              searchPlaceholder={t("database.slowQueryLog.filterSearch")}
+              disabled={filters.databases.length === 0}
+              placeholder={
+                filters.databases.length === 0
+                  ? t("database.slowQueryLog.filterTablesNeedDb")
+                  : t("database.slowQueryLog.filterTablesAll")
+              }
+              formatDisplayLabel={(labels) =>
+                filters.databases.length === 0
+                  ? t("database.slowQueryLog.filterTablesNeedDb")
+                  : labels.length === 0
+                    ? t("database.slowQueryLog.filterTablesAll")
+                    : labels.length <= 2
+                      ? labels.join("、")
+                      : t("database.slowQueryLog.filterSelectedCount", { count: labels.length })
+              }
+              aria-label={t("database.slowQueryLog.filterTables")}
+            />
+          </label>
+          <label className="db-slow-log-panel__filter-field db-slow-log-panel__filter-field--keyword">
+            <span className="db-slow-log-panel__filter-label">
+              {t("database.slowQueryLog.filterKeyword")}
+            </span>
+            <input
+              className="db-slow-log-panel__filter-input"
+              value={filters.keyword}
+              placeholder={t("database.slowQueryLog.filterKeywordPlaceholder")}
+              onChange={(event) =>
+                setFilters((prev) => ({ ...prev, keyword: event.target.value }))
+              }
+            />
+          </label>
+          {filtersActive ? (
+            <button
+              type="button"
+              className="log-viewer-panel__btn db-slow-log-panel__filter-clear"
+              onClick={handleClearFilters}
+            >
+              {t("database.slowQueryLog.filterClear")}
+            </button>
           ) : null}
-          {error ? <div className="db-slow-log-panel__error">{error}</div> : null}
-          {!showInitialLoading && !error && !filtersActive && entries.length === 0 ? (
-            <div className="db-slow-log-panel__empty">{t("database.slowQueryLog.empty")}</div>
-          ) : null}
-          {showFilterNoMatch ? (
-            <div className="db-slow-log-panel__empty">{t("database.slowQueryLog.filterNoMatch")}</div>
-          ) : null}
-          {filteredEntries.map((entry, idx) => (
-            <SlowQueryCard key={`${entry.time}:${entry.sql.slice(0, 48)}:${idx}`} entry={entry} />
-          ))}
-          {showPageLoading ? (
-            <div className="db-slow-log-panel__loading db-slow-log-panel__loading--more">
-              {t("database.slowQueryLog.loading")}
-            </div>
-          ) : null}
-        </div>
       </div>
+
+      <div className="db-slow-log-panel__cols">
+        <span>{t("database.slowQueryLog.colTime")}</span>
+        <span>{t("database.slowQueryLog.tagQuery")}</span>
+        <span>{t("database.slowQueryLog.tagExamined")}</span>
+        <span>{t("database.slowQueryLog.colSql")}</span>
+      </div>
+      <div className="db-slow-log-panel__list" ref={listRef}>
+        {showInitialLoading ? (
+          <div className="db-slow-log-panel__loading">{t("database.slowQueryLog.loading")}</div>
+        ) : error ? (
+          <div className="db-slow-log-panel__error">{error}</div>
+        ) : showFilterNoMatch ? (
+          <div className="db-slow-log-panel__empty">{t("database.slowQueryLog.filterNoMatch")}</div>
+        ) : filteredEntries.length === 0 ? (
+          <div className="db-slow-log-panel__empty">{t("database.slowQueryLog.empty")}</div>
+        ) : (
+          <div
+            className="db-slow-log-panel__virtual"
+            style={{ height: listVirtualizer.getTotalSize() }}
+          >
+            {listVirtualizer.getVirtualItems().map((item) => {
+              const entry = filteredEntries[item.index];
+              if (!entry) return null;
+              const sqlPreview = entry.sql.replace(/\s+/g, " ").trim();
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`db-slow-log-panel__row${item.index === safeSelectedIndex ? " is-selected" : ""}`}
+                  style={{ transform: `translateY(${item.start}px)` }}
+                  onClick={() => setSelectedIndex(item.index)}
+                  title={sqlPreview}
+                >
+                  <span className="db-slow-log-panel__row-time">
+                    {entry.time || "—"}
+                    {entry.count > 1 ? ` · ${entry.count}x` : ""}
+                  </span>
+                  <span className="db-slow-log-panel__row-metric">{formatDuration(entry.queryTime)}</span>
+                  <span className="db-slow-log-panel__row-metric">{entry.rowsExamined.toLocaleString()}</span>
+                  <span className="db-slow-log-panel__row-sql">{sqlPreview}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {selectedEntry ? (
+        <SlowQueryDetail entry={selectedEntry} />
+      ) : (
+        <div className="db-slow-log-panel__detail db-slow-log-panel__detail--empty">
+          {t("database.slowQueryLog.detailEmpty")}
+        </div>
+      )}
 
       <div className="db-slow-log-panel__footer">{footer}</div>
     </div>

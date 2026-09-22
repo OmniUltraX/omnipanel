@@ -60,6 +60,28 @@ const slowLogIcon = (
     <path d="M11 2.5V1.5H5v1" />
   </svg>
 );
+const LOG_OPEN_TIMEOUT_MS = 20_000;
+
+function openMysqlLog(t: BuildDatabaseSchemaContextMenuDeps["t"], task: () => Promise<void>) {
+  void (async () => {
+    let finished = false;
+    const timer = window.setTimeout(() => {
+      if (finished) return;
+      showToast(t("database.contextMenu.logOpenTimeout"));
+    }, LOG_OPEN_TIMEOUT_MS);
+    try {
+      await task();
+      finished = true;
+    } catch (error) {
+      finished = true;
+      const message = error instanceof Error ? error.message : String(error);
+      showToast(t("database.contextMenu.logOpenFailed", { error: message }));
+    } finally {
+      window.clearTimeout(timer);
+    }
+  })();
+}
+
 const binlogIcon = (
   <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
     <path d="M4 2h8v12H4z" />
@@ -175,14 +197,14 @@ export function buildDatabaseSchemaContextMenuItems(
           ? t("database.contextMenu.slowQueryLogDisabled.connectionDisabled")
           : undefined,
         onClick: () => {
-          void (async () => {
+          openMysqlLog(t, async () => {
             const latest = await ensureSlowLogAvailability(connection);
             if (!latest.enabled) {
               showToast(resolveSlowLogDisabledReason(latest));
               return;
             }
             openSlowQueryLogTab(connection, latest);
-          })();
+          });
         },
       });
       slowLogItems.push({
@@ -194,14 +216,14 @@ export function buildDatabaseSchemaContextMenuItems(
           ? t("database.contextMenu.binlogDisabled.connectionDisabled")
           : undefined,
         onClick: () => {
-          void (async () => {
+          openMysqlLog(t, async () => {
             const latest = await ensureBinlogAvailability(connection);
             if (!latest.enabled) {
               showToast(resolveBinlogDisabledReason(latest));
               return;
             }
             openBinlogTab(connection, latest);
-          })();
+          });
         },
       });
     } else if (hostCapabilities(connection.db_type).slowQuery) {

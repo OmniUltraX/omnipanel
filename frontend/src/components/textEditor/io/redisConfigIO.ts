@@ -1,4 +1,5 @@
 import { commands } from "../../../ipc/bindings";
+import { sshPoolExecWithPresence } from "../../../lib/sshPresence";
 
 import { LOCAL_CONNECTION_ID } from "../../../modules/files/utils";
 
@@ -134,7 +135,7 @@ async function sshExec(sshId: string, command: string, label?: string): Promise<
 
   redisConfigLog("ssh.exec", { label: label ?? "unnamed", sshId, command });
 
-  const res = await commands.sshPoolExecCommand(sshId, command, null);
+  const res = await sshPoolExecWithPresence(sshId, command);
 
   if (res.status !== "ok") {
 

@@ -26,8 +26,12 @@ export function useSshBatchCommand() {
 
       const ok = await confirmBatchCommand(trimmed, hosts, connections);
       if (!ok) return;
-      const presenceToken = await resolveSshExecToken(hosts[0]!.id, trimmed);
-      if (presenceToken === null) return;
+      const tokens = new Map<string, string | undefined>();
+      for (const host of hosts) {
+        const presenceToken = await resolveSshExecToken(host.id, trimmed);
+        if (presenceToken === null) return;
+        tokens.set(host.id, presenceToken);
+      }
 
       setRunning(true);
       const initial: BatchHostResult[] = hosts.map((h) => ({
@@ -47,7 +51,7 @@ export function useSshBatchCommand() {
             const res = await commands.sshPoolExecCommand(
               host.id,
               trimmed,
-              presenceToken ?? null,
+              tokens.get(host.id) ?? null,
             );
             const durationMs = Date.now() - started;
             if (res.status === "ok") {

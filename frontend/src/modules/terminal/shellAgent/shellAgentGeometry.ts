@@ -7,6 +7,8 @@ import {
   buildAgreedCmdFrozenHtml,
   buildRejectedCmdFrozenHtml,
   buildThinkingDoneFrozenHtml,
+  applyFrozenAskHtml,
+  consumeShellAgentAskFreeze,
   consumeShellAgentConfirmFreeze,
   getShellAgentLastCmd,
   getShellAgentThinkingFull,
@@ -367,23 +369,28 @@ function annotateFrozenToolHtml(sessionId: string, liveHtml: string): string {
   );
 }
 
-/** 询问卡冻结：保留提交前完整表单高度/选项，并标成已回答 */
+/** 受控输入的当前值不在 attribute 里，innerHTML 会丢掉文字答案 */
+function stampLiveFormControls(root: HTMLElement): void {
+  root.querySelectorAll("input").forEach((node) => {
+    if (!(node instanceof HTMLInputElement)) return;
+    if (node.type === "checkbox" || node.type === "radio") {
+      if (node.checked) node.setAttribute("checked", "");
+      else node.removeAttribute("checked");
+      return;
+    }
+    node.setAttribute("value", node.value);
+  });
+  root.querySelectorAll("textarea").forEach((node) => {
+    if (!(node instanceof HTMLTextAreaElement)) return;
+    node.textContent = node.value;
+  });
+}
+
+/** 询问卡冻结：保留提交前表单，并写入答案摘要与已回答/已跳过 */
 function annotateFrozenAskHtml(sessionId: string, liveHtml: string): string {
-  let html = liveHtml.trim();
-  if (!html) return html;
-  html = html.replace(
-    /\bdata-status="pending"/g,
-    'data-status="answered"',
-  );
-  // 头部状态文案（中/英）
-  html = html
-    .replace(/>\s*待回答\s*</g, ">已回答<")
-    .replace(/>\s*Pending\s*</gi, ">Answered<");
-  // 冻结后不可再点提交/跳过
-  html = html.replace(/<button\b(?![^>]*\bdisabled\b)/gi, "<button disabled");
-  if (/\bdata-shell-agent-frozen-ask=/.test(html)) {
-    return html;
-  }
+  const snapshot = consumeShellAgentAskFreeze(sessionId);
+  let html = applyFrozenAskHtml(liveHtml, snapshot);
+  if (!html || /\bdata-shell-agent-frozen-ask=/.test(html)) return html;
   return html.replace(
     /<div(\s+)([^>]*class="[^"]*term-shell-agent-card--ask[^"]*"[^>]*)>/,
     (full, sp, attrs) => {
@@ -477,6 +484,7 @@ export function archiveActiveInlineCard(sessionId: string): void {
   const deco = prev.decoration;
   const marker = prev.marker;
   const host = deco.element ? getPortalHost(deco.element) : null;
+  if (prev.cardKind === "ask" && host) stampLiveFormControls(host);
   const liveHtml = (host?.innerHTML ?? deco.element?.innerHTML ?? "").trim();
   const frozenHtml = resolveFrozenHtml(sessionId, prev.cardKind, liveHtml);
 

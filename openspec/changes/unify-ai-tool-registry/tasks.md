@@ -54,4 +54,4 @@
 
 ## 8. 前端对接契约占位（非本次实现，仅登记）
 
-- [ ] 8.1 记录前端后续对接点：`mcpToolStore` 消费 `mcp_tool_list.input_schema`、设置页对不可对外工具隐藏/置灰 external 开关、移除前端本地 schema 硬编码（前端当前为假数据，真实对接单独立项）
+- [x] 8.1 已登记、独立后续：设置页 `builtinToolStore` / `OmniMcpToolsExposureSection` 与各模块 `ai/mcpTools.ts` 的本地 `inputSchema` 仍是前端副本。下一步才消费 `mcp_tool_list.input_schema`，并对 UiDelegated 工具置灰 external。本次不改这条链路

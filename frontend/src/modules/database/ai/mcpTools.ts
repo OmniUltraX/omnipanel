@@ -1,4 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { commands } from "../../../ipc/bindings";
+import { t } from "../../../i18n";
+import { unwrapCommand } from "../../../ipc/result";
+import { resolveSqlPresenceToken } from "../sql/sqlPresence";
 
 import type { BuiltinToolRegistration } from "../../../lib/ai/context";
 import { errorToString } from "../../../lib/errorToString";
@@ -14,6 +18,7 @@ import {
   listDatabases,
   listTables,
   previewTable,
+  redisClientKill,
   type DbConnectionConfig,
 } from "../api";
 import { connectionWithDatabase } from "../toolbox/types";
@@ -21,6 +26,33 @@ import { runWithToolGate } from "../../../lib/ai/toolGate";
 import { makeQueryRunId } from "../sql/queryRun";
 import type { QueryResult } from "../workspace/dbWorkspaceState";
 import { useDbSqlFileStore } from "../../../stores/dbSqlFileStore";
+
+async function executeQueryChecked(
+  connection: DbConnectionConfig,
+  sql: string,
+  limit?: number | null,
+  offset?: number | null,
+): Promise<QueryResult> {
+  const presenceToken = await resolveSqlPresenceToken(connection, sql, t);
+  if (presenceToken === null) {
+    throw new Error("已取消在场验证");
+  }
+  const result = await unwrapCommand(
+    commands.dbExecuteQuery(
+      connection,
+      sql,
+      makeQueryRunId(),
+      limit ?? null,
+      offset ?? null,
+      presenceToken ?? null,
+    ),
+  );
+  return {
+    columns: result.columns,
+    rows: result.rows,
+    rowsAffected: result.rowsAffected ?? 0,
+  };
+}
 
 function assertSqlIdentifier(name: string, label: string): string {
   const trimmed = name.trim();
@@ -137,13 +169,7 @@ async function executeSql(args: Record<string, unknown>): Promise<string> {
   );
 
   const run = async () => {
-    const result = await invoke<QueryResult>("db_execute_query", {
-      connection: conn,
-      sql,
-      runId: makeQueryRunId(),
-      limit: 500,
-      offset: 0,
-    });
+    const result = await executeQueryChecked(conn, sql, 500, 0);
     return formatQueryResult(result);
   };
 
@@ -187,11 +213,7 @@ async function createRunSql(args: Record<string, unknown>): Promise<string> {
     store.updateFileBinding(file.id, baseConn.id, databaseName);
     await store.flushToDisk();
 
-    const result = await invoke<QueryResult>("db_execute_query", {
-      connection: conn,
-      sql,
-      runId: makeQueryRunId(),
-    });
+    const result = await executeQueryChecked(conn, sql);
 
     return JSON.stringify(
       {
@@ -311,10 +333,7 @@ async function killQuery(args: Record<string, unknown>): Promise<string> {
     const engine = conn.db_type.toLowerCase();
 
     if (engine === "redis") {
-      const killed = await invoke<number>("db_redis_client_kill", {
-        connection: conn,
-        addr: queryId,
-      });
+      const killed = await redisClientKill(conn, queryId);
       return JSON.stringify(
         {
           connection: connectionName,
@@ -338,11 +357,7 @@ async function killQuery(args: Record<string, unknown>): Promise<string> {
         throw new Error(`MySQL/MariaDB query_id 必须是正整数（PROCESSLIST_ID）：${queryId}`);
       }
       const sql = `KILL ${id}`;
-      const result = await invoke<QueryResult>("db_execute_query", {
-        connection: conn,
-        sql,
-        runId: makeQueryRunId(),
-      });
+      const result = await executeQueryChecked(conn, sql);
       return JSON.stringify(
         {
           connection: connectionName,
@@ -361,11 +376,7 @@ async function killQuery(args: Record<string, unknown>): Promise<string> {
         throw new Error(`PostgreSQL query_id 必须是正整数（pid）：${pid}`);
       }
       const sql = `SELECT pg_terminate_backend(${pid}) AS terminated`;
-      const result = await invoke<QueryResult>("db_execute_query", {
-        connection: conn,
-        sql,
-        runId: makeQueryRunId(),
-      });
+      const result = await executeQueryChecked(conn, sql);
       return JSON.stringify(
         {
           connection: connectionName,

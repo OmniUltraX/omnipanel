@@ -12,6 +12,7 @@ import { formatIpcError, unwrapCommand } from "../../../ipc/result";
 import { useI18n } from "../../../i18n";
 import type { DbConnectionConfig } from "../api";
 import { isQueryCancelledError, makeQueryRunId } from "../sql/queryRun";
+import { resolveSqlPresenceToken } from "../sql/sqlPresence";
 import {
   loadCliReplSession,
   saveCliReplSession,
@@ -239,8 +240,13 @@ export function ConnectionRedisConsolePanel({
       runIdRef.current = runId;
       setRunning(true);
       try {
+        const presenceToken = await resolveSqlPresenceToken(connection, command, t);
+        if (presenceToken === null) {
+          appendOutput(["", t("stepUp.cancelled"), ""]);
+          return;
+        }
         const data = await unwrapCommand(
-          commands.dbExecuteQuery(connection, command, runId, null, null, null),
+          commands.dbExecuteQuery(connection, command, runId, null, null, presenceToken ?? null),
         );
         const output = formatRedisOutput(data);
         appendOutput(output ? ["", output, ""] : [""]);

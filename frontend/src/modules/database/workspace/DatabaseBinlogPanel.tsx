@@ -19,6 +19,7 @@ import {
   getBinlogFileTimes,
   installRemoteMy2sql,
   listBinaryLogs,
+  BinlogLoadCancelledError,
   loadBinlogTimelineChunked,
   resolveFlashbackTool,
   resolveMysqlbinlogPath,
@@ -110,6 +111,9 @@ export function DatabaseBinlogPanel({
   const [executing, setExecuting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const loadGenRef = useRef(0);
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  /** 增量加载前钉住的行：新事件按时间插到上面时，把滚动补回去，避免选中项被顶走。 */
+  const scrollPinRef = useRef<{ id: string; offsetPx: number } | null>(null);
 
   const metaLine = useMemo(() => {
     const parts = [
@@ -174,6 +178,24 @@ export function DatabaseBinlogPanel({
       return cmp * dir;
     });
   }, [events, kindFilter, keyword, sortKey, sortDir]);
+
+  const eventsRef = useRef(visibleEvents);
+  eventsRef.current = visibleEvents;
+  const anchorIdRef = useRef(anchorId);
+  anchorIdRef.current = anchorId;
+
+  useEffect(() => {
+    const pin = scrollPinRef.current;
+    const el = timelineScrollRef.current;
+    if (!pin || !el) return;
+    scrollPinRef.current = null;
+    const index = visibleEvents.findIndex((ev) => ev.id === pin.id);
+    if (index < 0) return;
+    const nextTop = index * BINLOG_TIMELINE_ROW_HEIGHT + pin.offsetPx;
+    if (Math.abs(el.scrollTop - nextTop) > 1) {
+      el.scrollTop = Math.max(0, nextTop);
+    }
+  }, [visibleEvents]);
 
   const toggleSort = useCallback(
     (key: BinlogSortKey) => {
@@ -380,7 +402,7 @@ export function DatabaseBinlogPanel({
     setLoading(true);
     setBackgroundLoading(false);
     setError(null);
-    setStatusMsg(t("database.binlog.loading"));
+    setStatusMsg(t("database.binlog.scanning"));
     setFlashbackSql("");
     setSelectedIds(new Set());
     setAnchorId(null);
@@ -401,8 +423,35 @@ export function DatabaseBinlogPanel({
         preferReplMode: deploymentKind === "docker",
         newestFirst: true,
         shouldCancel: () => loadGenRef.current !== gen,
+        onProgress: (detail) => {
+          if (loadGenRef.current !== gen) return;
+          setStatusMsg(
+            detail
+              ? t("database.binlog.scanningDetail", { detail })
+              : t("database.binlog.scanning"),
+          );
+        },
         onChunk: ({ merged, chunkIndex, chunkTotal, done }) => {
           if (loadGenRef.current !== gen) return;
+          const el = timelineScrollRef.current;
+          const list = eventsRef.current;
+          if (el && list.length > 0) {
+            const selectedId = anchorIdRef.current;
+            let index = selectedId ? list.findIndex((ev) => ev.id === selectedId) : -1;
+            if (index < 0) {
+              index = Math.min(
+                list.length - 1,
+                Math.max(0, Math.floor(el.scrollTop / BINLOG_TIMELINE_ROW_HEIGHT)),
+              );
+            }
+            const pinned = index >= 0 ? list[index] : undefined;
+            if (pinned) {
+              scrollPinRef.current = {
+                id: pinned.id,
+                offsetPx: el.scrollTop - index * BINLOG_TIMELINE_ROW_HEIGHT,
+              };
+            }
+          }
           setEvents(merged);
           if (chunkIndex === 1) {
             setLoading(false);
@@ -432,11 +481,17 @@ export function DatabaseBinlogPanel({
       setBackgroundLoading(false);
     } catch (e) {
       if (loadGenRef.current !== gen) return;
-      setEvents([]);
-      setError(e instanceof Error ? e.message : String(e));
-      setStatusMsg(null);
       setLoading(false);
       setBackgroundLoading(false);
+      if (e instanceof BinlogLoadCancelledError) {
+        setError(null);
+        setStatusMsg(t("database.binlog.loadStopped"));
+        return;
+      }
+      const message = e instanceof Error ? e.message : String(e);
+      setEvents([]);
+      setError(message === "scan-timeout" ? t("database.binlog.scanTimeout") : message);
+      setStatusMsg(null);
     }
   }, [
     selectedFile,
@@ -726,9 +781,6 @@ export function DatabaseBinlogPanel({
     Boolean(selectedFile) &&
     (selectedEvents.length > 0 || Boolean(toMysqlDatetime(dateFrom) || toMysqlDatetime(dateTo)));
 
-  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
-  const eventsRef = useRef(visibleEvents);
-  eventsRef.current = visibleEvents;
   const useTimelineVirtual = visibleEvents.length > BINLOG_TIMELINE_VIRTUALIZE_THRESHOLD;
   const timelineVirtualizer = useVirtualizer({
     count: useTimelineVirtual ? visibleEvents.length : 0,
@@ -1003,7 +1055,9 @@ export function DatabaseBinlogPanel({
             </div>
           ) : null}
           {loading ? (
-            <div className="db-binlog-panel__empty">{t("database.binlog.loading")}</div>
+            <div className="db-binlog-panel__empty">
+              {statusMsg || t("database.binlog.scanning")}
+            </div>
           ) : visibleEvents.length === 0 ? (
             <div className="db-binlog-panel__empty">
               {needInstall

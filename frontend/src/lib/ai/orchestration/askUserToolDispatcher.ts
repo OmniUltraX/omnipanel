@@ -16,7 +16,12 @@ import { useBlocksStore } from "../../../stores/blocksStore";
 import { notifyShellAgentAskResolved } from "../../../modules/terminal/shellAgent/loop";
 import { reportToolResultWithRetry } from "../reportToolResult";
 import { appendChatOssEvent } from "../chatOssRecorder";
-import type { AskUserAnswerValue, UserQuestionFormData } from "../aiMessageParts";
+import type {
+  AskUserAnswerValue,
+  AskUserQuestion,
+  UserQuestionFormData,
+} from "../aiMessageParts";
+import type { AskFreezeLine } from "../../../modules/terminal/shellAgent/thinkingCache";
 import {
   parseAskUserArgs,
   serializeAskUserResult,
@@ -262,6 +267,26 @@ export async function dispatchAskUserTool(options: AskUserDispatchOptions): Prom
   }
 }
 
+function optionLabel(q: AskUserQuestion, id: string): string {
+  return q.options?.find((o) => o.id === id)?.label ?? id;
+}
+
+function askFreezeLines(
+  questions: AskUserQuestion[],
+  answers: Record<string, AskUserAnswerValue> | undefined,
+): AskFreezeLine[] {
+  return questions.map((q) => {
+    const v = answers?.[q.id];
+    let text = "—";
+    if (Array.isArray(v)) {
+      text = v.map((id) => optionLabel(q, id)).join("、") || "—";
+    } else if (typeof v === "string" && v.trim()) {
+      text = q.type === "text" ? v : optionLabel(q, v);
+    }
+    return { prompt: q.prompt, text };
+  });
+}
+
 async function resolveForm(
   formId: string,
   status: "answered" | "skipped",
@@ -340,7 +365,13 @@ async function resolveForm(
   if (found.conversationId.startsWith("term-inline:")) {
     const sessionId = found.conversationId.slice("term-inline:".length);
     if (sessionId) {
-      notifyShellAgentAskResolved(sessionId);
+      notifyShellAgentAskResolved(sessionId, {
+        status: status === "skipped" ? "skipped" : "answered",
+        lines:
+          status === "answered"
+            ? askFreezeLines(found.form.questions, answers)
+            : [],
+      });
     }
   }
 

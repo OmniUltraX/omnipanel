@@ -15,7 +15,7 @@ import { asPanelDashboard, dashboardToHostStats } from "./panelMonitorStats";
 import { isBtPanelAuthFailureMessage } from "@/lib/btpanel";
 import type { OnePanelDashboardBase } from "@/lib/onepanel/types";
 import { useConnectionStore } from "@/stores/connectionStore";
-import { commands } from "@/ipc/bindings";
+import { sshPoolExecWithPresence } from "@/lib/sshPresence";
 import type { HostSystemStats } from "@/stores/sshStatsStore";
 import { MonMetricCards } from "@/modules/server/ssh/components/monitoring/MonMetricCards";
 import { computeByteRate } from "@/modules/server/ssh/components/monitoring/monitoringUtils";
@@ -192,8 +192,7 @@ export function ServerMonitorTab({ server, active = true }: Props) {
     }
     let cancelled = false;
     setPublicIpLoading(true);
-    void commands
-      .sshPoolExecCommand(sshConnection.id, "curl -s --connect-timeout 5 ip.sb", null)
+    void sshPoolExecWithPresence(sshConnection.id, "curl -s --connect-timeout 5 ip.sb")
       .then((res) => {
         if (cancelled) return;
         if (res.status !== "ok") {

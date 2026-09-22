@@ -1,4 +1,5 @@
 import { commands } from "../../../ipc/bindings";
+import { sshPoolExecWithPresence } from "../../../lib/sshPresence";
 import { LOCAL_CONNECTION_ID } from "../../../modules/files/utils";
 import type { MysqlDeploymentInfo } from "../../../modules/database/mysqlDeploymentDetect";
 import { ensureSshReady } from "../../../modules/database/mysqlSlowQueryLog";
@@ -22,7 +23,7 @@ function shellQuote(value: string): string {
 }
 
 async function sshExec(sshId: string, command: string): Promise<string> {
-  const res = await commands.sshPoolExecCommand(sshId, command, null);
+  const res = await sshPoolExecWithPresence(sshId, command);
   if (res.status !== "ok") {
     const err = res.error;
     const message =

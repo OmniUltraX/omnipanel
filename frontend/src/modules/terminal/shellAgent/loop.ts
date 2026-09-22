@@ -52,8 +52,10 @@ import {
   getShellAgentThinkingFull,
   getLastFrozenThinking,
   isSameAsLastFrozenThinking,
+  markShellAgentAskFreeze,
   markShellAgentConfirmFreeze,
   setShellAgentThinkingFull,
+  type AskFreezeSnapshot,
 } from "./thinkingCache";
 import {
   currentTurnResultText,
@@ -1431,9 +1433,13 @@ export function notifyShellAgentAskPending(sessionId: string, formId: string): v
   }
 }
 
-/** 询问已提交/跳过：先冻结表单，再钉思考卡（否则续轮会直接出确认卡） */
-export function notifyShellAgentAskResolved(sessionId: string): void {
-  pushShellAgentDebugEvent("askResolved");
+/** 询问已提交/跳过：先冻结表单与答案摘要，再钉思考卡（否则续轮会直接出确认卡） */
+export function notifyShellAgentAskResolved(
+  sessionId: string,
+  snapshot?: AskFreezeSnapshot,
+): void {
+  if (snapshot) markShellAgentAskFreeze(sessionId, snapshot);
+  pushShellAgentDebugEvent("askResolved", snapshot?.status ?? "");
   const geo = getShellAgentGeometry(sessionId);
   if (geo?.mode === "inline" && geo.cardKind === "ask" && geo.decoration) {
     archiveActiveInlineCard(sessionId);

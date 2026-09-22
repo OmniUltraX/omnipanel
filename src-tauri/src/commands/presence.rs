@@ -78,6 +78,7 @@ pub async fn presence_verify(
     .await
     .map_err(|e| OmniError::internal(e.to_string()))??;
     let _ = issued;
+    state.presence_tokens.open_lease(&action, &target);
     state.presence_tokens.issue(&action, &target)
 }
 
@@ -93,7 +94,19 @@ pub async fn presence_issue_typed(
     if typed.trim() != expected {
         return Err(presence_denied("输入内容不匹配"));
     }
+    state.presence_tokens.open_lease(&action, &target);
     state.presence_tokens.issue(&action, &target)
+}
+
+/// 同一次在场确认的后续签发（分片 SSH / 多主机），不再弹系统验证。
+#[tauri::command]
+#[specta::specta]
+pub async fn presence_issue_leased(
+    state: State<'_, AppState>,
+    action: String,
+    target: String,
+) -> Result<PresenceTokenIssued, OmniError> {
+    state.presence_tokens.issue_under_lease(&action, &target)
 }
 
 pub(crate) fn consume_grant(

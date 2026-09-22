@@ -1,6 +1,9 @@
 import { commands } from "../../ipc/bindings";
+import { sshPoolExecWithPresence } from "../../lib/sshPresence";
 import type { Connection, DbConnectionConfig as BindingsDbConnectionConfig } from "../../ipc/bindings";
+import { t } from "../../i18n";
 import { unwrapCommand } from "../../ipc/result";
+import { resolveSqlPresenceToken } from "./sql/sqlPresence";
 import type { DbConnectionConfig } from "./api";
 import { isMysqlConnectionInfoCapable } from "./api";
 import { makeQueryRunId } from "./sql/queryRun";
@@ -84,7 +87,11 @@ async function sshExec(
   sshConnectionId: string,
   command: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const res = await commands.sshPoolExecCommand(sshConnectionId, command, null);
+  const res = await sshPoolExecWithPresence(sshConnectionId, command, {
+    title: "二进制日志在场验证",
+    message:
+      "即将在数据库主机上解析二进制日志。该步骤会清理 my2sql 临时目录，需要确认是你本人在操作。",
+  });
   if (res.status !== "ok") {
     throw new Error(res.error.message);
   }
@@ -93,6 +100,114 @@ async function sshExec(
     stderr: res.data.stderr ?? "",
     exitCode: res.data.exitCode ?? 1,
   };
+}
+
+/** 用户点了「停止」，或在场验证被取消。 */
+export class BinlogLoadCancelledError extends Error {
+  constructor() {
+    super("已停止加载");
+    this.name = "BinlogLoadCancelledError";
+  }
+}
+
+/** 单次 my2sql 最长等待。超时后杀掉远端进程，避免界面永远停在加载中。 */
+const MY2SQL_MAX_WAIT_MS = 20 * 60 * 1000;
+const MY2SQL_POLL_MS = 2000;
+
+/** 列表接口不带明文密码，my2sql 要自己连库，必须从本机保险库取出。 */
+async function resolveConnectionPassword(connection: DbConnectionConfig): Promise<string> {
+  const inline = connection.password ?? "";
+  if (inline.trim()) return inline;
+  if (!connection.id) return "";
+  try {
+    return (await unwrapCommand(commands.dbGetConnectionSecret(connection.id), { quiet: true })) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+async function requireConnectionPassword(connection: DbConnectionConfig): Promise<string> {
+  const password = await resolveConnectionPassword(connection);
+  if (password) return password;
+  if (connection.has_password === false) return "";
+  throw new Error("没有读到该连接保存的数据库密码，无法登录。请在连接编辑里确认密码已保存");
+}
+
+/** 把轮询脚本的标记和目录列表收成一行给用户看的失败原因。 */
+export function formatMy2sqlFailure(raw: string): string {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line &&
+        !line.startsWith("OMNI_") &&
+        !line.startsWith("-----") &&
+        !line.startsWith("total ") &&
+        !/^[-d][rwx-]{9}\s/.test(line),
+    );
+  const fatal =
+    lines.find((line) => /\[fatal\]|\[error\]|access denied|connect mysql failed/i.test(line)) ??
+    lines[0] ??
+    "";
+  return fatal
+    .replace(/^\[[^\]]+\]\s*/, "")
+    .replace(/^\[(fatal|error|warn)\]\s*/i, "")
+    .replace(/^\S+\.go:\d+\s*/, "")
+    .slice(0, 500);
+}
+
+export function summarizeMy2sqlLog(text: string): string {
+  const line =
+    text
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter((item) => item && !item.startsWith("OMNI_"))
+      .at(-1) ?? "";
+  return line.replace(/\s+/g, " ").slice(0, 180);
+}
+
+export type My2sqlProbe =
+  | { state: "running"; detail: string }
+  | { state: "partial"; sql: string }
+  | { state: "done"; exitCode: number; sql: string; log: string };
+
+/** 解析轮询脚本的 stdout。SQL 正文在 OMNI_SQL / OMNI_PARTIAL 之后，原样保留。 */
+export function parseMy2sqlProbe(stdout: string): My2sqlProbe {
+  const text = stdout.replace(/\r\n/g, "\n");
+  if (text.startsWith("OMNI_RUNNING")) {
+    const rest = text.slice("OMNI_RUNNING".length).replace(/^\n/, "");
+    if (rest.startsWith("OMNI_PARTIAL\n")) {
+      return { state: "partial", sql: rest.slice("OMNI_PARTIAL\n".length) };
+    }
+    return { state: "running", detail: summarizeMy2sqlLog(text) };
+  }
+  const newline = text.indexOf("\n");
+  const head = (newline === -1 ? text : text.slice(0, newline)).trim();
+  const rest = newline === -1 ? "" : text.slice(newline + 1);
+  const matched = head.match(/^OMNI_DONE\s+(-?\d+)/);
+  if (!matched) {
+    return { state: "running", detail: summarizeMy2sqlLog(text) };
+  }
+  const exitCode = Number.parseInt(matched[1], 10);
+  if (rest.startsWith("OMNI_EMPTY")) {
+    return { state: "done", exitCode, sql: "", log: rest };
+  }
+  if (rest.startsWith("OMNI_SQL\n")) {
+    return { state: "done", exitCode, sql: rest.slice("OMNI_SQL\n".length), log: "" };
+  }
+  return { state: "done", exitCode, sql: "", log: rest };
+}
+
+async function delayUnlessCancelled(ms: number, shouldCancel?: () => boolean): Promise<boolean> {
+  let left = ms;
+  while (left > 0) {
+    if (shouldCancel?.()) return false;
+    const step = Math.min(200, left);
+    await new Promise((resolve) => setTimeout(resolve, step));
+    left -= step;
+  }
+  return !shouldCancel?.();
 }
 
 function isTruthyMysqlVar(raw: string): boolean {
@@ -696,7 +811,8 @@ export function parseMy2sqlExtraInfoOutput(text: string): BinlogTimelineEvent[] 
       sqlBuf = [];
       return;
     }
-    const id = `${pendingMeta.binlogFile}:${pendingMeta.startPos}:${pendingMeta.stopPos}:${events.length}`;
+    // 不用解析序号：同一条事件在后续轮询里会被重新解析，序号一变选中就会丢。
+    const id = `${pendingMeta.binlogFile}:${pendingMeta.startPos}:${pendingMeta.stopPos}:${kind}`;
     events.push({
       id,
       kind,
@@ -755,6 +871,10 @@ type My2sqlRunOptions = {
   logBinBasename?: string;
   preferReplMode?: boolean;
   addExtraInfo?: boolean;
+  shouldCancel?: () => boolean;
+  onProgress?: (detail: string) => void;
+  /** 扫描尚未结束时，已写出的变更。用于先把时间线画出来。 */
+  onEvents?: (events: BinlogTimelineEvent[]) => void;
 };
 
 async function runMy2sql(options: My2sqlRunOptions): Promise<string> {
@@ -775,12 +895,15 @@ async function runMy2sql(options: My2sqlRunOptions): Promise<string> {
     logBinBasename,
     preferReplMode,
     addExtraInfo,
+    shouldCancel,
+    onProgress,
+    onEvents,
   } = options;
 
   const host = my2sqlConnectHost(connection, sshConnections, sshConnectionId);
   const port = connection.port || 3306;
   const user = connection.user;
-  const password = connection.password;
+  const password = await requireConnectionPassword(connection);
   const outDir = `/tmp/omnipanel-my2sql-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const binPath = resolveMysqlbinlogPath(logBinBasename, startFile);
 
@@ -820,57 +943,133 @@ async function runMy2sql(options: My2sqlRunOptions): Promise<string> {
   };
 
   const runOnce = async (useRepl: boolean) => {
+    if (shouldCancel?.()) throw new BinlogLoadCancelledError();
     const args = buildArgs(useRepl);
-    // my2sql 最终文件名：
-    // - rollback.N.sql / forward.N.sql
-    // - 或 {db}.{table}.rollback.N.sql（按表拆分时）
-    // 临时文件以「.」开头（.rollback.N.sql），必须排除。
-    // my2sql 进度日志打 stdout，必须重定向，否则会与 SQL 混进前端。
-    const logPath = `${shellQuote(outDir)}/run.log`;
-    const cmd = [
-      `rm -rf ${shellQuote(outDir)} && mkdir -p ${shellQuote(outDir)}`,
-      `&& set +e`,
-      `&& ${args} >${logPath} 2>&1`,
-      `&& ec_my=$?`,
-      `&& set -e`,
-      // 只取非隐藏的 *.sql（排除 .rollback.* 临时文件）
-      `&& sql_out=$(ls -1 ${shellQuote(outDir)}/*.sql 2>/dev/null | grep -v '/\\.[^/]*$' | head -n 80)`,
-      `&& sql_bytes=0`,
-      `&& if [ -n "$sql_out" ]; then sql_bytes=$(cat $sql_out 2>/dev/null | wc -c | tr -d ' '); fi`,
-      // exit=0 但写出空文件时也视为失败（常见于 start-pos 落在 RowsEvent 上）
-      // 诊断信息写到 stdout：部分 SSH 路径对 stderr ExtendedData 捕获不完整
-      `&& if [ -z "$sql_out" ] || [ "\${sql_bytes:-0}" -lt 8 ] || [ "$ec_my" -ne 0 ]; then`,
-      `  echo "my2sql 未写出 SQL 文件 (exit=$ec_my, bytes=\${sql_bytes:-0})";`,
-      `  echo "----- my2sql log -----";`,
-      `  tail -n 80 ${logPath};`,
-      `  echo "----- output dir -----";`,
-      `  ls -la ${shellQuote(outDir)};`,
-      `  rm -rf ${shellQuote(outDir)};`,
-      `  exit 1;`,
+    const dir = shellQuote(outDir);
+    const logPath = `${dir}/run.log`;
+    const exitPath = `${dir}/exitcode`;
+    const pidPath = `${dir}/pid`;
+    // setsid 让 my2sql 脱离本次 SSH，停止时可以按进程组杀掉。
+    // 不能在同一次 exec 里同步等待：661MB 日志要顺序读完，界面会一直停在「加载中」。
+    const worker = shellQuote(
+      `${args} >${logPath} 2>&1; echo $? > ${exitPath}`,
+    );
+    const startCmd = [
+      `rm -rf ${dir}`,
+      `mkdir -p ${dir}`,
+      `pid=$(setsid sh -c ${worker} </dev/null >/dev/null 2>&1 & echo $!)`,
+      `echo "$pid" > ${pidPath}`,
+      `echo "$pid"`,
+    ].join(" && ");
+    const started = await sshExec(sshConnectionId, startCmd);
+    if (started.exitCode !== 0) {
+      throw new Error(
+        (started.stderr || started.stdout || "无法启动 my2sql").trim().slice(0, 2000),
+      );
+    }
+
+    const probeCmd = [
+      `if [ -f ${exitPath} ]; then`,
+      `  echo "OMNI_DONE $(tr -d '[:space:]' < ${exitPath})"`,
+      `  latest=$(ls -1t ${dir}/*.sql 2>/dev/null | grep -v '/\\.[^/]*$' | head -n 1)`,
+      `  sql_bytes=0`,
+      `  if [ -n "$latest" ]; then sql_bytes=$(wc -c < "$latest" | tr -d ' '); fi`,
+      `  if [ -z "$latest" ] || [ "\${sql_bytes:-0}" -lt 8 ]; then`,
+      `    echo OMNI_EMPTY`,
+      `    echo "----- my2sql log -----"`,
+      `    tail -n 80 ${logPath}`,
+      `    echo "----- output dir -----"`,
+      `    ls -la ${dir}`,
+      `  else`,
+      `    echo OMNI_SQL`,
+      `    tail -c ${TIMELINE_OUTPUT_BYTES} "$latest"`,
+      `  fi`,
+      `else`,
+      `  echo OMNI_RUNNING`,
+      `  latest=$(ls -1t ${dir}/*.sql 2>/dev/null | grep -v '/\\.[^/]*$' | head -n 1)`,
+      `  if [ -n "$latest" ]; then`,
+      `    echo OMNI_PARTIAL`,
+      `    tail -c ${TIMELINE_OUTPUT_BYTES} "$latest"`,
+      `  else`,
+      `    tail -n 8 ${logPath} 2>/dev/null`,
+      `  fi`,
       `fi`,
-      `&& cat $sql_out | head -c ${TIMELINE_OUTPUT_BYTES}`,
-      `; ec=$?; rm -rf ${shellQuote(outDir)}; exit $ec`,
-    ].join(" ");
-    return sshExec(sshConnectionId, cmd);
+    ].join("\n");
+    const killCmd = [
+      `pid=$(tr -d '[:space:]' < ${pidPath} 2>/dev/null || true)`,
+      `if [ -n "$pid" ]; then`,
+      `  kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true`,
+      `  sleep 0.2`,
+      `  kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true`,
+      `fi`,
+    ].join("\n");
+
+    const startedAt = Date.now();
+    try {
+      while (true) {
+        const stillWaiting = await delayUnlessCancelled(MY2SQL_POLL_MS, shouldCancel);
+        if (!stillWaiting) {
+          await sshExec(sshConnectionId, killCmd).catch(() => undefined);
+          throw new BinlogLoadCancelledError();
+        }
+        if (Date.now() - startedAt > MY2SQL_MAX_WAIT_MS) {
+          await sshExec(sshConnectionId, killCmd).catch(() => undefined);
+          throw new Error("scan-timeout");
+        }
+        const probe = await sshExec(sshConnectionId, probeCmd);
+        const parsed = parseMy2sqlProbe(probe.stdout);
+        if (parsed.state === "running") {
+          if (parsed.detail && !parsed.detail.startsWith("#")) onProgress?.(parsed.detail);
+          continue;
+        }
+        if (parsed.state === "partial") {
+          const partial = parseMy2sqlExtraInfoOutput(stripMy2sqlLogNoise(parsed.sql));
+          if (partial.length > 0) onEvents?.(partial);
+          continue;
+        }
+        return {
+          exitCode: parsed.exitCode,
+          stdout: parsed.sql,
+          stderr: parsed.log,
+        };
+      }
+    } finally {
+      await sshExec(sshConnectionId, `rm -r ${dir}`).catch(() => undefined);
+    }
   };
 
   let res = await runOnce(Boolean(preferReplMode));
   let output = stripMy2sqlLogNoise(res.stdout);
+  const fileMissing =
+    !preferReplMode &&
+    res.exitCode !== 0 &&
+    /local-binlog|no such file|cannot open|not found/i.test(`${res.stderr}\n${res.stdout}`);
 
-  if ((!output || res.exitCode !== 0) && !preferReplMode) {
+  if (fileMissing) {
     res = await runOnce(true);
     output = stripMy2sqlLogNoise(res.stdout);
   }
 
-  if (!output || res.exitCode !== 0) {
-    // 失败时保留 run.log 原文（含 [info]/error]），便于定位
-    const detail = ((res.stderr ?? "").trim() || (res.stdout ?? "").trim()).slice(0, 2000);
+  const parsedEvents = parseMy2sqlExtraInfoOutput(output);
+  if (parsedEvents.length > 0) {
+    onEvents?.(parsedEvents);
+    return output;
+  }
+  const failureRaw = `${res.stderr ?? ""}\n${res.stdout ?? ""}`;
+  const connectFailed = /\[fatal\]|access denied|connect mysql failed/i.test(failureRaw);
+  if (res.exitCode !== 0 || connectFailed) {
     throw new Error(
-      detail ||
+      formatMy2sqlFailure(failureRaw) ||
         (workType === "rollback"
           ? "my2sql 未生成回滚 SQL（请确认时间范围、position 与 ROW/FULL）"
           : "my2sql 未解析出变更事件（请确认时间范围与筛选条件）"),
     );
+  }
+  if (!output) {
+    if (workType === "rollback") {
+      throw new Error("my2sql 未生成回滚 SQL（请确认时间范围、position 与 ROW/FULL）");
+    }
+    return "";
   }
 
   if (workType === "rollback" && !/(INSERT|UPDATE|DELETE|REPLACE)\b/i.test(output)) {
@@ -917,6 +1116,9 @@ export type LoadBinlogTimelineParams = {
   tables?: string;
   logBinBasename?: string;
   preferReplMode?: boolean;
+  shouldCancel?: () => boolean;
+  onProgress?: (detail: string) => void;
+  onEvents?: (events: BinlogTimelineEvent[]) => void;
 };
 
 /** 用 my2sql 2sql + extraInfo 加载变更时间线。 */
@@ -941,6 +1143,9 @@ export async function loadBinlogTimeline(
     logBinBasename: params.logBinBasename,
     preferReplMode: params.preferReplMode,
     addExtraInfo: true,
+    shouldCancel: params.shouldCancel,
+    onProgress: params.onProgress,
+    onEvents: params.onEvents,
   });
   return parseMy2sqlExtraInfoOutput(text);
 }
@@ -1005,7 +1210,7 @@ export function splitDatetimeRange(
   return chunks;
 }
 
-/** 合并时间线事件：按文件 + position 去重，再按时间/position 排序。 */
+/** 合并时间线事件：按文件 + position + 类型去重，再按时间从新到旧排序。 */
 export function mergeTimelineEvents(
   existing: BinlogTimelineEvent[],
   incoming: BinlogTimelineEvent[],
@@ -1017,10 +1222,11 @@ export function mergeTimelineEvents(
   for (const ev of incoming) {
     map.set(`${ev.binlogFile}:${ev.startPos}:${ev.stopPos}:${ev.kind}`, ev);
   }
+  // 与时间线默认排序一致：时间新的在前，同一秒再按位点从新到旧。
   return [...map.values()].sort((a, b) => {
-    if (a.binlogFile !== b.binlogFile) return a.binlogFile.localeCompare(b.binlogFile);
-    if (a.startPos !== b.startPos) return a.startPos - b.startPos;
-    if (a.time !== b.time) return a.time.localeCompare(b.time);
+    if (a.time !== b.time) return b.time.localeCompare(a.time);
+    if (a.binlogFile !== b.binlogFile) return b.binlogFile.localeCompare(a.binlogFile);
+    if (a.startPos !== b.startPos) return b.startPos - a.startPos;
     return a.id.localeCompare(b.id);
   });
 }
@@ -1040,22 +1246,25 @@ export type LoadBinlogTimelineChunkedParams = LoadBinlogTimelineParams & {
 };
 
 /**
- * 按时间片加载变更时间线：首片返回后即可展示，其余在后台继续。
- * 返回最终合并结果；若中途 shouldCancel，返回当前已合并内容。
+ * 一次扫描所选时间范围。
+ * my2sql 每次都从 binlog 文件头顺序读到结束时间。按 30 分钟切成上百次调用时，
+ * 661MB 文件会被重复读上百遍，界面会一直停在第一片的「加载中」。
+ * 返回最终结果；若中途 shouldCancel，返回当前已合并内容。
  */
 export async function loadBinlogTimelineChunked(
   params: LoadBinlogTimelineChunkedParams,
 ): Promise<BinlogTimelineEvent[]> {
   const {
-    chunkMs = BINLOG_TIMELINE_CHUNK_MS,
-    newestFirst = true,
     onChunk,
     shouldCancel,
+    onProgress,
     ...base
   } = params;
 
-  const windows = splitDatetimeRange(base.startDatetime, base.stopDatetime, chunkMs);
-  const ordered = newestFirst ? [...windows].reverse() : windows;
+  const ordered = [
+    { startDatetime: base.startDatetime, stopDatetime: base.stopDatetime },
+  ];
+  const timelineBase: LoadBinlogTimelineParams = base;
   let merged: BinlogTimelineEvent[] = [];
 
   for (let i = 0; i < ordered.length; i++) {
@@ -1064,9 +1273,22 @@ export async function loadBinlogTimelineChunked(
     let chunkEvents: BinlogTimelineEvent[] = [];
     try {
       chunkEvents = await loadBinlogTimeline({
-        ...base,
+        ...timelineBase,
         startDatetime: win.startDatetime,
         stopDatetime: win.stopDatetime,
+        shouldCancel,
+        onProgress,
+        onEvents: (events) => {
+          // 轮询拿到的是文件尾部切片，不能整表替换，否则已选中的更早事件会从列表消失。
+          merged = mergeTimelineEvents(merged, events);
+          onChunk?.({
+            events,
+            merged,
+            chunkIndex: 1,
+            chunkTotal: 1,
+            done: false,
+          });
+        },
       });
     } catch (e) {
       // 单片失败不阻断后续；首片失败则抛出
@@ -1160,13 +1382,14 @@ export async function generateFlashbackSql(
   // binlog2sql --flashback（兼容回退，不支持时间线）
   const host = my2sqlConnectHost(connection, sshConnections, sshConnectionId);
   const port = connection.port || 3306;
+  const password = await requireConnectionPassword(connection);
   const args = [
     tool.command,
     `--flashback`,
     `-h${shellQuote(host)}`,
     `-P${port}`,
     `-u${shellQuote(connection.user)}`,
-    `-p${shellQuote(connection.password)}`,
+    `-p${shellQuote(password)}`,
     databases?.trim() ? `-d${shellQuote(databases.trim())}` : "",
     tables?.trim() ? `-t${shellQuote(tables.trim())}` : "",
     `--start-file=${shellQuote(startFile)}`,
@@ -1282,8 +1505,20 @@ export async function executeFlashbackSql(
   for (const stmt of parts) {
     const runSql = stmt.endsWith(";") ? stmt : `${stmt};`;
     try {
+      const presenceToken = await resolveSqlPresenceToken(connection, runSql, t);
+      if (presenceToken === null) {
+        errors.push("已取消在场验证");
+        break;
+      }
       await unwrapCommand(
-        commands.dbExecuteQuery(ipcConn(connection), runSql, makeQueryRunId(), null, null, null),
+        commands.dbExecuteQuery(
+          ipcConn(connection),
+          runSql,
+          makeQueryRunId(),
+          null,
+          null,
+          presenceToken ?? null,
+        ),
       );
       ok += 1;
     } catch (e) {
