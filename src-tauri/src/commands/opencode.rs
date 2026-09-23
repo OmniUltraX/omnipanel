@@ -1,7 +1,7 @@
 use crate::commands::agents;
 use omnipanel_ai::providers::opencode::{
-    OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeSessionInfo,
-    ensure_opencode_service, sync_omnimcp_into_opencode_config,
+    OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeMessagePart, OpenCodeSessionInfo,
+    OpenCodeTokenUsage, OpenCodeToolCall, ensure_opencode_service, sync_omnimcp_into_opencode_config,
 };
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -26,12 +26,61 @@ pub struct OpenCodeSessionDto {
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+pub struct OpenCodeToolCallDto {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+    pub result: Option<String>,
+    /// `pending` | `running` | `completed` | `failed`
+    pub status: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum OpenCodeMessagePartDto {
+    Text {
+        text: String,
+    },
+    Reasoning {
+        text: String,
+    },
+    #[serde(rename = "tool-call")]
+    ToolCall {
+        id: String,
+        name: String,
+        arguments: String,
+        result: Option<String>,
+        status: String,
+    },
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeTokenUsageDto {
+    pub input: u32,
+    pub output: u32,
+    pub reasoning: u32,
+    pub cache_read: u32,
+    pub cache_write: u32,
+    pub total: Option<u32>,
+    /// OpenCode `tokenTotal`（input+output+reasoning+cache）
+    pub context_total: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenCodeMessageDto {
     pub id: String,
     pub role: String,
     pub content: String,
     pub reasoning: Option<String>,
+    pub parts: Option<Vec<OpenCodeMessagePartDto>>,
+    pub tool_calls: Option<Vec<OpenCodeToolCallDto>>,
     pub created_at: i64,
+    pub tokens: Option<OpenCodeTokenUsageDto>,
+    pub provider_id: Option<String>,
+    pub model_id: Option<String>,
+    pub context_limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -98,7 +147,58 @@ fn message_to_dto(m: OpenCodeChatMessage) -> OpenCodeMessageDto {
         role: m.role,
         content: m.content,
         reasoning: m.reasoning,
+        parts: m.parts.map(|parts| parts.into_iter().map(part_to_dto).collect()),
+        tool_calls: m
+            .tool_calls
+            .map(|calls| calls.into_iter().map(tool_call_to_dto).collect()),
         created_at: m.created_at,
+        tokens: m.tokens.map(token_usage_to_dto),
+        provider_id: m.provider_id,
+        model_id: m.model_id,
+        context_limit: m.context_limit,
+    }
+}
+
+fn token_usage_to_dto(t: OpenCodeTokenUsage) -> OpenCodeTokenUsageDto {
+    let context_total = t.context_total();
+    OpenCodeTokenUsageDto {
+        input: t.input,
+        output: t.output,
+        reasoning: t.reasoning,
+        cache_read: t.cache_read,
+        cache_write: t.cache_write,
+        total: t.total,
+        context_total,
+    }
+}
+
+fn tool_call_to_dto(t: OpenCodeToolCall) -> OpenCodeToolCallDto {
+    OpenCodeToolCallDto {
+        id: t.id,
+        name: t.name,
+        arguments: t.arguments,
+        result: t.result,
+        status: t.status,
+    }
+}
+
+fn part_to_dto(p: OpenCodeMessagePart) -> OpenCodeMessagePartDto {
+    match p {
+        OpenCodeMessagePart::Text { text } => OpenCodeMessagePartDto::Text { text },
+        OpenCodeMessagePart::Reasoning { text } => OpenCodeMessagePartDto::Reasoning { text },
+        OpenCodeMessagePart::ToolCall {
+            id,
+            name,
+            arguments,
+            result,
+            status,
+        } => OpenCodeMessagePartDto::ToolCall {
+            id,
+            name,
+            arguments,
+            result,
+            status,
+        },
     }
 }
 

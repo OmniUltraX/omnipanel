@@ -14,7 +14,15 @@ export type HttpProviderSnapshot = {
 /** 内部聊天流事件：在 Acp 事件基础上补齐 Usage（ai_chat_stream 直传 StreamEvent） */
 export type InternalStreamEvent =
   | AcpStreamEvent
-  | { type: "usage"; input_tokens: number; output_tokens: number };
+  | {
+      type: "usage";
+      input_tokens: number;
+      output_tokens: number;
+      reasoning_tokens?: number;
+      cached_input_tokens?: number;
+      cache_write_tokens?: number;
+      total_tokens?: number | null;
+    };
 
 export interface AiContextBundle {
   cwd?: string | null;

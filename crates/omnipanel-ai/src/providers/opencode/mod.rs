@@ -14,7 +14,8 @@ mod service;
 mod turn;
 
 pub use client::{
-    OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeModel, OpenCodeSessionInfo,
+    OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeMessagePart, OpenCodeModel,
+    OpenCodeSessionInfo, OpenCodeTokenUsage, OpenCodeToolCall,
 };
 pub use mcp_config::{
     merge_omnimcp_into_root, opencode_config_json_path, sync_omnimcp_into_opencode_config,

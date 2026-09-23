@@ -1,11 +1,13 @@
 import { create } from "zustand";
 
 import type { AiMessage } from "./aiStore";
+import { normalizeAiMessage } from "./aiStore";
 import type {
   AgentAdapter,
   AgentSessionSummary,
   OpenCodeAgentSummary,
 } from "../lib/ai/agentAdapters/types";
+import type { AiMessagePart, ToolCallState } from "../lib/ai/aiMessageParts";
 
 type AgentSessionState = {
   /** 当前适配器 id；null = 内置模式 */
@@ -94,13 +96,52 @@ export const useAgentSessionStore = create<AgentSessionState>((set) => ({
 export function agentMessagesToAiMessages(
   rows: Awaited<ReturnType<AgentAdapter["loadMessages"]>>,
 ): AiMessage[] {
-  return rows.map((m) => ({
-    id: m.id,
-    role: m.role,
-    content: m.role === "user" ? stripOmniInjectedUserPrefix(m.content) : m.content,
-    reasoningContent: m.reasoning ?? undefined,
-    timestamp: m.createdAt > 0 ? m.createdAt : Date.now(),
-  }));
+  return rows.map((m) => {
+    const content = m.role === "user" ? stripOmniInjectedUserPrefix(m.content) : m.content;
+    const toolCalls: ToolCallState[] | undefined = m.toolCalls?.length
+      ? m.toolCalls.map((t) => ({
+          id: t.id,
+          name: t.name,
+          arguments: t.arguments,
+          result: t.result ?? undefined,
+          status: t.status,
+        }))
+      : undefined;
+    const parts: AiMessagePart[] | undefined = m.parts?.length
+      ? m.parts.map((p): AiMessagePart => {
+          if (p.type === "text") return { type: "text", text: p.text };
+          if (p.type === "reasoning") return { type: "reasoning", text: p.text };
+          return {
+            type: "tool-call",
+            id: p.id,
+            name: p.name,
+            arguments: p.arguments,
+            result: p.result ?? undefined,
+            status: p.status,
+          };
+        })
+      : undefined;
+    return normalizeAiMessage({
+      id: m.id,
+      role: m.role,
+      content,
+      reasoningContent: m.reasoning ?? undefined,
+      toolCalls,
+      parts,
+      timestamp: m.createdAt > 0 ? m.createdAt : Date.now(),
+      usage: m.usage
+        ? {
+            inputTokens: m.usage.inputTokens,
+            outputTokens: m.usage.outputTokens,
+            reasoningTokens: m.usage.reasoningTokens,
+            cachedInputTokens: m.usage.cachedInputTokens,
+            cacheWriteTokens: m.usage.cacheWriteTokens,
+            totalTokens: m.usage.totalTokens,
+            contextLimit: m.usage.contextLimit,
+          }
+        : undefined,
+    });
+  });
 }
 
 /**

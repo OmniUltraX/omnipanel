@@ -26,6 +26,18 @@ pub enum StreamEvent {
     Usage {
         input_tokens: u32,
         output_tokens: u32,
+        /// 推理 token（OpenCode 等）；缺省 0
+        #[serde(default)]
+        reasoning_tokens: u32,
+        /// 缓存读（OpenCode `cache.read`）；缺省 0
+        #[serde(default)]
+        cached_input_tokens: u32,
+        /// 缓存写（OpenCode `cache.write`）；缺省 0
+        #[serde(default)]
+        cache_write_tokens: u32,
+        /// 已算好的上下文总量（OpenCode：input+output+reasoning+cache）；缺省由前端汇总
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_tokens: Option<u32>,
     },
     Done {
         stop_reason: StopReason,

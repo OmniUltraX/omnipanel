@@ -58,7 +58,7 @@ export const commands = {
 	syncMasterKeyValidate: (key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_validate", { key })),
 	syncTeamKeyStatus: (teamId: number) => typedError<SyncTeamKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_status", { teamId })),
 	syncTeamKeyGetOrCreate: (teamId: number) => typedError<SyncTeamKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_get_or_create", { teamId })),
-	/** 导出明文密钥供小程序扫码落库（含 teamId + keyB64）。 */
+	/**  导出明文密钥供小程序扫码（QR：`omnipanel://sync-key?team_id=&key=`）。 */
 	syncTeamKeyExportForMiniapp: (teamId: number) => typedError<SyncTeamKeyExportForMiniappResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_export_for_miniapp", { teamId })),
 	syncTeamKeyClear: (teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_clear", { teamId })),
 	syncTeamKeyExportFile: (teamId: number, path: string, passphrase: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_export_file", { teamId, path, passphrase })),
@@ -335,7 +335,7 @@ export const commands = {
 	cloudResolveSecret: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_resolve_secret", { connectionId })),
 	/**  测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。 */
 	cloudTest: (connection: Connection, secret: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_test", { connection, secret })),
-	/**  过渡：产品级列表，内部仍走同一客户端。前端主路径请用 `cloud_list_resources`。 */
+	/**  过渡：产品级列表，内部走 `listResources`。前端主路径请用 `cloud_list_resources`。 */
 	cloudListOss: (connectionId: string, region: string | null) => typedError<CloudOssBucket[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_oss", { connectionId, region })),
 	cloudListSwas: (connectionId: string, region: string | null) => typedError<CloudSwasInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_swas", { connectionId, region })),
 	cloudListDomains: (connectionId: string) => typedError<CloudDomainItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_domains", { connectionId })),
@@ -1122,25 +1122,25 @@ export const commands = {
 	pluginSecretHas: (pluginId: string, key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_has", { pluginId, key })),
 	pluginSecretGet: (pluginId: string, key: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_get", { pluginId, key })),
 	pluginSecretDelete: (pluginId: string, key: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_delete", { pluginId, key })),
-	/**  目录导入：注册为链接工程（原地编辑）+ 安装 + 默认热重载。 */
-	pluginDevImport: (path: string) => typedError<DevProjectInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_import", { path })),
+	/**  目录导入：注册为工作台链接工程（原地编辑）+ 安装到本机 + 默认开启热重载。 */
+	pluginDevImport: (path: string) => typedError<DevProjectInfo, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_import", { path })),
 	/**  开启热重载：先装一次当前内容，再注册轮询监听（未链接的目录顺手建链接）。 */
-	pluginDevWatch: (path: string) => typedError<DevWatchInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch", { path })),
+	pluginDevWatch: (path: string) => typedError<DevWatchInfo, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch", { path })),
 	/**  按工作台工程名开启热重载（user/repo/linked 通吃，目录由工作台解析）。 */
-	pluginDevWatchProject: (project: string) => typedError<DevWatchInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch_project", { project })),
+	pluginDevWatchProject: (project: string) => typedError<DevWatchInfo, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch_project", { project })),
 	/**  关闭指定插件的热重载（保留链接，可再次开启）。 */
 	pluginDevUnwatch: (pluginId: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_unwatch", { pluginId })),
 	/**  取消链接：删链接 + 关监听，不动源码目录，不卸载已装插件。 */
 	pluginDevUnlinkProject: (project: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_unlink_project", { project })),
 	/**  开发期条目一览：会话监听 ∪ 已链接（重启后链接仍在，监听可一键恢复）。 */
-	pluginDevStatus: () => typedError<DevWatchInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_status")),
-	/**  列出用户目录 + 开发态仓库目录（同名以用户目录为准）。 */
+	pluginDevStatus: () => typedError<DevWatchInfo[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_status")),
+	/**  列出用户目录 + 开发态仓库目录 + 开发链接工程（同名以用户目录为准）。 */
 	pluginStudioListProjects: () => typedError<StudioProject_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
 	/**  脚手架：新建一律写用户目录。有仓库+node 时复用 create-plugin.mjs；否则写内置 JS/L1 骨架。 */
 	pluginStudioScaffold: (name: string, kind: string, starter: string | null) => typedError<StudioProject_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind, starter })),
 	/**  记录 AI 脚手架意图（detail 仅为摘要）。 */
 	pluginStudioAuditScaffold: (project: string, prompt: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_audit_scaffold", { project, prompt })),
-	/**  删除工程目录（用户目录或仓库 plugins-custom，禁锢与读写相同）。 */
+	/**  删除工程：用户/仓库目录按禁锢删除；链接工程只取消链接（不动源码目录，不卸载已装插件）。 */
 	pluginStudioRemoveProject: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_remove_project", { name })),
 	/**  读工程文件（文本，≤512KB）。 */
 	pluginStudioReadFile: (project: string, path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_read_file", { project, path })),
@@ -1283,7 +1283,7 @@ export const commands = {
 	opencodeGetAgent: (agentId: string) => typedError<OpenCodeAgentDto, string>(__TAURI_INVOKE("opencode_get_agent", { agentId })),
 	/**  切换会话后续回合使用的 Agent（`POST /api/session/{id}/agent`）。 */
 	opencodeSwitchSessionAgent: (sessionId: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("opencode_switch_session_agent", { sessionId, agent })),
-	/**  检测 Cursor / OpenCode 的安装情况。 */
+	/**  检测 Cursor / OpenCode 的安装情况（强制刷新，供「重新检测」）。 */
 	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),
 	dbSqlFilesSave: (file: DbSqlFilesFile) => typedError<null, string>(__TAURI_INVOKE("db_sql_files_save", { file })),
@@ -2958,34 +2958,27 @@ export type DbxInstallAttempt = {
 	message: string,
 };
 
-export type PluginEnsureRequest = {
-	approveIds: string[],
+/**  目录导入结果：链接工程名 + 安装信息（监听已默认开启）。 */
+export type DevProjectInfo = {
+	project: string,
+	pluginId: string,
+	version: string,
+	dir: string,
+	watching: boolean,
 };
 
-export type PluginEnsureItem = {
-	id: string,
-	name: string,
-};
-
-export type PluginEnsurePendingItem = {
-	id: string,
-	name: string,
-	kind: PluginKind,
-	sourceId: string,
-	permissions: string[],
-};
-
-export type PluginEnsureFailItem = {
-	id: string,
-	message: string,
-};
-
-export type PluginEnsureResult = {
-	skipped: PluginEnsureItem[],
-	installed: PluginEnsureItem[],
-	pendingConfirm: PluginEnsurePendingItem[],
-	failed: PluginEnsureFailItem[],
-	notFound: PluginEnsureItem[],
+/**  开发期监听条目（`plugin_dev_status` 出参）。 */
+export type DevWatchInfo = {
+	/**  链接工程名（工作台工程列表用；纯会话条目为空）。 */
+	project: string,
+	pluginId: string,
+	version: string,
+	dir: string,
+	watching: boolean,
+	enabled: boolean,
+	activated: boolean,
+	lastReloadMs: number,
+	lastError: string,
 };
 
 export type DiscoveryScope = {
@@ -3024,50 +3017,6 @@ export type DiskStats_Serialize = {
 	disks: DiskDeviceStats[],
 	readBytes?: number | null,
 	writeBytes?: number | null,
-};
-
-export type DevProjectInfo = DevProjectInfo_Serialize | DevProjectInfo_Deserialize;
-
-export type DevProjectInfo_Deserialize = {
-	project: string,
-	pluginId: string,
-	version: string,
-	dir: string,
-	watching: boolean,
-};
-
-export type DevProjectInfo_Serialize = {
-	project: string,
-	pluginId: string,
-	version: string,
-	dir: string,
-	watching: boolean,
-};
-
-export type DevWatchInfo = DevWatchInfo_Serialize | DevWatchInfo_Deserialize;
-
-export type DevWatchInfo_Deserialize = {
-	project: string,
-	pluginId: string,
-	version: string,
-	dir: string,
-	watching: boolean,
-	enabled: boolean,
-	activated: boolean,
-	lastReloadMs: number,
-	lastError: string,
-};
-
-export type DevWatchInfo_Serialize = {
-	project: string,
-	pluginId: string,
-	version: string,
-	dir: string,
-	watching: boolean,
-	enabled: boolean,
-	activated: boolean,
-	lastReloadMs: number,
-	lastError: string,
 };
 
 /**  Docker auto-detection result. */
@@ -4477,49 +4426,6 @@ export type KsTestResult = {
 	message: string,
 };
 
-export type LocalHardwareInfo = {
-	totalMemoryMb: number | null,
-	vramMb: number | null,
-	hasDiscreteGpu: boolean,
-	gpuName: string | null,
-	hardwareTier: string,
-	/**  推荐量化档，如 Q4_K_M */
-	quantPref: string,
-	/**  估测可跑参数量（B） */
-	maxParamB: number | null,
-};
-
-/**  已安装模型摘要。 */
-export type LocalModelInfo = {
-	name: string,
-	sizeBytes: number | null,
-	digest: string,
-	family: string,
-};
-
-export type LocalRuntimeInstallResult = {
-	method: string,
-	started: boolean,
-	message: string,
-	manualUrl: string,
-};
-
-/**  聚合探测。 */
-export type LocalRuntimeProbeResult = {
-	ollama: OllamaProbeResult,
-	lmStudio: OpenAiCompatProbeResult,
-	hardware: LocalHardwareInfo,
-	/**  系统内存 MB（兼容旧字段） */
-	totalMemoryMb: number | null,
-	hardwareTier: string,
-	recommendedModels: RecommendedModel[],
-	/**  推荐清单来源说明 */
-	catalogSource: string,
-};
-
-/**  运行时状态。 */
-export type LocalRuntimeStatus = "not_installed" | "installed_not_running" | "running";
-
 export type LogLine = {
 	lineNo: number | null,
 	text: string,
@@ -4801,17 +4707,6 @@ export type OfficialCatalogPlugin = {
 	downloads?: number | null,
 };
 
-/**  Ollama 探测结果。 */
-export type OllamaProbeResult = {
-	status: LocalRuntimeStatus,
-	endpoint: string,
-	openaiBaseUrl: string,
-	version: string | null,
-	cliPath: string | null,
-	models: LocalModelInfo[],
-	error: string | null,
-};
-
 /**  统一错误结构。Tauri 命令统一返回 `Result<T, OmniError>`。 */
 export type OmniError = OmniError_Serialize | OmniError_Deserialize;
 
@@ -4842,12 +4737,14 @@ export type OnePanelBinaryPayload = {
 	filename: string | null,
 };
 
-/**  LM Studio / 自定义端点探测。 */
-export type OpenAiCompatProbeResult = {
-	reachable: boolean,
-	endpoint: string,
-	models: string[],
-	error: string | null,
+export type OpenCodeAgentDto = {
+	id: string,
+	name: string,
+	description: string | null,
+	/**  `primary` | `subagent` | `all` */
+	mode: string,
+	hidden: boolean,
+	color: string | null,
 };
 
 export type OpenCodeInstallStatus = {
@@ -4859,21 +4756,6 @@ export type OpenCodeInstallStatus = {
 	version: string | null,
 };
 
-export type OpenCodeSessionDto = {
-	id: string,
-	title: string,
-	updatedAt: number,
-	directory: string | null,
-};
-
-export type OpenCodeMessageDto = {
-	id: string,
-	role: string,
-	content: string,
-	reasoning: string | null,
-	createdAt: number,
-};
-
 export type OpenCodeMcpSyncResult = {
 	/**  写入的配置文件路径。 */
 	path: string,
@@ -4882,14 +4764,47 @@ export type OpenCodeMcpSyncResult = {
 	enabled: boolean,
 };
 
-export type OpenCodeAgentDto = {
+export type OpenCodeMessageDto = {
+	id: string,
+	role: string,
+	content: string,
+	reasoning: string | null,
+	parts: OpenCodeMessagePartDto[] | null,
+	toolCalls: OpenCodeToolCallDto[] | null,
+	createdAt: number,
+	tokens: OpenCodeTokenUsageDto | null,
+	providerId: string | null,
+	modelId: string | null,
+	contextLimit: number | null,
+};
+
+export type OpenCodeMessagePartDto = { type: "text"; text: string } | { type: "reasoning"; text: string } | { type: "tool-call"; id: string; name: string; arguments: string; result: string | null; status: string };
+
+export type OpenCodeSessionDto = {
+	id: string,
+	title: string,
+	updatedAt: number,
+	directory: string | null,
+};
+
+export type OpenCodeTokenUsageDto = {
+	input: number,
+	output: number,
+	reasoning: number,
+	cacheRead: number,
+	cacheWrite: number,
+	total: number | null,
+	/**  OpenCode `tokenTotal`（input+output+reasoning+cache） */
+	contextTotal: number,
+};
+
+export type OpenCodeToolCallDto = {
 	id: string,
 	name: string,
-	description: string | null,
-	/**  `primary` | `subagent` | `all` */
-	mode: string,
-	hidden: boolean,
-	color: string | null,
+	arguments: string,
+	result: string | null,
+	/**  `pending` | `running` | `completed` | `failed` */
+	status: string,
 };
 
 export type PairingKeypairResult = {
@@ -4932,6 +4847,36 @@ export type PanelProbeResult = {
 };
 
 export type PluginDistribution = "bundled" | "download";
+
+export type PluginEnsureFailItem = {
+	id: string,
+	message: string,
+};
+
+export type PluginEnsureItem = {
+	id: string,
+	name: string,
+};
+
+export type PluginEnsurePendingItem = {
+	id: string,
+	name: string,
+	kind: PluginKind,
+	sourceId: string,
+	permissions: string[],
+};
+
+export type PluginEnsureRequest = {
+	approveIds?: string[],
+};
+
+export type PluginEnsureResult = {
+	skipped: PluginEnsureItem[],
+	installed: PluginEnsureItem[],
+	pendingConfirm: PluginEnsurePendingItem[],
+	failed: PluginEnsureFailItem[],
+	notFound: PluginEnsureItem[],
+};
 
 /**
  *  插件身份。新增 kind 只接受平台级能力（多租户），不为单一产品开口子。
@@ -5041,7 +4986,7 @@ export type ProvidersFile = {
 	cliProviders?: CliProviderRecord[],
 };
 
-/**  Proxy 配置，从前端设置同步到后端。 */
+/**  HTTP 代理配置 DTO（与前端设置 / 桌面 AppState 字段对齐）。 */
 export type ProxyConfig = {
 	enabled: boolean,
 	protocol: string,
@@ -5068,19 +5013,6 @@ export type QdrantDeletePointsArgs = {
 	connection: DbConnectionConfig,
 	collection: string,
 	pointIds: any[],
-};
-
-export type RecommendedModel = {
-	name: string,
-	/**  coding | chinese_chat | embedding */
-	scenario: string,
-	kind: string,
-	approxSizeGb: number | null,
-	description: string,
-	tier: string,
-	quantHint: string,
-	pulls: number | null,
-	fromLibrary: boolean,
 };
 
 /**  ACL 用户行。 */
@@ -6208,16 +6140,16 @@ export type SyncTeamKeyEphemeralKeypair = {
 	wrapAlg: string,
 };
 
-export type SyncTeamKeyGetOrCreateResult = {
-	fingerprint: string,
-	/**  true = 本次新生成，应提示备份 */
-	created: boolean,
-};
-
 export type SyncTeamKeyExportForMiniappResult = {
 	teamId: number,
 	keyB64: string,
 	fingerprint: string,
+};
+
+export type SyncTeamKeyGetOrCreateResult = {
+	fingerprint: string,
+	/**  true = 本次新生成，应提示备份 */
+	created: boolean,
 };
 
 export type SyncTeamKeyImportResult = {

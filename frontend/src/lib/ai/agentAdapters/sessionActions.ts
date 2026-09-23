@@ -63,11 +63,16 @@ export async function refreshOpenCodeAgents(adapter: AgentAdapter): Promise<void
     const selectable = agents.filter(isSelectableOpenCodeAgent);
     const current = store.activeAgentName;
     if (!current || !selectable.some((a) => a.name === current || a.id === current)) {
-      const fallback = selectable[0]?.name ?? null;
+      // 必须用 id：OpenCode session.agent / 执行查找都认 id（build），不认显示名（Build）
+      const fallback = selectable[0]?.id ?? null;
       store.setActiveAgentName(fallback);
+    } else if (selectable.some((a) => a.name === current && a.id !== current)) {
+      // 本地曾存显示名：校正为 id
+      const hit = selectable.find((a) => a.name === current);
+      if (hit) store.setActiveAgentName(hit.id);
     }
   } catch (err) {
-    store.setAgents([]);
+    // 保留已有列表，避免瞬时失败把下拉清空成「没数据」
     store.setError(err instanceof Error ? err.message : String(err));
   } finally {
     store.setLoadingAgents(false);
@@ -217,20 +222,19 @@ export async function selectAgentSession(
   store.setPendingSelectId(sessionId);
   store.setLoadingMessages(true);
   store.setError(null);
-  // 恢复该会话选中的 OpenCode Agent（Tab 语义）
+  // 恢复该会话选中的 OpenCode Agent（Tab 语义；存/切均用 id）
   {
     const selectable = store.agents.filter(isSelectableOpenCodeAgent);
     const remembered = store.agentBySessionId[sessionId];
+    const resolveId = (raw: string | null | undefined) => {
+      if (!raw) return null;
+      const hit = selectable.find((a) => a.id === raw || a.name === raw);
+      return hit?.id ?? null;
+    };
     const nextAgent =
-      (remembered &&
-        selectable.some((a) => a.name === remembered || a.id === remembered) &&
-        remembered) ||
-      (store.activeAgentName &&
-        selectable.some(
-          (a) => a.name === store.activeAgentName || a.id === store.activeAgentName,
-        ) &&
-        store.activeAgentName) ||
-      selectable[0]?.name ||
+      resolveId(remembered) ||
+      resolveId(store.activeAgentName) ||
+      selectable[0]?.id ||
       null;
     if (nextAgent) {
       store.setActiveAgentName(nextAgent);
@@ -243,8 +247,16 @@ export async function selectAgentSession(
     const cached = useAgentSessionStore.getState().messagesBySessionId[sessionId];
     const rows = await adapter.loadMessages(sessionId);
     const messages = agentMessagesToAiMessages(rows);
+    let modelKey: string | null = null;
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const row = rows[i];
+      if (row.role === "assistant" && row.providerId && row.modelId) {
+        modelKey = `${row.providerId}/${row.modelId}`;
+        break;
+      }
+    }
     useAgentSessionStore.getState().setMessages(sessionId, messages);
-    mirrorSessionIntoAiStore(sessionId, messages, latestSessions);
+    mirrorSessionIntoAiStore(sessionId, messages, latestSessions, modelKey);
     void cached;
   } catch (err) {
     if (isSessionNotFoundError(err)) {
@@ -286,10 +298,12 @@ function mirrorSessionIntoAiStore(
   sessionId: string,
   messages: ReturnType<typeof agentMessagesToAiMessages>,
   sessions: { id: string; title: string; updatedAt: number }[],
+  modelKey?: string | null,
 ): void {
   const meta = sessions.find((s) => s.id === sessionId);
   const title = meta?.title || sessionId;
   const updatedAt = meta?.updatedAt || Date.now();
+  const model = (modelKey ?? "").trim();
   const ai = useAiStore.getState();
   const existing = ai.conversations.find((c) => c.id === sessionId);
   if (existing) {
@@ -302,6 +316,7 @@ function mirrorSessionIntoAiStore(
               messages,
               updatedAt,
               agentId: ASSISTANT_PAGE_AGENT_ID,
+              ...(model ? { model } : {}),
             }
           : c,
       ),
@@ -315,7 +330,7 @@ function mirrorSessionIntoAiStore(
           title,
           messages,
           provider: "opencode",
-          model: "",
+          model,
           agentId: ASSISTANT_PAGE_AGENT_ID,
           createdAt: updatedAt,
           updatedAt,

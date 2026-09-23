@@ -89,10 +89,19 @@ export interface AgentMcpConnection {
   toolCount: number;
 }
 
-/** 单次请求的 token 用量（来自上游 Usage 事件） */
+/** 单次请求的 token 用量（来自上游 Usage 事件 / OpenCode 消息 tokens） */
 export interface AiTokenUsage {
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens?: number;
+  /** OpenCode `cache.read` */
+  cachedInputTokens?: number;
+  /** OpenCode `cache.write` */
+  cacheWriteTokens?: number;
+  /** OpenCode `tokenTotal`；有值时用量环优先用它 */
+  totalTokens?: number;
+  /** OpenCode `model.limit.context` */
+  contextLimit?: number;
 }
 
 /** 流式性能计时（供 MessageTiming / 状态条） */

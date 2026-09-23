@@ -9,6 +9,45 @@ pub struct OpenCodeModel {
     pub provider_id: String,
     pub model_id: String,
     pub name: String,
+    /// `limit.context`（上下文窗口）；未知则为 None
+    pub context_limit: Option<u32>,
+}
+
+/// OpenCode 消息 / 步骤上的 token 用量（与官方 Session Context 一致）。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeTokenUsage {
+    pub input: u32,
+    pub output: u32,
+    #[serde(default)]
+    pub reasoning: u32,
+    #[serde(default)]
+    pub cache_read: u32,
+    #[serde(default)]
+    pub cache_write: u32,
+    /// OpenCode 偶发直接给 `tokens.total`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u32>,
+}
+
+impl OpenCodeTokenUsage {
+    /// 与 OpenCode `getSessionContext` / `tokenTotal` 对齐。
+    pub fn context_total(&self) -> u32 {
+        if let Some(t) = self.total {
+            if t > 0 {
+                return t;
+            }
+        }
+        self.input
+            .saturating_add(self.output)
+            .saturating_add(self.reasoning)
+            .saturating_add(self.cache_read)
+            .saturating_add(self.cache_write)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.context_total() == 0
+    }
 }
 
 /// OpenCode 会话摘要（列表用）。
@@ -22,6 +61,40 @@ pub struct OpenCodeSessionInfo {
     pub directory: Option<String>,
 }
 
+/// OpenCode 工具调用（历史消息 / DTO 共用）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    /// `pending` | `running` | `completed` | `failed`
+    pub status: String,
+}
+
+/// 有序消息片段（保留 reasoning / text / tool 交错顺序，供前端 parts 渲染）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum OpenCodeMessagePart {
+    Text {
+        text: String,
+    },
+    Reasoning {
+        text: String,
+    },
+    #[serde(rename = "tool-call")]
+    ToolCall {
+        id: String,
+        name: String,
+        arguments: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        result: Option<String>,
+        status: String,
+    },
+}
+
 /// 映射到前端 Thread 的简化消息。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,7 +104,23 @@ pub struct OpenCodeChatMessage {
     pub role: String,
     pub content: String,
     pub reasoning: Option<String>,
+    /// 有序片段；缺省时前端用扁平字段 migrate。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Vec<OpenCodeMessagePart>>,
+    /// 从 parts 派生的工具调用列表（兼容扁平字段）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OpenCodeToolCall>>,
     pub created_at: i64,
+    /// assistant 消息上的 tokens（OpenCode 上下文用量事实源）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<OpenCodeTokenUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    /// 该消息模型的 `limit.context`（拉历史时解析）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_limit: Option<u32>,
 }
 
 /// OpenCode Agent（`GET /api/agent`）。
@@ -207,6 +296,11 @@ impl OpenCodeClient {
 
     pub async fn list_models(&self) -> Result<Vec<OpenCodeModel>, String> {
         #[derive(Deserialize)]
+        struct ModelLimit {
+            #[serde(default)]
+            context: u64,
+        }
+        #[derive(Deserialize)]
         struct ModelRow {
             #[serde(rename = "modelID", default)]
             model_id: String,
@@ -216,6 +310,8 @@ impl OpenCodeClient {
             name: String,
             #[serde(default)]
             id: String,
+            #[serde(default)]
+            limit: Option<ModelLimit>,
         }
         #[derive(Deserialize)]
         struct Envelope {
@@ -241,10 +337,20 @@ impl OpenCodeClient {
                 } else {
                     row.name
                 };
+                let context_limit = row
+                    .limit
+                    .and_then(|l| {
+                        if l.context > 0 && l.context <= u32::MAX as u64 {
+                            Some(l.context as u32)
+                        } else {
+                            None
+                        }
+                    });
                 Some(OpenCodeModel {
                     provider_id,
                     model_id,
                     name,
+                    context_limit,
                 })
             })
             .collect())
@@ -417,6 +523,35 @@ impl OpenCodeClient {
         }
         // API 通常新→旧；UI 要旧→新
         out.reverse();
+
+        // 补齐模型 context limit（OpenCode Session Context 用量环分母）
+        if out.iter().any(|m| {
+            m.tokens.as_ref().is_some_and(|t| !t.is_empty())
+                && m.provider_id.is_some()
+                && m.model_id.is_some()
+        }) {
+            if let Ok(models) = self.list_models().await {
+                let limits: std::collections::HashMap<(String, String), u32> = models
+                    .into_iter()
+                    .filter_map(|m| {
+                        m.context_limit
+                            .map(|lim| ((m.provider_id, m.model_id), lim))
+                    })
+                    .collect();
+                for msg in &mut out {
+                    if msg.context_limit.is_some() {
+                        continue;
+                    }
+                    let (Some(pid), Some(mid)) = (&msg.provider_id, &msg.model_id) else {
+                        continue;
+                    };
+                    if let Some(lim) = limits.get(&(pid.clone(), mid.clone())) {
+                        msg.context_limit = Some(*lim);
+                    }
+                }
+            }
+        }
+
         Ok(out)
     }
 
@@ -466,47 +601,64 @@ impl OpenCodeClient {
 
     /// 列出已注册 Agent（`GET /api/agent`）。
     pub async fn list_agents(&self) -> Result<Vec<OpenCodeAgentInfo>, String> {
+        // 宽松解析：OpenCode 可能加字段；缺 id 的条目跳过，避免整表失败 → 前端下拉空白。
         #[derive(Deserialize)]
         struct Envelope {
-            data: Vec<AgentRow>,
-        }
-        #[derive(Deserialize)]
-        struct AgentRow {
-            id: String,
-            #[serde(default)]
-            name: String,
-            #[serde(default)]
-            description: Option<String>,
-            #[serde(default)]
-            mode: String,
-            #[serde(default)]
-            hidden: bool,
-            #[serde(default)]
-            color: Option<String>,
+            data: Vec<serde_json::Value>,
         }
 
         let env: Envelope = self.get_json("/api/agent").await?;
         Ok(env
             .data
             .into_iter()
-            .map(|row| {
-                let name = if row.name.trim().is_empty() {
-                    row.id.clone()
-                } else {
-                    row.name
-                };
-                OpenCodeAgentInfo {
-                    id: row.id,
-                    name,
-                    description: row.description.filter(|s| !s.trim().is_empty()),
-                    mode: if row.mode.trim().is_empty() {
-                        "all".into()
-                    } else {
-                        row.mode
-                    },
-                    hidden: row.hidden,
-                    color: row.color.filter(|s| !s.trim().is_empty()),
+            .filter_map(|row| {
+                let id = row
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if id.is_empty() {
+                    return None;
                 }
+                let name = row
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(id.as_str())
+                    .to_string();
+                let description = row
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string);
+                let mode = row
+                    .get("mode")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("all")
+                    .to_string();
+                let hidden = row
+                    .get("hidden")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let color = row
+                    .get("color")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string);
+                Some(OpenCodeAgentInfo {
+                    id,
+                    name,
+                    description,
+                    mode,
+                    hidden,
+                    color,
+                })
             })
             .collect())
     }
@@ -555,10 +707,95 @@ impl OpenCodeClient {
     }
 
     /// 切换会话后续回合使用的 Agent（`POST /api/session/{id}/agent`）。
+    /// `agent` 可为 id（`build`）或显示名（`Build`）；写入前归一为 id。
     pub async fn switch_session_agent(&self, session_id: &str, agent: &str) -> Result<(), String> {
-        let body = json!({ "agent": agent });
+        let agent_id = self.resolve_agent_id(agent).await?;
+        let body = json!({ "agent": agent_id });
         self.post_empty(&format!("/api/session/{session_id}/agent"), &body)
             .await
+    }
+
+    /// 将 id / 显示名归一为 OpenCode agent id（查找区分大小写的 id）。
+    pub async fn resolve_agent_id(&self, agent: &str) -> Result<String, String> {
+        let raw = agent.trim();
+        if raw.is_empty() {
+            return Err("OpenCode agent 为空".to_string());
+        }
+        let agents = self.list_agents().await?;
+        if let Some(hit) = agents.iter().find(|a| a.id == raw) {
+            return Ok(hit.id.clone());
+        }
+        let lower = raw.to_ascii_lowercase();
+        if let Some(hit) = agents.iter().find(|a| a.id.eq_ignore_ascii_case(&lower)) {
+            return Ok(hit.id.clone());
+        }
+        if let Some(hit) = agents
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(raw) || a.name == raw)
+        {
+            return Ok(hit.id.clone());
+        }
+        Err(format!(
+            "OpenCode Agent 未找到: \"{raw}\" (可用: {})",
+            agents
+                .iter()
+                .map(|a| a.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
+
+    /// 读取会话当前 agent 字段（可能是历史写入的显示名）。
+    pub async fn get_session_agent(&self, session_id: &str) -> Result<Option<String>, String> {
+        #[derive(Deserialize)]
+        struct Envelope {
+            data: SessionAgentRow,
+        }
+        #[derive(Deserialize)]
+        struct SessionAgentRow {
+            #[serde(default)]
+            agent: Option<String>,
+        }
+        let env: Envelope = self.get_json(&format!("/api/session/{session_id}")).await?;
+        Ok(env
+            .data
+            .agent
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()))
+    }
+
+    /// 若会话 agent 不是合法 id（常见：UI 曾写入显示名 `Build`），纠正为 id 后再 prompt。
+    pub async fn ensure_session_agent_id(&self, session_id: &str) -> Result<String, String> {
+        let current = self.get_session_agent(session_id).await?;
+        let agents = self.list_agents().await?;
+        let pick_fallback = || {
+            agents
+                .iter()
+                .find(|a| !a.hidden && (a.mode == "primary" || a.mode == "all"))
+                .or_else(|| agents.first())
+                .map(|a| a.id.clone())
+                .ok_or_else(|| "OpenCode 无可用 Agent".to_string())
+        };
+
+        let Some(cur) = current else {
+            let id = pick_fallback()?;
+            self.switch_session_agent(session_id, &id).await?;
+            return Ok(id);
+        };
+
+        if agents.iter().any(|a| a.id == cur) {
+            return Ok(cur);
+        }
+
+        // 显示名 / 大小写不符 → 归一；找不到则退回默认 primary
+        let id = match self.resolve_agent_id(&cur).await {
+            Ok(id) => id,
+            Err(_) => pick_fallback()?,
+        };
+        if id != cur {
+            self.switch_session_agent(session_id, &id).await?;
+        }
+        Ok(id)
     }
 
     async fn post_empty(&self, path: &str, body: &serde_json::Value) -> Result<(), String> {
@@ -618,27 +855,152 @@ fn map_opencode_message(row: &serde_json::Value) -> Option<OpenCodeChatMessage> 
         .and_then(|n| n.as_i64())
         .unwrap_or(0);
 
-    let (content, reasoning) = if role == "user" {
+    let (content, reasoning, parts, tool_calls) = if role == "user" {
         let text = row
             .get("text")
             .and_then(|t| t.as_str())
             .map(str::to_string)
-            .unwrap_or_else(|| extract_text_parts(row.get("content")));
-        (text, None)
+            .unwrap_or_else(|| extract_text_parts(message_parts_value(row)));
+        let parts = if text.is_empty() {
+            None
+        } else {
+            Some(vec![OpenCodeMessagePart::Text { text: text.clone() }])
+        };
+        (text, None, parts, None)
     } else {
-        let content_val = row.get("content");
-        let text = extract_text_parts(content_val);
-        let reasoning = extract_reasoning_parts(content_val);
-        (text, reasoning)
+        let content_val = message_parts_value(row);
+        let parts = extract_ordered_parts(content_val);
+        let content = parts
+            .iter()
+            .filter_map(|p| match p {
+                OpenCodeMessagePart::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        let reasoning = {
+            let r = parts
+                .iter()
+                .filter_map(|p| match p {
+                    OpenCodeMessagePart::Reasoning { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if r.trim().is_empty() {
+                None
+            } else {
+                Some(r)
+            }
+        };
+        let tool_calls: Vec<OpenCodeToolCall> = parts
+            .iter()
+            .filter_map(|p| match p {
+                OpenCodeMessagePart::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                    result,
+                    status,
+                } => Some(OpenCodeToolCall {
+                    id: id.clone(),
+                    name: name.clone(),
+                    arguments: arguments.clone(),
+                    result: result.clone(),
+                    status: status.clone(),
+                }),
+                _ => None,
+            })
+            .collect();
+        let parts_opt = if parts.is_empty() { None } else { Some(parts) };
+        let tools_opt = if tool_calls.is_empty() {
+            None
+        } else {
+            Some(tool_calls)
+        };
+        (content, reasoning, parts_opt, tools_opt)
     };
+
+    let tokens = if role == "assistant" {
+        parse_opencode_tokens(row.get("tokens"))
+    } else {
+        None
+    };
+    let provider_id = row
+        .get("providerID")
+        .or_else(|| row.get("providerId"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let model_id = row
+        .get("modelID")
+        .or_else(|| row.get("modelId"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
 
     Some(OpenCodeChatMessage {
         id,
         role: role.to_string(),
         content,
         reasoning,
+        parts,
+        tool_calls,
         created_at,
+        tokens,
+        provider_id,
+        model_id,
+        context_limit: None,
     })
+}
+
+fn parse_opencode_tokens(raw: Option<&serde_json::Value>) -> Option<OpenCodeTokenUsage> {
+    let tokens = raw?;
+    if !tokens.is_object() {
+        return None;
+    }
+    let num = |key: &str| -> u32 {
+        tokens
+            .get(key)
+            .and_then(|n| n.as_u64().or_else(|| n.as_f64().map(|f| f as u64)))
+            .unwrap_or(0) as u32
+    };
+    let cache = tokens.get("cache");
+    let cache_read = cache
+        .and_then(|c| c.get("read"))
+        .and_then(|n| n.as_u64().or_else(|| n.as_f64().map(|f| f as u64)))
+        .unwrap_or(0) as u32;
+    let cache_write = cache
+        .and_then(|c| c.get("write"))
+        .and_then(|n| n.as_u64().or_else(|| n.as_f64().map(|f| f as u64)))
+        .unwrap_or(0) as u32;
+    let total = tokens
+        .get("total")
+        .and_then(|n| n.as_u64().or_else(|| n.as_f64().map(|f| f as u64)))
+        .map(|n| n as u32)
+        .filter(|&n| n > 0);
+    let usage = OpenCodeTokenUsage {
+        input: num("input"),
+        output: num("output"),
+        reasoning: num("reasoning"),
+        cache_read,
+        cache_write,
+        total,
+    };
+    if usage.is_empty() {
+        None
+    } else {
+        Some(usage)
+    }
+}
+
+/// OpenCode 历史可能挂在 `content` 或 `parts`。
+fn message_parts_value(row: &serde_json::Value) -> Option<&serde_json::Value> {
+    row.get("content")
+        .filter(|v| v.is_array() || v.is_string())
+        .or_else(|| row.get("parts").filter(|v| v.is_array()))
 }
 
 fn extract_text_parts(content: Option<&serde_json::Value>) -> String {
@@ -652,19 +1014,187 @@ fn extract_text_parts(content: Option<&serde_json::Value>) -> String {
         .join("")
 }
 
-fn extract_reasoning_parts(content: Option<&serde_json::Value>) -> Option<String> {
-    let arr = content?.as_array()?;
-    let text = arr
-        .iter()
-        .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("reasoning"))
-        .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if text.trim().is_empty() {
+fn extract_ordered_parts(content: Option<&serde_json::Value>) -> Vec<OpenCodeMessagePart> {
+    let Some(arr) = content.and_then(|c| c.as_array()) else {
+        if let Some(s) = content.and_then(|c| c.as_str()).filter(|s| !s.is_empty()) {
+            return vec![OpenCodeMessagePart::Text {
+                text: s.to_string(),
+            }];
+        }
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for p in arr {
+        let Some(ty) = p.get("type").and_then(|t| t.as_str()) else {
+            continue;
+        };
+        match ty {
+            "text" => {
+                let text = p.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                if !text.is_empty() {
+                    out.push(OpenCodeMessagePart::Text {
+                        text: text.to_string(),
+                    });
+                }
+            }
+            "reasoning" => {
+                let text = p.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                if !text.is_empty() {
+                    out.push(OpenCodeMessagePart::Reasoning {
+                        text: text.to_string(),
+                    });
+                }
+            }
+            "tool" => {
+                if let Some(tc) = map_tool_part(p) {
+                    out.push(OpenCodeMessagePart::ToolCall {
+                        id: tc.id,
+                        name: tc.name,
+                        arguments: tc.arguments,
+                        result: tc.result,
+                        status: tc.status,
+                    });
+                }
+            }
+            "subtask" => {
+                if let Some(tc) = map_subtask_part(p) {
+                    out.push(OpenCodeMessagePart::ToolCall {
+                        id: tc.id,
+                        name: tc.name,
+                        arguments: tc.arguments,
+                        result: tc.result,
+                        status: tc.status,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// 兼容运行态（`id`/`name`/`state.content[]`）与 SDK（`callID`/`tool`/`state.output`）。
+fn map_tool_part(p: &serde_json::Value) -> Option<OpenCodeToolCall> {
+    let id = p
+        .get("id")
+        .or_else(|| p.get("callID"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if id.is_empty() {
+        return None;
+    }
+    let name = p
+        .get("name")
+        .or_else(|| p.get("tool"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("tool")
+        .to_string();
+    let state = p.get("state");
+    let status = map_tool_status(state.and_then(|s| s.get("status")).and_then(|s| s.as_str()));
+    let arguments = state
+        .and_then(|s| s.get("input"))
+        .map(|input| {
+            if input.is_string() {
+                input.as_str().unwrap_or("{}").to_string()
+            } else {
+                serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string())
+            }
+        })
+        .or_else(|| {
+            state
+                .and_then(|s| s.get("raw"))
+                .and_then(|r| r.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "{}".to_string());
+    let result = state.and_then(extract_tool_result);
+    Some(OpenCodeToolCall {
+        id,
+        name,
+        arguments,
+        result,
+        status,
+    })
+}
+
+/// 子智能体任务：映射为名为 `subtask` 的工具调用，便于前端统一渲染。
+fn map_subtask_part(p: &serde_json::Value) -> Option<OpenCodeToolCall> {
+    let id = p
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if id.is_empty() {
+        return None;
+    }
+    let agent = p
+        .get("agent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("subagent");
+    let description = p
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let prompt = p.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+    let arguments = serde_json::json!({
+        "agent": agent,
+        "description": description,
+        "prompt": prompt,
+    })
+    .to_string();
+    let result = if description.is_empty() {
         None
     } else {
-        Some(text)
+        Some(description.to_string())
+    };
+    Some(OpenCodeToolCall {
+        id,
+        name: format!("subtask:{agent}"),
+        arguments,
+        result,
+        status: "completed".to_string(),
+    })
+}
+
+fn map_tool_status(raw: Option<&str>) -> String {
+    match raw.unwrap_or("") {
+        "pending" => "pending".to_string(),
+        "running" => "running".to_string(),
+        "completed" => "completed".to_string(),
+        "error" => "failed".to_string(),
+        _ => "completed".to_string(),
     }
+}
+
+fn extract_tool_result(state: &serde_json::Value) -> Option<String> {
+    if let Some(out) = state.get("output").and_then(|v| v.as_str()) {
+        if !out.is_empty() {
+            return Some(out.to_string());
+        }
+    }
+    if let Some(err) = state.get("error").and_then(|v| v.as_str()) {
+        if !err.is_empty() {
+            return Some(err.to_string());
+        }
+    }
+    if let Some(arr) = state.get("content").and_then(|c| c.as_array()) {
+        let text = arr
+            .iter()
+            .filter_map(|item| {
+                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    item.get("text").and_then(|t| t.as_str())
+                } else {
+                    item.as_str()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !text.trim().is_empty() {
+            return Some(text);
+        }
+    }
+    None
 }
 
 /// 路径段编码（Agent name 多为 ascii；非安全字符百分号编码）。
@@ -679,4 +1209,67 @@ fn urlencoding_lite(raw: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod message_map_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_tool_with_content_array() {
+        let row = json!({
+            "id": "msg_1",
+            "type": "assistant",
+            "time": { "created": 1 },
+            "content": [
+                { "type": "reasoning", "text": "think" },
+                {
+                    "type": "tool",
+                    "id": "call_1",
+                    "name": "shell",
+                    "state": {
+                        "status": "completed",
+                        "input": { "command": "ls" },
+                        "content": [{ "type": "text", "text": "a.txt" }]
+                    }
+                },
+                { "type": "text", "text": "done" }
+            ]
+        });
+        let msg = map_opencode_message(&row).expect("mapped");
+        assert_eq!(msg.content, "done");
+        assert_eq!(msg.reasoning.as_deref(), Some("think"));
+        let tools = msg.tool_calls.expect("tools");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].id, "call_1");
+        assert_eq!(tools[0].name, "shell");
+        assert_eq!(tools[0].status, "completed");
+        assert_eq!(tools[0].result.as_deref(), Some("a.txt"));
+        let parts = msg.parts.expect("parts");
+        assert_eq!(parts.len(), 3);
+        assert!(matches!(parts[0], OpenCodeMessagePart::Reasoning { .. }));
+        assert!(matches!(parts[1], OpenCodeMessagePart::ToolCall { .. }));
+        assert!(matches!(parts[2], OpenCodeMessagePart::Text { .. }));
+    }
+
+    #[test]
+    fn extracts_subtask_as_tool_call() {
+        let row = json!({
+            "id": "msg_2",
+            "type": "assistant",
+            "time": { "created": 2 },
+            "parts": [{
+                "type": "subtask",
+                "id": "prt_1",
+                "agent": "explore",
+                "description": "find files",
+                "prompt": "look for config"
+            }]
+        });
+        let msg = map_opencode_message(&row).expect("mapped");
+        let tools = msg.tool_calls.expect("tools");
+        assert_eq!(tools[0].name, "subtask:explore");
+        assert!(tools[0].arguments.contains("look for config"));
+    }
 }

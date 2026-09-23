@@ -328,6 +328,10 @@ impl AnthropicStreamParser {
                         results.push(Ok(StreamEvent::Usage {
                             input_tokens: self.input_tokens,
                             output_tokens: output as u32,
+                            reasoning_tokens: 0,
+                            cached_input_tokens: 0,
+                            cache_write_tokens: 0,
+                            total_tokens: None,
                         }));
                     }
                 }
@@ -343,6 +347,10 @@ impl AnthropicStreamParser {
                         results.push(Ok(StreamEvent::Usage {
                             input_tokens: input,
                             output_tokens: 0,
+                            reasoning_tokens: 0,
+                            cached_input_tokens: 0,
+                            cache_write_tokens: 0,
+                            total_tokens: None,
                         }));
                     }
                 }

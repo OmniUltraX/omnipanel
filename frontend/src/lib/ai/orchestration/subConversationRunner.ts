@@ -349,7 +349,14 @@ async function runSingleChild(
         case "usage":
           if (event.type === "usage") {
             useAiStore.getState().updateMessage(conversationId, assistantMsgId, {
-              usage: { inputTokens: event.input_tokens, outputTokens: event.output_tokens },
+              usage: {
+                inputTokens: event.input_tokens,
+                outputTokens: event.output_tokens,
+                reasoningTokens: event.reasoning_tokens,
+                cachedInputTokens: event.cached_input_tokens,
+                cacheWriteTokens: event.cache_write_tokens,
+                totalTokens: event.total_tokens ?? undefined,
+              },
             });
           }
           break;

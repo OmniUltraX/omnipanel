@@ -19,6 +19,19 @@ import { StatusDot } from "../ui/primitives/StatusDot";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { CliProviderModelList } from "./CliProviderModelList";
 
+/** 取 `--version` 首行；过长截断，避免多行（如 Cursor）撑破副标题。 */
+function formatAgentVersion(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const first =
+    raw
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? null;
+  if (!first) return null;
+  return first.length > 64 ? `${first.slice(0, 61)}…` : first;
+}
+
 function SettingToggle({
   value,
   onChange,
@@ -70,9 +83,12 @@ export function AgentsSection() {
   } | null>(null);
 
   useEffect(() => {
-    // 打开设置：只同步启用态 / 已缓存路径，不强制重扫 PATH。
-    // 「重新检测」按钮才会 refreshDetection（后端 force）。
+    // 打开设置：同步启用态；若尚无检测缓存则补一次检测（供版本号展示）。
+    // 「重新检测」按钮才会 force 重扫 PATH。
     void syncProviders();
+    if (installStatuses.length === 0) {
+      void refreshDetection();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -254,10 +270,18 @@ export function AgentsSection() {
                         )}
                       </div>
                       <div className="ai-model-row-meta">
-                        <span className="ai-model-row-key">
-                          {installed
-                            ? t("settings.cliProviders.installed")
-                            : t("settings.cliProviders.notFound")}
+                        <span
+                          className="ai-model-row-key"
+                          title={
+                            installed && status?.executablePath
+                              ? status.executablePath
+                              : undefined
+                          }
+                        >
+                          {!installed
+                            ? t("settings.cliProviders.notFound")
+                            : formatAgentVersion(status?.version) ??
+                              t("settings.cliProviders.installed")}
                         </span>
                       </div>
                     </div>

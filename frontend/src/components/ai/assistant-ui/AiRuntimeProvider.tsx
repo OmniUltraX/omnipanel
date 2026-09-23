@@ -20,6 +20,7 @@ import {
   selectAgentSession,
   scheduleOpenCodeTitleRefresh,
 } from "../../../lib/ai/agentAdapters/sessionActions";
+import { useAgentSessionStore } from "../../../stores/agentSessionStore";
 import { runInternalAiChat, type InternalStreamEvent } from "../../../lib/ai/orchestrator";
 import {
   appendChatOssEvent,
@@ -335,7 +336,14 @@ function handleStreamEvent(
     upsertToolCall: (id: string, name: string, args: string) => void;
     updateToolCall: (id: string, status: string, result?: string) => void;
     enqueuePermission: (event: PermissionEvent) => void;
-    onUsage: (inputTokens: number, outputTokens: number) => void;
+    onUsage: (usage: {
+      inputTokens: number;
+      outputTokens: number;
+      reasoningTokens?: number;
+      cachedInputTokens?: number;
+      cacheWriteTokens?: number;
+      totalTokens?: number;
+    }) => void;
     finishGeneration: (failed?: boolean) => void;
     setIsGenerating: (v: boolean) => void;
   },
@@ -359,7 +367,14 @@ function handleStreamEvent(
       handlers.enqueuePermission(event);
       break;
     case "usage":
-      handlers.onUsage(event.input_tokens, event.output_tokens);
+      handlers.onUsage({
+        inputTokens: event.input_tokens,
+        outputTokens: event.output_tokens,
+        reasoningTokens: event.reasoning_tokens,
+        cachedInputTokens: event.cached_input_tokens,
+        cacheWriteTokens: event.cache_write_tokens,
+        totalTokens: event.total_tokens ?? undefined,
+      });
       break;
     case "error":
       handlers.appendText(`\n\nError: ${event.message}`);
@@ -513,7 +528,17 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
     const streamStartedAt = performance.now();
     let firstTokenAt: number | undefined;
     let totalChunks = 0;
-    let latestUsage: { inputTokens: number; outputTokens: number } | undefined;
+    let latestUsage:
+      | {
+          inputTokens: number;
+          outputTokens: number;
+          reasoningTokens?: number;
+          cachedInputTokens?: number;
+          cacheWriteTokens?: number;
+          totalTokens?: number;
+          contextLimit?: number;
+        }
+      | undefined;
 
     startChatOssRecording(convId);
     if (userText.trim()) {
@@ -587,11 +612,29 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
       batcher.appendReasoning(chunk);
     };
 
-    const onUsage = (inputTokens: number, outputTokens: number) => {
-      latestUsage = { inputTokens, outputTokens };
+    const onUsage = (usage: {
+      inputTokens: number;
+      outputTokens: number;
+      reasoningTokens?: number;
+      cachedInputTokens?: number;
+      cacheWriteTokens?: number;
+      totalTokens?: number;
+    }) => {
+      // 保留历史里已解析的 OpenCode contextLimit（step.ended 不含该字段）
+      const prevLimit = latestUsage?.contextLimit;
+      const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
+      const fromMsg = conv?.messages
+        .slice()
+        .reverse()
+        .find((m) => m.role === "assistant" && m.usage?.contextLimit)?.usage
+        ?.contextLimit;
+      latestUsage = {
+        ...usage,
+        contextLimit: prevLimit ?? fromMsg,
+      };
       if (assistantMsgId) {
         updateMessage(convId, assistantMsgId, {
-          usage: { inputTokens, outputTokens },
+          usage: latestUsage,
         });
       }
     };
@@ -902,6 +945,21 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
         const agentAdapter = resolveActiveAgentAdapter();
         const agentOwned = !!agentAdapter || isAgentSessionId(convId);
+
+        // OpenCode：发送前把会话 agent 校正为 id（避免历史写入的 Build 导致 Agent not found）
+        if (agentOwned && agentAdapter && isAgentSessionId(convId)) {
+          const agentId =
+            useAgentSessionStore.getState().activeAgentName ||
+            useAgentSessionStore.getState().agents.find((a) => !a.hidden)?.id;
+          if (agentId) {
+            try {
+              await agentAdapter.switchSessionAgent(convId, agentId);
+              useAgentSessionStore.getState().setSessionAgent(convId, agentId);
+            } catch {
+              // 切换失败不阻断；后端 turn 内仍会 ensure_session_agent_id
+            }
+          }
+        }
 
         await runInternalAiChat({
           request: {

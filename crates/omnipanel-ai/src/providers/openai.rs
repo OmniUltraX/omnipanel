@@ -518,6 +518,10 @@ fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
             events.push(Ok(StreamEvent::Usage {
                 input_tokens: usage.prompt_tokens,
                 output_tokens: usage.completion_tokens,
+                reasoning_tokens: 0,
+                cached_input_tokens: 0,
+                cache_write_tokens: 0,
+                total_tokens: None,
             }));
         }
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
@@ -574,6 +578,10 @@ fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
         events.push(Ok(StreamEvent::Usage {
             input_tokens: usage.prompt_tokens,
             output_tokens: usage.completion_tokens,
+            reasoning_tokens: 0,
+            cached_input_tokens: 0,
+            cache_write_tokens: 0,
+            total_tokens: None,
         }));
     }
 }
@@ -662,6 +670,7 @@ mod tests {
             Ok(StreamEvent::Usage {
                 input_tokens,
                 output_tokens,
+                ..
             }) => {
                 assert_eq!(*input_tokens, 120);
                 assert_eq!(*output_tokens, 45);
