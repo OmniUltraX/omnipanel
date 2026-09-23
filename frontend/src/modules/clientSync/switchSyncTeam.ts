@@ -22,6 +22,7 @@ import {
   setClientModuleSyncSuppressed,
 } from "./moduleSync";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
+import { AI_CHAT_CLOUD_SYNC_ENABLED } from "../../lib/ai/chatCloudSyncFlags";
 import { schedulePluginEnsure } from "../../lib/pluginEnsure";
 import { useClientSyncTombstoneStore } from "./tombstones";
 import {
@@ -217,10 +218,12 @@ export async function switchSyncTeam(
         pulledModules = true;
       }
 
-      const convResult = await unwrapCommand(
-        commands.clientSyncPullConversations({ token, teamId }),
-        { quiet: true },
-      );
+      const convResult = AI_CHAT_CLOUD_SYNC_ENABLED
+        ? await unwrapCommand(
+            commands.clientSyncPullConversations({ token, teamId }),
+            { quiet: true },
+          )
+        : { found: false, bodyJson: null as string | null };
       if (convResult.found && convResult.bodyJson?.trim()) {
         replaceConversationsBundle(convResult.bodyJson);
         pulledConversations = true;

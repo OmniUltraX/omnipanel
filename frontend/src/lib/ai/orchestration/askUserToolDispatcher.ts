@@ -335,6 +335,15 @@ async function resolveForm(
     updatedAt: Date.now(),
   };
 
+  // OpenCode question.asked：走 reply/reject，不回传 tool result
+  if (found.form.source === "opencode") {
+    const { resolveOpenCodeQuestion } = await import("./opencodeQuestionBridge");
+    await resolveOpenCodeQuestion(found.form, status, answers);
+    persistForm(next, found.parent);
+    resolvedToolCallIds.add(found.form.toolCallId);
+    return;
+  }
+
   // 直通：必须在 persistForm 之前同步冻结。
   // 否则 React 先切到紧凑 AnswerSummary，冻结快照被压矮，占位却仍是高表单高度。
   if (found.conversationId.startsWith("term-inline:")) {

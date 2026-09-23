@@ -8,6 +8,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useAiStore } from "../../stores/aiStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { buildConversationsBundle } from "./payload";
+import { AI_CHAT_CLOUD_SYNC_ENABLED } from "../../lib/ai/chatCloudSyncFlags";
 import { useClientSyncTombstoneStore } from "./tombstones";
 
 let inFlight: Promise<void> | null = null;
@@ -25,6 +26,7 @@ export function cancelClientConversationSync(): void {
 }
 
 async function pushConversationsOnce(teamId: number | null): Promise<void> {
+  if (!AI_CHAT_CLOUD_SYNC_ENABLED) return;
   const token = useAuthStore.getState().token;
   if (!token?.trim()) return;
   const tombstones = useClientSyncTombstoneStore.getState();
@@ -45,8 +47,10 @@ async function pushConversationsOnce(teamId: number | null): Promise<void> {
 
 /**
  * 会话变更后立即推送到当前同步团队 OSS `ai-conversations/latest.json`。
+ * （`AI_CHAT_CLOUD_SYNC_ENABLED=false` 时为 no-op）
  */
 export function scheduleClientConversationSync(): void {
+  if (!AI_CHAT_CLOUD_SYNC_ENABLED) return;
   if (suppressPush) return;
 
   const token = useAuthStore.getState().token;
@@ -56,6 +60,7 @@ export function scheduleClientConversationSync(): void {
 }
 
 async function runPush(): Promise<void> {
+  if (!AI_CHAT_CLOUD_SYNC_ENABLED) return;
   if (suppressPush) return;
 
   const token = useAuthStore.getState().token;
@@ -85,10 +90,15 @@ async function runPush(): Promise<void> {
 /**
  * 强制等待当前推送结束后，再向指定团队推送一份会话快照。
  * 切换团队前用来把本机会话写回旧团队；不受 suppress 影响。
+ * （`AI_CHAT_CLOUD_SYNC_ENABLED=false` 时为 no-op）
  */
 export async function flushClientConversationSync(
   teamId?: number | null,
 ): Promise<void> {
+  if (!AI_CHAT_CLOUD_SYNC_ENABLED) {
+    pendingAfterFlight = false;
+    return;
+  }
   if (inFlight) {
     try {
       await inFlight;

@@ -1283,6 +1283,10 @@ export const commands = {
 	opencodeGetAgent: (agentId: string) => typedError<OpenCodeAgentDto, string>(__TAURI_INVOKE("opencode_get_agent", { agentId })),
 	/**  切换会话后续回合使用的 Agent（`POST /api/session/{id}/agent`）。 */
 	opencodeSwitchSessionAgent: (sessionId: string, agent: string) => typedError<null, string>(__TAURI_INVOKE("opencode_switch_session_agent", { sessionId, agent })),
+	/**  回复 OpenCode 澄清提问（answers：每题一组选中的 label）。 */
+	opencodeReplyQuestion: (sessionId: string, requestId: string, answers: string[][]) => typedError<null, string>(__TAURI_INVOKE("opencode_reply_question", { sessionId, requestId, answers })),
+	/**  拒绝 / 跳过 OpenCode 澄清提问。 */
+	opencodeRejectQuestion: (sessionId: string, requestId: string) => typedError<null, string>(__TAURI_INVOKE("opencode_reject_question", { sessionId, requestId })),
 	/**  检测 Cursor / OpenCode 的安装情况（强制刷新，供「重新检测」）。 */
 	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),

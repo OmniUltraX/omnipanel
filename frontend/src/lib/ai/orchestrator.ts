@@ -22,6 +22,12 @@ export type InternalStreamEvent =
       cached_input_tokens?: number;
       cache_write_tokens?: number;
       total_tokens?: number | null;
+    }
+  | {
+      type: "question_ask";
+      request_id: string;
+      session_id: string;
+      questions_json: string;
     };
 
 export interface AiContextBundle {

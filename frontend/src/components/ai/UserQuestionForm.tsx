@@ -154,7 +154,12 @@ function QuestionField({
                   }
                 }}
               />
-              <span>{opt.label}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block">{opt.label}</span>
+                {opt.description ? (
+                  <span className="mt-0.5 block text-[10px] text-fg-2">{opt.description}</span>
+                ) : null}
+              </span>
             </label>
           );
         })}
@@ -164,6 +169,8 @@ function QuestionField({
 
   // single_choice
   const selected = typeof value === "string" ? value : "";
+  const optionIds = new Set((question.options ?? []).map((o) => o.id));
+  const customText = selected && !optionIds.has(selected) ? selected : "";
   return (
     <div className="flex flex-col gap-1">
       {(question.options ?? []).map((opt) => {
@@ -190,10 +197,25 @@ function QuestionField({
             >
               {checked ? <CheckIcon className="h-2.5 w-2.5" /> : null}
             </span>
-            <span>{opt.label}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block">{opt.label}</span>
+              {opt.description ? (
+                <span className="mt-0.5 block text-[10px] text-fg-2">{opt.description}</span>
+              ) : null}
+            </span>
           </button>
         );
       })}
+      {question.allowCustom ? (
+        <input
+          type="text"
+          className="mt-1 w-full rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-fg outline-none focus:border-accent"
+          value={customText}
+          placeholder="或输入其他答案…"
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : null}
     </div>
   );
 }

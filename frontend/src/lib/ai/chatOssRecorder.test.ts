@@ -234,59 +234,15 @@ describe("chatOssRecorder", () => {
     expect(encoded).not.toContain('"t":"content"');
   });
 
-  it("每 3 秒经 STS 上传聚合后的分隔符分片", async () => {
+  it("云同步关闭时 startChatOssRecording 不上传", async () => {
     vi.useFakeTimers();
     startChatOssRecording("conv-1");
     appendChatOssEvent({ t: "user", text: "你好" });
-    appendChatOssEvent({ t: "reasoning", text: "想" });
-    appendChatOssEvent({ t: "reasoning", text: "一下" });
-    appendChatOssEvent({ t: "content", text: "hel" });
-    appendChatOssEvent({ t: "content", text: "lo" });
+    appendChatOssEvent({ t: "content", text: "hello" });
     await vi.advanceTimersByTimeAsync(3000);
-    expect(commands.assistantUploadOssText).toHaveBeenCalledTimes(1);
-    const req = vi.mocked(commands.assistantUploadOssText).mock.calls[0]![0]!;
-    expect(req.token).toBe("tok-1");
-    expect(req.objectKey).toBe(
-      "omniminiapp/agent_chat_message/user1/conv-1/0.txt",
-    );
-    expect(req.contents).toContain(`# format=${CHAT_OSS_FORMAT}`);
-    expect(req.contents).toContain("|[user_message]|");
-    expect(req.contents).toContain("你好");
-    expect(req.contents).toContain("|[ai_reasoning]|");
-    expect(req.contents).toContain("想一下");
-    expect(req.contents).toContain("|[ai___message]|");
-    expect(req.contents).toContain("hello");
-    // 聚合后不应再出现 NDJSON 事件行
-    expect(req.contents).not.toContain('"t":"content"');
-
-    appendChatOssEvent({
-      t: "tool_call",
-      id: "tc1",
-      name: "omni_ssh",
-      arguments: "{\"cmd\":\"ls\"}",
-    });
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(commands.assistantUploadOssText).toHaveBeenCalledTimes(2);
-    const req2 = vi.mocked(commands.assistantUploadOssText).mock.calls[1]![0]!;
-    expect(req2.objectKey).toMatch(/\/1\.txt$/);
-    expect(req2.contents).toContain("|[tool_calling]|");
-    expect(req2.contents).toContain('"name":"omni_ssh"');
-
+    expect(commands.assistantUploadOssText).not.toHaveBeenCalled();
     await stopChatOssRecording();
+    expect(commands.assistantUploadOssText).not.toHaveBeenCalled();
     vi.useRealTimers();
-  });
-
-  it("结束时刷新剩余缓冲并写入 turn_end", async () => {
-    startChatOssRecording("conv-2");
-    appendChatOssEvent({ t: "content", text: "tail" });
-    await stopChatOssRecording();
-    expect(commands.assistantUploadOssText).toHaveBeenCalledTimes(1);
-    const req = vi.mocked(commands.assistantUploadOssText).mock.calls[0]![0]!;
-    expect(req.objectKey).toBe(
-      "omniminiapp/agent_chat_message/user1/conv-2/0.txt",
-    );
-    expect(req.contents).toContain("|[ai___message]|");
-    expect(req.contents).toContain("tail");
-    expect(req.contents).toContain("|[turn_end____]|");
   });
 });

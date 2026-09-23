@@ -24,6 +24,7 @@ import {
   setSecretsVaultSyncSuppressed,
 } from "./secretsVaultSync";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
+import { AI_CHAT_CLOUD_SYNC_ENABLED } from "../../lib/ai/chatCloudSyncFlags";
 import { waitLayoutStoresHydrated } from "./layoutStoresHydration";
 import { schedulePluginEnsure } from "../../lib/pluginEnsure";
 import { useClientSyncTombstoneStore } from "./tombstones";
@@ -274,10 +275,12 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
       );
     }
 
-    const convResult = await unwrapCommand(
-      commands.clientSyncPullConversations({ token, teamId }),
-      { quiet: true },
-    );
+    const convResult = AI_CHAT_CLOUD_SYNC_ENABLED
+      ? await unwrapCommand(
+          commands.clientSyncPullConversations({ token, teamId }),
+          { quiet: true },
+        )
+      : { found: false, bodyJson: null as string | null };
     conversationsFound = Boolean(convResult.found && convResult.bodyJson?.trim());
     if (conversationsFound && convResult.bodyJson) {
       applyConversationsBundle(convResult.bodyJson);

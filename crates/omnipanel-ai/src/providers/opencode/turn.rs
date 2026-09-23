@@ -14,6 +14,7 @@ use super::service::ensure_opencode_service;
 /// 2. `GET /api/event` 挂 SSE
 /// 3. `POST /api/session/{id}/prompt` 投递（立即返回）
 /// 4. 消费 SSE：
+///    - 兼容旧 `{ type, data|properties }` 与 1.14+ `{ type:"sync", syncEvent:{ type:"….1", data } }`
 ///    - `session.next.text|reasoning.delta`（及遗留 `session.*.delta`）→ Content/ReasoningDelta
 ///    - `session.next.tool.*` / `message.part.updated` → ToolCall / ToolCallUpdate
 ///    - `session.next.step.ended` → Usage（当前上下文窗口 tokens）
@@ -139,8 +140,9 @@ pub async fn run_opencode_http_turn(
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload) else {
             continue;
         };
-        let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        let data = event_body(&v);
+        // OpenCode 1.14+ 常把流式增量包在 sync 信封里，且 type 带 `.1` 版本后缀。
+        let (event_type_owned, data) = normalize_opencode_event(&v);
+        let event_type = event_type_owned.as_str();
 
         if let Some(sid) = data.get("sessionID").and_then(|s| s.as_str()) {
             if sid != session_id {
@@ -423,6 +425,12 @@ pub async fn run_opencode_http_turn(
             }
             // session.usage.updated 是会话累计值，不反映当前上下文窗口，忽略
             "session.usage.updated" => {}
+            // OpenCode 向用户提问（选项卡）；回合挂起直到 reply/reject
+            "question.asked" | "question.v2.asked" => {
+                if let Some(evt) = parse_question_ask(data) {
+                    let _ = event_tx.send(evt).await;
+                }
+            }
             "session.idle" => {
                 // 忽略挂流时回放的「已 idle」快照，避免已有会话第二轮立刻 Done。
                 if !turn_active {
@@ -488,6 +496,49 @@ pub async fn run_opencode_http_turn(
     Ok(())
 }
 
+/// 归一化 OpenCode SSE 帧，兼容三种形态：
+/// 1. `{ type: "session.next.text.delta", data|properties }`
+/// 2. `{ type: "sync", syncEvent: { type: "….delta.1", data } }`（serve 1.15+）
+/// 3. `{ type: "sync", name: "….delta.1", data }`
+fn normalize_opencode_event<'a>(v: &'a serde_json::Value) -> (String, &'a serde_json::Value) {
+    let top_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    if top_type == "sync" {
+        if let Some(inner) = v.get("syncEvent") {
+            let raw = inner
+                .get("type")
+                .or_else(|| inner.get("name"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("");
+            let ty = strip_event_version_suffix(raw);
+            let data = event_body(inner);
+            if !data.is_null() {
+                return (ty, data);
+            }
+            return (ty, event_body(v));
+        }
+        let raw = v
+            .get("name")
+            .and_then(|t| t.as_str())
+            .unwrap_or(top_type);
+        return (strip_event_version_suffix(raw), event_body(v));
+    }
+    (
+        strip_event_version_suffix(top_type),
+        event_body(v),
+    )
+}
+
+/// `session.next.text.delta.1` / `session.next.step.ended.2` → 去掉末尾数字版本后缀。
+fn strip_event_version_suffix(raw: &str) -> String {
+    if let Some(dot) = raw.rfind('.') {
+        let suffix = &raw[dot + 1..];
+        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
+            return raw[..dot].to_string();
+        }
+    }
+    raw.to_string()
+}
+
 /// 运行态事件体在 `data`；部分类型定义写 `properties`——两者都认。
 fn event_body(v: &serde_json::Value) -> &serde_json::Value {
     v.get("data")
@@ -509,7 +560,9 @@ fn marks_turn_active(event_type: &str, data: &serde_json::Value) -> bool {
         | "session.next.step.started"
         | "session.text.delta"
         | "session.reasoning.delta"
-        | "message.part.delta" => true,
+        | "message.part.delta"
+        | "question.asked"
+        | "question.v2.asked" => true,
         "session.status" => matches!(
             data.get("status")
                 .and_then(|s| s.get("type"))
@@ -710,6 +763,33 @@ async fn emit_from_message_part(event_tx: &mpsc::Sender<StreamEvent>, part: &ser
     }
 }
 
+/// 解析 OpenCode `question.asked` → `StreamEvent::QuestionAsk`。
+fn parse_question_ask(data: &serde_json::Value) -> Option<StreamEvent> {
+    let request_id = data
+        .get("id")
+        .or_else(|| data.get("requestID"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    let session_id = data
+        .get("sessionID")
+        .or_else(|| data.get("sessionId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let questions = data.get("questions").cloned().unwrap_or(serde_json::json!([]));
+    if !questions.is_array() || questions.as_array().is_some_and(|a| a.is_empty()) {
+        return None;
+    }
+    let questions_json = serde_json::to_string(&questions).ok()?;
+    Some(StreamEvent::QuestionAsk {
+        request_id,
+        session_id,
+        questions_json,
+    })
+}
+
 fn extract_tool_result_from_state(state: &serde_json::Value) -> Option<String> {
     if let Some(out) = state.get("output").and_then(|v| v.as_str()) {
         if !out.is_empty() {
@@ -752,5 +832,105 @@ mod turn_active_tests {
             "session.next.text.delta",
             &json!({ "delta": "hi" })
         ));
+    }
+
+    #[test]
+    fn strip_version_suffix_from_sync_types() {
+        assert_eq!(
+            strip_event_version_suffix("session.next.text.delta.1"),
+            "session.next.text.delta"
+        );
+        assert_eq!(
+            strip_event_version_suffix("session.next.step.ended.2"),
+            "session.next.step.ended"
+        );
+        assert_eq!(
+            strip_event_version_suffix("session.next.tool.called"),
+            "session.next.tool.called"
+        );
+    }
+
+    #[test]
+    fn normalize_legacy_event() {
+        let v = json!({
+            "type": "session.next.text.delta",
+            "data": { "sessionID": "ses_1", "delta": "hi" }
+        });
+        let (ty, data) = normalize_opencode_event(&v);
+        assert_eq!(ty, "session.next.text.delta");
+        assert_eq!(data.get("delta").and_then(|d| d.as_str()), Some("hi"));
+    }
+
+    #[test]
+    fn normalize_sync_event_envelope() {
+        let v = json!({
+            "type": "sync",
+            "id": "evt_1",
+            "syncEvent": {
+                "type": "session.next.text.delta.1",
+                "id": "inner",
+                "seq": 3,
+                "aggregateID": "ses_abc",
+                "data": {
+                    "timestamp": 1,
+                    "sessionID": "ses_abc",
+                    "assistantMessageID": "msg_1",
+                    "textID": "txt_1",
+                    "delta": "你好"
+                }
+            }
+        });
+        let (ty, data) = normalize_opencode_event(&v);
+        assert_eq!(ty, "session.next.text.delta");
+        assert_eq!(data.get("delta").and_then(|d| d.as_str()), Some("你好"));
+        assert_eq!(data.get("sessionID").and_then(|s| s.as_str()), Some("ses_abc"));
+    }
+
+    #[test]
+    fn normalize_sync_name_shape() {
+        let v = json!({
+            "type": "sync",
+            "name": "session.next.tool.called.1",
+            "data": {
+                "sessionID": "ses_1",
+                "callID": "call_1",
+                "tool": "bash"
+            }
+        });
+        let (ty, data) = normalize_opencode_event(&v);
+        assert_eq!(ty, "session.next.tool.called");
+        assert_eq!(data.get("callID").and_then(|c| c.as_str()), Some("call_1"));
+    }
+
+    #[test]
+    fn parse_question_ask_from_request() {
+        let data = json!({
+            "id": "qst_1",
+            "sessionID": "ses_abc",
+            "questions": [{
+                "question": "Nacos 部署在哪？",
+                "header": "部署位置",
+                "options": [
+                    { "label": "本机", "description": "localhost" },
+                    { "label": "远程", "description": "p6 服务器" }
+                ],
+                "multiple": false,
+                "custom": true
+            }]
+        });
+        let evt = parse_question_ask(&data).expect("should parse");
+        match evt {
+            StreamEvent::QuestionAsk {
+                request_id,
+                session_id,
+                questions_json,
+            } => {
+                assert_eq!(request_id, "qst_1");
+                assert_eq!(session_id, "ses_abc");
+                assert!(questions_json.contains("Nacos"));
+            }
+            other => panic!("expected QuestionAsk, got {other:?}"),
+        }
+        assert!(marks_turn_active("question.asked", &data));
     }
 }

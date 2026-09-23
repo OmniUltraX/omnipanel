@@ -82,6 +82,8 @@ export type AskUserQuestionType = "single_choice" | "multi_choice" | "text";
 export interface AskUserOption {
   id: string;
   label: string;
+  /** 选项说明（OpenCode Question.Option.description） */
+  description?: string;
 }
 
 /** 单道澄清题 */
@@ -92,6 +94,8 @@ export interface AskUserQuestion {
   options?: AskUserOption[];
   required?: boolean;
   placeholder?: string;
+  /** 允许在选项之外输入自定义答案（OpenCode custom） */
+  allowCustom?: boolean;
 }
 
 /** 澄清表单状态 */
@@ -115,6 +119,10 @@ export interface UserQuestionFormData {
   answers?: Record<string, AskUserAnswerValue>;
   createdAt: number;
   updatedAt: number;
+  /** OpenCode question.asked：提交走 reply/reject API，而非 tool result */
+  source?: "opencode";
+  /** OpenCode session id（通常等于 conversationId） */
+  opencodeSessionId?: string;
 }
 
 /** 有序消息片段：流式按到达顺序追加，供 UI 交错渲染 */

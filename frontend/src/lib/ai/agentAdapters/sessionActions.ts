@@ -47,7 +47,8 @@ export async function refreshAgentSessions(
     }
   } catch (err) {
     store.setError(err instanceof Error ? err.message : String(err));
-    store.setSessions([]);
+    // 保留已有列表：拉列表失败时不要 setSessions([])，否则右侧「暂无会话」
+    // 而中间 aiStore 镜像仍在，形成「幽灵对话」。
   } finally {
     store.setLoadingList(false);
   }
@@ -161,9 +162,31 @@ function syncSessionTitlesIntoAiStore(
  */
 export async function refreshAgentSessionMeta(adapter: AgentAdapter): Promise<void> {
   try {
-    const sessions = await adapter.listSessions();
-    useAgentSessionStore.getState().setSessions(sessions);
-    syncSessionTitlesIntoAiStore(sessions);
+    const remote = await adapter.listSessions();
+    const store = useAgentSessionStore.getState();
+    const prev = store.sessions;
+
+    // 元数据刷新拿到空列表、但本地仍有会话：多为瞬时空响应 / 解析抖动，
+    // 若直接 setSessions([]) 会清空右侧栏，留下中间聊天镜像的「幽灵对话」。
+    if (remote.length === 0 && prev.length > 0) {
+      return;
+    }
+
+    // 远端为准更新标题；保留「刚创建、远端列表尚未出现」的活动会话，避免竞态抹掉。
+    const byId = new Map(remote.map((s) => [s.id, s]));
+    const activeId = store.activeSessionId;
+    for (const old of prev) {
+      if (byId.has(old.id)) continue;
+      const keep =
+        old.id === activeId ||
+        Boolean(store.messagesBySessionId[old.id]?.length);
+      if (keep) byId.set(old.id, old);
+    }
+    const merged = Array.from(byId.values()).sort(
+      (a, b) => b.updatedAt - a.updatedAt,
+    );
+    store.setSessions(merged);
+    syncSessionTitlesIntoAiStore(remote);
   } catch {
     // 标题刷新失败静默；列表仍可用旧数据
   }

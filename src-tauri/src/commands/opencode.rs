@@ -340,3 +340,28 @@ pub async fn opencode_switch_session_agent(
     let client = opencode_client().await?;
     client.switch_session_agent(&session_id, &agent).await
 }
+
+/// 回复 OpenCode 澄清提问（`answers`：每题一组选中的 label）。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_reply_question(
+    session_id: String,
+    request_id: String,
+    answers: Vec<Vec<String>>,
+) -> Result<(), String> {
+    let client = opencode_client().await?;
+    client
+        .reply_question(&session_id, &request_id, &answers)
+        .await
+}
+
+/// 拒绝 / 跳过 OpenCode 澄清提问。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_reject_question(
+    session_id: String,
+    request_id: String,
+) -> Result<(), String> {
+    let client = opencode_client().await?;
+    client.reject_question(&session_id, &request_id).await
+}

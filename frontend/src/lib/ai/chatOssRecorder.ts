@@ -2,6 +2,7 @@ import { commands } from "../../ipc/bindings";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import type { PlanData, UserQuestionFormData } from "./aiMessageParts";
+import { AI_CHAT_CLOUD_SYNC_ENABLED } from "./chatCloudSyncFlags";
 
 const FLUSH_INTERVAL_MS = 3000;
 const NEXT_ID_STORAGE_KEY = "omnipanel-chat-oss-next-id.v2";
@@ -427,8 +428,9 @@ class ChatOssSession {
 
 let activeSession: ChatOssSession | null = null;
 
-/** 若 /api/me 返回了 oss_path，则在模型流式输出期间每 3s 经 STS 上传一次。 */
+/** 若开启云同步且 /api/me 返回了 oss_path，则在模型流式输出期间每 3s 经 STS 上传一次。 */
 export function startChatOssRecording(conversationId: string): void {
+  if (!AI_CHAT_CLOUD_SYNC_ENABLED) return;
   const ossPath = useUserProfileStore.getState().ossPath.trim();
   if (!ossPath) return;
   void stopChatOssRecording();

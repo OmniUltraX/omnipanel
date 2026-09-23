@@ -22,6 +22,7 @@ import {
 } from "../../../lib/ai/agentAdapters/sessionActions";
 import { useAgentSessionStore } from "../../../stores/agentSessionStore";
 import { runInternalAiChat, type InternalStreamEvent } from "../../../lib/ai/orchestrator";
+import { presentOpenCodeQuestion } from "../../../lib/ai/orchestration/opencodeQuestionBridge";
 import {
   appendChatOssEvent,
   startChatOssRecording,
@@ -336,6 +337,11 @@ function handleStreamEvent(
     upsertToolCall: (id: string, name: string, args: string) => void;
     updateToolCall: (id: string, status: string, result?: string) => void;
     enqueuePermission: (event: PermissionEvent) => void;
+    onQuestionAsk: (event: {
+      request_id: string;
+      session_id: string;
+      questions_json: string;
+    }) => void;
     onUsage: (usage: {
       inputTokens: number;
       outputTokens: number;
@@ -365,6 +371,9 @@ function handleStreamEvent(
       break;
     case "permission_request":
       handlers.enqueuePermission(event);
+      break;
+    case "question_ask":
+      handlers.onQuestionAsk(event);
       break;
     case "usage":
       handlers.onUsage({
@@ -1002,6 +1011,23 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
                 upsertToolCall,
                 updateToolCall,
                 enqueuePermission,
+                onQuestionAsk: (q) => {
+                  // 先刷出已缓冲正文，再挂澄清卡，避免「●」半截列表挡住选项
+                  batcher.flushNow();
+                  presentOpenCodeQuestion({
+                    conversationId: convId,
+                    messageId: assistantMsgId,
+                    requestId: q.request_id,
+                    sessionId: q.session_id || convId,
+                    questionsJson: q.questions_json,
+                    inline: inline?.assistantTurnId
+                      ? {
+                          blockId: inline.blockId,
+                          assistantTurnId: inline.assistantTurnId,
+                        }
+                      : null,
+                  });
+                },
                 onUsage,
                 finishGeneration,
                 setIsGenerating,

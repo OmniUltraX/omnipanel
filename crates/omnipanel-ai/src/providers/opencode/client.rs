@@ -798,6 +798,56 @@ impl OpenCodeClient {
         Ok(id)
     }
 
+    /// 回复 OpenCode 澄清提问（`answers` 为每题选中的 **label** 列表）。
+    pub async fn reply_question(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        answers: &[Vec<String>],
+    ) -> Result<(), String> {
+        let body = json!({ "answers": answers });
+        let session_path =
+            format!("/api/session/{session_id}/question/{request_id}/reply");
+        match self.post_empty(&session_path, &body).await {
+            Ok(()) => Ok(()),
+            Err(session_err) => {
+                // 兼容旧路由：`POST /api/question/{requestID}/reply`
+                match self
+                    .post_empty(&format!("/api/question/{request_id}/reply"), &body)
+                    .await
+                {
+                    Ok(()) => Ok(()),
+                    Err(legacy_err) => Err(format!(
+                        "OpenCode question reply 失败: session 路由={session_err}; legacy={legacy_err}"
+                    )),
+                }
+            }
+        }
+    }
+
+    /// 拒绝 / 跳过 OpenCode 澄清提问。
+    pub async fn reject_question(
+        &self,
+        session_id: &str,
+        request_id: &str,
+    ) -> Result<(), String> {
+        let body = json!({});
+        let session_path =
+            format!("/api/session/{session_id}/question/{request_id}/reject");
+        match self.post_empty(&session_path, &body).await {
+            Ok(()) => Ok(()),
+            Err(session_err) => match self
+                .post_empty(&format!("/api/question/{request_id}/reject"), &body)
+                .await
+            {
+                Ok(()) => Ok(()),
+                Err(legacy_err) => Err(format!(
+                    "OpenCode question reject 失败: session 路由={session_err}; legacy={legacy_err}"
+                )),
+            },
+        }
+    }
+
     async fn post_empty(&self, path: &str, body: &serde_json::Value) -> Result<(), String> {
         let resp = self
             .http

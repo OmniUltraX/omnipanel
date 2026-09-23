@@ -53,6 +53,13 @@ pub enum StreamEvent {
         raw_input: String,
         options: Vec<(String, String)>,
     },
+    /// OpenCode `question.asked`：结构化澄清（多题 + 选项），需前端 reply/reject。
+    QuestionAsk {
+        request_id: String,
+        session_id: String,
+        /// JSON 数组：`[{ question, header, options:[{label,description}], multiple?, custom? }]`
+        questions_json: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
