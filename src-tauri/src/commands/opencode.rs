@@ -365,3 +365,37 @@ pub async fn opencode_reject_question(
     let client = opencode_client().await?;
     client.reject_question(&session_id, &request_id).await
 }
+
+/// 回复 OpenCode V2 Form（`answer`：field key → string | string[] | bool | number）。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_reply_form(
+    session_id: String,
+    form_id: String,
+    answer: serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let client = opencode_client().await?;
+    client.reply_form(&session_id, &form_id, &answer).await
+}
+
+/// 取消 / 跳过 OpenCode V2 Form。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_cancel_form(session_id: String, form_id: String) -> Result<(), String> {
+    let client = opencode_client().await?;
+    client.cancel_form(&session_id, &form_id).await
+}
+
+/// 回复 OpenCode 权限请求（`decision`: once | always | reject）。
+#[tauri::command]
+#[specta::specta]
+pub async fn opencode_reply_permission(
+    session_id: String,
+    request_id: String,
+    decision: String,
+) -> Result<(), String> {
+    let client = opencode_client().await?;
+    client
+        .reply_permission(&session_id, &request_id, &decision)
+        .await
+}

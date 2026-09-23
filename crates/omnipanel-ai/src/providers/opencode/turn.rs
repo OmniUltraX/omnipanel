@@ -57,8 +57,15 @@ pub async fn run_opencode_http_turn(
                         if payload.is_empty() || payload == "[DONE]" {
                             continue;
                         }
-                        if payload.contains(&session_filter) || payload.contains("server.connected")
-                        {
+                        // 会话 id 过滤；交互事件（form/question/permission）即使嵌套略深也放行关键字
+                        let pass = payload.contains(&session_filter)
+                            || payload.contains("server.connected")
+                            || payload.contains("form.created")
+                            || payload.contains("form.replied")
+                            || payload.contains("form.cancelled")
+                            || payload.contains("question.asked")
+                            || payload.contains("permission.asked");
+                        if pass {
                             if sse_tx.send(payload.to_string()).await.is_err() {
                                 return;
                             }
@@ -87,6 +94,12 @@ pub async fn run_opencode_http_turn(
     let mut tool_args: HashMap<String, String> = HashMap::new();
     // callID → 工具名
     let mut tool_names: HashMap<String, String> = HashMap::new();
+    // 轮询补工具：OpenCode 部分版本 SSE 丢 SyncEvent（message.part.updated），只剩 delta
+    let mut polled_tool_fp: HashMap<String, String> = HashMap::new();
+    let mut poll = tokio::time::interval(std::time::Duration::from_millis(1200));
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // 跳过立刻触发的第一拍，给 prompt 一点时间
+    poll.tick().await;
     // 已有 idle session 挂 SSE 时常立刻回放 `session.idle` / `status:idle`。
     // 必须等本轮真正开始（busy / prompted / 任意 delta）后，才把 idle 当作 Done。
     let mut turn_active = false;
@@ -107,22 +120,42 @@ pub async fn run_opencode_http_turn(
             break;
         }
 
-        let payload = match tokio::time::timeout(left, sse_rx.recv()).await {
-            Ok(Some(p)) => p,
-            Ok(None) => {
-                let _ = event_tx
-                    .send(StreamEvent::Error {
-                        message: "OpenCode SSE 已断开".to_string(),
-                    })
-                    .await;
-                let _ = event_tx
-                    .send(StreamEvent::Done {
-                        stop_reason: StopReason::Error,
-                    })
-                    .await;
-                break;
+        let payload = tokio::select! {
+            biased;
+            msg = sse_rx.recv() => {
+                match msg {
+                    Some(p) => p,
+                    None => {
+                        let _ = event_tx
+                            .send(StreamEvent::Error {
+                                message: "OpenCode SSE 已断开".to_string(),
+                            })
+                            .await;
+                        let _ = event_tx
+                            .send(StreamEvent::Done {
+                                stop_reason: StopReason::Error,
+                            })
+                            .await;
+                        break;
+                    }
+                }
             }
-            Err(_) => {
+            _ = poll.tick() => {
+                // SSE 常缺 tool 的 SyncEvent：轮询会话消息补齐工具，切开推理/正文气泡
+                if turn_active {
+                    emit_polled_tools(
+                        &client,
+                        session_id,
+                        &mut polled_tool_fp,
+                        &mut tool_names,
+                        &mut tool_args,
+                        &event_tx,
+                    )
+                    .await;
+                }
+                continue;
+            }
+            _ = tokio::time::sleep(left) => {
                 let _ = event_tx
                     .send(StreamEvent::Error {
                         message: "OpenCode 回合超时".to_string(),
@@ -212,6 +245,10 @@ pub async fn run_opencode_http_turn(
                 if !call_id.is_empty() {
                     tool_names.insert(call_id.clone(), name.clone());
                     tool_args.insert(call_id.clone(), String::new());
+                    polled_tool_fp.insert(
+                        call_id.clone(),
+                        tool_fingerprint("running", "", None),
+                    );
                     let _ = event_tx
                         .send(StreamEvent::ToolCall {
                             id: call_id.clone(),
@@ -425,9 +462,21 @@ pub async fn run_opencode_http_turn(
             }
             // session.usage.updated 是会话累计值，不反映当前上下文窗口，忽略
             "session.usage.updated" => {}
-            // OpenCode 向用户提问（选项卡）；回合挂起直到 reply/reject
+            // OpenCode 向用户提问（旧 question API）；回合挂起直到 reply/reject
             "question.asked" | "question.v2.asked" => {
                 if let Some(evt) = parse_question_ask(data) {
+                    let _ = event_tx.send(evt).await;
+                }
+            }
+            // OpenCode V2 Form（当前 serve 已无 /question，澄清走 form.created）
+            "form.created" | "form.asked" => {
+                if let Some(evt) = parse_form_ask(data) {
+                    let _ = event_tx.send(evt).await;
+                }
+            }
+            // 工具权限确认；不回复则整轮永久挂起
+            "permission.asked" | "permission.v2.asked" => {
+                if let Some(evt) = parse_permission_ask(data) {
                     let _ = event_tx.send(evt).await;
                 }
             }
@@ -436,6 +485,16 @@ pub async fn run_opencode_http_turn(
                 if !turn_active {
                     continue;
                 }
+                // 收尾再扫一次工具，避免最后一次 SyncEvent 丢失
+                emit_polled_tools(
+                    &client,
+                    session_id,
+                    &mut polled_tool_fp,
+                    &mut tool_names,
+                    &mut tool_args,
+                    &event_tx,
+                )
+                .await;
                 let _ = event_tx
                     .send(StreamEvent::Done {
                         stop_reason: StopReason::EndTurn,
@@ -453,6 +512,15 @@ pub async fn run_opencode_http_turn(
                     if !turn_active {
                         continue;
                     }
+                    emit_polled_tools(
+                        &client,
+                        session_id,
+                        &mut polled_tool_fp,
+                        &mut tool_names,
+                        &mut tool_args,
+                        &event_tx,
+                    )
+                    .await;
                     let _ = event_tx
                         .send(StreamEvent::Done {
                             stop_reason: StopReason::EndTurn,
@@ -546,6 +614,72 @@ fn event_body(v: &serde_json::Value) -> &serde_json::Value {
         .unwrap_or(&serde_json::Value::Null)
 }
 
+/// OpenCode 部分版本 SSE 丢 SyncEvent：轮询会话消息把工具补进流，便于前端切开气泡。
+async fn emit_polled_tools(
+    client: &OpenCodeClient,
+    session_id: &str,
+    seen: &mut HashMap<String, String>,
+    tool_names: &mut HashMap<String, String>,
+    tool_args: &mut HashMap<String, String>,
+    event_tx: &mpsc::Sender<StreamEvent>,
+) {
+    let Ok(msgs) = client.get_session_messages(session_id).await else {
+        return;
+    };
+    // 取最后一条 user 之后的全部 assistant（OpenCode 多步常拆成多条）
+    let mut start = 0usize;
+    for (i, m) in msgs.iter().enumerate() {
+        if m.role == "user" {
+            start = i + 1;
+        }
+    }
+    for m in msgs.iter().skip(start) {
+        if m.role != "assistant" {
+            continue;
+        }
+        let Some(tools) = m.tool_calls.as_ref() else {
+            continue;
+        };
+        for t in tools {
+            let fp = tool_fingerprint(&t.status, &t.arguments, t.result.as_deref());
+            if seen.get(&t.id) == Some(&fp) {
+                continue;
+            }
+            seen.insert(t.id.clone(), fp);
+            tool_names.insert(t.id.clone(), t.name.clone());
+            tool_args.insert(t.id.clone(), t.arguments.clone());
+            let _ = event_tx
+                .send(StreamEvent::ToolCall {
+                    id: t.id.clone(),
+                    name: t.name.clone(),
+                    arguments: t.arguments.clone(),
+                })
+                .await;
+            let status = match t.status.as_str() {
+                "pending" => ToolStatus::Pending,
+                "completed" => ToolStatus::Completed,
+                "failed" | "error" => ToolStatus::Failed,
+                _ => ToolStatus::Running,
+            };
+            let _ = event_tx
+                .send(StreamEvent::ToolCallUpdate {
+                    id: t.id.clone(),
+                    status,
+                    result: t.result.clone(),
+                })
+                .await;
+        }
+    }
+}
+
+fn tool_fingerprint(status: &str, arguments: &str, result: Option<&str>) -> String {
+    format!(
+        "{status}|{}|{}",
+        arguments.len(),
+        result.map(|r| r.len()).unwrap_or(0)
+    )
+}
+
 /// 本轮已真正开工的信号（用于忽略挂 SSE 时回放的 idle 快照）。
 fn marks_turn_active(event_type: &str, data: &serde_json::Value) -> bool {
     match event_type {
@@ -562,7 +696,11 @@ fn marks_turn_active(event_type: &str, data: &serde_json::Value) -> bool {
         | "session.reasoning.delta"
         | "message.part.delta"
         | "question.asked"
-        | "question.v2.asked" => true,
+        | "question.v2.asked"
+        | "form.created"
+        | "form.asked"
+        | "permission.asked"
+        | "permission.v2.asked" => true,
         "session.status" => matches!(
             data.get("status")
                 .and_then(|s| s.get("type"))
@@ -787,6 +925,208 @@ fn parse_question_ask(data: &serde_json::Value) -> Option<StreamEvent> {
         request_id,
         session_id,
         questions_json,
+        kind: "question".into(),
+        title: None,
+    })
+}
+
+/// 解析 OpenCode `form.created` → `StreamEvent::QuestionAsk`（kind=form）。
+/// Form.Field → 前端 AskUserQuestion 兼容 JSON。
+fn parse_form_ask(data: &serde_json::Value) -> Option<StreamEvent> {
+    let request_id = data
+        .get("id")
+        .or_else(|| data.get("formID"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    let session_id = data
+        .get("sessionID")
+        .or_else(|| data.get("sessionId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let title = data
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let fields = data.get("fields").and_then(|v| v.as_array())?;
+    if fields.is_empty() {
+        return None;
+    }
+    let mut questions = Vec::new();
+    for field in fields {
+        if field.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        let key = field
+            .get("key")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("")
+            .to_string();
+        if key.is_empty() {
+            continue;
+        }
+        let field_ty = field
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("string");
+        // external 字段无本地答案，跳过（用户无法在表单里填）
+        if field_ty == "external" {
+            continue;
+        }
+        let prompt = field
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                field
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+            })
+            .unwrap_or(key.as_str())
+            .to_string();
+        let header = field
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(key.as_str())
+            .to_string();
+        let custom = field.get("custom").and_then(|v| v.as_bool()).unwrap_or(true);
+        let multiple = field_ty == "multiselect";
+
+        let mut options = Vec::new();
+        if field_ty == "boolean" {
+            options.push(serde_json::json!({
+                "label": "是",
+                "description": "true",
+                "value": "true"
+            }));
+            options.push(serde_json::json!({
+                "label": "否",
+                "description": "false",
+                "value": "false"
+            }));
+        } else if let Some(arr) = field.get("options").and_then(|v| v.as_array()) {
+            for o in arr {
+                let label = o
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        o.get("value")
+                            .and_then(|v| v.as_str())
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                    })
+                    .unwrap_or("")
+                    .to_string();
+                if label.is_empty() {
+                    continue;
+                }
+                let value = o
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(label.as_str())
+                    .to_string();
+                let description = o
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("")
+                    .to_string();
+                options.push(serde_json::json!({
+                    "label": label,
+                    "description": description,
+                    "value": value
+                }));
+            }
+        }
+
+        questions.push(serde_json::json!({
+            "question": prompt,
+            "header": header,
+            "options": options,
+            "multiple": multiple,
+            "custom": custom,
+            "key": key,
+            "fieldType": field_ty,
+        }));
+    }
+    if questions.is_empty() {
+        return None;
+    }
+    let questions_json = serde_json::to_string(&questions).ok()?;
+    Some(StreamEvent::QuestionAsk {
+        request_id,
+        session_id,
+        questions_json,
+        kind: "form".into(),
+        title,
+    })
+}
+
+/// 解析 OpenCode `permission.asked` → `StreamEvent::OpenCodePermissionAsk`。
+fn parse_permission_ask(data: &serde_json::Value) -> Option<StreamEvent> {
+    let request_id = data
+        .get("id")
+        .or_else(|| data.get("requestID"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    let session_id = data
+        .get("sessionID")
+        .or_else(|| data.get("sessionId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    // 新 API：action + resources；旧：permission + patterns
+    let action = data
+        .get("action")
+        .or_else(|| data.get("permission"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("tool")
+        .to_string();
+    let resources = data
+        .get("resources")
+        .or_else(|| data.get("patterns"))
+        .cloned()
+        .unwrap_or(serde_json::json!([]));
+    let message = data
+        .get("message")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let title = message
+        .clone()
+        .unwrap_or_else(|| format!("权限确认：{action}"));
+    let raw_input = serde_json::json!({
+        "action": action,
+        "resources": resources,
+        "message": message,
+        "metadata": data.get("metadata").cloned().unwrap_or(serde_json::Value::Null),
+        "source": data.get("source").cloned().unwrap_or(serde_json::Value::Null),
+    })
+    .to_string();
+    Some(StreamEvent::OpenCodePermissionAsk {
+        request_id,
+        session_id,
+        title,
+        raw_input,
     })
 }
 
@@ -924,13 +1264,82 @@ mod turn_active_tests {
                 request_id,
                 session_id,
                 questions_json,
+                kind,
+                title,
             } => {
                 assert_eq!(request_id, "qst_1");
                 assert_eq!(session_id, "ses_abc");
+                assert_eq!(kind, "question");
+                assert!(title.is_none());
                 assert!(questions_json.contains("Nacos"));
             }
             other => panic!("expected QuestionAsk, got {other:?}"),
         }
         assert!(marks_turn_active("question.asked", &data));
+    }
+
+    #[test]
+    fn parse_form_ask_from_fields() {
+        let data = json!({
+            "id": "frm_1",
+            "sessionID": "ses_abc",
+            "title": "确认 Nacos 位置",
+            "fields": [{
+                "key": "where",
+                "type": "string",
+                "title": "Nacos 部署在哪？",
+                "options": [
+                    { "value": "local", "label": "本机", "description": "localhost" },
+                    { "value": "p6", "label": "远程", "description": "p6 服务器" }
+                ],
+                "custom": true
+            }]
+        });
+        let evt = parse_form_ask(&data).expect("should parse");
+        match evt {
+            StreamEvent::QuestionAsk {
+                request_id,
+                session_id,
+                questions_json,
+                kind,
+                title,
+            } => {
+                assert_eq!(request_id, "frm_1");
+                assert_eq!(session_id, "ses_abc");
+                assert_eq!(kind, "form");
+                assert_eq!(title.as_deref(), Some("确认 Nacos 位置"));
+                assert!(questions_json.contains("where"));
+                assert!(questions_json.contains("本机"));
+            }
+            other => panic!("expected QuestionAsk form, got {other:?}"),
+        }
+        assert!(marks_turn_active("form.created", &data));
+    }
+
+    #[test]
+    fn parse_permission_ask_from_request() {
+        let data = json!({
+            "id": "per_1",
+            "sessionID": "ses_abc",
+            "action": "bash",
+            "resources": ["*"],
+            "message": "允许执行 bash？"
+        });
+        let evt = parse_permission_ask(&data).expect("should parse");
+        match evt {
+            StreamEvent::OpenCodePermissionAsk {
+                request_id,
+                session_id,
+                title,
+                raw_input,
+            } => {
+                assert_eq!(request_id, "per_1");
+                assert_eq!(session_id, "ses_abc");
+                assert!(title.contains("bash") || title.contains("允许"));
+                assert!(raw_input.contains("bash"));
+            }
+            other => panic!("expected OpenCodePermissionAsk, got {other:?}"),
+        }
+        assert!(marks_turn_active("permission.asked", &data));
     }
 }

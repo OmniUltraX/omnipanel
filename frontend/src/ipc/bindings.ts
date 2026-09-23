@@ -1287,6 +1287,12 @@ export const commands = {
 	opencodeReplyQuestion: (sessionId: string, requestId: string, answers: string[][]) => typedError<null, string>(__TAURI_INVOKE("opencode_reply_question", { sessionId, requestId, answers })),
 	/**  拒绝 / 跳过 OpenCode 澄清提问。 */
 	opencodeRejectQuestion: (sessionId: string, requestId: string) => typedError<null, string>(__TAURI_INVOKE("opencode_reject_question", { sessionId, requestId })),
+	/**  回复 OpenCode V2 Form（answer：field key → string | string[] | bool | number）。 */
+	opencodeReplyForm: (sessionId: string, formId: string, answer: Record<string, JsonValue>) => typedError<null, string>(__TAURI_INVOKE("opencode_reply_form", { sessionId, formId, answer })),
+	/**  取消 / 跳过 OpenCode V2 Form。 */
+	opencodeCancelForm: (sessionId: string, formId: string) => typedError<null, string>(__TAURI_INVOKE("opencode_cancel_form", { sessionId, formId })),
+	/**  回复 OpenCode 权限请求（decision: once | always | reject）。 */
+	opencodeReplyPermission: (sessionId: string, requestId: string, decision: string) => typedError<null, string>(__TAURI_INVOKE("opencode_reply_permission", { sessionId, requestId, decision })),
 	/**  检测 Cursor / OpenCode 的安装情况（强制刷新，供「重新检测」）。 */
 	detectAllAgents: () => typedError<AgentInstallStatus[], OmniError_Serialize>(__TAURI_INVOKE("detect_all_agents")),
 	dbSqlFilesLoad: () => typedError<DbSqlFilesFile, string>(__TAURI_INVOKE("db_sql_files_load")),

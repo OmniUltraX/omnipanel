@@ -8,6 +8,7 @@ import type {
   OpenCodeAgentSummary,
 } from "../lib/ai/agentAdapters/types";
 import type { AiMessagePart, ToolCallState } from "../lib/ai/aiMessageParts";
+import { partsFromFlatFields } from "../lib/ai/aiMessageParts";
 
 type AgentSessionState = {
   /** 当前适配器 id；null = 内置模式 */
@@ -96,7 +97,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set) => ({
 export function agentMessagesToAiMessages(
   rows: Awaited<ReturnType<AgentAdapter["loadMessages"]>>,
 ): AiMessage[] {
-  return rows.map((m) => {
+  const mapped = rows.map((m) => {
     const content = m.role === "user" ? stripOmniInjectedUserPrefix(m.content) : m.content;
     const toolCalls: ToolCallState[] | undefined = m.toolCalls?.length
       ? m.toolCalls.map((t) => ({
@@ -142,6 +143,51 @@ export function agentMessagesToAiMessages(
         : undefined,
     });
   });
+  // OpenCode 多步常拆成多条 assistant；合并后 Thread 才不会在用户消息下显示「2 / 2」
+  return coalesceConsecutiveAssistants(mapped);
+}
+
+/**
+ * 将连续 assistant 消息合并为一条（parts 按时间拼接），消除分支选择器。
+ */
+export function coalesceConsecutiveAssistants(messages: AiMessage[]): AiMessage[] {
+  const out: AiMessage[] = [];
+  for (const msg of messages) {
+    const prev = out[out.length - 1];
+    if (msg.role === "assistant" && prev?.role === "assistant") {
+      const mergedParts = [
+        ...partsFromFlatFields(prev),
+        ...partsFromFlatFields(msg),
+      ];
+      // 相邻同类型 text/reasoning 粘合，避免无意义碎片
+      const parts: AiMessagePart[] = [];
+      for (const p of mergedParts) {
+        const last = parts[parts.length - 1];
+        if (
+          last &&
+          (p.type === "text" || p.type === "reasoning") &&
+          last.type === p.type
+        ) {
+          parts[parts.length - 1] = {
+            type: p.type,
+            text: last.text + p.text,
+          };
+        } else {
+          parts.push(p);
+        }
+      }
+      out[out.length - 1] = normalizeAiMessage({
+        ...prev,
+        parts,
+        usage: msg.usage ?? prev.usage,
+        // 保留首条 id，避免 UI 抖动；时间戳用首条
+        timestamp: prev.timestamp,
+      });
+    } else {
+      out.push(msg);
+    }
+  }
+  return out;
 }
 
 /**

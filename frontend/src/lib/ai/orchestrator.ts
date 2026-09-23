@@ -28,6 +28,15 @@ export type InternalStreamEvent =
       request_id: string;
       session_id: string;
       questions_json: string;
+      kind?: string;
+      title?: string | null;
+    }
+  | {
+      type: "opencode_permission_ask";
+      request_id: string;
+      session_id: string;
+      title: string;
+      raw_input: string;
     };
 
 export interface AiContextBundle {

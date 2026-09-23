@@ -248,8 +248,9 @@ fn stream_event_to_acp(event: StreamEvent) -> Option<AcpStreamEvent> {
                 .collect(),
         }),
         StreamEvent::Usage { .. } => None,
-        // OpenCode 澄清提问：ACP 通道无对应事件
+        // OpenCode 澄清提问 / Form：ACP 通道无对应事件
         StreamEvent::QuestionAsk { .. } => None,
+        StreamEvent::OpenCodePermissionAsk { .. } => None,
         StreamEvent::Done { stop_reason } => Some(AcpStreamEvent::Done {
             stop_reason: stop_reason_str(stop_reason),
         }),

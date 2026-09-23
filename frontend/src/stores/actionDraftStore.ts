@@ -14,7 +14,7 @@ export type ActionDraftKind =
   | "terminal"
   | "generic";
 
-export type ApprovalSource = "terminal" | "toolgate" | "acp" | "action";
+export type ApprovalSource = "terminal" | "toolgate" | "acp" | "action" | "opencode";
 
 export type ApprovalTargetModule =
   | "terminal"

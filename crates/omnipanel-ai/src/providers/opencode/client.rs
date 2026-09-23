@@ -811,15 +811,21 @@ impl OpenCodeClient {
         match self.post_empty(&session_path, &body).await {
             Ok(()) => Ok(()),
             Err(session_err) => {
-                // 兼容旧路由：`POST /api/question/{requestID}/reply`
+                // 兼容旧路由：`POST /api/question/{requestID}/reply` 与无 /api 前缀
                 match self
                     .post_empty(&format!("/api/question/{request_id}/reply"), &body)
                     .await
                 {
                     Ok(()) => Ok(()),
-                    Err(legacy_err) => Err(format!(
-                        "OpenCode question reply 失败: session 路由={session_err}; legacy={legacy_err}"
-                    )),
+                    Err(api_err) => match self
+                        .post_empty(&format!("/question/{request_id}/reply"), &body)
+                        .await
+                    {
+                        Ok(()) => Ok(()),
+                        Err(legacy_err) => Err(format!(
+                            "OpenCode question reply 失败: session={session_err}; /api/question={api_err}; /question={legacy_err}"
+                        )),
+                    },
                 }
             }
         }
@@ -841,11 +847,60 @@ impl OpenCodeClient {
                 .await
             {
                 Ok(()) => Ok(()),
-                Err(legacy_err) => Err(format!(
-                    "OpenCode question reject 失败: session 路由={session_err}; legacy={legacy_err}"
-                )),
+                Err(api_err) => match self
+                    .post_empty(&format!("/question/{request_id}/reject"), &body)
+                    .await
+                {
+                    Ok(()) => Ok(()),
+                    Err(legacy_err) => Err(format!(
+                        "OpenCode question reject 失败: session={session_err}; /api/question={api_err}; /question={legacy_err}"
+                    )),
+                },
             },
         }
+    }
+
+    /// 回复 OpenCode V2 Form（`answer` 为 field key → value）。
+    pub async fn reply_form(
+        &self,
+        session_id: &str,
+        form_id: &str,
+        answer: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), String> {
+        let body = json!({ "answer": answer });
+        self.post_empty(
+            &format!("/api/session/{session_id}/form/{form_id}/reply"),
+            &body,
+        )
+        .await
+    }
+
+    /// 取消 / 跳过 OpenCode V2 Form（`DELETE /api/session/{id}/form/{formID}`）。
+    pub async fn cancel_form(&self, session_id: &str, form_id: &str) -> Result<(), String> {
+        self.delete_empty(&format!("/api/session/{session_id}/form/{form_id}"))
+            .await
+    }
+
+    /// 回复 OpenCode 权限请求（`decision`: once | always | reject）。
+    pub async fn reply_permission(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        decision: &str,
+    ) -> Result<(), String> {
+        let decision = match decision {
+            "once" | "always" | "reject" => decision,
+            "allow_once" | "allow-once" | "allow" => "once",
+            "allow_always" | "allow-always" => "always",
+            "reject_once" | "reject-once" | "deny" => "reject",
+            other => other,
+        };
+        let body = json!({ "decision": decision });
+        self.post_empty(
+            &format!("/api/session/{session_id}/permission/{request_id}/reply"),
+            &body,
+        )
+        .await
     }
 
     async fn post_empty(&self, path: &str, body: &serde_json::Value) -> Result<(), String> {

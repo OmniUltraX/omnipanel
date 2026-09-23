@@ -10,6 +10,7 @@ import { useExternalStoreRuntime } from "@assistant-ui/react";
 import type { AcpStreamEvent } from "../../../lib/acp/acpStream";
 import { respondAcpPermission } from "../../../lib/acp/acpStream";
 import { commands } from "../../../ipc/bindings";
+import { unwrapCommand } from "../../../ipc/result";
 import { canAutoAllowAcp } from "../../../lib/ai/toolGate";
 import { resolveBackendFromSelection, parseOpenCodeBackendId } from "../../../lib/ai/inferenceBackend";
 import { resolveActiveAgentAdapter, isAgentSessionId } from "../../../lib/ai/agentAdapters";
@@ -213,6 +214,51 @@ function enqueueAcpPermission(event: PermissionEvent): void {
     });
 }
 
+/** OpenCode permission.asked → 同一审批队列（string request id） */
+function enqueueOpenCodePermission(event: {
+  request_id: string;
+  session_id: string;
+  title: string;
+  raw_input: string;
+}): void {
+  const requestId = event.request_id.trim();
+  const sessionId = event.session_id.trim();
+  if (!requestId || !sessionId) return;
+
+  const reply = async (decision: string) => {
+    await unwrapCommand(
+      commands.opencodeReplyPermission(sessionId, requestId, decision),
+    );
+  };
+
+  void useActionDraftStore
+    .getState()
+    .enqueueAwaitable({
+      kind: "generic",
+      source: "opencode",
+      title: event.title || "OpenCode 权限确认",
+      preview: event.raw_input || event.title,
+      toolName: event.title,
+      actions: [
+        { id: "once", label: "允许一次", variant: "primary" },
+        { id: "always", label: "始终允许", variant: "primary" },
+        { id: "reject", label: "拒绝", variant: "secondary" },
+      ],
+      target: { module: "ai" },
+      execute: async () => {
+        await reply("once");
+        return "once";
+      },
+      runAction: async (actionId) => {
+        await reply(actionId);
+        return actionId;
+      },
+    })
+    .catch(() => {
+      void reply("reject").catch(() => {});
+    });
+}
+
 function buildHistoryJson(convId: string): string | undefined {
   const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
   if (!conv) return undefined;
@@ -341,6 +387,14 @@ function handleStreamEvent(
       request_id: string;
       session_id: string;
       questions_json: string;
+      kind?: string;
+      title?: string | null;
+    }) => void;
+    onOpenCodePermissionAsk: (event: {
+      request_id: string;
+      session_id: string;
+      title: string;
+      raw_input: string;
     }) => void;
     onUsage: (usage: {
       inputTokens: number;
@@ -374,6 +428,9 @@ function handleStreamEvent(
       break;
     case "question_ask":
       handlers.onQuestionAsk(event);
+      break;
+    case "opencode_permission_ask":
+      handlers.onOpenCodePermissionAsk(event);
       break;
     case "usage":
       handlers.onUsage({
@@ -759,6 +816,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (!assistantMsgId) return;
+      // 先落地缓冲中的 reasoning/text，再插 tool 边界，避免流式阶段整坨合并
+      batcher.flushNow();
       upsertStreamToolCall(convId, assistantMsgId, id, name, args);
       if (waitingToolDispatchRef.current.has(id)) {
         tryDispatchTool(id);
@@ -1020,6 +1079,8 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
                     requestId: q.request_id,
                     sessionId: q.session_id || convId,
                     questionsJson: q.questions_json,
+                    kind: q.kind,
+                    title: q.title,
                     inline: inline?.assistantTurnId
                       ? {
                           blockId: inline.blockId,
@@ -1027,6 +1088,10 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
                         }
                       : null,
                   });
+                },
+                onOpenCodePermissionAsk: (p) => {
+                  batcher.flushNow();
+                  enqueueOpenCodePermission(p);
                 },
                 onUsage,
                 finishGeneration,

@@ -119,10 +119,12 @@ export interface UserQuestionFormData {
   answers?: Record<string, AskUserAnswerValue>;
   createdAt: number;
   updatedAt: number;
-  /** OpenCode question.asked：提交走 reply/reject API，而非 tool result */
+  /** OpenCode question.asked / form.created：提交走 reply/reject API，而非 tool result */
   source?: "opencode";
   /** OpenCode session id（通常等于 conversationId） */
   opencodeSessionId?: string;
+  /** OpenCode 交互类型：旧 question API 或 V2 form API */
+  opencodeKind?: "question" | "form";
 }
 
 /** 有序消息片段：流式按到达顺序追加，供 UI 交错渲染 */

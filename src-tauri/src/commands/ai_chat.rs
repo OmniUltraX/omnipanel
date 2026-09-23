@@ -1172,6 +1172,7 @@ fn record_internal_trace(
         StreamEvent::Error { .. } => "error",
         StreamEvent::PermissionRequest { .. } => "permission_request",
         StreamEvent::QuestionAsk { .. } => "question_ask",
+        StreamEvent::OpenCodePermissionAsk { .. } => "opencode_permission_ask",
     }
     .to_string();
     let payload = serde_json::to_string(event).unwrap_or_default();

@@ -53,13 +53,31 @@ pub enum StreamEvent {
         raw_input: String,
         options: Vec<(String, String)>,
     },
-    /// OpenCode `question.asked`：结构化澄清（多题 + 选项），需前端 reply/reject。
+    /// OpenCode `question.asked` / `form.created`：结构化澄清，需前端 reply/reject。
     QuestionAsk {
         request_id: String,
         session_id: String,
         /// JSON 数组：`[{ question, header, options:[{label,description}], multiple?, custom? }]`
+        /// form 场景由 turn 层把 `Form.Field[]` 映射成同一形状（id=field.key）。
         questions_json: String,
+        /// `"question"`（旧 API）| `"form"`（V2 `/api/session/.../form/.../reply`）
+        #[serde(default = "default_question_ask_kind")]
+        kind: String,
+        /// form 标题（可选）；question 场景可为空
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
     },
+    /// OpenCode `permission.asked`（string id `per_*`），与 ACP 的 u64 request_id 分离。
+    OpenCodePermissionAsk {
+        request_id: String,
+        session_id: String,
+        title: String,
+        raw_input: String,
+    },
+}
+
+fn default_question_ask_kind() -> String {
+    "question".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

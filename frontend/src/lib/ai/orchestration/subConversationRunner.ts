@@ -27,6 +27,7 @@ import { resolveConversationModelSelectionId } from "../../aiScenarioModels";
 import { resolveAgentRuntime, ASSISTANT_PAGE_AGENT_ID } from "../agents";
 import { resolveKnowledgeEmbeddingProvider } from "../../knowledgeEmbeddingModel";
 import { runInternalAiChat, type InternalStreamEvent } from "../orchestrator";
+import { presentOpenCodeQuestion } from "./opencodeQuestionBridge";
 import { dispatchPendingTool } from "../internalToolBridge";
 import { errorToString } from "../../errorToString";
 import { reportToolResultWithRetry } from "../reportToolResult";
@@ -342,6 +343,25 @@ async function runSingleChild(
           // 这里直接调用 respondAcpPermission 的封装（通过 CustomEvent 委托给主 runtime）
           window.dispatchEvent(
             new CustomEvent("omnipanel:acp-permission-request", {
+              detail: { event, conversationId },
+            }),
+          );
+          break;
+        case "question_ask":
+          // OpenCode form/question：挂到子会话 assistant 消息上
+          presentOpenCodeQuestion({
+            conversationId,
+            messageId: assistantMsgId,
+            requestId: event.request_id,
+            sessionId: event.session_id || conversationId,
+            questionsJson: event.questions_json,
+            kind: event.kind,
+            title: event.title,
+          });
+          break;
+        case "opencode_permission_ask":
+          window.dispatchEvent(
+            new CustomEvent("omnipanel:opencode-permission-ask", {
               detail: { event, conversationId },
             }),
           );
