@@ -1080,7 +1080,7 @@ export const useAiStore = create<AiStore>()(
     {
       name: "omnipanel-ai-store",
       storage: createJSONStorage(createIndexedDBStorage),
-      version: 7,
+      version: 8,
       migrate: (persisted, version) => {
         const state = persisted as {
           conversations?: AiConversation[];
@@ -1153,6 +1153,20 @@ export const useAiStore = create<AiStore>()(
             ),
             viewingChildConversationId: null,
           };
+        }
+        // v8：聊天记录不再云同步；清空本机残留会话（含幽灵镜像），避免旧数据继续占屏
+        if (version < 8) {
+          next = {
+            ...next,
+            conversations: [],
+            activeConversationId: null,
+            viewingChildConversationId: null,
+          };
+          try {
+            localStorage.removeItem("omnipanel-chat-oss-next-id.v2");
+          } catch {
+            // ignore
+          }
         }
         return next;
       },

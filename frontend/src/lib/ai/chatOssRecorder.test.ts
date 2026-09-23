@@ -28,7 +28,6 @@ import {
   aggregateChatOssEvent,
   appendChatOssEvent,
   buildChatOssObjectKey,
-  CHAT_OSS_FORMAT,
   CHAT_OSS_SECTION_TAGS,
   encodeChatOssSection,
   encodeChatOssSections,
