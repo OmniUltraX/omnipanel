@@ -1,7 +1,8 @@
 use crate::commands::agents;
 use omnipanel_ai::providers::opencode::{
     OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeMessagePart, OpenCodeSessionInfo,
-    OpenCodeTokenUsage, OpenCodeToolCall, ensure_opencode_service, sync_omnimcp_into_opencode_config,
+    OpenCodeTokenUsage, OpenCodeToolCall, ensure_opencode_service, stop_opencode_serve,
+    sync_omnimcp_into_opencode_config,
 };
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -206,20 +207,24 @@ fn omnimcp_url() -> String {
     omnipanel_mcp::builtin_mcp_endpoint()
 }
 
-fn sync_omnimcp_config(enabled: bool) -> Result<OpenCodeMcpSyncResult, String> {
+fn sync_omnimcp_config(enabled: bool) -> Result<(OpenCodeMcpSyncResult, bool), String> {
     let mcp_url = omnimcp_url();
-    let path = sync_omnimcp_into_opencode_config(&mcp_url, enabled)?;
+    let outcome = sync_omnimcp_into_opencode_config(&mcp_url, enabled)?;
     tracing::info!(
-        path = %path.display(),
+        path = %outcome.path.display(),
         mcp_url = %mcp_url,
         enabled,
-        "已同步 OmniMCP 到 OpenCode 配置"
+        changed = outcome.changed,
+        "已同步 OpenCode 配置（OmniMCP + tool_output + compaction）"
     );
-    Ok(OpenCodeMcpSyncResult {
-        path: path.display().to_string(),
-        mcp_url,
-        enabled,
-    })
+    Ok((
+        OpenCodeMcpSyncResult {
+            path: outcome.path.display().to_string(),
+            mcp_url,
+            enabled,
+        },
+        outcome.changed,
+    ))
 }
 
 /// 检测本机是否已安装 OpenCode CLI。
@@ -230,15 +235,27 @@ pub async fn detect_opencode_install() -> Result<OpenCodeInstallStatus, omnipane
     Ok(agents::detect_opencode_for_legacy())
 }
 
-/// 确保 OpenCode HTTP 服务可用（`opencode serve`），并写入 OmniMCP 到 opencode.json。
+/// 确保 OpenCode HTTP 服务可用（`opencode serve`），并在启动前写入运行时配置。
+///
+/// 初始化顺序：先写 `opencode.json`（OmniMCP + tool_output 截断 + compaction 自动压缩），
+/// 若配置相对磁盘有变更则重启 serve，保证新上限立即生效。
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_ensure_service() -> Result<(), String> {
-    let _ = ensure_opencode_service(opencode_binary().as_deref()).await?;
+    let mut config_changed = false;
     // 配置写入失败不阻断服务启动（用户仍可手动配）
-    if let Err(err) = sync_omnimcp_config(true) {
-        tracing::warn!(error = %err, "同步 OmniMCP → OpenCode 配置失败");
+    match sync_omnimcp_config(true) {
+        Ok((_, changed)) => config_changed = changed,
+        Err(err) => {
+            tracing::warn!(error = %err, "同步 OpenCode 运行时配置失败");
+        }
     }
+    // 配置变更后必须重启，否则已在跑的 serve 仍用旧 tool_output / compaction
+    if config_changed {
+        tracing::info!("OpenCode 配置已变更 → 重启 serve 以加载 tool_output / compaction");
+        stop_opencode_serve();
+    }
+    let _ = ensure_opencode_service(opencode_binary().as_deref()).await?;
     Ok(())
 }
 
@@ -246,18 +263,18 @@ pub async fn opencode_ensure_service() -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_stop_service() -> Result<(), String> {
-    omnipanel_ai::providers::opencode::stop_opencode_serve();
+    stop_opencode_serve();
     if let Err(err) = sync_omnimcp_config(false) {
         tracing::warn!(error = %err, "禁用 OpenCode 中 OmniMCP 条目失败");
     }
     Ok(())
 }
 
-/// 手动将 OmniMCP 合并进 `~/.config/opencode/opencode.json`。
+/// 手动将 OmniMCP + 运行时默认合并进 `~/.config/opencode/opencode.json`。
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_sync_omnimcp_config(enabled: bool) -> Result<OpenCodeMcpSyncResult, String> {
-    sync_omnimcp_config(enabled)
+    sync_omnimcp_config(enabled).map(|(result, _)| result)
 }
 
 /// 列出 OpenCode 会话。

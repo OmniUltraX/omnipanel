@@ -1,4 +1,9 @@
-//! 把 OmniPanel OmniMCP 写入 OpenCode 全局配置 `~/.config/opencode/opencode.json`。
+//! 把 OmniPanel 运行时默认写入 OpenCode 全局配置 `~/.config/opencode/opencode.json`。
+//!
+//! 初始化连接时合并：
+//! - OmniMCP 条目（`mcp.omnipanel` / `mcp.servers.omnipanel`）
+//! - 工具输出截断（`tool_output`）——压低默认 2000 行 / 50KB，避免 execute 长输出撑爆上下文
+//! - 自动压缩（`compaction.auto`）——上下文接近上限时摘要压缩
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,6 +12,14 @@ use serde_json::{Value, json};
 
 const MCP_SERVER_KEY: &str = "omnipanel";
 const X_OMNI_MODULE: &str = "X-Omni-Module";
+
+/// OmniPanel 托管的工具输出上限（低于 OpenCode 默认 2000 / 50KB）。
+const TOOL_OUTPUT_MAX_LINES: u64 = 200;
+const TOOL_OUTPUT_MAX_BYTES: u64 = 8192;
+
+/// 自动压缩：比默认更早触发（更大 buffer），保留稍少的近期原文。
+const COMPACTION_KEEP_TOKENS: u64 = 12_000;
+const COMPACTION_BUFFER: u64 = 25_000;
 
 fn home_dir() -> Option<PathBuf> {
     std::env::var("USERPROFILE")
@@ -42,13 +55,7 @@ fn omnipanel_mcp_entry(mcp_url: &str, enabled: bool) -> Value {
     })
 }
 
-/// 将 `omnipanel` MCP 条目合并进根 JSON（就地修改）。
-///
-/// - 若存在 `mcp.servers`（OpenCode V2），写入 `mcp.servers.omnipanel`
-/// - 否则写入 `mcp.omnipanel`（当前文档的 flat 格式）
-/// - 若两者皆在，两边同步，避免格式分叉
-pub fn merge_omnimcp_into_root(root: &mut Value, mcp_url: &str, enabled: bool) {
-    let entry = omnipanel_mcp_entry(mcp_url, enabled);
+fn ensure_root_object(root: &mut Value) -> &mut serde_json::Map<String, Value> {
     if !root.is_object() {
         *root = json!({});
     }
@@ -59,6 +66,17 @@ pub fn merge_omnimcp_into_root(root: &mut Value, mcp_url: &str, enabled: bool) {
             Value::String("https://opencode.ai/config.json".into()),
         );
     }
+    obj
+}
+
+/// 将 `omnipanel` MCP 条目合并进根 JSON（就地修改）。
+///
+/// - 若存在 `mcp.servers`（OpenCode V2），写入 `mcp.servers.omnipanel`
+/// - 否则写入 `mcp.omnipanel`（当前文档的 flat 格式）
+/// - 若两者皆在，两边同步，避免格式分叉
+pub fn merge_omnimcp_into_root(root: &mut Value, mcp_url: &str, enabled: bool) {
+    let entry = omnipanel_mcp_entry(mcp_url, enabled);
+    let obj = ensure_root_object(root);
 
     let mcp = obj.entry("mcp").or_insert_with(|| json!({}));
     if !mcp.is_object() {
@@ -85,22 +103,57 @@ pub fn merge_omnimcp_into_root(root: &mut Value, mcp_url: &str, enabled: bool) {
     }
 }
 
-/// 读取已有 `opencode.json`（不存在则空对象）；合并 OmniMCP 后写回。
+/// 写入 OmniPanel 托管的工具输出上限 + 自动压缩（就地覆盖同名字段）。
+pub fn merge_runtime_defaults_into_root(root: &mut Value) {
+    let obj = ensure_root_object(root);
+    obj.insert(
+        "tool_output".into(),
+        json!({
+            "max_lines": TOOL_OUTPUT_MAX_LINES,
+            "max_bytes": TOOL_OUTPUT_MAX_BYTES,
+        }),
+    );
+    obj.insert(
+        "compaction".into(),
+        json!({
+            "auto": true,
+            "keep": { "tokens": COMPACTION_KEEP_TOKENS },
+            "buffer": COMPACTION_BUFFER,
+        }),
+    );
+}
+
+/// 同步结果：路径 + 内容是否相对磁盘发生了变更（用于决定是否重启 serve）。
+#[derive(Debug, Clone)]
+pub struct OpenCodeConfigSyncOutcome {
+    pub path: PathBuf,
+    pub changed: bool,
+}
+
+/// 读取已有 `opencode.json`（不存在则空对象）；合并 OmniMCP + 运行时默认后写回。
 ///
-/// 返回写入路径。失败不抛 panic；调用方决定是否忽略。
-pub fn sync_omnimcp_into_opencode_config(mcp_url: &str, enabled: bool) -> Result<PathBuf, String> {
+/// 返回写入路径与是否变更。失败不抛 panic；调用方决定是否忽略。
+pub fn sync_omnimcp_into_opencode_config(
+    mcp_url: &str,
+    enabled: bool,
+) -> Result<OpenCodeConfigSyncOutcome, String> {
     let dir = opencode_config_dir()?;
     fs::create_dir_all(&dir).map_err(|e| format!("创建 OpenCode 配置目录失败: {e}"))?;
     let path = dir.join("opencode.json");
 
-    let mut root = read_json_object(&path)?;
+    let before = read_json_object(&path)?;
+    let mut root = before.clone();
     merge_omnimcp_into_root(&mut root, mcp_url, enabled);
+    merge_runtime_defaults_into_root(&mut root);
 
-    let pretty = serde_json::to_string_pretty(&root)
-        .map_err(|e| format!("序列化 opencode.json 失败: {e}"))?;
-    fs::write(&path, format!("{pretty}\n"))
-        .map_err(|e| format!("写入 {} 失败: {e}", path.display()))?;
-    Ok(path)
+    let changed = root != before;
+    if changed {
+        let pretty = serde_json::to_string_pretty(&root)
+            .map_err(|e| format!("序列化 opencode.json 失败: {e}"))?;
+        fs::write(&path, format!("{pretty}\n"))
+            .map_err(|e| format!("写入 {} 失败: {e}", path.display()))?;
+    }
+    Ok(OpenCodeConfigSyncOutcome { path, changed })
 }
 
 fn read_json_object(path: &Path) -> Result<Value, String> {
@@ -193,5 +246,28 @@ mod tests {
             "http://127.0.0.1:12756/mcp"
         );
         assert_eq!(root["mcp"]["servers"]["omnipanel"]["enabled"], true);
+    }
+
+    #[test]
+    fn merge_runtime_defaults_sets_tool_output_and_compaction() {
+        let mut root = json!({});
+        merge_runtime_defaults_into_root(&mut root);
+        assert_eq!(root["tool_output"]["max_lines"], TOOL_OUTPUT_MAX_LINES);
+        assert_eq!(root["tool_output"]["max_bytes"], TOOL_OUTPUT_MAX_BYTES);
+        assert_eq!(root["compaction"]["auto"], true);
+        assert_eq!(root["compaction"]["keep"]["tokens"], COMPACTION_KEEP_TOKENS);
+        assert_eq!(root["compaction"]["buffer"], COMPACTION_BUFFER);
+        assert_eq!(root["$schema"], "https://opencode.ai/config.json");
+    }
+
+    #[test]
+    fn merge_runtime_defaults_overwrites_loose_limits() {
+        let mut root = json!({
+            "tool_output": { "max_lines": 2000, "max_bytes": 51200 },
+            "compaction": { "auto": false }
+        });
+        merge_runtime_defaults_into_root(&mut root);
+        assert_eq!(root["tool_output"]["max_lines"], TOOL_OUTPUT_MAX_LINES);
+        assert_eq!(root["compaction"]["auto"], true);
     }
 }
