@@ -191,6 +191,18 @@ fn sse_client() -> Client {
         .unwrap_or_else(|_| Client::new())
 }
 
+/// OpenCode 实例路由用：带此头才会加载该目录下的项目级 agent / MCP / 配置。
+const OPENCODE_DIRECTORY_HEADER: &str = "x-opencode-directory";
+
+/// 解析工作区目录；未指定时用 OmniPanel ops 工作区（项目级 omnipanel-ops / OmniMCP）。
+fn resolve_workspace_directory(explicit: Option<&str>) -> Result<String, String> {
+    if let Some(dir) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(dir.to_string());
+    }
+    let ops = super::mcp_config::omnipanel_opencode_ops_dir()?;
+    Ok(ops.to_string_lossy().into_owned())
+}
+
 #[derive(Debug, Clone)]
 pub struct OpenCodeClient {
     http: Client,
@@ -216,12 +228,25 @@ impl OpenCodeClient {
     }
 
     async fn get_json<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, String> {
-        let resp = self
+        self.get_json_in(path, None).await
+    }
+
+    /// `directory` 会写入 `x-opencode-directory`，用于加载项目级配置（agent / MCP）。
+    async fn get_json_in<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        directory: Option<&str>,
+    ) -> Result<T, String> {
+        let mut req = self
             .http
             .get(self.url(path))
             .basic_auth("opencode", Some(&self.endpoint.password))
             .header(reqwest::header::ACCEPT, "application/json")
-            .timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(15));
+        if let Some(dir) = directory.map(str::trim).filter(|s| !s.is_empty()) {
+            req = req.header(OPENCODE_DIRECTORY_HEADER, dir);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| format!("OpenCode 请求失败 ({path}): {e}"))?;
@@ -600,14 +625,25 @@ impl OpenCodeClient {
     }
 
     /// 列出已注册 Agent（`GET /api/agent`）。
+    ///
+    /// 必须带 `x-opencode-directory` 才会返回项目级智能体（如 `omnipanel-ops`）；
+    /// 未指定目录时使用 OmniPanel ops 工作区。
     pub async fn list_agents(&self) -> Result<Vec<OpenCodeAgentInfo>, String> {
+        self.list_agents_in(None).await
+    }
+
+    pub async fn list_agents_in(
+        &self,
+        directory: Option<&str>,
+    ) -> Result<Vec<OpenCodeAgentInfo>, String> {
         // 宽松解析：OpenCode 可能加字段；缺 id 的条目跳过，避免整表失败 → 前端下拉空白。
         #[derive(Deserialize)]
         struct Envelope {
             data: Vec<serde_json::Value>,
         }
 
-        let env: Envelope = self.get_json("/api/agent").await?;
+        let dir = resolve_workspace_directory(directory)?;
+        let env: Envelope = self.get_json_in("/api/agent", Some(&dir)).await?;
         Ok(env
             .data
             .into_iter()
@@ -684,8 +720,11 @@ impl OpenCodeClient {
             color: Option<String>,
         }
 
+        let dir = resolve_workspace_directory(None)?;
         let encoded = urlencoding_lite(agent_id);
-        let env: Envelope = self.get_json(&format!("/api/agent/{encoded}")).await?;
+        let env: Envelope = self
+            .get_json_in(&format!("/api/agent/{encoded}"), Some(&dir))
+            .await?;
         let row = env.data;
         let name = if row.name.trim().is_empty() {
             row.id.clone()
