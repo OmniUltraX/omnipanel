@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
 import { ensureSyncDeviceAuth } from "../../lib/auth/ensureSyncDeviceAuth";
 import {
   startPresenceHeartbeat,
@@ -42,13 +41,10 @@ export function AuthProfileSync() {
       return;
     }
     void (async () => {
-      await syncAuthProfile();
+      // 资料 → 团队目录对齐 → 云端快照（与 Bootstrap splash 同一入口）
+      const { hydrateCloudAfterLogin } = await import("../../lib/auth/hydrateCloudAfterLogin");
+      await hydrateCloudAfterLogin();
       await startTeamMesh();
-      try {
-        const { pullCloudSnapshot } = await import("../../modules/clientSync");
-        await pullCloudSnapshot();
-      } catch {
-      }
       await ensureSyncDeviceAuth();
     })();
     // 冷启动已登录：补一次快照，避免助手端长期看不到数据

@@ -4,15 +4,13 @@ import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { TextInput } from "../ui/form/TextInput";
 import { WechatLoginPanel } from "./WechatLoginPanel";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useAuthStore } from "../../stores/authStore";
-import { useUserProfileStore } from "../../stores/userProfileStore";
 import {
-  fetchMe,
   loginWithEmail,
   loginWithGithub,
   cancelGithubLogin,
   sendEmailLoginCode,
 } from "../../lib/auth/loginApi";
+import { applyLoginSession } from "../../lib/auth/applyLoginSession";
 import { formatIpcError } from "../../ipc/result";
 import wechatIcon from "../../assets/icons/login/wechat.svg";
 import githubDarkIcon from "../../assets/icons/login/github_dark.svg";
@@ -24,27 +22,6 @@ type LoginMethod = "wechat" | "github" | "email";
 function useGithubIcon(): string {
   const resolved = useSettingsStore((s) => s.resolved);
   return resolved === "light" ? githubLightIcon : githubDarkIcon;
-}
-
-async function applyLoginSession(token: string, openid: string): Promise<void> {
-  useAuthStore.getState().setSession({ token, openid });
-  try {
-    const me = await fetchMe(token);
-    useUserProfileStore.getState().setProfile({
-      nickname: me.nickname,
-      avatarUrl: me.avatarUrl,
-      openid: me.openid,
-      email: me.email,
-      githubId: me.githubId,
-      ossPath: me.ossPath,
-      teams: me.teams,
-    });
-  } catch {
-    const profile = useUserProfileStore.getState();
-    if (!profile.nickname.trim() && openid) {
-      profile.setNickname(openid.slice(0, 8));
-    }
-  }
 }
 
 function GithubLoginPanel() {

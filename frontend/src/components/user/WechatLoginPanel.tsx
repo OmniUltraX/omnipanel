@@ -3,12 +3,10 @@ import { useI18n } from "../../i18n";
 import { Button } from "../ui/Button";
 import {
   fetchLoginQrcode,
-  fetchMe,
   waitForLogin,
   type LoginQrcodeResponse,
 } from "../../lib/auth/loginApi";
-import { useAuthStore } from "../../stores/authStore";
-import { useUserProfileStore } from "../../stores/userProfileStore";
+import { applyLoginSession } from "../../lib/auth/applyLoginSession";
 
 type LoginUiStatus = "loading" | "ready" | "expired" | "error";
 
@@ -19,7 +17,6 @@ interface WechatLoginPanelProps {
 
 export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) {
   const { t } = useI18n();
-  const setSession = useAuthStore((s) => s.setSession);
 
   const [status, setStatus] = useState<LoginUiStatus>("loading");
   const [qrcode, setQrcode] = useState<LoginQrcodeResponse | null>(null);
@@ -72,24 +69,7 @@ export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) 
         });
         if (waitAbort.signal.aborted || fetchAbort.signal.aborted) return;
 
-        setSession({ token: payload.token, openid: payload.openid });
-        try {
-          const me = await fetchMe(payload.token);
-          useUserProfileStore.getState().setProfile({
-            nickname: me.nickname,
-            avatarUrl: me.avatarUrl,
-            openid: me.openid,
-            email: me.email,
-            githubId: me.githubId,
-            ossPath: me.ossPath,
-            teams: me.teams,
-          });
-        } catch {
-          const profile = useUserProfileStore.getState();
-          if (!profile.nickname.trim() && payload.openid) {
-            profile.setNickname(payload.openid.slice(0, 8));
-          }
-        }
+        await applyLoginSession(payload.token, payload.openid);
       } catch (error) {
         if (fetchAbort.signal.aborted) return;
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -112,7 +92,7 @@ export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) 
       fetchAbort.abort();
       clearWait();
     };
-  }, [clearWait, refreshKey, setSession]);
+  }, [clearWait, refreshKey]);
 
   const statusText =
     status === "loading"

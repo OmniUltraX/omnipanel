@@ -139,20 +139,9 @@ export function Bootstrap() {
 
         await pushLog(t("app.splash.logs.cloudSync"));
         if (token) {
-          // 必须先等资料（teams / ossPath）就绪，再拉快照；否则密文库会因缺 ossPath 被跳过，
-          // 且残留 teamId 可能在 teams 校验前导致拉取失败。
           try {
-            await profileSync;
-          } catch {
-          }
-          try {
-            const { alignLocalStorageTeam } = await import("./lib/applyLocalTeamScope");
-            await alignLocalStorageTeam();
-          } catch {
-          }
-          try {
-            const { pullCloudSnapshot } = await import("./modules/clientSync");
-            await pullCloudSnapshot();
+            const { hydrateCloudAfterLogin } = await import("./lib/auth/hydrateCloudAfterLogin");
+            await hydrateCloudAfterLogin();
           } catch {
           }
         }
