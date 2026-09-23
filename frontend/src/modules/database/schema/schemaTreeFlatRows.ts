@@ -1345,6 +1345,47 @@ export function collectStickySchemaAncestors(
     .map(([, entry]) => entry);
 }
 
+/** 展开且有子节点的扁平行，滚动时吸在对应深度。 */
+export function schemaFlatRowIsStickyAncestor(row: SchemaFlatRow): row is SchemaNodeFlatRow {
+  return row.kind === "node" && row.expanded && row.hasChildren;
+}
+
+/**
+ * 虚拟列表里的吸顶祖先。
+ * 行是 absolute，CSS sticky 不生效；按「自然位置已经越过该深度的吸顶线」收集当前链。
+ * scrollTop <= 0 时不吸，避免和仍在原位的行叠成两份。
+ */
+export function collectViewportStickySchemaRows(
+  rows: SchemaFlatRow[],
+  scrollTop: number,
+): StickySchemaAncestor[] {
+  if (scrollTop <= 0 || rows.length === 0) {
+    return [];
+  }
+  const byDepth = new Map<number, StickySchemaAncestor>();
+  let offset = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    const depth = row.kind === "node" ? row.depth : 0;
+    const rowHeight = estimateSchemaFlatRowSize(row);
+    if (offset >= scrollTop + depth * SCHEMA_TREE_NODE_ROW_HEIGHT) {
+      break;
+    }
+    if (schemaFlatRowIsStickyAncestor(row)) {
+      for (const stuckDepth of [...byDepth.keys()]) {
+        if (stuckDepth >= row.depth) {
+          byDepth.delete(stuckDepth);
+        }
+      }
+      byDepth.set(row.depth, { row, rowIndex: i });
+    }
+    offset += rowHeight;
+  }
+  return [...byDepth.entries()]
+    .sort(([leftDepth], [rightDepth]) => leftDepth - rightDepth)
+    .map(([, entry]) => entry);
+}
+
 /**
  * 根据节点 id 收集从根到该节点的完整路径（含自身）。
  * 节点不在当前扁平树中时返回空。

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useI18n } from "../../../i18n";
-import { Button } from "../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
+import { getShortcutKeys, matchesShortcut } from "../../../stores/shortcutsStore";
+import { allocateSqlFileStem } from "./allocateSqlFileStem";
+import { SqlNewQueryIcon, TreeChartIcon } from "./SqlNewQueryIcon";
 import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/search/ScopedSearch";
 import { ContextMenu } from "../../../components/ui/menu/ContextMenu";
 import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
@@ -202,13 +205,7 @@ function FolderTree({
                 "data-sql-file-node-id": node.id,
                 "data-sql-file-node-type": "tree-chart",
               }}
-              icon={
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14" aria-hidden>
-                  <rect x="3" y="3" width="7" height="18" rx="1.5" />
-                  <rect x="14" y="3" width="7" height="10" rx="1.5" />
-                  <rect x="14" y="16" width="7" height="5" rx="1.5" />
-                </svg>
-              }
+              icon={<TreeChartIcon size={14} />}
               label={node.name}
               onToggle={() => {}}
               onActivate={() => onOpenTreeChartFile(node)}
@@ -278,8 +275,6 @@ export function SqlQueryFilePanel({
   const nodes = useDbSqlFileStore((s) => s.nodes);
   const treeChartNodes = useDbTreeChartFileStore((s) => s.nodes);
   const addFolder = useDbSqlFileStore((s) => s.addFolder);
-  const addFile = useDbSqlFileStore((s) => s.addFile);
-  const updateFileBinding = useDbSqlFileStore((s) => s.updateFileBinding);
   const renameNode = useDbSqlFileStore((s) => s.renameNode);
   const moveNode = useDbSqlFileStore((s) => s.moveNode);
   const canMoveNodeToParent = useDbSqlFileStore((s) => s.canMoveNodeToParent);
@@ -313,6 +308,9 @@ export function SqlQueryFilePanel({
     active: boolean;
   } | null>(null);
   const scopedSearchRef = useRef<ScopedSearchHandle>(null);
+  const activeFileIdRef = useRef<string | null>(null);
+  const renameFileRef = useRef<(node: DbSqlFileNode) => void>(() => {});
+  activeFileIdRef.current = activeFileId;
 
   useEffect(() => {
     if (!SQL_QUERY_FILE_DND_DEBUG) return;
@@ -325,6 +323,19 @@ export function SqlQueryFilePanel({
   const handleTreeKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+      return;
+    }
+    if (matchesShortcut(e.nativeEvent, getShortcutKeys("rename-tab"))) {
+      const id = activeFileIdRef.current;
+      const file = id
+        ? useDbSqlFileStore.getState().nodes.find((node) => node.id === id && node.type === "file")
+        : undefined;
+      if (!file) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      renameFileRef.current(file);
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) {
@@ -582,20 +593,20 @@ export function SqlQueryFilePanel({
     setExpandedIds((prev) => new Set(prev).add(folder.id));
   }, [addFolder, t]);
 
-  const handleCreateFile = useCallback(async (parentId: string | null = null) => {
-    const name = await quickInput({
-      title: t("database.queryFiles.newFileTitle"),
-      placeholder: t("database.queryFiles.fileNamePlaceholder"),
-      defaultValue: t("database.queryFiles.defaultFileName"),
-      validate: (value) => (value.trim() ? null : t("database.queryFiles.nameRequired")),
-    });
-    if (!name) {
-      return;
+  const handleCreateFile = useCallback((parentId: string | null = null) => {
+    const store = useDbSqlFileStore.getState();
+    const stem = allocateSqlFileStem(
+      store.nodes,
+      parentId,
+      t("database.queryFiles.defaultFileName"),
+    );
+    const file = store.addFile(parentId, stem);
+    if (parentId) {
+      setExpandedIds((prev) => new Set(prev).add(parentId));
     }
-    const file = addFile(parentId, name.trim());
     let openFile = file;
     if (sqlQueryBindingContext?.connId && sqlQueryBindingContext.database.trim()) {
-      updateFileBinding(
+      store.updateFileBinding(
         file.id,
         sqlQueryBindingContext.connId,
         sqlQueryBindingContext.database,
@@ -607,7 +618,7 @@ export function SqlQueryFilePanel({
       };
     }
     handleOpenFile(openFile);
-  }, [addFile, handleOpenFile, sqlQueryBindingContext, t, updateFileBinding]);
+  }, [handleOpenFile, sqlQueryBindingContext, t]);
 
   const handleRename = useCallback(
     async (node: DbSqlFileNode) => {
@@ -624,6 +635,9 @@ export function SqlQueryFilePanel({
     },
     [renameNode, t],
   );
+  renameFileRef.current = (node) => {
+    void handleRename(node);
+  };
 
   const openTreeBackgroundMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     if ((event.target as HTMLElement).closest(".sql-file-tree-node")) {
@@ -640,22 +654,23 @@ export function SqlQueryFilePanel({
 
   const toolbar = (
     <div className="schema-toolbar schema-toolbar--inline">
-      <Button variant="icon" title={t("database.queryFiles.newFile")} onClick={() => void handleCreateFile()}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-          <path d="M14 2v6h6M12 11v6M9 14h6" />
-        </svg>
-      </Button>
+      <WorkbenchActionButton
+        icon
+        title={t("database.workspace.newQuery")}
+        aria-label={t("database.workspace.newQuery")}
+        onClick={() => handleCreateFile()}
+      >
+        <SqlNewQueryIcon />
+      </WorkbenchActionButton>
       {onNewTreeChart ? (
-        <Button variant="icon" title={t("database.treeChart.new")} onClick={onNewTreeChart}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14" aria-hidden>
-            <rect x="3" y="3" width="7" height="18" rx="1.5" />
-            <rect x="14" y="3" width="7" height="10" rx="1.5" />
-            <rect x="14" y="16" width="7" height="5" rx="1.5" />
-            <path d="M6.5 8h0M6.5 12h0M6.5 16h0" strokeLinecap="round" />
-            <path d="M17.5 7h0M17.5 11h0" strokeLinecap="round" />
-          </svg>
-        </Button>
+        <WorkbenchActionButton
+          icon
+          title={t("database.treeChart.new")}
+          aria-label={t("database.treeChart.new")}
+          onClick={onNewTreeChart}
+        >
+          <TreeChartIcon />
+        </WorkbenchActionButton>
       ) : null}
     </div>
   );
@@ -747,7 +762,7 @@ export function SqlQueryFilePanel({
                   ? [
                       {
                         id: "new-file",
-                        label: t("database.queryFiles.newFile"),
+                        label: t("database.workspace.newQuery"),
                         icon: contextMenuIcons.file,
                         onClick: () => void handleCreateFile(ctxMenu.node!.id),
                       },

@@ -261,9 +261,39 @@ pub async fn qdrant_delete_points(
     qdrant::qdrant_delete_points(params, collection, point_ids).await
 }
 
+/// 跳过前导空白、`--` 行注释和 `/* */` 块注释，留下真正的语句正文。
+pub(crate) fn skip_leading_sql_comments(sql: &str) -> &str {
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'-' && bytes[i + 1] == b'-' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        break;
+    }
+    &sql[i..]
+}
+
 /// 判断 SQL 是否为返回行集的查询（否则按 DML 处理，返回影响行数）。
+/// 语句前的行注释 / 块注释不参与判断。
 pub(crate) fn is_query(sql: &str) -> bool {
-    let s = sql.trim_start().to_lowercase();
+    let s = skip_leading_sql_comments(sql).trim_start().to_lowercase();
     [
         "select", "show", "with", "explain", "describe", "desc", "pragma", "values", "table",
         // Cypher 读路径（写语句仍以 CREATE/MERGE/DELETE 开头，走 DML）
@@ -439,7 +469,7 @@ pub(crate) fn map_sqlx_err(err: sqlx::Error) -> OmniError {
 /// 判断 SQL 语句是否可安全包裹为子查询（仅 SELECT / WITH / TABLE / VALUES）。
 /// SHOW / DESCRIBE / PRAGMA / EXPLAIN 等元数据查询不能作为子查询，跳过包裹。
 fn is_wrappable_select(sql: &str) -> bool {
-    let s = sql.trim_start().to_lowercase();
+    let s = skip_leading_sql_comments(sql).trim_start().to_lowercase();
     ["select", "with", "table", "values"]
         .iter()
         .any(|kw| s.starts_with(kw))
@@ -590,6 +620,11 @@ mod tests {
         assert!(is_query("SELECT * FROM t"));
         assert!(is_query("  with cte as (select 1) select * from cte"));
         assert!(is_query("SHOW TABLES"));
+        assert!(is_query("-- aa\nSELECT 1\nFROM t\nWHERE id = 1"));
+        assert!(is_query("/* note */\nSELECT 1"));
+        assert!(is_query("-- head\n/* block */\nSHOW TABLES"));
+        assert!(!is_query("-- only\n"));
+        assert!(!is_query("-- aa\nINSERT INTO t VALUES (1)"));
     }
 
     #[test]
@@ -688,6 +723,14 @@ mod tests {
             out,
             "SELECT * FROM (SELECT * FROM users) AS __omnipanel_wrap__ LIMIT 1000 OFFSET 0"
         );
+    }
+
+    #[test]
+    fn wrap_select_keeps_leading_comment() {
+        let out = wrap_select_with_limit("-- aa\nSELECT 1 FROM t", 10, 0);
+        assert!(out.contains("-- aa"));
+        assert!(out.contains("__omnipanel_wrap__"));
+        assert!(out.contains("LIMIT 10"));
     }
 
     #[test]

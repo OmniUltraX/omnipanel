@@ -4,6 +4,7 @@ import {
   useEffect,
   useCallback,
   useImperativeHandle,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -17,6 +18,7 @@ import {
   findStatementRangeAtOffset,
 } from "../language/selection";
 import { getSqlEditorThemeExtensions, isLightTheme } from "../../sql/sqlEditorTheme";
+import { openSqlEditorMenu } from "../../sql/sqlEditorMenuSignal";
 import { attachSqlEditorWheelZoom } from "../../sql/sqlEditorZoom";
 import {
   clearSearchHighlight,
@@ -28,7 +30,7 @@ import {
   updateSearchHighlight,
   type SqlSearchMatchInfo,
 } from "../../sql/sqlSearchHighlight";
-import { formatSql, formatSqlRange } from "../language/formatter";
+import { formatSql, formatSqlRange, type SqlFormatStyle } from "../language/formatter";
 import { resolveSqlDialect } from "../../sqlIntel/sqlDialect";
 import { restoreDockWindowChromeAfterLayout } from "../../../../lib/restoreDockWindowChromeAfterLayout";
 import { createSqlEditorExtensions } from "./extensions";
@@ -50,11 +52,21 @@ export interface SqlEditorSearchApi {
   clear: () => void;
 }
 
+export interface SqlEditorSelection {
+  doc: string;
+  from: number;
+  to: number;
+  head: number;
+}
+
 export interface SqlEditorHandle {
   formatAll: () => void;
-  formatCurrentStatement: () => void;
+  formatCurrentStatement: (style?: SqlFormatStyle) => void;
   getSqlAtCursor: () => string;
   getSelectedSql: () => string;
+  getSelection: () => SqlEditorSelection;
+  replaceRange: (from: number, to: number, insert: string) => void;
+  selectAll: () => void;
   search: SqlEditorSearchApi;
 }
 
@@ -84,6 +96,10 @@ interface SqlEditorProps {
   highlightQuery?: string;
   /** false 时仅 CSS 隐藏，保留编辑器实例（切换 Tab 更快）。 */
   editorActive?: boolean;
+  /** 右键：先把光标落到点击处（不打断已有选区），再交给外层菜单。 */
+  onContextMenu?: (position: { x: number; y: number }) => void;
+  /** 右键菜单归属。有值时直接打开编辑器菜单，不依赖 React 的 onContextMenu。 */
+  contextMenuKey?: string;
 }
 
 function runStatementAtCursor(
@@ -99,12 +115,13 @@ function applyFormatToView(
   view: EditorView,
   dbType: string | undefined,
   range?: { from: number; to: number },
+  style: SqlFormatStyle = "pretty",
 ): void {
   const current = view.state.doc.toString();
   const head = view.state.selection.main.head;
 
   if (range) {
-    const { text, cursor } = formatSqlRange(current, range.from, range.to, head, dbType);
+    const { text, cursor } = formatSqlRange(current, range.from, range.to, head, dbType, style);
     if (text === current) {
       return;
     }
@@ -115,7 +132,7 @@ function applyFormatToView(
     return;
   }
 
-  const formatted = formatSql(current, dbType);
+  const formatted = formatSql(current, dbType, style);
   if (formatted === current) {
     return;
   }
@@ -141,6 +158,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     readOnly = false,
     highlightQuery = "",
     editorActive = true,
+    onContextMenu,
+    contextMenuKey,
   },
   ref,
 ) {
@@ -150,6 +169,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const sqlKeywordCase = useSettingsStore((s) => s.sqlKeywordCase);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onRunRef = useRef(onRun);
@@ -158,6 +178,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const onSaveRef = useRef(onSave);
   const onOpenTableRef = useRef(onOpenTable);
   const onCursorOffsetChangeRef = useRef(onCursorOffsetChange);
+  const onContextMenuRef = useRef(onContextMenu);
+  const contextMenuKeyRef = useRef(contextMenuKey);
   const readOnlyRef = useRef(readOnly);
   const schemasRef = useRef(schemas);
   const dbTypeRef = useRef(dbType);
@@ -174,6 +196,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   onSaveRef.current = onSave;
   onOpenTableRef.current = onOpenTable;
   onCursorOffsetChangeRef.current = onCursorOffsetChange;
+  onContextMenuRef.current = onContextMenu;
+  contextMenuKeyRef.current = contextMenuKey;
   readOnlyRef.current = readOnly;
   schemasRef.current = schemas;
   dbTypeRef.current = dbType;
@@ -195,12 +219,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     applyFormatToView(view, dbTypeRef.current);
   }, []);
 
-  const formatCurrentStatementInView = useCallback(() => {
+  const formatCurrentStatementInView = useCallback((style: SqlFormatStyle = "pretty") => {
     const view = viewRef.current;
     if (!view || readOnlyRef.current) return;
     const text = view.state.doc.toString();
     const head = view.state.selection.main.head;
-    applyFormatToView(view, dbTypeRef.current, findStatementRangeAtOffset(text, head));
+    applyFormatToView(view, dbTypeRef.current, findStatementRangeAtOffset(text, head), style);
   }, []);
 
   const getSqlAtCursorFromView = useCallback((): string => {
@@ -218,6 +242,72 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     return view.state.doc.sliceString(from, to).trim();
   }, []);
 
+  const getSelectionFromView = useCallback((): SqlEditorSelection => {
+    const view = viewRef.current;
+    const doc = view?.state.doc.toString() ?? valueRef.current;
+    if (!view) return { doc, from: 0, to: 0, head: 0 };
+    const { from, to, head } = view.state.selection.main;
+    return { doc, from, to, head };
+  }, []);
+
+  const replaceRangeInView = useCallback((from: number, to: number, insert: string) => {
+    const view = viewRef.current;
+    if (!view || readOnlyRef.current) return;
+    const nextHead = from + insert.length;
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: { anchor: nextHead },
+    });
+    view.focus();
+  }, []);
+
+  const selectAllInView = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    view.focus();
+  }, []);
+
+  const openContextMenuAt = useCallback((event: { clientX: number; clientY: number; preventDefault: () => void }) => {
+    event.preventDefault();
+    const view = viewRef.current;
+    if (view) {
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos != null) {
+        const sel = view.state.selection.main;
+        const inside = pos >= sel.from && pos <= sel.to && sel.from !== sel.to;
+        if (!inside) {
+          view.dispatch({ selection: { anchor: pos } });
+        }
+      }
+    }
+    const menuKey = contextMenuKeyRef.current;
+    if (menuKey) {
+      openSqlEditorMenu({ key: menuKey, x: event.clientX, y: event.clientY });
+    }
+    onContextMenuRef.current?.({ x: event.clientX, y: event.clientY });
+  }, []);
+
+  const openContextMenuAtRef = useRef(openContextMenuAt);
+  openContextMenuAtRef.current = openContextMenuAt;
+
+  const handleNativeContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      openContextMenuAtRef.current(event);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const onNativeContextMenu = (event: MouseEvent) => {
+      openContextMenuAtRef.current(event);
+    };
+    root.addEventListener("contextmenu", onNativeContextMenu);
+    return () => root.removeEventListener("contextmenu", onNativeContextMenu);
+  }, []);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -225,6 +315,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       formatCurrentStatement: formatCurrentStatementInView,
       getSqlAtCursor: getSqlAtCursorFromView,
       getSelectedSql: getSelectedSqlFromView,
+      getSelection: getSelectionFromView,
+      replaceRange: replaceRangeInView,
+      selectAll: selectAllInView,
       search: {
         setQuery: (query, options) => {
           const view = viewRef.current;
@@ -263,7 +356,15 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
         },
       },
     }),
-    [formatAllInView, formatCurrentStatementInView, getSqlAtCursorFromView, getSelectedSqlFromView],
+    [
+      formatAllInView,
+      formatCurrentStatementInView,
+      getSelectionFromView,
+      getSelectedSqlFromView,
+      getSqlAtCursorFromView,
+      replaceRangeInView,
+      selectAllInView,
+    ],
   );
 
   useEffect(() => {
@@ -482,7 +583,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing) return;
-      if (!matchesShortcut(e, getShortcutKeys("format-sql-statement"))) {
+      const compact = matchesShortcut(e, getShortcutKeys("format-sql-compact"));
+      if (!compact && !matchesShortcut(e, getShortcutKeys("format-sql-statement"))) {
         return;
       }
       if (!isSqlEditorFocused()) return;
@@ -490,7 +592,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       if (!view?.hasFocus || readOnlyRef.current) return;
       e.preventDefault();
       e.stopPropagation();
-      formatCurrentStatementInView();
+      formatCurrentStatementInView(compact ? "compact" : "pretty");
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -524,9 +626,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
 
   return (
     <div
+      ref={rootRef}
       className={`sql-codemirror-editor${editorActive ? "" : " sql-codemirror-editor--inactive"}`}
       data-open-mode={openMode}
       aria-hidden={editorActive ? undefined : true}
+      onContextMenu={handleNativeContextMenu}
     >
       <div ref={containerRef} className="sql-codemirror-editor__host" />
     </div>

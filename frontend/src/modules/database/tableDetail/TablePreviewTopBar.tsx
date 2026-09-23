@@ -19,6 +19,7 @@ import {
   clampDatabaseTableGridFontSize,
 } from "../../../stores/settingsStore";
 import { TABLE_PREVIEW_PAGE_SIZE_OPTIONS } from "../workspace/dbWorkspaceState";
+import { SqlNewQueryIcon } from "../sql/SqlNewQueryIcon";
 
 /** 设置浮层；Select 下拉需高于此值，否则会被面板挡住 */
 const TABLE_SETTINGS_POPOVER_Z_INDEX = 200000;
@@ -250,17 +251,6 @@ function IconDesignTable() {
   );
 }
 
-/** 新建查询：SQL 文档 + 加号 */
-function IconNewQuery() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden>
-      <path d="M4 2.5h5.5L12.5 5.5V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
-      <path d="M9 2.5V5.5h3" strokeLinejoin="round" />
-      <path d="M5.5 9h2M5.5 11.5h4" strokeLinecap="round" />
-      <path d="M12.5 9.5v3M11 11h3" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 export function TablePreviewTopBar({
   loading,
@@ -679,7 +669,7 @@ export function TablePreviewTopBar({
             aria-label={t("database.workspace.newQuery")}
             onClick={onCreateTableQuery}
           >
-            <IconNewQuery />
+            <SqlNewQueryIcon size={14} />
           </Button>
         ) : null}
         {canExport ? (

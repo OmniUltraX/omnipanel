@@ -27,7 +27,7 @@ export interface DbWorkspaceSharedContextValue {
   runQuery: (
     sqlOverride?: string,
     tabIdOverride?: string,
-    options?: { resultPage?: number; sessionId?: string },
+    options?: { resultPage?: number; sessionId?: string; freshResult?: boolean },
   ) => Promise<void>;
   cancelQuery: (tabIdOverride?: string) => Promise<void>;
   setSqlAutoCommit: (tabId: string, autoCommit: boolean) => Promise<void>;

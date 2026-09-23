@@ -1014,6 +1014,57 @@
         width: 100%;
     }
 
+    /* 展开的连接 / 库 / 分组（如表）吸在滚动区顶部，表行从下面滚过 */
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky {
+        position: sticky;
+        top: calc(var(--tree-depth, 0) * var(--schema-tree-row-height));
+        z-index: calc(20 + var(--tree-depth, 0));
+        overflow: visible;
+        background: var(--bg);
+        box-shadow: 0 1px 0 var(--border);
+    }
+
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky .tree-node,
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky .sidebar-tree-node {
+        margin-right: 0;
+        border-radius: 0;
+        background: var(--bg);
+    }
+
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky .tree-node:hover,
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky .sidebar-tree-node:hover {
+        background: var(--surface-hover);
+    }
+
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky .tree-node--active,
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky .sidebar-tree-node--active,
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky .tree-node--selected,
+    .schema-tree--sticky-ancestors .schema-tree-native-row--sticky .sidebar-tree-node--selected {
+        background: var(--accent-soft);
+    }
+
+    /* 虚拟列表行是 absolute，改由视口叠层吸顶；高度为 0，不挤占滚动内容 */
+    .schema-tree-sticky-overlay {
+        position: sticky;
+        top: 0;
+        height: 0;
+        width: 100%;
+        z-index: 40;
+        overflow: visible;
+    }
+
+    .schema-tree-sticky-overlay .schema-tree-native-row--sticky {
+        position: absolute;
+        left: 0;
+        width: 100%;
+        top: calc(var(--tree-depth, 0) * var(--schema-tree-row-height));
+    }
+
+    .schema-tree-virtual-row--under-sticky {
+        visibility: hidden;
+        pointer-events: none;
+    }
+
     .schema-tree-virtual-row .tree-node,
     .schema-tree-native-row .tree-node {
         height: 100%;
@@ -11193,8 +11244,34 @@
     .sql-toolbar-history__item {
         border: 1px solid var(--border-soft);
         border-radius: 6px;
-        padding: 6px 8px;
         background: color-mix(in srgb, var(--fg) 2%, var(--surface));
+    }
+
+    .sql-toolbar-history__pick {
+        display: block;
+        width: 100%;
+        margin: 0;
+        padding: 6px 8px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        border-radius: 6px;
+    }
+
+    .sql-toolbar-history__pick:hover {
+        background: color-mix(in srgb, var(--fg) 5%, transparent);
+    }
+
+    .sql-editor-ddl-preview {
+        margin: 0;
+        max-height: 60vh;
+        overflow: auto;
+        white-space: pre;
+        font-family: var(--font-mono, ui-monospace, monospace);
+        font-size: 12px;
+        line-height: 1.5;
     }
 
     .sql-toolbar-history__meta {

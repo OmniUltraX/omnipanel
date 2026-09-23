@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
 import { ModuleSidebarTreeToolbar } from "@/components/ui/module-sidebar";
 import { IconDropdownButton } from "../../../components/ui/menu";
@@ -10,11 +11,16 @@ import {
   applyTablePinOrder,
   SchemaFilterDialog,
 } from "./DatabaseFilterDialog";
-import { estimateSchemaFlatRowSize } from "./schemaTreeFlatRows";
+import {
+  collectViewportStickySchemaRows,
+  estimateSchemaFlatRowSize,
+  schemaFlatRowIsStickyAncestor,
+} from "./schemaTreeFlatRows";
 import { ModuleSidebarSection, SidebarImportIcon } from "@/components/ui/module-sidebar";
 import {
   SidebarTreeSelectionProvider,
 } from "@/components/ui/sidebar-tree";
+import { SqlNewQueryIcon } from "../sql/SqlNewQueryIcon";
 import { SchemaTreeHotkeys } from "./SchemaTreeHotkeys";
 import { SchemaTreeSelectionSync } from "./SchemaTreeSelectionSync";
 import { useSchemaBrowserModel } from "./useSchemaBrowserModel";
@@ -109,6 +115,53 @@ export function SchemaBrowser({
     connectionsReady,
   });
 
+  const stickyAncestors = !search.trim();
+  const flatRowsRef = useRef(flatRows);
+  flatRowsRef.current = flatRows;
+  const [stickyIndexes, setStickyIndexes] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (!stickyAncestors || !useTreeVirtualization) {
+      setStickyIndexes((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+    const el = schemaTreeRef.current;
+    if (!el) {
+      return;
+    }
+    let raf = 0;
+    const apply = () => {
+      const next = collectViewportStickySchemaRows(flatRowsRef.current, el.scrollTop).map(
+        (entry) => entry.rowIndex,
+      );
+      setStickyIndexes((prev) => {
+        if (prev.length === next.length && prev.every((index, i) => index === next[i])) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    const onScroll = () => {
+      if (raf !== 0) {
+        return;
+      }
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        apply();
+      });
+    };
+    apply();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (raf !== 0) {
+        cancelAnimationFrame(raf);
+      }
+    };
+  }, [stickyAncestors, useTreeVirtualization, flatRows, schemaTreeRef]);
+
+  const stickyIndexSet = useMemo(() => new Set(stickyIndexes), [stickyIndexes]);
+
   const toolbar = (
     <div className="schema-toolbar schema-toolbar--inline">
       <WorkbenchActionButton
@@ -128,10 +181,7 @@ export function SchemaBrowser({
           aria-label={t("database.workspace.newQuery")}
           onClick={onNewSqlQuery}
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="12" height="12" aria-hidden>
-            <path d="M3 4.5h10M3 8h10M3 11.5h6" strokeLinecap="round" />
-            <path d="M11.5 8.5 13 10l-2 2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <SqlNewQueryIcon />
         </WorkbenchActionButton>
       ) : null}
       {onImportNavicat ? (
@@ -225,7 +275,7 @@ export function SchemaBrowser({
             )}
           </nav>
           <div
-            className={`schema-tree${useTreeVirtualization ? " schema-tree--virtual" : ""}`}
+            className={`schema-tree${useTreeVirtualization ? " schema-tree--virtual" : ""}${stickyAncestors ? " schema-tree--sticky-ancestors" : ""}`}
             ref={schemaTreeRef}
             tabIndex={-1}
             onKeyDown={handleTreeKeyDown}
@@ -257,44 +307,75 @@ export function SchemaBrowser({
           </div>
         )}
         {!loading && !loadError && hasAnyConnection && useTreeVirtualization && (
-          <div
-            className="schema-tree-virtual-inner"
-            style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
-          >
-            {virtualRows.map((virtualRow) => {
-              const row = flatRows[virtualRow.index];
-              if (!row) return null;
+          <>
+            {stickyIndexes.length > 0 ? (
+              <div className="schema-tree-sticky-overlay">
+                {stickyIndexes.map((rowIndex) => {
+                  const row = flatRows[rowIndex];
+                  if (!row || !schemaFlatRowIsStickyAncestor(row)) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={row.key}
+                      className="schema-tree-native-row schema-tree-native-row--sticky"
+                      style={{
+                        height: estimateSchemaFlatRowSize(row),
+                        ["--tree-depth" as string]: row.depth,
+                      }}
+                    >
+                      {renderFlatRow(row)}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            <div
+              className="schema-tree-virtual-inner"
+              style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
+            >
+              {virtualRows.map((virtualRow) => {
+                const row = flatRows[virtualRow.index];
+                if (!row) return null;
+                const pinnedAway = stickyIndexSet.has(virtualRow.index);
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    className={`schema-tree-virtual-row schema-tree-virtual-row--absolute${pinnedAway ? " schema-tree-virtual-row--under-sticky" : ""}`}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: virtualRow.size,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    {renderFlatRow(row)}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {!loading && !loadError && hasAnyConnection && !useTreeVirtualization && (
+          <div className="schema-tree-native-inner">
+            {flatRows.map((row) => {
+              const pin = stickyAncestors && schemaFlatRowIsStickyAncestor(row);
               return (
                 <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  className="schema-tree-virtual-row schema-tree-virtual-row--absolute"
+                  key={row.key}
+                  className={`schema-tree-native-row${pin ? " schema-tree-native-row--sticky" : ""}`}
                   style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: virtualRow.size,
-                    transform: `translateY(${virtualRow.start}px)`,
+                    height: estimateSchemaFlatRowSize(row),
+                    ...(pin ? { ["--tree-depth" as string]: row.depth } : {}),
                   }}
                 >
                   {renderFlatRow(row)}
                 </div>
               );
             })}
-          </div>
-        )}
-        {!loading && !loadError && hasAnyConnection && !useTreeVirtualization && (
-          <div className="schema-tree-native-inner">
-            {flatRows.map((row) => (
-              <div
-                key={row.key}
-                className="schema-tree-native-row"
-                style={{ height: estimateSchemaFlatRowSize(row) }}
-              >
-                {renderFlatRow(row)}
-              </div>
-            ))}
           </div>
         )}
         </SidebarTreeSelectionProvider>

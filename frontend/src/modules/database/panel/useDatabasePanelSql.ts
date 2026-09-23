@@ -273,7 +273,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
   const runQuery = useCallback(async (
     sqlOverride?: string,
     tabIdOverride?: string,
-    options?: { resultPage?: number; sessionId?: string },
+    options?: { resultPage?: number; sessionId?: string; freshResult?: boolean },
   ) => {
     const tabStore = useDbWorkspaceTabStore.getState();
     const pageSize = useSettingsStore.getState().databaseQueryPageSize;
@@ -360,7 +360,8 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
     }
 
     const runId = makeQueryRunId();
-    const tempSession = findTemporarySqlResultSession(sessions);
+    const freshResult = options?.freshResult === true;
+    const tempSession = freshResult ? undefined : findTemporarySqlResultSession(sessions);
     if (tempSession && tabState.activeQueryRunId) {
       try {
         await invoke("db_cancel_query", { runId: tabState.activeQueryRunId });
@@ -369,12 +370,16 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       }
     }
 
-    const session = tempSession
-      ? reuseTemporarySqlResultSession(tempSession, sql)
-      : createSqlResultSession(sql);
-    const nextSessions = tempSession
-      ? sessions.map((item) => (item.id === tempSession.id ? session : item))
-      : [...sessions, session];
+    const session = freshResult
+      ? createSqlResultSession(sql, true)
+      : tempSession
+        ? reuseTemporarySqlResultSession(tempSession, sql)
+        : createSqlResultSession(sql);
+    const nextSessions = freshResult
+      ? [...sessions, session]
+      : tempSession
+        ? sessions.map((item) => (item.id === tempSession.id ? session : item))
+        : [...sessions, session];
 
     updateSqlTabState(resolvedTabId, {
       running: true,
@@ -695,6 +700,53 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
     },
     [activeWorkspaceTabId, t, syncSqlFileTabHeaderMeta, resolveConnection, updateSqlTabState],
   );
+
+  const renameActiveSqlQuery = useCallback(async () => {
+    const tabId = activeWorkspaceTabIdRef.current;
+    const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
+    if (!tab || tab.kind !== "sql") return;
+    if (tab.sqlFileId) {
+      const file = useDbSqlFileStore.getState().getNode(tab.sqlFileId);
+      if (!file || file.type !== "file") return;
+      const name = await quickInput({
+        title: t("database.queryFiles.renameTitle"),
+        defaultValue: file.name.replace(/\.sql$/i, ""),
+        validate: (value) => (value.trim() ? null : t("database.queryFiles.nameRequired")),
+      });
+      if (!name) return;
+      useDbSqlFileStore.getState().renameNode(file.id, name.trim());
+      return;
+    }
+    const name = await quickInput({
+      title: t("database.queryFiles.renameTitle"),
+      defaultValue: tab.label,
+      validate: (value) => (value.trim() ? null : t("database.queryFiles.nameRequired")),
+    });
+    if (!name) return;
+    setWorkspaceTabs((prev) =>
+      prev.map((item) => (item.id === tabId ? { ...item, label: name.trim() } : item)),
+    );
+  }, [setWorkspaceTabs, t]);
+
+  useEffect(() => {
+    if (!isActiveRoute) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing || e.repeat) return;
+      if (!matchesShortcut(e, getShortcutKeys("rename-tab"))) return;
+      const target = e.target instanceof Element ? e.target : null;
+      if (target?.closest("input, textarea, select")) return;
+      if (target?.closest(".sql-query-file-tree")) return;
+      const tab = workspaceTabsRef.current.find(
+        (item) => item.id === activeWorkspaceTabIdRef.current,
+      );
+      if (!tab || tab.kind !== "sql") return;
+      e.preventDefault();
+      e.stopPropagation();
+      void renameActiveSqlQuery();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isActiveRoute, renameActiveSqlQuery]);
 
   useEffect(() => {
     if (!isActiveRoute) return;

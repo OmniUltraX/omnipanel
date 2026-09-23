@@ -51,6 +51,7 @@ import {
   getDatabaseSessionService } from "../databaseSessionService";
 import type { DbSqlFileNode } from "../../../stores/dbSqlFileStore";
 import { resolveSqlTabStateFromFile, useDbSqlFileStore } from "../../../stores/dbSqlFileStore";
+import { allocateSqlFileStem } from "../sql/allocateSqlFileStem";
 import {
   formatTreeChartFileLabel,
   useDbTreeChartFileStore,
@@ -266,6 +267,11 @@ export function useDatabasePanelModel() {
   const removeTabWorkspaceData = useDbWorkspaceTabStore((state) => state.removeTabWorkspaceData);
 
   const workspaceTabsRef = useRef<DbWorkspaceTab[]>([]);
+  const openSqlFileRef = useRef<(file: DbSqlFileNode) => void>(() => {});
+  const connectionsRef = useRef(connections);
+  const tRef = useRef(t);
+  connectionsRef.current = connections;
+  tRef.current = t;
   const openConnectionInfoTabRef = useRef<
     (connId: string, mode?: SchemaDockOpenMode, options?: { expandTree?: boolean }) => void
   >(() => {});
@@ -1744,10 +1750,23 @@ export function useDatabasePanelModel() {
       activeDatabaseKey,
       activeTableKey,
       sqlTabConnDb: activeSqlTabConnDb });
-    if (!binding) {
-      return;
+    const store = useDbSqlFileStore.getState();
+    const stem = allocateSqlFileStem(
+      store.nodes,
+      null,
+      t("database.queryFiles.defaultFileName"),
+    );
+    const file = store.addFile(null, stem);
+    let openFile = file;
+    if (binding?.connId && binding.database.trim()) {
+      store.updateFileBinding(file.id, binding.connId, binding.database);
+      openFile = {
+        ...file,
+        connId: binding.connId,
+        database: binding.database,
+      };
     }
-    openSqlDraftTab(binding.connId, binding.database);
+    openSqlFileRef.current(openFile);
   }, [
     activeConnId,
     activeDatabaseKey,
@@ -1755,7 +1774,7 @@ export function useDatabasePanelModel() {
     activeWorkspaceTab,
     activeSqlTabConnDb,
     connections,
-    openSqlDraftTab,
+    t,
   ]);
 
   /** 侧栏「查询」：单例 SQL 编辑器，不落文件；关闭后再打开恢复上次内容。 */
@@ -1957,6 +1976,40 @@ export function useDatabasePanelModel() {
     },
     [workspaceTabs, dirtySqlWorkspaceTabIds, syncSqlFileTabHeaderMeta, connections, t],
   );
+  openSqlFileRef.current = openSqlFile;
+
+  useEffect(() => {
+    return useDbSqlFileStore.subscribe((state, prev) => {
+      if (state.nodes === prev.nodes) return;
+      const files = new Map(
+        state.nodes
+          .filter((node) => node.type === "file")
+          .map((node) => [node.id, node]),
+      );
+      setWorkspaceTabs((tabs) => {
+        let changed = false;
+        const next = tabs.map((tab) => {
+          if (tab.kind !== "sql" || !tab.sqlFileId) return tab;
+          const file = files.get(tab.sqlFileId);
+          if (!file) return tab;
+          const conn = file.connId
+            ? connectionsRef.current.find((item) => item.id === file.connId)
+            : undefined;
+          const label = makeSqlTabLabel({
+            action:
+              file.name.replace(/\.sql$/i, "") ||
+              tRef.current("database.workspace.tabAction.sql"),
+            database: file.database,
+            connection: conn?.name ?? null,
+          });
+          if (label === tab.label) return tab;
+          changed = true;
+          return { ...tab, label };
+        });
+        return changed ? next : tabs;
+      });
+    });
+  }, [setWorkspaceTabs]);
 
   const openTreeChartFile = useCallback(
     (file: DbTreeChartFileNode) => {

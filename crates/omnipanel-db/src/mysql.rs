@@ -153,7 +153,9 @@ async fn select_columns(pool: &MySqlPool, sql: &str, rows: &[MySqlRow]) -> OmniR
 /// MySQL 预处理协议不支持的语句（Error 1295），须走 COM_QUERY / raw_sql。
 /// 手动事务会话的 BEGIN/COMMIT/ROLLBACK 会触发此路径。
 pub(crate) fn is_mysql_text_protocol_only(sql: &str) -> bool {
-    let s = sql.trim_start().to_ascii_lowercase();
+    let s = crate::skip_leading_sql_comments(sql)
+        .trim_start()
+        .to_ascii_lowercase();
     s.starts_with("begin")
         || s.starts_with("commit")
         || s.starts_with("rollback")

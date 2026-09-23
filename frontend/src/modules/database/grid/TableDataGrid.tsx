@@ -28,6 +28,7 @@ import {
 import { buildColumnHeaderTooltip, formatColumnHeaderName } from "./tableDataGridFormat";
 import { applyAllColumnWidthsDom, buildColumnCellStyle } from "./tableDataGridLayout";
 import { isHeaderInColumnSelection } from "./tableDataGridSelection";
+import { SqlNewQueryIcon } from "../sql/SqlNewQueryIcon";
 import type { TableDataGridProps } from "./tableDataGridTypes";
 import { useTableDataGridModel } from "./useTableDataGridModel";
 
@@ -697,10 +698,7 @@ export const TableDataGrid = memo(function TableDataGrid(props: TableDataGridPro
               aria-label={t("database.workspace.newQuery")}
               onClick={onCreateTableQuery}
             >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-                <path d="M3 4.5h10M3 8h10M3 11.5h6" strokeLinecap="round" />
-                <path d="M11.5 8.5 13 10l-2 2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              <SqlNewQueryIcon size={14} />
             </Button>
           ) : null}
         </div>

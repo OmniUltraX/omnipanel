@@ -125,9 +125,11 @@ function formatTime(ts: number): string {
 function HistoryList({
   scopeId,
   refreshKey,
+  onPick,
 }: {
   scopeId: string;
   refreshKey: number;
+  onPick: (sql: string) => void;
 }) {
   const { t } = useI18n();
   const items = useMemo(() => listSqlQueryHistory(scopeId), [scopeId, refreshKey]);
@@ -141,6 +143,11 @@ function HistoryList({
       <ul className="sql-toolbar-history__list">
         {items.map((item: SqlQueryHistoryEntry) => (
           <li key={item.id} className="sql-toolbar-history__item">
+            <button
+              type="button"
+              className="sql-toolbar-history__pick"
+              onClick={() => onPick(item.sql)}
+            >
             <div className="sql-toolbar-history__meta">
               <span
                 className={`sql-toolbar-history__tag sql-toolbar-history__tag--${sqlHistoryKindTone(item.kind)}`}
@@ -151,6 +158,7 @@ function HistoryList({
               {item.elapsedMs != null ? <span>{item.elapsedMs}ms</span> : null}
             </div>
             <pre className="sql-toolbar-history__sql">{item.sql}</pre>
+            </button>
           </li>
         ))}
       </ul>
@@ -169,6 +177,7 @@ export interface SqlToolbarLeftControlsProps {
   onAutoCommitChange: (autoCommit: boolean) => void;
   onCommit: () => void;
   onRollback: () => void;
+  onPickHistory: (sql: string) => void;
 }
 
 export function SqlToolbarLeftControls({
@@ -182,6 +191,7 @@ export function SqlToolbarLeftControls({
   onAutoCommitChange,
   onCommit,
   onRollback,
+  onPickHistory,
 }: SqlToolbarLeftControlsProps) {
   const { t } = useI18n();
   const settingsAnchorRef = useRef<HTMLSpanElement>(null);
@@ -405,7 +415,14 @@ export function SqlToolbarLeftControls({
             {t("database.sqlToolbar.historyClear")}
           </Button>
         </div>
-        <HistoryList scopeId={historyScopeId} refreshKey={historyRefresh} />
+        <HistoryList
+          scopeId={historyScopeId}
+          refreshKey={historyRefresh}
+          onPick={(sql) => {
+            onPickHistory(sql);
+            setHistoryOpen(false);
+          }}
+        />
       </AnchorPopover>
     </div>
   );

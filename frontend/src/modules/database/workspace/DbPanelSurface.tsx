@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import { useModuleSuspended } from "../../../lib/moduleVisibility";
@@ -33,6 +34,12 @@ import { createDefaultSqlTabState, type SqlTabState } from "./dbWorkspaceState";
 import { sqlAtOffset } from "../sqlIntel/sqlStatement";
 import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
 import { SqlToolbarLeftControls } from "../sql/SqlToolbarLeftControls";
+import { SqlEditorContextMenu } from "../sql/SqlEditorContextMenu";
+import {
+  closeSqlEditorMenu,
+  getSqlEditorMenu,
+  subscribeSqlEditorMenu,
+} from "../sql/sqlEditorMenuSignal";
 import { resolveSqlHistoryScopeId } from "../sql/sqlQueryHistoryStore";
 import { isConnectionEnabled } from "../api";
 import type { DatabaseSchema } from "../types";
@@ -109,6 +116,7 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
       onRunAll={onRunAll}
       onSave={onSave}
       onOpenTable={onOpenTable}
+      contextMenuKey={tabId}
       schemas={scopedSchemas}
     />
   );
@@ -169,6 +177,9 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const [detailTab, setDetailTab] = useState<TableDetailTab>("value");
   const [activeCell, setActiveCell] = useState<TableDataGridActiveCell | null>(null);
   const [selectedCells, setSelectedCells] = useState<TableDataGridActiveCell[]>([]);
+  const [findSignal, setFindSignal] = useState(0);
+  const editorMenuSignal = useSyncExternalStore(subscribeSqlEditorMenu, getSqlEditorMenu);
+  const editorMenu = editorMenuSignal?.key === tab.id ? editorMenuSignal : null;
 
   const handleSqlChange = useCallback(
     (value: string) => {
@@ -519,6 +530,9 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           onAutoCommitChange={(next) => void ws.setSqlAutoCommit(tab.id, next)}
           onCommit={() => void ws.commitSqlTransaction(tab.id)}
           onRollback={() => void ws.rollbackSqlTransaction(tab.id)}
+          onPickHistory={(sql) => {
+            ws.updateSqlTabState(tab.id, { sql, cursorOffset: sql.length, error: null });
+          }}
         />
         <div className="sql-toolbar-divider" aria-hidden />
         <Select
@@ -582,6 +596,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         editorRef={sqlEditorRef}
         enabled={editorActive}
         docRevision={tabState.sql}
+        findSignal={findSignal}
       >
         <DbPanelSqlEditor
           tabId={tab.id}
@@ -648,11 +663,44 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     <div className="db-sql-editor-only">{editorBody}</div>
   );
 
+  const editorContextMenu = (
+    <SqlEditorContextMenu
+      editorRef={sqlEditorRef}
+      dbType={tabConn?.db_type}
+      database={tabState.database}
+      connection={tabConn}
+      schemas={completionSchemas}
+      result={activeResultSession?.result ?? null}
+      menu={editorMenu}
+      onClose={closeSqlEditorMenu}
+      onRun={(sql) => void ws.runQuery(sql, tab.id)}
+      onRunFresh={(sql) => void ws.runQuery(sql, tab.id, { freshResult: true })}
+      onFind={() => setFindSignal((value) => value + 1)}
+      onExportFile={() => {
+        if (!activeResultSession) return;
+        ws.openExportMenu(editorMenu?.x ?? 0, editorMenu?.y ?? 0, tab.id, activeResultSession.id);
+      }}
+      onViewData={(target) =>
+        handleOpenTableFromSql({ databaseName: target.database, tableName: target.table })
+      }
+      onDesignTable={(target) => {
+        if (!tabConn) return;
+        ws.openTableDesigner({
+          connId: tabConn.id,
+          dbName: target.database,
+          tableName: target.table,
+          connection: tabConn,
+        });
+      }}
+    />
+  );
+
   if (!hasResultPanel) {
     return (
       <div className="db-workspace-pane db-workspace-pane--sql">
         {toolbarContent}
         {sqlMainSplit}
+        {editorContextMenu}
       </div>
     );
   }
@@ -717,6 +765,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           {detailPanel}
         </DockPanel>
       </DockLayout>
+      {editorContextMenu}
     </div>
   );
 });

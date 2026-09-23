@@ -21,6 +21,8 @@ export interface SqlEditorScopedSearchProps {
   className?: string;
   /** 文档变更时刷新匹配计数（如 SQL 文本） */
   docRevision?: string;
+  /** 递增时打开查找栏（右键菜单「查找/替换」）。 */
+  findSignal?: number;
   children: ReactNode;
 }
 
@@ -36,6 +38,7 @@ export function SqlEditorScopedSearch({
   enabled = true,
   className,
   docRevision,
+  findSignal = 0,
   children,
 }: SqlEditorScopedSearchProps) {
   const { t } = useI18n();
@@ -92,6 +95,11 @@ export function SqlEditorScopedSearch({
       input.select();
     });
   }, []);
+
+  useEffect(() => {
+    if (findSignal <= 0) return;
+    openSearch();
+  }, [findSignal, openSearch]);
 
   useEffect(() => {
     return registerScopedSearch({
