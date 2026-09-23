@@ -18,8 +18,10 @@ pub use client::{
     OpenCodeSessionInfo, OpenCodeTokenUsage, OpenCodeToolCall,
 };
 pub use mcp_config::{
-    OpenCodeConfigSyncOutcome, merge_omnimcp_into_root, merge_runtime_defaults_into_root,
-    opencode_config_json_path, sync_omnimcp_into_opencode_config,
+    OPS_AGENT_ID, OpenCodeConfigSyncOutcome, merge_omnimcp_into_root, merge_ops_agent_into_root,
+    merge_runtime_defaults_into_root, omnipanel_opencode_ops_dir, opencode_config_json_path,
+    strip_omnimcp_from_global_config, sync_omnimcp_into_opencode_config,
+    sync_project_opencode_workspace,
 };
 pub use service::{
     OpenCodeEndpoint, debug_log_path, ensure_opencode_service, list_opencode_models,

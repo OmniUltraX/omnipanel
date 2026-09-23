@@ -54,7 +54,10 @@ export async function refreshAgentSessions(
   }
 }
 
-/** 拉取并写入 OpenCode Agent 列表；默认选中第一个可切换 primary。 */
+/** OmniPanel 写入的 OpenCode 运维智能体 id（与后端 OPS_AGENT_ID 一致）。 */
+export const OPENCODE_OPS_AGENT_ID = "omnipanel-ops";
+
+/** 拉取并写入 OpenCode Agent 列表；优先选中运维智能体，否则第一个可切换 primary。 */
 export async function refreshOpenCodeAgents(adapter: AgentAdapter): Promise<void> {
   const store = useAgentSessionStore.getState();
   store.setLoadingAgents(true);
@@ -63,9 +66,12 @@ export async function refreshOpenCodeAgents(adapter: AgentAdapter): Promise<void
     store.setAgents(agents);
     const selectable = agents.filter(isSelectableOpenCodeAgent);
     const current = store.activeAgentName;
+    const ops = selectable.find(
+      (a) => a.id === OPENCODE_OPS_AGENT_ID || a.name === OPENCODE_OPS_AGENT_ID,
+    );
     if (!current || !selectable.some((a) => a.name === current || a.id === current)) {
       // 必须用 id：OpenCode session.agent / 执行查找都认 id（build），不认显示名（Build）
-      const fallback = selectable[0]?.id ?? null;
+      const fallback = ops?.id ?? selectable[0]?.id ?? null;
       store.setActiveAgentName(fallback);
     } else if (selectable.some((a) => a.name === current && a.id !== current)) {
       // 本地曾存显示名：校正为 id

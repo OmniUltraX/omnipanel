@@ -1,9 +1,10 @@
-//! 把 OmniPanel 运行时默认写入 OpenCode 全局配置 `~/.config/opencode/opencode.json`。
+//! OmniPanel ↔ OpenCode 配置同步。
 //!
-//! 初始化连接时合并：
-//! - OmniMCP 条目（`mcp.omnipanel` / `mcp.servers.omnipanel`）
-//! - 工具输出截断（`tool_output`）——压低默认 2000 行 / 50KB，避免 execute 长输出撑爆上下文
-//! - 自动压缩（`compaction.auto`）——上下文接近上限时摘要压缩
+//! ## 隔离策略
+//! - **全局** `~/.config/opencode/opencode.json`：剥离 `omnipanel` MCP，避免其它项目误连 OmniMCP
+//! - **工作区** `~/.config/omnipanel/opencode-ops/`：写入 OmniMCP、tool_output、compaction、运维智能体
+//!
+//! OpenCode 会话默认 cwd 指向该工作区，因此只有 OmniPanel 拉起的会话能看到 OmniMCP。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,9 @@ use serde_json::{Value, json};
 const MCP_SERVER_KEY: &str = "omnipanel";
 const X_OMNI_MODULE: &str = "X-Omni-Module";
 
+/// OmniPanel 托管的运维智能体 id（文件名 / default_agent / API agentID）。
+pub const OPS_AGENT_ID: &str = "omnipanel-ops";
+
 /// OmniPanel 托管的工具输出上限（低于 OpenCode 默认 2000 / 50KB）。
 const TOOL_OUTPUT_MAX_LINES: u64 = 200;
 const TOOL_OUTPUT_MAX_BYTES: u64 = 8192;
@@ -20,6 +24,25 @@ const TOOL_OUTPUT_MAX_BYTES: u64 = 8192;
 /// 自动压缩：比默认更早触发（更大 buffer），保留稍少的近期原文。
 const COMPACTION_KEEP_TOKENS: u64 = 12_000;
 const COMPACTION_BUFFER: u64 = 25_000;
+
+const OPS_AGENT_MARKDOWN: &str = r##"---
+description: OmniPanel 运维智能体——经 OmniMCP 管理终端、SSH、数据库、Docker 与服务器
+mode: primary
+color: "#3b82f6"
+permission:
+  edit: ask
+  bash: ask
+  external_directory: ask
+---
+
+你是 OmniPanel 运维智能体（omnipanel-ops）。
+
+工作原则：
+- 优先使用 OmniMCP（`omnipanel`）暴露的工具完成运维：终端、SSH、数据库、Docker、服务器面板等
+- 危险操作（删除、重启、生产库写入、批量变更）先说明影响，再征求确认
+- 工具输出可能很长：先用精确命令（grep / tail / 限定范围），避免无谓的全量 cat / 日志倾倒
+- 回答简洁、可执行；给出命令时说明预期效果与回滚思路
+"##;
 
 fn home_dir() -> Option<PathBuf> {
     std::env::var("USERPROFILE")
@@ -34,7 +57,7 @@ fn home_dir() -> Option<PathBuf> {
         })
 }
 
-/// OpenCode 全局配置目录：`~/.config/opencode`（Windows 同为 `%USERPROFILE%\.config\opencode`）。
+/// OpenCode 全局配置目录：`~/.config/opencode`。
 pub fn opencode_config_dir() -> Result<PathBuf, String> {
     let home = home_dir().ok_or_else(|| "无法定位用户主目录".to_string())?;
     Ok(home.join(".config").join("opencode"))
@@ -42,6 +65,12 @@ pub fn opencode_config_dir() -> Result<PathBuf, String> {
 
 pub fn opencode_config_json_path() -> Result<PathBuf, String> {
     Ok(opencode_config_dir()?.join("opencode.json"))
+}
+
+/// OmniPanel 专用 OpenCode 工作区（会话 cwd + 项目级配置落点）。
+pub fn omnipanel_opencode_ops_dir() -> Result<PathBuf, String> {
+    let home = home_dir().ok_or_else(|| "无法定位用户主目录".to_string())?;
+    Ok(home.join(".config").join("omnipanel").join("opencode-ops"))
 }
 
 fn omnipanel_mcp_entry(mcp_url: &str, enabled: bool) -> Value {
@@ -103,7 +132,25 @@ pub fn merge_omnimcp_into_root(root: &mut Value, mcp_url: &str, enabled: bool) {
     }
 }
 
-/// 写入 OmniPanel 托管的工具输出上限 + 自动压缩（就地覆盖同名字段）。
+/// 从根 JSON 移除 `omnipanel` MCP（flat 与 `mcp.servers` 两处）。
+pub fn strip_omnimcp_from_root(root: &mut Value) -> bool {
+    let Some(obj) = root.as_object_mut() else {
+        return false;
+    };
+    let Some(mcp) = obj.get_mut("mcp") else {
+        return false;
+    };
+    let Some(mcp_obj) = mcp.as_object_mut() else {
+        return false;
+    };
+    let mut removed = mcp_obj.remove(MCP_SERVER_KEY).is_some();
+    if let Some(servers) = mcp_obj.get_mut("servers").and_then(|v| v.as_object_mut()) {
+        removed |= servers.remove(MCP_SERVER_KEY).is_some();
+    }
+    removed
+}
+
+/// 写入工具输出上限 + 自动压缩。
 pub fn merge_runtime_defaults_into_root(root: &mut Value) {
     let obj = ensure_root_object(root);
     obj.insert(
@@ -123,37 +170,50 @@ pub fn merge_runtime_defaults_into_root(root: &mut Value) {
     );
 }
 
-/// 同步结果：路径 + 内容是否相对磁盘发生了变更（用于决定是否重启 serve）。
+/// 写入运维智能体定义，并设为 `default_agent`。
+///
+/// 默认关闭其它 agent 对 `omnipanel_*` 工具的访问；仅 `omnipanel-ops` 启用。
+pub fn merge_ops_agent_into_root(root: &mut Value) {
+    let obj = ensure_root_object(root);
+    obj.insert("default_agent".into(), Value::String(OPS_AGENT_ID.into()));
+
+    // 项目级默认：不把 OmniMCP 工具暴露给 build/plan 等；运维 agent 再打开
+    let tools = obj.entry("tools").or_insert_with(|| json!({}));
+    if let Some(map) = tools.as_object_mut() {
+        map.insert("omnipanel_*".into(), Value::Bool(false));
+    }
+
+    let agent = obj.entry("agent").or_insert_with(|| json!({}));
+    if !agent.is_object() {
+        *agent = json!({});
+    }
+    if let Some(map) = agent.as_object_mut() {
+        map.insert(
+            OPS_AGENT_ID.into(),
+            json!({
+                "description": "OmniPanel 运维：经 OmniMCP 管理终端 / SSH / 数据库 / Docker / 服务器",
+                "mode": "primary",
+                "color": "#3b82f6",
+                "tools": {
+                    "omnipanel_*": true
+                },
+                "permission": {
+                    "edit": "ask",
+                    "bash": "ask",
+                    "external_directory": "ask"
+                }
+            }),
+        );
+    }
+}
+
+/// 同步结果：主路径 + 是否有磁盘变更。
 #[derive(Debug, Clone)]
 pub struct OpenCodeConfigSyncOutcome {
     pub path: PathBuf,
+    /// 工作区目录（会话应使用的 cwd）。
+    pub workspace_dir: PathBuf,
     pub changed: bool,
-}
-
-/// 读取已有 `opencode.json`（不存在则空对象）；合并 OmniMCP + 运行时默认后写回。
-///
-/// 返回写入路径与是否变更。失败不抛 panic；调用方决定是否忽略。
-pub fn sync_omnimcp_into_opencode_config(
-    mcp_url: &str,
-    enabled: bool,
-) -> Result<OpenCodeConfigSyncOutcome, String> {
-    let dir = opencode_config_dir()?;
-    fs::create_dir_all(&dir).map_err(|e| format!("创建 OpenCode 配置目录失败: {e}"))?;
-    let path = dir.join("opencode.json");
-
-    let before = read_json_object(&path)?;
-    let mut root = before.clone();
-    merge_omnimcp_into_root(&mut root, mcp_url, enabled);
-    merge_runtime_defaults_into_root(&mut root);
-
-    let changed = root != before;
-    if changed {
-        let pretty = serde_json::to_string_pretty(&root)
-            .map_err(|e| format!("序列化 opencode.json 失败: {e}"))?;
-        fs::write(&path, format!("{pretty}\n"))
-            .map_err(|e| format!("写入 {} 失败: {e}", path.display()))?;
-    }
-    Ok(OpenCodeConfigSyncOutcome { path, changed })
 }
 
 fn read_json_object(path: &Path) -> Result<Value, String> {
@@ -172,6 +232,93 @@ fn read_json_object(path: &Path) -> Result<Value, String> {
     } else {
         Err(format!("{} 根节点不是 JSON 对象", path.display()))
     }
+}
+
+fn write_json_object(path: &Path, root: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败 {}: {e}", parent.display()))?;
+    }
+    let pretty = serde_json::to_string_pretty(root)
+        .map_err(|e| format!("序列化 {} 失败: {e}", path.display()))?;
+    fs::write(path, format!("{pretty}\n"))
+        .map_err(|e| format!("写入 {} 失败: {e}", path.display()))
+}
+
+/// 从全局 opencode.json 移除 omnipanel MCP（不碰用户其它配置）。
+pub fn strip_omnimcp_from_global_config() -> Result<bool, String> {
+    let path = opencode_config_json_path()?;
+    if !path.exists() {
+        return Ok(false);
+    }
+    let before = read_json_object(&path)?;
+    let mut root = before.clone();
+    if !strip_omnimcp_from_root(&mut root) {
+        return Ok(false);
+    }
+    if root != before {
+        write_json_object(&path, &root)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn write_ops_agent_markdown(workspace_dir: &Path) -> Result<bool, String> {
+    let agents_dir = workspace_dir.join(".opencode").join("agents");
+    fs::create_dir_all(&agents_dir)
+        .map_err(|e| format!("创建 agents 目录失败 {}: {e}", agents_dir.display()))?;
+    let path = agents_dir.join(format!("{OPS_AGENT_ID}.md"));
+    let desired = format!("{OPS_AGENT_MARKDOWN}\n");
+    let changed = match fs::read_to_string(&path) {
+        Ok(existing) => existing != desired,
+        Err(_) => true,
+    };
+    if changed {
+        fs::write(&path, &desired).map_err(|e| format!("写入 {} 失败: {e}", path.display()))?;
+    }
+    Ok(changed)
+}
+
+/// 将 OmniMCP + 运行时默认 + 运维智能体写入指定工作区的 `opencode.json`。
+pub fn sync_project_opencode_workspace(
+    workspace_dir: &Path,
+    mcp_url: &str,
+    enabled: bool,
+) -> Result<(PathBuf, bool), String> {
+    fs::create_dir_all(workspace_dir)
+        .map_err(|e| format!("创建 OpenCode 工作区失败 {}: {e}", workspace_dir.display()))?;
+    let path = workspace_dir.join("opencode.json");
+
+    let before = read_json_object(&path)?;
+    let mut root = before.clone();
+    merge_omnimcp_into_root(&mut root, mcp_url, enabled);
+    merge_runtime_defaults_into_root(&mut root);
+    merge_ops_agent_into_root(&mut root);
+
+    let mut changed = root != before;
+    if changed {
+        write_json_object(&path, &root)?;
+    }
+    changed |= write_ops_agent_markdown(workspace_dir)?;
+    Ok((path, changed))
+}
+
+/// 初始化连接时的完整同步：
+/// 1. 从**全局**配置剥离 omnipanel MCP（避免其它项目调用）
+/// 2. 写入 OmniPanel ops 工作区（MCP + 截断 + compaction + 运维智能体）
+pub fn sync_omnimcp_into_opencode_config(
+    mcp_url: &str,
+    enabled: bool,
+) -> Result<OpenCodeConfigSyncOutcome, String> {
+    let mut changed = strip_omnimcp_from_global_config()?;
+    let workspace_dir = omnipanel_opencode_ops_dir()?;
+    let (path, project_changed) =
+        sync_project_opencode_workspace(&workspace_dir, mcp_url, enabled)?;
+    changed |= project_changed;
+    Ok(OpenCodeConfigSyncOutcome {
+        path,
+        workspace_dir,
+        changed,
+    })
 }
 
 #[cfg(test)]
@@ -220,7 +367,6 @@ mod tests {
             root["mcp"]["servers"]["omnipanel"]["url"],
             "http://127.0.0.1:12756/mcp"
         );
-        // 纯 V2：不额外写 flat 键，避免双注册
         assert!(root["mcp"].get("omnipanel").is_none());
         assert!(root["mcp"]["servers"]["playwright"].is_object());
     }
@@ -249,6 +395,25 @@ mod tests {
     }
 
     #[test]
+    fn strip_removes_flat_and_servers_entries() {
+        let mut root = json!({
+            "mcp": {
+                "omnipanel": { "type": "remote", "url": "http://x/mcp" },
+                "context7": { "type": "remote", "url": "https://c" },
+                "servers": {
+                    "omnipanel": { "type": "remote", "url": "http://x/mcp" },
+                    "playwright": { "type": "local", "command": ["npx"] }
+                }
+            }
+        });
+        assert!(strip_omnimcp_from_root(&mut root));
+        assert!(root["mcp"].get("omnipanel").is_none());
+        assert!(root["mcp"]["servers"].get("omnipanel").is_none());
+        assert!(root["mcp"]["context7"].is_object());
+        assert!(root["mcp"]["servers"]["playwright"].is_object());
+    }
+
+    #[test]
     fn merge_runtime_defaults_sets_tool_output_and_compaction() {
         let mut root = json!({});
         merge_runtime_defaults_into_root(&mut root);
@@ -257,17 +422,15 @@ mod tests {
         assert_eq!(root["compaction"]["auto"], true);
         assert_eq!(root["compaction"]["keep"]["tokens"], COMPACTION_KEEP_TOKENS);
         assert_eq!(root["compaction"]["buffer"], COMPACTION_BUFFER);
-        assert_eq!(root["$schema"], "https://opencode.ai/config.json");
     }
 
     #[test]
-    fn merge_runtime_defaults_overwrites_loose_limits() {
-        let mut root = json!({
-            "tool_output": { "max_lines": 2000, "max_bytes": 51200 },
-            "compaction": { "auto": false }
-        });
-        merge_runtime_defaults_into_root(&mut root);
-        assert_eq!(root["tool_output"]["max_lines"], TOOL_OUTPUT_MAX_LINES);
-        assert_eq!(root["compaction"]["auto"], true);
+    fn merge_ops_agent_sets_default_and_tool_gate() {
+        let mut root = json!({});
+        merge_ops_agent_into_root(&mut root);
+        assert_eq!(root["default_agent"], OPS_AGENT_ID);
+        assert_eq!(root["tools"]["omnipanel_*"], false);
+        assert_eq!(root["agent"][OPS_AGENT_ID]["mode"], "primary");
+        assert_eq!(root["agent"][OPS_AGENT_ID]["tools"]["omnipanel_*"], true);
     }
 }

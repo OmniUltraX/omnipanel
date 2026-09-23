@@ -1,8 +1,8 @@
 use crate::commands::agents;
 use omnipanel_ai::providers::opencode::{
-    OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeMessagePart, OpenCodeSessionInfo,
-    OpenCodeTokenUsage, OpenCodeToolCall, ensure_opencode_service, stop_opencode_serve,
-    sync_omnimcp_into_opencode_config,
+    OPS_AGENT_ID, OpenCodeAgentInfo, OpenCodeChatMessage, OpenCodeClient, OpenCodeMessagePart,
+    OpenCodeSessionInfo, OpenCodeTokenUsage, OpenCodeToolCall, ensure_opencode_service,
+    omnipanel_opencode_ops_dir, stop_opencode_serve, sync_omnimcp_into_opencode_config,
 };
 
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
@@ -212,10 +212,11 @@ fn sync_omnimcp_config(enabled: bool) -> Result<(OpenCodeMcpSyncResult, bool), S
     let outcome = sync_omnimcp_into_opencode_config(&mcp_url, enabled)?;
     tracing::info!(
         path = %outcome.path.display(),
+        workspace = %outcome.workspace_dir.display(),
         mcp_url = %mcp_url,
         enabled,
         changed = outcome.changed,
-        "已同步 OpenCode 配置（OmniMCP + tool_output + compaction）"
+        "已同步 OpenCode 工作区配置（OmniMCP 仅项目级 + 运维智能体）"
     );
     Ok((
         OpenCodeMcpSyncResult {
@@ -227,6 +228,17 @@ fn sync_omnimcp_config(enabled: bool) -> Result<(OpenCodeMcpSyncResult, bool), S
     ))
 }
 
+/// OpenCode 会话默认 cwd：OmniPanel ops 工作区（含项目级 OmniMCP，不污染其它仓库）。
+fn opencode_session_cwd(directory: Option<String>) -> Result<String, String> {
+    if let Some(dir) = directory.filter(|s| !s.trim().is_empty()) {
+        return Ok(dir);
+    }
+    let ops = omnipanel_opencode_ops_dir()?;
+    std::fs::create_dir_all(&ops)
+        .map_err(|e| format!("创建 OpenCode 工作区失败 {}: {e}", ops.display()))?;
+    Ok(ops.to_string_lossy().into_owned())
+}
+
 /// 检测本机是否已安装 OpenCode CLI。
 #[tauri::command]
 #[specta::specta]
@@ -235,42 +247,45 @@ pub async fn detect_opencode_install() -> Result<OpenCodeInstallStatus, omnipane
     Ok(agents::detect_opencode_for_legacy())
 }
 
-/// 确保 OpenCode HTTP 服务可用（`opencode serve`），并在启动前写入运行时配置。
+/// 确保 OpenCode HTTP 服务可用（`opencode serve`），并初始化隔离工作区。
 ///
-/// 初始化顺序：先写 `opencode.json`（OmniMCP + tool_output 截断 + compaction 自动压缩），
-/// 若配置相对磁盘有变更则重启 serve，保证新上限立即生效。
+/// 初始化顺序：
+/// 1. 从全局 `~/.config/opencode/opencode.json` 剥离 omnipanel MCP（其它项目不可见）
+/// 2. 写入 `~/.config/omnipanel/opencode-ops/`（OmniMCP + tool_output + compaction + omnipanel-ops 智能体）
+/// 3. 配置有变更则重启 serve
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_ensure_service() -> Result<(), String> {
     let mut config_changed = false;
-    // 配置写入失败不阻断服务启动（用户仍可手动配）
     match sync_omnimcp_config(true) {
         Ok((_, changed)) => config_changed = changed,
         Err(err) => {
-            tracing::warn!(error = %err, "同步 OpenCode 运行时配置失败");
+            tracing::warn!(error = %err, "同步 OpenCode 工作区配置失败");
         }
     }
-    // 配置变更后必须重启，否则已在跑的 serve 仍用旧 tool_output / compaction
     if config_changed {
-        tracing::info!("OpenCode 配置已变更 → 重启 serve 以加载 tool_output / compaction");
+        tracing::info!(
+            agent = OPS_AGENT_ID,
+            "OpenCode 工作区配置已变更 → 重启 serve 以加载项目级 MCP / 智能体"
+        );
         stop_opencode_serve();
     }
     let _ = ensure_opencode_service(opencode_binary().as_deref()).await?;
     Ok(())
 }
 
-/// 停止 OmniPanel 拉起的 `opencode serve`，并在 opencode.json 中禁用 OmniMCP 条目。
+/// 停止 OmniPanel 拉起的 `opencode serve`，并在工作区配置中禁用 OmniMCP。
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_stop_service() -> Result<(), String> {
     stop_opencode_serve();
     if let Err(err) = sync_omnimcp_config(false) {
-        tracing::warn!(error = %err, "禁用 OpenCode 中 OmniMCP 条目失败");
+        tracing::warn!(error = %err, "禁用 OpenCode 工作区 OmniMCP 失败");
     }
     Ok(())
 }
 
-/// 手动将 OmniMCP + 运行时默认合并进 `~/.config/opencode/opencode.json`。
+/// 手动同步：全局剥离 OmniMCP + 写入 ops 工作区配置。
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_sync_omnimcp_config(enabled: bool) -> Result<OpenCodeMcpSyncResult, String> {
@@ -288,6 +303,8 @@ pub async fn opencode_list_sessions() -> Result<Vec<OpenCodeSessionDto>, String>
 }
 
 /// 新建 OpenCode 会话。`model` 形如 `providerID/modelID`。
+///
+/// 未指定 `directory` 时使用 OmniPanel ops 工作区（含项目级 OmniMCP 与运维智能体）。
 #[tauri::command]
 #[specta::specta]
 pub async fn opencode_create_session(
@@ -295,9 +312,7 @@ pub async fn opencode_create_session(
     model: Option<String>,
 ) -> Result<OpenCodeSessionDto, String> {
     let client = opencode_client().await?;
-    let cwd = directory
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(crate::commands::acp::default_cwd);
+    let cwd = opencode_session_cwd(directory)?;
     let model_pair = model.as_deref().and_then(|raw| {
         let raw = raw.trim();
         let (provider, model_id) = raw.split_once('/')?;
@@ -309,6 +324,14 @@ pub async fn opencode_create_session(
     });
     let model_ref = model_pair.as_ref().map(|(p, m)| (p.as_str(), m.as_str()));
     let created = client.create_session(&cwd, model_ref).await?;
+    // 默认切到运维智能体（工作区 default_agent 也会指向它；这里显式再设一次更稳）
+    if let Err(err) = client.switch_session_agent(&created.id, OPS_AGENT_ID).await {
+        tracing::warn!(
+            session = %created.id,
+            error = %err,
+            "切换到 {OPS_AGENT_ID} 失败（会话仍可用）"
+        );
+    }
     Ok(session_to_dto(created))
 }
 
