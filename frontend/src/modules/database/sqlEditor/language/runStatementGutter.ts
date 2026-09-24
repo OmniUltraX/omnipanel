@@ -17,7 +17,7 @@ import {
   type Diagnostic,
 } from "@codemirror/lint";
 import { splitSqlStatements } from "../../sqlIntel/sqlLex";
-import { findSqlSubqueries, statementCodeStart } from "./sqlStatementFrame";
+import { findSqlSubqueries, setSqlFrameFocusEffect, statementCodeStart } from "./sqlStatementFrame";
 
 const RUN_BUTTON_SVG =
   '<svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';
@@ -44,18 +44,24 @@ function maxSeverity(diagnostics: Diagnostic[]): Diagnostic["severity"] {
 
 class RunButtonMarker extends GutterMarker {
   private readonly sql: string;
+  private readonly from: number;
+  private readonly to: number;
   private readonly title: string;
   private readonly getOnRun: () => ((sql: string) => void) | undefined;
   private readonly getReadOnly: () => boolean;
 
   constructor(
     sql: string,
+    from: number,
+    to: number,
     getOnRun: () => ((sql: string) => void) | undefined,
     getReadOnly: () => boolean,
     title = "运行此语句",
   ) {
     super();
     this.sql = sql;
+    this.from = from;
+    this.to = to;
     this.title = title;
     this.getOnRun = getOnRun;
     this.getReadOnly = getReadOnly;
@@ -79,6 +85,10 @@ class RunButtonMarker extends GutterMarker {
       e.preventDefault();
       e.stopPropagation();
       if (this.getReadOnly()) return;
+      const view = EditorView.findFromDOM(btn);
+      if (view) {
+        view.dispatch({ effects: setSqlFrameFocusEffect.of({ from: this.from, to: this.to }) });
+      }
       const onRun = this.getOnRun();
       if (onRun) {
         onRun(this.sql);
@@ -172,7 +182,7 @@ function buildSqlLintRunGutterMarkers(
   getOnRun: () => ((sql: string) => void) | undefined,
   getReadOnly: () => boolean,
 ): RangeSet<GutterMarker> {
-  const byLine = new Map<number, { sql?: string; title?: string; diagnostics: Diagnostic[] }>();
+  const byLine = new Map<number, { sql?: string; from?: number; to?: number; title?: string; diagnostics: Diagnostic[] }>();
 
   const readOnly = getReadOnly();
   const onRun = getOnRun();
@@ -189,6 +199,8 @@ function buildSqlLintRunGutterMarkers(
       seenLineFrom.add(line.from);
       const entry = byLine.get(line.from) ?? { diagnostics: [] };
       entry.sql = stmt.sql;
+      entry.from = codeFrom;
+      entry.to = stmt.to;
       entry.title = "运行此语句";
       byLine.set(line.from, entry);
     }
@@ -201,6 +213,8 @@ function buildSqlLintRunGutterMarkers(
       seenLineFrom.add(line.from);
       const entry = byLine.get(line.from) ?? { diagnostics: [] };
       entry.sql = query.sql;
+      entry.from = query.from;
+      entry.to = query.to;
       entry.title = "运行此子查询";
       byLine.set(line.from, entry);
     }
@@ -223,7 +237,7 @@ function buildSqlLintRunGutterMarkers(
     }
     const run =
       entry.sql !== undefined
-        ? new RunButtonMarker(entry.sql, getOnRun, getReadOnly, entry.title)
+        ? new RunButtonMarker(entry.sql, entry.from ?? lineFrom, entry.to ?? lineFrom, getOnRun, getReadOnly, entry.title)
         : null;
     const lint =
       entry.diagnostics.length > 0 ? new SqlLintGutterMarker(entry.diagnostics) : null;

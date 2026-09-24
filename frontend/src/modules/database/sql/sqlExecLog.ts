@@ -30,11 +30,12 @@ export function sqlExecDisplayName(sql: string, fallback: string): string {
   const line = trimmed.match(/^--\s*(.+)$/m);
   const comment = (block?.[1] ?? line?.[1] ?? "").split("\n")[0]?.trim() ?? "";
   if (comment) return comment.slice(0, 80);
-  const first = trimmed
-    .split("\n")
-    .map((row) => row.trim())
-    .find((row) => row && !row.startsWith("--") && !row.startsWith("/*"));
-  return (first || fallback).slice(0, 80);
+  const body = trimmed
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--.*$/gm, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (body || fallback).slice(0, 80);
 }
 
 type SqlExecTimeKey =

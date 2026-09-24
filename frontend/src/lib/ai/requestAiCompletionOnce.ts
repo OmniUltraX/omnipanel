@@ -138,6 +138,8 @@ export interface RequestAiCompletionOnceOptions {
    * 仅在需要让 oneshot 请求也走完整工具链时设为 false。
    */
   pureText?: boolean;
+  /** 流式正文增量。桌面 IPC 路径会逐段回调。 */
+  onDelta?: (text: string) => void;
 }
 
 /**
@@ -254,7 +256,10 @@ async function requestViaInternalBackend(
       },
       signal: controller.signal,
       onEvent: (event) => {
-        if (event.type === "content_delta") content += event.text;
+        if (event.type === "content_delta") {
+          content += event.text;
+          options.onDelta?.(content);
+        }
         if (event.type === "reasoning_delta") reasoning += event.text;
         if (event.type === "error") sawError = true;
       },

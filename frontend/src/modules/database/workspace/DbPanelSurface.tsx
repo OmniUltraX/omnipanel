@@ -17,7 +17,7 @@ import {
 import { useDbDockTabActive } from "../useDbDockTabActive";
 import type { SqlWorkspaceTab } from "./workspaceTabs";
 import { DockLayout, DockHandle, DockPanel } from "../../../components/dock";
-import { ToolbarMenuButton } from "../../../components/ui/menu/ToolbarMenuButton";
+import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
 import { Select } from "../../../components/ui/form/Select";
 import { SqlEditor, type SqlEditorHandle, type SqlEditorOpenMode } from "../sql/SqlEditor";
 import { SqlEditorScopedSearch } from "../sql/SqlEditorScopedSearch";
@@ -34,6 +34,8 @@ import { createDefaultSqlTabState, type SqlTabState } from "./dbWorkspaceState";
 import { sqlAtOffset } from "../sqlIntel/sqlStatement";
 import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
 import { SqlToolbarLeftControls } from "../sql/SqlToolbarLeftControls";
+import { registerSqlRepairApply, setSqlRepairNote } from "../sql/sqlExecErrorPresent";
+import { requestAiCompletionOnce } from "../../../lib/ai/requestAiCompletionOnce";
 import { SqlEditorContextMenu } from "../sql/SqlEditorContextMenu";
 import {
   closeSqlEditorMenu,
@@ -64,6 +66,9 @@ interface DbPanelSqlEditorProps {
   editorActive: boolean;
   onChange: (value: string) => void;
   onCursorOffsetChange: (cursorOffset: number) => void;
+  onHasSelectionChange: (hasSelection: boolean) => void;
+  execError: { sql: string; message: string } | null;
+  onExplainError: () => void;
   onRun: (sql: string) => void;
   onRunSelected: (selectedSql: string) => void;
   onRunAll: () => void;
@@ -95,6 +100,9 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
   editorActive,
   onChange,
   onCursorOffsetChange,
+  onHasSelectionChange,
+  execError,
+  onExplainError,
   onRun,
   onRunSelected,
   onRunAll,
@@ -111,6 +119,9 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
       value={tabState.sql}
       onChange={onChange}
       onCursorOffsetChange={onCursorOffsetChange}
+      onHasSelectionChange={onHasSelectionChange}
+      execError={execError}
+      onExplainError={onExplainError}
       onRun={onRun}
       onRunSelected={onRunSelected}
       onRunAll={onRunAll}
@@ -234,16 +245,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         !sqlRequiresDatabaseContext(sqlAtOffset(tabState.sql, tabState.cursorOffset))),
   );
 
-  const runCurrentSql = useCallback(() => {
-    const sql =
-      sqlEditorRef.current?.getSqlAtCursor() ??
-      sqlAtOffset(tabState.sql, tabState.cursorOffset);
-    if (!sql.trim()) {
-      ws.updateSqlTabState(tab.id, { error: t("database.results.emptySql") });
-      return;
-    }
-    void ws.runQuery(sql, tab.id);
-  }, [ws, tab.id, tabState.sql, tabState.cursorOffset, t]);
+  const [hasSqlSelection, setHasSqlSelection] = useState(false);
 
   const runSelectedSql = useCallback(() => {
     const sql = sqlEditorRef.current?.getSelectedSql() ?? "";
@@ -251,33 +253,62 @@ export const DbPanelSurface = memo(function DbPanelSurface({
       ws.updateSqlTabState(tab.id, { error: t("database.results.emptySelection") });
       return;
     }
+    sqlEditorRef.current?.highlightSql(sql);
     void ws.runQuery(sql, tab.id);
   }, [ws, tab.id, t]);
 
   const runAllSql = useCallback(() => {
+    const doc = sqlEditorRef.current?.getSelection().doc ?? "";
+    if (doc.trim()) sqlEditorRef.current?.highlightSql(doc);
     void ws.runQuery(undefined, tab.id);
   }, [ws.runQuery, tab.id]);
 
-  const runSqlMenuItems = useMemo(
-    () => [
-      {
-        id: "run-current",
-        label: t("database.runSqlCurrent"),
-        onSelect: runCurrentSql,
-      },
-      {
-        id: "run-selected",
-        label: t("database.runSqlSelected"),
-        onSelect: runSelectedSql,
-      },
-      {
-        id: "run-all",
-        label: t("database.runSqlAll"),
-        onSelect: runAllSql,
-      },
-    ],
-    [t, runCurrentSql, runSelectedSql, runAllSql],
-  );
+  const execError = useMemo(() => {
+    if (!activeResultSession?.error) return null;
+    return { sql: activeResultSession.sql, message: activeResultSession.error };
+  }, [activeResultSession?.error, activeResultSession?.sql]);
+
+  useEffect(() => {
+    return registerSqlRepairApply((sql) => {
+      const editor = sqlEditorRef.current;
+      const target = execError?.sql ?? "";
+      if (!editor || !target.trim()) return;
+      const doc = editor.getSelection().doc;
+      const at = doc.indexOf(target);
+      if (at < 0) {
+        editor.replaceRange(0, doc.length, sql);
+        return;
+      }
+      editor.replaceRange(at, at + target.length, sql);
+    });
+  }, [execError?.sql]);
+
+  const explainError = useCallback(() => {
+    if (!execError) return;
+    const sessionId = activeResultSession?.id ?? "";
+    const publish = (content: string) => {
+      const closed = content.match(/```(?:sql)?\s*([\s\S]*?)```/i);
+      const open = closed ? null : content.match(/```(?:sql)?\s*([\s\S]*)$/i);
+      const sql = (closed?.[1] ?? open?.[1] ?? "").trim() || null;
+      const text = content
+        .replace(/```(?:sql)?[\s\S]*?(?:```|$)/i, "")
+        .trim();
+      setSqlRepairNote({ sessionId, text: text || content, sql });
+    };
+    setSqlRepairNote({ sessionId, text: "正在解读这条错误…", sql: null });
+    void requestAiCompletionOnce({
+      system: "你是 SQL 助手。用简体中文说明错误原因。如果能改写，最后给一个 sql 代码块，只含替换后的语句。",
+      user: `数据库类型：${tabConn?.db_type ?? "unknown"}\n语句：\n${execError.sql}\n错误：\n${execError.message}`,
+      pureText: true,
+      onDelta: publish,
+    }).then((result) => {
+      if (!result.ok) {
+        setSqlRepairNote({ sessionId, text: "没能完成解读。", sql: null });
+        return;
+      }
+      publish(result.content);
+    });
+  }, [activeResultSession?.id, execError, tabConn?.db_type]);
 
   const handleActiveSessionChange = useCallback(
     (sessionId: string) => {
@@ -311,7 +342,6 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   }, []);
 
   const effectiveDetailPosition = detailPosition;
-  const splitDirection = effectiveDetailPosition === "right" ? "horizontal" : "vertical";
   const detailDefaultSize = toPanelPx(DETAIL_DEFAULT_SIZE_PX[effectiveDetailPosition]);
   const detailMinSize = toPanelPx(DETAIL_MIN_SIZE_PX[effectiveDetailPosition]);
 
@@ -528,6 +558,23 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const toolbarContent = (
     <>
       <div className="sql-toolbar">
+        <div className="sql-toolbar-run">
+          <WorkbenchActionButton
+            disabled={!canRunSql || tabState.running}
+            title={t("database.runSqlAll")}
+            onClick={runAllSql}
+          >
+            {t("database.runSqlAll")}
+          </WorkbenchActionButton>
+          <WorkbenchActionButton
+            disabled={!canRunSql || tabState.running || !hasSqlSelection}
+            title={t("database.runSqlSelected")}
+            onClick={runSelectedSql}
+          >
+            {t("database.runSqlSelected")}
+          </WorkbenchActionButton>
+        </div>
+        <div className="sql-toolbar-divider" aria-hidden />
         <SqlToolbarLeftControls
           running={tabState.running}
           autoCommit={tabState.autoCommit !== false}
@@ -539,7 +586,10 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           onCommit={() => void ws.commitSqlTransaction(tab.id)}
           onRollback={() => void ws.rollbackSqlTransaction(tab.id)}
         />
-        <div className="sql-toolbar-divider" aria-hidden />
+        <div className="sql-toolbar-right">
+        {schemaLoading && (
+          <span className="sql-toolbar-meta">{t("common.loading")}</span>
+        )}
         <Select
           className="db-select sql-toolbar-conn-select"
           size="sm"
@@ -547,6 +597,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           onChange={(v) => ws.setSqlTabConnection(tab.id, v || null)}
           disabled={!tabState.connId && sqlConnections.length === 0}
           title={t("database.workspace.connection")}
+          panelMinWidth={240}
           searchable
           placeholder={t("database.results.noConnection")}
           options={
@@ -557,6 +608,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
                   label: isConnectionEnabled(conn)
                     ? conn.name
                     : `${conn.name} (${t("database.sidebar.connectionDisabled")})`,
+                  title: conn.name,
                   disabled: !isConnectionEnabled(conn),
                 }))
           }
@@ -568,26 +620,16 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           onChange={(v) => ws.updateSqlTabState(tab.id, { database: v })}
           disabled={!tabState.connId}
           title={t("database.workspace.database")}
+          panelMinWidth={240}
           searchable
           placeholder={t("database.workspace.noDatabase")}
           options={
             !tabConn || tabDatabases.length === 0
               ? [{ value: "", label: t("database.workspace.noDatabase"), disabled: true }]
-              : tabDatabases.map((dbName) => ({ value: dbName, label: dbName }))
+              : tabDatabases.map((dbName) => ({ value: dbName, label: dbName, title: dbName }))
           }
         />
-        {schemaLoading && (
-          <span className="sql-toolbar-meta">{t("common.loading")}</span>
-        )}
-        <ToolbarMenuButton
-          label={t("database.runSql")}
-          title={t("database.runSql")}
-          variant="ghost"
-          size="xs"
-          disabled={!canRunSql || tabState.running}
-          className="sql-toolbar-run workbench-panel-header-action-btn"
-          items={runSqlMenuItems}
-        />
+        </div>
       </div>
       {tabState.error && !tabState.running ? (
         <div className="sql-toolbar-error text-danger">{tabState.error}</div>
@@ -613,6 +655,9 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           editorActive={editorActive}
           onChange={handleSqlChange}
           onCursorOffsetChange={handleSqlCursorChange}
+          onHasSelectionChange={setHasSqlSelection}
+          execError={execError}
+          onExplainError={explainError}
           onRun={handleSqlRun}
           onRunSelected={runSelectedSql}
           onRunAll={runAllSql}
@@ -631,6 +676,42 @@ export const DbPanelSurface = memo(function DbPanelSurface({
    * 切回本 tab 不闪黑：依赖 onActiveTabPreview 在 pointerdown 同步把 active 写进 store，
    * 赶在 dockview 露出面板之前先去掉 display:none。
    */
+  const detailPanel = (
+    <TableDetailPanel
+      activeTab={detailTab}
+      onActiveTabChange={setDetailTab}
+      position={effectiveDetailPosition}
+      onPositionChange={handlePositionChange}
+      collapsed={detailCollapsed}
+      onToggleCollapsed={handleDetailCollapsedChange}
+      columns={detailColumns}
+      activeRow={activeRow}
+      onRecordFieldApply={() => undefined}
+      cellEditorRef={cellEditorRef}
+      cellKey={activeCellKey}
+      columnName={editorColumnName}
+      columnType={inferredColumnType}
+      currentValue={editorSelectionCount > 1 ? "" : activeCellValue}
+      selectionCount={editorSelectionCount}
+      editorOpen={!detailCollapsed}
+      rowIndex={activeCell?.rowIndex ?? null}
+      valueColumnMeta={
+        editorColumnName
+          ? {
+              name: editorColumnName,
+              type: inferredColumnType,
+              isPk: false,
+              isFk: false,
+              nullable: true,
+            }
+          : null
+      }
+      onValueApply={() => undefined}
+      readOnly
+      showDdlTab={false}
+    />
+  );
+
   const resultsContent = (
     <div
       className="results-area db-sql-results"
@@ -642,6 +723,9 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         sqlFileId={tab.sqlFileId}
         connectionId={tabState.connId}
         sessions={resultSessions}
+        onHighlightSql={(sql) => {
+          sqlEditorRef.current?.highlightSql(sql);
+        }}
         onInsertSql={(sql) => {
           const editor = sqlEditorRef.current;
           if (!editor) return;
@@ -659,6 +743,13 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         onSelectedCellsChange={handleSelectedCellsChange}
         onCellEditorFocusRequest={handleCellEditorFocusRequest}
         onRowBandSelect={handleRowBandSelect}
+        onToggleDetail={handleDetailCollapsedChange}
+        detail={detailPanel}
+        detailPosition={effectiveDetailPosition}
+        detailDefaultSize={detailDefaultSize}
+        detailMinSize={detailMinSize}
+        detailPanelRef={detailPanelRef}
+        onDetailResize={handleDetailPanelResize}
       />
     </div>
   );
@@ -719,66 +810,10 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     );
   }
 
-  const detailPanel = (
-    <TableDetailPanel
-      activeTab={detailTab}
-      onActiveTabChange={setDetailTab}
-      position={effectiveDetailPosition}
-      onPositionChange={handlePositionChange}
-      collapsed={detailCollapsed}
-      onToggleCollapsed={handleDetailCollapsedChange}
-      columns={detailColumns}
-      activeRow={activeRow}
-      onRecordFieldApply={() => undefined}
-      cellEditorRef={cellEditorRef}
-      cellKey={activeCellKey}
-      columnName={editorColumnName}
-      columnType={inferredColumnType}
-      currentValue={editorSelectionCount > 1 ? "" : activeCellValue}
-      selectionCount={editorSelectionCount}
-      editorOpen={!detailCollapsed}
-      rowIndex={activeCell?.rowIndex ?? null}
-      valueColumnMeta={
-        editorColumnName
-          ? {
-              name: editorColumnName,
-              type: inferredColumnType,
-              isPk: false,
-              isFk: false,
-              nullable: true,
-            }
-          : null
-      }
-      onValueApply={() => undefined}
-      readOnly
-      showDdlTab={false}
-    />
-  );
-
   return (
     <div className="db-workspace-pane db-workspace-pane--sql">
       {toolbarContent}
-      <DockLayout
-        direction={splitDirection}
-        className={`db-table-preview-split db-table-preview-split--${effectiveDetailPosition} db-sql-preview-split`}
-      >
-        <DockPanel minSize="200px">{sqlMainSplit}</DockPanel>
-        <DockHandle direction={splitDirection} />
-        <DockPanel
-          defaultSize={detailCollapsed ? 0 : detailDefaultSize}
-          minSize={detailMinSize}
-          collapsible
-          collapsedSize={0}
-          groupResizeBehavior="preserve-pixel-size"
-          panelRef={detailPanelRef}
-          onResize={handleDetailPanelResize}
-          className={
-            effectiveDetailPosition === "right" ? "dock-panel-right" : "dock-panel-bottom"
-          }
-        >
-          {detailPanel}
-        </DockPanel>
-      </DockLayout>
+      {sqlMainSplit}
       {editorContextMenu}
     </div>
   );

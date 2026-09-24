@@ -54,6 +54,7 @@ export interface SqlEditorExtensionOptions {
   getOnRun?: () => ((sql: string) => void) | undefined;
   getOnSave?: () => (() => void) | undefined;
   getOnOpenTable?: () => ((target: SqlGotoTableTarget) => void) | undefined;
+  onExplainError?: () => void;
   themeCompartment: Compartment;
   readOnlyCompartment: Compartment;
   languageCompartment: Compartment;
@@ -70,6 +71,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     getOnRun,
     getOnSave,
     getOnOpenTable,
+    onExplainError,
     themeCompartment,
     readOnlyCompartment,
     languageCompartment,
@@ -85,7 +87,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     dropCursor(),
     history(),
     ...createSqlLintRunGutter(getOnRun ?? (() => undefined), getReadOnly),
-    ...createSqlStatementFrame(),
+    ...createSqlStatementFrame(() => onExplainError?.()),
     EditorState.tabSize.of(2),
     indentOnInput(),
     bracketMatching(),

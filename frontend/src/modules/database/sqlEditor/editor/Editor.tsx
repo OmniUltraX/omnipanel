@@ -33,6 +33,7 @@ import {
 import { formatSql, formatSqlRange, type SqlFormatStyle } from "../language/formatter";
 import { resolveSqlDialect } from "../../sqlIntel/sqlDialect";
 import { restoreDockWindowChromeAfterLayout } from "../../../../lib/restoreDockWindowChromeAfterLayout";
+import { findSqlInDoc, setSqlFrameErrorEffect, setSqlFrameFocusEffect } from "../language/sqlStatementFrame";
 import { createSqlEditorExtensions } from "./extensions";
 import { getShortcutKeys, matchesShortcut } from "../../../../stores/shortcutsStore";
 import { useSettingsStore } from "../../../../stores/settingsStore";
@@ -67,6 +68,8 @@ export interface SqlEditorHandle {
   getSelection: () => SqlEditorSelection;
   replaceRange: (from: number, to: number, insert: string) => void;
   selectAll: () => void;
+  /** 框住文档里对应的 SQL，并滚到可见区域。找不到则不动。 */
+  highlightSql: (sql: string) => boolean;
   search: SqlEditorSearchApi;
 }
 
@@ -89,6 +92,11 @@ interface SqlEditorProps {
   onOpenTable?: (target: SqlGotoTableTarget) => void;
   /** 光标 offset 变化（供无焦点时 ⌘+Enter 使用）。 */
   onCursorOffsetChange?: (offset: number) => void;
+  /** 是否存在非空选区，供工具栏切换「执行全部 / 执行选中」。 */
+  onHasSelectionChange?: (hasSelection: boolean) => void;
+  /** 最近一次执行失败的语句和数据库原文，用于红框、下划线和修复。 */
+  execError?: { sql: string; message: string } | null;
+  onExplainError?: () => void;
   /** 当前上下文中的库表结构（通常仅含当前选中的数据库）。 */
   schemas?: DatabaseSchema[];
   readOnly?: boolean;
@@ -108,7 +116,12 @@ function runStatementAtCursor(
 ): void {
   const text = view.state.doc.toString();
   const { from, to, head } = view.state.selection.main;
-  onRun(resolveSqlToRun(text, { from, to, head }));
+  const sql = resolveSqlToRun(text, { from, to, head });
+  const range = from !== to ? { from, to } : findSqlInDoc(text, sql);
+  if (range) {
+    view.dispatch({ effects: setSqlFrameFocusEffect.of(range) });
+  }
+  onRun(sql);
 }
 
 function applyFormatToView(
@@ -154,6 +167,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     onSave,
     onOpenTable,
     onCursorOffsetChange,
+    onHasSelectionChange,
+    execError,
+    onExplainError,
     schemas = [],
     readOnly = false,
     highlightQuery = "",
@@ -178,6 +194,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const onSaveRef = useRef(onSave);
   const onOpenTableRef = useRef(onOpenTable);
   const onCursorOffsetChangeRef = useRef(onCursorOffsetChange);
+  const onHasSelectionChangeRef = useRef(onHasSelectionChange);
+  const onExplainErrorRef = useRef(onExplainError);
   const onContextMenuRef = useRef(onContextMenu);
   const contextMenuKeyRef = useRef(contextMenuKey);
   const readOnlyRef = useRef(readOnly);
@@ -196,6 +214,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   onSaveRef.current = onSave;
   onOpenTableRef.current = onOpenTable;
   onCursorOffsetChangeRef.current = onCursorOffsetChange;
+  onHasSelectionChangeRef.current = onHasSelectionChange;
+  onExplainErrorRef.current = onExplainError;
   onContextMenuRef.current = onContextMenu;
   contextMenuKeyRef.current = contextMenuKey;
   readOnlyRef.current = readOnly;
@@ -211,6 +231,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     const line = view.state.doc.lineAt(head);
     const column = head - line.from + 1;
     onCursorOffsetChangeRef.current(positionToOffset(text, line.number, column));
+    const range = view.state.selection.main;
+    const selected = view.state.doc.sliceString(range.from, range.to).trim().length > 0;
+    onHasSelectionChangeRef.current?.(selected);
   }, []);
 
   const formatAllInView = useCallback(() => {
@@ -318,6 +341,19 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       getSelection: getSelectionFromView,
       replaceRange: replaceRangeInView,
       selectAll: selectAllInView,
+      highlightSql: (sql: string) => {
+        const view = viewRef.current;
+        if (!view) return false;
+        const range = findSqlInDoc(view.state.doc.toString(), sql);
+        if (!range) return false;
+        view.dispatch({
+          effects: [
+            setSqlFrameFocusEffect.of(range),
+            EditorView.scrollIntoView(range.from, { y: "center" }),
+          ],
+        });
+        return true;
+      },
       search: {
         setQuery: (query, options) => {
           const view = viewRef.current;
@@ -385,6 +421,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       getOnRun: () => onRunRef.current,
       getOnSave: () => onSaveRef.current,
       getOnOpenTable: () => onOpenTableRef.current,
+      onExplainError: () => onExplainErrorRef.current?.(),
       themeCompartment: themeCompartment.current,
       readOnlyCompartment: readOnlyCompartment.current,
       languageCompartment: languageCompartment.current,
@@ -413,6 +450,14 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: setSqlFrameErrorEffect.of(execError ?? null),
+    });
+  }, [execError]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -531,6 +576,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
         const runSelected = onRunSelectedRef.current;
         if (!runSelected) return;
         const selected = view.state.sliceDoc(from, to);
+        view.dispatch({ effects: setSqlFrameFocusEffect.of({ from, to }) });
         runSelected(selected);
       } else {
         // 无选中：回退到运行光标所在语句

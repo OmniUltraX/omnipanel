@@ -1,16 +1,28 @@
-import { memo, useCallback, useRef, useState } from "react";
-import { useSettingsStore } from "../../../stores/settingsStore";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
+import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
+import { DockHandle, DockLayout, DockPanel } from "../../../components/dock";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  DATABASE_QUERY_PAGE_SIZE_OPTIONS,
+  clampDatabaseQueryPageSize,
+  useSettingsStore,
+} from "../../../stores/settingsStore";
 import { useDbWorkspace } from "../../../contexts/DbWorkspaceContext";
 import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
 import { showToast } from "../../../stores/toastStore";
 import { writeToClipboard } from "../panel/useDatabasePanelCsvExport";
 import { TableDataGrid, type TableDataGridActiveCell, type TableDataGridActions } from "../grid/TableDataGrid";
+import { readStoredColSidebarCollapsed } from "../grid/colSidebarPersist";
+import { TablePreviewTopBar } from "../tableDetail/TablePreviewTopBar";
+import type { DbColumnMeta } from "../api";
 import { selectionTargetKey, selectionTargetsKey } from "../grid/tableDataGridSelection";
 import { parseOmniBlobValue } from "../grid/omniBlobValue";
 import { useI18n } from "../../../i18n";
-import { estimateSqlResultTotalRows, type SqlResultSession } from "../workspace/dbWorkspaceState";
+import { disambiguateColumns, estimateSqlResultTotalRows, rowsToRecord, type SqlResultSession } from "../workspace/dbWorkspaceState";
 import type { MutableRefObject } from "react";
 import { ImportToTableDialog, type ImportToTableDialogPayload } from "./ImportToTableDialog";
+import { applySqlRepair, presentSqlExecError, readSqlRepairNote, setSqlRepairNote, subscribeSqlRepairNote } from "./sqlExecErrorPresent";
 import { useDbWorkspaceTabStore } from "../../../stores/dbWorkspaceTabStore";
 
 export interface SqlResultSessionPanelProps {
@@ -25,6 +37,13 @@ export interface SqlResultSessionPanelProps {
   onSelectedCellsChange?: (cells: TableDataGridActiveCell[]) => void;
   onCellEditorFocusRequest?: () => void;
   onRowBandSelect?: () => void;
+  onToggleDetail?: () => void;
+  detail?: ReactNode;
+  detailPosition?: "right" | "bottom";
+  detailDefaultSize?: number | string;
+  detailMinSize?: number | string;
+  detailPanelRef?: RefObject<PanelImperativeHandle | null>;
+  onDetailResize?: (size: PanelSize) => void;
 }
 
 /** 从单元格值推断预览类型（SQL 结果通常没有完整 columnMeta） */
@@ -53,22 +72,49 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
   onSelectedCellsChange,
   onCellEditorFocusRequest,
   onRowBandSelect,
+  onToggleDetail,
+  detail,
+  detailPosition = "right",
+  detailDefaultSize = 320,
+  detailMinSize = 200,
+  detailPanelRef,
+  onDetailResize,
 }: SqlResultSessionPanelProps) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
   const databaseQueryPageSize = useSettingsStore((s) => s.databaseQueryPageSize);
-  const [resultView, setResultView] = useState<"grid" | "summary" | "chart" | "messages">("grid");
+  const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
+  const localActionsRef = useRef<TableDataGridActions | null>(null);
+  const actionsRef = gridActionsRef ?? localActionsRef;
+  const [transposed, setTransposed] = useState(false);
+  const [colSidebarCollapsed, setColSidebarCollapsed] = useState(readStoredColSidebarCollapsed);
+  const [copySqlHint, setCopySqlHint] = useState(false);
+  const [resultView, setResultView] = useState<"grid" | "summary" | "chart">("grid");
+  const shownError = session.error ? presentSqlExecError(session.error) : null;
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importPayload, setImportPayload] = useState<ImportToTableDialogPayload | null>(null);
 
   const activeCellRef = useRef<TableDataGridActiveCell | null>(null);
   const selectedCellsKeyRef = useRef<string | undefined>(undefined);
 
-  const resultRows = session.result
-    ? ws.rowsToRecord(session.result.columns, session.result.rows)
-    : [];
+  const columns = useMemo(
+    () => disambiguateColumns(session.result?.columns ?? []),
+    [session.result],
+  );
+  const resultRows = useMemo(
+    () => (session.result ? rowsToRecord(columns, session.result.rows) : []),
+    [columns, session.result],
+  );
+  const columnMeta = useMemo<DbColumnMeta[]>(() => {
+    const sample = resultRows[0];
+    return columns.map((name) => ({
+      name,
+      type: inferSqlResultColumnType(name, sample?.[name]),
+      isPk: false,
+      isFk: false,
+    }));
+  }, [columns, resultRows]);
   const rowCount = resultRows.length;
-  const columns = session.result?.columns ?? [];
 
   const resultPage = session.resultPage ?? 0;
   const resultHasMore = session.resultHasMore ?? false;
@@ -149,7 +195,6 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           ["grid", t("database.results.tabGrid")],
           ["summary", t("database.results.tabSummary")],
           ["chart", t("database.results.tabChart")],
-          ["messages", t("database.results.tabMessages")],
         ] as const
       ).map(([id, label]) => (
         <button
@@ -162,18 +207,63 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
         </button>
       ))}
       </div>
+      {resultView === "grid" && session.result && session.result.columns.length > 0 ? (
+        <TablePreviewTopBar
+          className="db-table-topbar--inline"
+          loading={session.running}
+          page={resultPage}
+          pageSize={databaseQueryPageSize}
+          totalPages={Math.max(1, Math.ceil(estimatedTotalRows / Math.max(databaseQueryPageSize, 1)))}
+          dirtyCount={0}
+          isCommitting={false}
+          canUndoDirty={false}
+          canRedoDirty={false}
+          canInsertRow={false}
+          canDeleteRow={false}
+          hasSelectedRows={false}
+          selectedRowCount={0}
+          canExport={canExport && !session.running}
+          canDesignTable={false}
+          canCreateTableQuery={false}
+          transposed={transposed}
+          detailCollapsed={detailCollapsed}
+          colSidebarCollapsed={colSidebarCollapsed}
+          columnCount={columns.length}
+          showDataEditing={false}
+          showDetailToggle={Boolean(onToggleDetail)}
+          pageSizeOptions={DATABASE_QUERY_PAGE_SIZE_OPTIONS}
+          onPageChange={handleQueryPageChange}
+          onPageSizeChange={(size) => {
+            setDatabaseSettings({ databaseQueryPageSize: clampDatabaseQueryPageSize(size) });
+            handleQueryPageChange(0);
+          }}
+          onRefresh={() => handleQueryPageChange(resultPage)}
+          onInsertRow={() => {}}
+          onDeleteSelectedRows={() => {}}
+          onUndoAll={() => {}}
+          onUndo={() => {}}
+          onRedo={() => {}}
+          onCommit={() => {}}
+          onExport={(x, y) => ws.openExportMenu(x, y, sqlTabId, session.id)}
+          onTransposeToggle={() => setTransposed((value) => !value)}
+          onToggleColSidebar={() => {
+            actionsRef.current?.toggleColSidebar();
+            setColSidebarCollapsed(actionsRef.current?.isColSidebarCollapsed() ?? true);
+          }}
+          onToggleDetail={() => onToggleDetail?.()}
+          onCopyPreviewSql={() => {
+            void copySql().then(() => {
+              setCopySqlHint(true);
+              window.setTimeout(() => setCopySqlHint(false), 1200);
+            });
+          }}
+          copySqlHint={copySqlHint}
+          previewSqlTitle={session.sql}
+        />
+      ) : (
+        <div className="min-w-0 flex-1" />
+      )}
       <div className="ml-auto flex items-center gap-1">
-        <WorkbenchActionButton onClick={() => void copySql()} disabled={!session.sql.trim()}>
-          {t("database.results.copySql")}
-        </WorkbenchActionButton>
-        {canExport ? (
-          <WorkbenchActionButton
-            disabled={session.running}
-            onClick={(event) => ws.openExportMenu(event.clientX, event.clientY, sqlTabId, session.id)}
-          >
-            {t("database.results.exportCsv")}
-          </WorkbenchActionButton>
-        ) : null}
         {canExport ? (
           <WorkbenchActionButton disabled={session.running} onClick={openImportToTable}>
             {t("database.results.importToTable.button")}
@@ -228,19 +318,23 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
     </div>
   );
 
-  const messagePane = (
-    <div
-      className={`empty-state compact ${session.error ? "text-danger" : ""}`}
-      style={{ padding: "var(--sp-4)", whiteSpace: "pre-wrap" }}
-    >
-      {session.error
-        ?? (session.result && session.result.columns.length === 0
-          ? t("database.results.affected", { rows: session.result.rowsAffected })
-          : session.result
-            ? `${t("database.results.messageOk")} · ${rowCount}`
-            : t("database.results.runHint"))}
+  const repairNote = useSyncExternalStore(subscribeSqlRepairNote, readSqlRepairNote, readSqlRepairNote);
+  const visibleRepair = repairNote?.sessionId === session.id ? repairNote : null;
+  useEffect(() => {
+    if (session.running) setSqlRepairNote(null);
+  }, [session.running, session.id]);
+  const repairBlock = visibleRepair ? (
+    <div className="flex flex-col gap-2 px-4 pb-3 text-[12px]">
+      <div className="sql-repair-md">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleRepair.text}</ReactMarkdown>
+      </div>
+      {visibleRepair.sql ? (
+        <WorkbenchActionButton onClick={() => applySqlRepair(visibleRepair.sql ?? "")}>
+          应用修改
+        </WorkbenchActionButton>
+      ) : null}
     </div>
-  );
+  ) : null;
 
   const gridPane =
     session.running && !session.result && !session.error ? (
@@ -248,17 +342,22 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
         {t("database.running")}
       </div>
     ) : session.result && session.result.columns.length > 0 ? (
-      <div className="results-area db-sql-results min-h-0 flex-1">
+      <div className="results-area db-sql-results flex min-h-0 flex-1 flex-col">
         <TableDataGrid
           columns={columns}
           rows={resultRows}
+          columnMeta={columnMeta}
           totalRows={estimatedTotalRows}
           page={resultPage}
           pageSize={databaseQueryPageSize}
           loading={session.running}
           hideTotalRowCount
+          chromePlacement="none"
+          enableTranspose
+          transposed={transposed}
+          onTransposedChange={setTransposed}
           onPageChange={handleQueryPageChange}
-          gridActionsRef={selectionReporting ? gridActionsRef : undefined}
+          gridActionsRef={actionsRef}
           onActiveCellChange={handleActiveCellChange}
           onSelectedCellsChange={handleSelectedCellsChange}
           cellEditorCollapsed={detailCollapsed}
@@ -270,12 +369,15 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
         />
       </div>
     ) : (
-      <div className="empty-state compact" style={{ padding: "var(--sp-4)", whiteSpace: "pre-wrap" }}>
-        {session.error
-          ? session.error
-          : session.result
-            ? t("database.results.affected", { rows: session.result.rowsAffected })
-            : t("database.results.runHint")}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className={`empty-state compact ${shownError ? "text-danger" : ""}`} style={{ padding: "var(--sp-4)", whiteSpace: "pre-wrap" }}>
+          {shownError
+            ? shownError
+            : session.result
+              ? t("database.results.affected", { rows: session.result.rowsAffected })
+              : t("database.results.runHint")}
+        </div>
+        {repairBlock}
       </div>
     );
 
@@ -284,14 +386,36 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
       ? summaryPane
       : resultView === "chart"
         ? chartPane
-        : resultView === "messages"
-          ? messagePane
-          : gridPane;
+        : gridPane;
+
+  const detailSplit = detail ? (
+    <DockLayout
+      direction={detailPosition === "right" ? "horizontal" : "vertical"}
+      className="min-h-0 flex-1"
+    >
+      <DockPanel minSize="160px">{body}</DockPanel>
+      <DockHandle direction={detailPosition === "right" ? "horizontal" : "vertical"} />
+      <DockPanel
+        defaultSize={detailCollapsed ? 0 : detailDefaultSize}
+        minSize={detailMinSize}
+        collapsible
+        collapsedSize={0}
+        groupResizeBehavior="preserve-pixel-size"
+        panelRef={detailPanelRef}
+        onResize={onDetailResize}
+        className={detailPosition === "right" ? "dock-panel-right" : "dock-panel-bottom"}
+      >
+        {detail}
+      </DockPanel>
+    </DockLayout>
+  ) : (
+    body
+  );
 
   return (
     <div className="db-sql-result-session flex h-full min-h-0 flex-col">
       {tabBar}
-      {body}
+      {detailSplit}
       <ImportToTableDialog
         open={importDialogOpen}
         payload={importPayload}

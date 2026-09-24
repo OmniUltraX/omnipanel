@@ -475,11 +475,109 @@ fn is_wrappable_select(sql: &str) -> bool {
         .any(|kw| s.starts_with(kw))
 }
 
+/// 语句顶层已有 LIMIT / FETCH 时不再套子查询。MySQL 会拒绝
+/// `SELECT * FROM (… LIMIT n) AS wrap LIMIT m` 这种包装。
+fn has_top_level_row_limit(sql: &str) -> bool {
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    let mut depth = 0i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_backtick = false;
+    let mut line_comment = false;
+    let mut block_comment = false;
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        let next = bytes.get(i + 1).copied().unwrap_or(0) as char;
+        if line_comment {
+            if ch == '\n' {
+                line_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+        if block_comment {
+            if ch == '*' && next == '/' {
+                block_comment = false;
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        if !in_single && !in_double && !in_backtick {
+            if ch == '-' && next == '-' {
+                line_comment = true;
+                i += 2;
+                continue;
+            }
+            if ch == '/' && next == '*' {
+                block_comment = true;
+                i += 2;
+                continue;
+            }
+        }
+        if ch == '\'' && !in_double && !in_backtick {
+            in_single = !in_single;
+            i += 1;
+            continue;
+        }
+        if ch == '"' && !in_single && !in_backtick {
+            in_double = !in_double;
+            i += 1;
+            continue;
+        }
+        if ch == '`' && !in_single && !in_double {
+            in_backtick = !in_backtick;
+            i += 1;
+            continue;
+        }
+        if in_single || in_double || in_backtick {
+            i += 1;
+            continue;
+        }
+        if ch == '(' {
+            depth += 1;
+            i += 1;
+            continue;
+        }
+        if ch == ')' {
+            depth -= 1;
+            i += 1;
+            continue;
+        }
+        if depth == 0 {
+            let prev_ok = i == 0
+                || !sql[..i]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+            let rest = &sql[i..];
+            let lower = rest.to_ascii_lowercase();
+            let word = if lower.starts_with("limit") {
+                "limit"
+            } else if lower.starts_with("fetch") {
+                "fetch"
+            } else {
+                ""
+            };
+            if prev_ok && !word.is_empty() {
+                let after = rest[word.len()..].chars().next();
+                if after.is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_') {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 /// 将 SQL 中每条 SELECT/WITH 语句包裹为 `SELECT * FROM (...) AS __omnipanel_wrap__ LIMIT n OFFSET m`，
 /// 防止用户查询返回超大结果集导致前端卡死。非查询语句（DML）和不可包裹的元数据查询保持原样。
 ///
 /// - `limit` ≤ 0 时不包裹，直接返回原始 SQL。
-/// - 已含 LIMIT 的查询包裹后仍正确（内层 LIMIT 先生效，外层 LIMIT 仅做兜底）。
+/// - 顶层已有 LIMIT / FETCH 的查询保持原样，避免再套一层子查询。
 pub fn wrap_select_with_limit(sql: &str, limit: i64, offset: i64) -> String {
     if limit <= 0 {
         return sql.to_string();
@@ -492,7 +590,7 @@ pub fn wrap_select_with_limit(sql: &str, limit: i64, offset: i64) -> String {
     let wrapped: Vec<String> = statements
         .iter()
         .map(|stmt| {
-            if is_wrappable_select(stmt) {
+            if is_wrappable_select(stmt) && !has_top_level_row_limit(stmt) {
                 format!(
                     "SELECT * FROM ({}) AS __omnipanel_wrap__ LIMIT {} OFFSET {}",
                     stmt, limit, off
@@ -543,7 +641,7 @@ fn wrap_select_with_fetch(sql: &str, limit: i64, offset: i64, require_order: boo
     statements
         .iter()
         .map(|stmt| {
-            if is_wrappable_select(stmt) {
+            if is_wrappable_select(stmt) && !has_top_level_row_limit(stmt) {
                 let order = if require_order {
                     " ORDER BY (SELECT NULL)"
                 } else {
@@ -744,6 +842,15 @@ mod tests {
     fn wrap_select_skips_show_and_describe() {
         let out = wrap_select_with_limit("SHOW TABLES", 1000, 0);
         assert_eq!(out, "SHOW TABLES");
+    }
+
+    #[test]
+    fn wrap_select_skips_statement_that_already_limits() {
+        let sql = "SELECT * FROM t LIMIT 10";
+        assert_eq!(wrap_select_with_limit(sql, 100, 0), sql);
+        let nested = "SELECT * FROM (SELECT * FROM t LIMIT 5) s";
+        let wrapped = wrap_select_with_limit(nested, 100, 0);
+        assert!(wrapped.contains("__omnipanel_wrap__"));
     }
 
     #[test]

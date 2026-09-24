@@ -402,6 +402,16 @@ export function tabModeToEditorOpenMode(mode: "data" | "sql"): SqlEditorOpenMode
   return mode === "data" ? "table" : "query";
 }
 
+/** 同名列加成 `name (2)`，避免 JOIN 后表格 key 冲突并把后一列数据盖掉。 */
+export function disambiguateColumns(columns: string[]): string[] {
+  const seen = new Map<string, number>();
+  return columns.map((name) => {
+    const count = (seen.get(name) ?? 0) + 1;
+    seen.set(name, count);
+    return count === 1 ? name : `${name} (${count})`;
+  });
+}
+
 export function rowsToRecord(
   columns: string[] | null | undefined,
   rows: unknown[][] | null | undefined,

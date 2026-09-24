@@ -149,6 +149,14 @@ export interface TablePreviewTopBarProps {
   onCopyPreviewSql?: () => void;
   copySqlHint?: boolean;
   previewSqlTitle?: string;
+  /** 表数据才有增删改与撤销。查询结果复用顶栏时关掉。 */
+  showDataEditing?: boolean;
+  /** 缺省用表预览的每页条数。查询结果传入自己的档位。 */
+  pageSizeOptions?: readonly number[];
+  /** 没有详情分栏时不显示切换按钮。 */
+  showDetailToggle?: boolean;
+  /** 嵌进已有页签行时去掉自己的底边和背景。 */
+  className?: string;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -295,6 +303,10 @@ export function TablePreviewTopBar({
   onCopyPreviewSql,
   copySqlHint,
   previewSqlTitle,
+  showDataEditing = true,
+  pageSizeOptions: pageSizeOptionsProp,
+  showDetailToggle = true,
+  className,
 }: TablePreviewTopBarProps) {
   const { t } = useI18n();
   const [copiedHint, setCopiedHint] = useState<"qualified" | "table" | "database" | null>(null);
@@ -308,11 +320,10 @@ export function TablePreviewTopBar({
       : tableName ?? databaseName ?? "";
   const canCopyQualified = Boolean(databaseName && tableName);
   const canDiscard = dirtyCount > 0 && !isCommitting;
-  const pageSizeOptions = TABLE_PREVIEW_PAGE_SIZE_OPTIONS.includes(
-    pageSize as (typeof TABLE_PREVIEW_PAGE_SIZE_OPTIONS)[number],
-  )
-    ? TABLE_PREVIEW_PAGE_SIZE_OPTIONS
-    : ([...TABLE_PREVIEW_PAGE_SIZE_OPTIONS, pageSize].sort((a, b) => a - b) as number[]);
+  const basePageSizes = pageSizeOptionsProp ?? TABLE_PREVIEW_PAGE_SIZE_OPTIONS;
+  const pageSizeOptions = basePageSizes.includes(pageSize)
+    ? basePageSizes
+    : [...basePageSizes, pageSize].sort((a, b) => a - b);
   const undoTitle = undoShortcutHint
     ? `${t("database.results.undo")} (${undoShortcutHint})`
     : t("database.results.undo");
@@ -349,7 +360,7 @@ export function TablePreviewTopBar({
     Boolean(tableName) || Boolean(databaseName) || (columnCount != null && columnCount >= 0);
 
   return (
-    <div className="db-table-topbar">
+    <div className={className ? `db-table-topbar ${className}` : "db-table-topbar"}>
       <div className="db-table-topbar-group">
         <Button
           variant={!colSidebarCollapsed ? "default" : "ghost"}
@@ -433,6 +444,7 @@ export function TablePreviewTopBar({
         </label>
       </div>
 
+      {showDataEditing ? (
       <div className="db-table-topbar-group db-table-topbar-group--actions">
         <Button
           variant="ghost"
@@ -531,6 +543,7 @@ export function TablePreviewTopBar({
           ) : null}
         </span>
       </div>
+      ) : null}
 
       {showIdentity ? (
         <div className="db-table-topbar-identity" aria-label={t("database.results.tableIdentity")}>
@@ -695,6 +708,7 @@ export function TablePreviewTopBar({
             <IconSettings size={14} />
           </Button>
         </span>
+        {showDetailToggle ? (
         <Button
           variant={!detailCollapsed ? "default" : "ghost"}
           size="icon-sm"
@@ -708,6 +722,7 @@ export function TablePreviewTopBar({
             <path d="M10 2.5v11" />
           </svg>
         </Button>
+        ) : null}
         <AnchorPopover
           anchorRef={settingsAnchorRef}
           open={settingsOpen}

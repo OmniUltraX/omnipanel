@@ -6737,16 +6737,18 @@
         flex-shrink: 0;
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 4px;
         margin: 0;
-        padding: 12px 14px 10px;
+        padding: 8px 12px 10px;
         border-bottom: 1px solid var(--border);
     }
 
     .db-cell-editor-meta-row {
         display: flex;
-        flex-direction: column;
-        gap: 2px;
+        flex-direction: row;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
         min-width: 0;
         margin: 0;
     }
@@ -6757,15 +6759,27 @@
     }
 
     .db-cell-editor-meta-label {
+        flex: 0 0 auto;
         font-size: 11px;
         color: var(--text-muted);
         line-height: 1.3;
+        white-space: nowrap;
     }
 
     .db-cell-editor-meta-value {
+        flex: 1 1 auto;
+        min-width: 0;
         font-size: 12px;
         color: var(--text);
         line-height: 1.4;
+        text-align: right;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .db-cell-editor-meta-row--comment .db-cell-editor-meta-value {
+        white-space: normal;
         word-break: break-word;
     }
 
@@ -7195,6 +7209,41 @@
     .db-workspace-pane--sql .sql-codemirror-editor__host {
         flex: 1;
         min-height: 0;
+    }
+
+    .sql-exec-status {
+        width: 6px;
+        height: 6px;
+        flex-shrink: 0;
+        border-radius: 50%;
+        background: var(--success);
+    }
+
+    .sql-exec-status--error {
+        background: var(--danger);
+    }
+
+    .sql-exec-status--cancelled {
+        background: var(--warn);
+    }
+
+    .sql-repair-md {
+        line-height: 1.5;
+    }
+
+    .sql-repair-md p,
+    .sql-repair-md ul,
+    .sql-repair-md ol,
+    .sql-repair-md pre {
+        margin: 0 0 8px;
+    }
+
+    .sql-repair-md pre {
+        overflow: auto;
+        padding: 8px;
+        border-radius: 4px;
+        background: var(--surface);
+        border: 1px solid var(--border);
     }
 
     .sql-toolbar-error {
@@ -11062,13 +11111,27 @@
     .sql-toolbar {
         display: flex;
         align-items: center;
-        padding: 2px var(--sp-3);
-        min-height: 28px;
+        padding: 2px var(--sp-2);
+        min-height: 30px;
         border-bottom: 1px solid var(--border);
-        gap: var(--sp-1);
+        gap: 6px;
         background: var(--bg);
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         font-size: 11px;
+    }
+
+    .sql-toolbar-run,
+    .sql-toolbar-right {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+        min-width: 0;
+    }
+
+    .sql-toolbar-right {
+        margin-left: auto;
+        flex-shrink: 1;
     }
 
     .sql-toolbar-left {
@@ -11092,10 +11155,10 @@
 
     .sql-toolbar-conn-select,
     .sql-toolbar-db-select {
-        width: 132px;
-        min-width: 100px;
-        max-width: 160px;
-        flex: 0 1 132px;
+        width: 180px;
+        min-width: 140px;
+        max-width: 220px;
+        flex: 0 1 180px;
     }
 
     .sql-toolbar-txn {
@@ -11330,10 +11393,6 @@
         line-height: 1.35;
         max-height: 72px;
         overflow: hidden;
-    }
-
-    .sql-toolbar-run {
-        margin-left: auto;
     }
 
     .sql-toolbar .db-select {
@@ -11592,6 +11651,17 @@
         gap: var(--sp-3);
         background: var(--bg);
         flex-shrink: 0;
+        min-width: 0;
+    }
+
+    .results-header .db-table-topbar--inline {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        gap: var(--sp-2);
     }
 
     .results-header h3 {

@@ -1,11 +1,14 @@
-import { type Extension } from "@codemirror/state";
+import { StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
+  Decoration,
   Direction,
   EditorView,
   layer,
+  type DecorationSet,
   type LayerMarker,
   type ViewUpdate,
 } from "@codemirror/view";
+import { sqlErrorUnderline } from "../../sql/sqlExecErrorPresent";
 import { splitSqlStatements, type SqlStatementPart } from "../../sqlIntel/sqlLex";
 
 /** 语句可视范围从第一行真正的 SQL 开始，开头的 `--` / 块注释留在框外。 */
@@ -150,6 +153,70 @@ export function smallestSubqueryAt(text: string, head: number): SqlSubqueryRange
 
 const PAD = 3;
 
+export interface SqlFrameError {
+  sql: string;
+  message: string;
+}
+
+export const setSqlFrameErrorEffect = StateEffect.define<SqlFrameError | null>();
+
+export interface SqlFrameFocus {
+  from: number;
+  to: number;
+  /** 刚设上的框在短时间内不被同一次点击的选区清掉。 */
+  at?: number;
+}
+
+export const setSqlFrameFocusEffect = StateEffect.define<SqlFrameFocus | null>();
+
+const sqlFrameFocusField = StateField.define<SqlFrameFocus | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setSqlFrameFocusEffect)) {
+        return effect.value ? { ...effect.value, at: Date.now() } : null;
+      }
+    }
+    if (tr.selection && value) {
+      if (value.at != null && Date.now() - value.at < 500) return value;
+      const head = tr.selection.main.head;
+      if (head < value.from || head > value.to) return null;
+    }
+    if (value && tr.docChanged) {
+      const from = tr.changes.mapPos(value.from);
+      const to = tr.changes.mapPos(value.to);
+      return to > from ? { from, to } : null;
+    }
+    return value;
+  },
+});
+
+export function findSqlInDoc(doc: string, sql: string): SqlFrameFocus | null {
+  const needle = sql.trim();
+  if (!needle) return null;
+  const exact = doc.indexOf(needle);
+  if (exact >= 0) return { from: exact, to: exact + needle.length };
+  const parts = needle.split(/\s+/).filter(Boolean).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (parts.length === 0) return null;
+  const match = new RegExp(parts.join("\\s+")).exec(doc);
+  if (!match) return null;
+  return { from: match.index, to: match.index + match[0].length };
+}
+
+const sqlFrameErrorField = StateField.define<SqlFrameError | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setSqlFrameErrorEffect)) return effect.value;
+    }
+    return value;
+  },
+});
+
+function sameSql(a: string, b: string): boolean {
+  return a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+}
+
 interface LineBox {
   left: number;
   right: number;
@@ -247,22 +314,25 @@ class StatementFrameMarker implements LayerMarker {
   readonly path: string;
   readonly width: number;
   readonly height: number;
+  readonly failed: boolean;
 
-  constructor(path: string, width: number, height: number) {
+  constructor(path: string, width: number, height: number, failed: boolean) {
     this.path = path;
     this.width = width;
     this.height = height;
+    this.failed = failed;
   }
 
   eq(other: LayerMarker): boolean {
-    return other instanceof StatementFrameMarker && other.path === this.path;
+    return other instanceof StatementFrameMarker && other.path === this.path && other.failed === this.failed;
   }
 
   draw(): HTMLElement {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "cm-sql-stmt-frame");
+    svg.setAttribute("class", this.failed ? "cm-sql-stmt-frame is-failed" : "cm-sql-stmt-frame");
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", this.path);
+    path.style.stroke = this.failed ? "var(--danger, #ff453a)" : "var(--accent)";
     svg.appendChild(path);
     this.place(svg);
     return svg as unknown as HTMLElement;
@@ -271,7 +341,9 @@ class StatementFrameMarker implements LayerMarker {
   update(dom: HTMLElement): boolean {
     const path = dom.querySelector("path");
     if (!path) return false;
+    dom.setAttribute("class", this.failed ? "cm-sql-stmt-frame is-failed" : "cm-sql-stmt-frame");
     path.setAttribute("d", this.path);
+    path.style.stroke = this.failed ? "var(--danger, #ff453a)" : "var(--accent)";
     this.place(dom);
     return true;
   }
@@ -284,13 +356,63 @@ class StatementFrameMarker implements LayerMarker {
   }
 }
 
-function statementMarkers(view: EditorView): readonly LayerMarker[] {
+class SqlFixButtonMarker implements LayerMarker {
+  readonly left: number;
+  readonly top: number;
+  private readonly onFix: () => void;
+
+  constructor(left: number, top: number, onFix: () => void) {
+    this.left = left;
+    this.top = top;
+    this.onFix = onFix;
+  }
+
+  eq(other: LayerMarker): boolean {
+    return other instanceof SqlFixButtonMarker && other.left === this.left && other.top === this.top;
+  }
+
+  draw(): HTMLElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cm-sql-stmt-fix";
+    btn.textContent = "修复";
+    btn.style.whiteSpace = "nowrap";
+    btn.style.width = "max-content";
+    btn.style.left = `${this.left}px`;
+    btn.style.top = `${this.top}px`;
+    btn.addEventListener("mousedown", (event) => event.preventDefault());
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.onFix();
+    });
+    return btn;
+  }
+
+  update(dom: HTMLElement): boolean {
+    dom.style.left = `${this.left}px`;
+    dom.style.top = `${this.top}px`;
+    return true;
+  }
+}
+
+function statementMarkers(view: EditorView, onFix: () => void): readonly LayerMarker[] {
   const text = view.state.doc.toString();
   const head = view.state.selection.main.head;
+  const focus = view.state.field(sqlFrameFocusField, false);
+  const focused = focus && focus.from >= 0 && focus.to <= text.length && focus.to > focus.from
+    ? {
+        sql: text.slice(focus.from, focus.to),
+        from: focus.from,
+        to: focus.to,
+        hadTrailingSemicolon: false,
+      }
+    : null;
   const subquery = smallestSubqueryAt(text, head);
-  const stmt = subquery
-    ? { sql: subquery.sql, from: subquery.from, to: subquery.to, hadTrailingSemicolon: false }
-    : statementAtCursor(text, head);
+  const stmt = focused
+    ?? (subquery
+      ? { sql: subquery.sql, from: subquery.from, to: subquery.to, hadTrailingSemicolon: false }
+      : statementAtCursor(text, head));
   if (!stmt) return [];
   if (stmt.to <= view.viewport.from || stmt.from >= view.viewport.to) return [];
   const boxes = lineBoxes(view, stmt, text);
@@ -301,8 +423,37 @@ function statementMarkers(view: EditorView): readonly LayerMarker[] {
     width = Math.max(width, box.right);
     height = Math.max(height, box.bottom);
   }
-  return [new StatementFrameMarker(outlinePath(boxes), width + PAD, height + PAD)];
+  const failedSql = view.state.field(sqlFrameErrorField, false);
+  const failed = Boolean(failedSql && (sameSql(failedSql.sql, stmt.sql) || sameSql(failedSql.sql, text)));
+  const markers: LayerMarker[] = [
+    new StatementFrameMarker(outlinePath(boxes), width + PAD, height + PAD, failed),
+  ];
+  if (failed) {
+    const edge = Math.max(...boxes.map((box) => box.right));
+    markers.push(new SqlFixButtonMarker(edge + 8, boxes[0].top, onFix));
+  }
+  return markers;
 }
+
+const errorUnderlineField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, tr) {
+    let error = tr.startState.field(sqlFrameErrorField, false);
+    for (const effect of tr.effects) {
+      if (effect.is(setSqlFrameErrorEffect)) error = effect.value;
+    }
+    if (!error) return Decoration.none;
+    if (!tr.docChanged && !tr.effects.some((effect) => effect.is(setSqlFrameErrorEffect))) {
+      return value.map(tr.changes);
+    }
+    const text = tr.state.doc.toString();
+    const span = sqlErrorUnderline(text, error.message);
+    if (!span || span.from < 0 || span.to > text.length || span.from >= span.to) return Decoration.none;
+    return Decoration.set([
+      Decoration.mark({ class: "cm-sql-error-underline" }).range(span.from, span.to),
+    ]);
+  },
+});
 
 const frameTheme = EditorView.baseTheme({
   ".cm-sql-stmt-frame": {
@@ -316,10 +467,36 @@ const frameTheme = EditorView.baseTheme({
     strokeWidth: "1px",
     strokeLinejoin: "round",
   },
+  ".cm-sql-stmt-frame.is-failed path": {
+    stroke: "var(--danger, #ff453a)",
+  },
+  ".cm-sql-error-underline": {
+    textDecoration: "underline wavy var(--danger, #ff453a)",
+    textUnderlineOffset: "2px",
+  },
+  ".cm-sql-stmt-fix": {
+    position: "absolute",
+    zIndex: "4",
+    width: "max-content",
+    height: "18px",
+    padding: "0 6px",
+    border: "1px solid var(--danger, #ff453a)",
+    borderRadius: "4px",
+    background: "var(--surface, #fff)",
+    color: "var(--danger, #ff453a)",
+    fontSize: "11px",
+    lineHeight: "16px",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+  },
 });
 
-export function createSqlStatementFrame(): Extension[] {
+export function createSqlStatementFrame(onFix: () => void): Extension[] {
   return [
+    sqlFrameErrorField,
+    sqlFrameFocusField,
+    errorUnderlineField,
+    EditorView.decorations.from(errorUnderlineField),
     layer({
       above: true,
       update(update: ViewUpdate) {
@@ -328,9 +505,12 @@ export function createSqlStatementFrame(): Extension[] {
           || update.selectionSet
           || update.viewportChanged
           || update.geometryChanged
+          || update.transactions.some((tr) =>
+            tr.effects.some((effect) => effect.is(setSqlFrameErrorEffect) || effect.is(setSqlFrameFocusEffect))
+          )
         );
       },
-      markers: statementMarkers,
+      markers: (view) => statementMarkers(view, onFix),
     }),
     frameTheme,
   ];
