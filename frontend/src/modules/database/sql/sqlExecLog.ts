@@ -5,6 +5,8 @@ import { readTeamLocalStorage, writeTeamLocalStorage } from "../../../lib/teamPe
 export type { SqlExecAppend, SqlExecListFilter, SqlExecRecord, SqlExecResultPage };
 
 const LEGACY_HISTORY_KEY = "omnipanel.sqlQueryHistory.v1";
+const UNREAD_KEY = "omnipanel.sqlExecUnread.v1";
+const UNREAD_CAP = 2000;
 const listeners = new Set<() => void>();
 
 type CursorInsert = (sql: string) => void;
@@ -17,6 +19,65 @@ const tableHistoryCache = new Map<string, SqlExecRecord[]>();
 
 function notify() {
   for (const listener of listeners) listener();
+}
+
+function loadUnread(): Set<string> {
+  try {
+    const raw = readTeamLocalStorage(UNREAD_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is string => typeof id === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+let unreadIds = loadUnread();
+const unreadListeners = new Set<() => void>();
+
+function notifyUnread() {
+  for (const listener of unreadListeners) listener();
+}
+
+function persistUnread() {
+  const ids = [...unreadIds];
+  const capped = ids.length > UNREAD_CAP ? ids.slice(ids.length - UNREAD_CAP) : ids;
+  if (capped.length !== ids.length) unreadIds = new Set(capped);
+  writeTeamLocalStorage(UNREAD_KEY, JSON.stringify([...unreadIds]));
+}
+
+/** 批量执行里没打开的记录。新的一批叠加上去，点开才消。 */
+export function markSqlExecBatchUnread(ids: string[]) {
+  if (ids.length === 0) return;
+  const next = new Set(unreadIds);
+  let changed = false;
+  for (const id of ids) {
+    if (next.has(id)) continue;
+    next.add(id);
+    changed = true;
+  }
+  if (!changed) return;
+  unreadIds = next;
+  persistUnread();
+  notifyUnread();
+}
+
+export function clearSqlExecUnread(id: string) {
+  if (!unreadIds.has(id)) return;
+  const next = new Set(unreadIds);
+  next.delete(id);
+  unreadIds = next;
+  persistUnread();
+  notifyUnread();
+}
+
+export function subscribeSqlExecUnread(listener: () => void): () => void {
+  unreadListeners.add(listener);
+  return () => unreadListeners.delete(listener);
+}
+
+export function readSqlExecUnread(): ReadonlySet<string> {
+  return unreadIds;
 }
 
 export function subscribeSqlExecLog(listener: () => void): () => void {
@@ -133,6 +194,7 @@ export async function setSqlExecPinned(id: string, pinned: boolean): Promise<voi
 
 export async function deleteSqlExecution(id: string): Promise<void> {
   await unwrapCommand(commands.dbSqlExecDelete(id));
+  clearSqlExecUnread(id);
   notify();
 }
 

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode, type RefObject } from "react";
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import { Select } from "../../../components/ui/form/Select";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
@@ -14,9 +14,12 @@ import {
   getSqlExecResult,
   sqlExecDisplayName,
   importLegacySqlQueryHistory,
+  clearSqlExecUnread,
   listSqlExecutions,
+  readSqlExecUnread,
   setSqlExecPinned,
   subscribeSqlExecLog,
+  subscribeSqlExecUnread,
   type SqlExecRecord,
 } from "./sqlExecLog";
 import { openSqlInNewQuery } from "../schema/tableObjectActions";
@@ -115,6 +118,7 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
   const [seenAt] = useState(() => new Map<string, number>());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const unreadIds = useSyncExternalStore(subscribeSqlExecUnread, readSqlExecUnread, readSqlExecUnread);
   const followedActiveIdRef = useRef<string | null>(null);
   const wasRunningRef = useRef(false);
   const runningIdsRef = useRef<Set<string>>(new Set());
@@ -130,7 +134,7 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
       sqlFileId: sqlFileId ?? null,
       tabId: sqlTabId,
       kind: kind || null,
-      status: status || null,
+      status: status && status !== "unread" ? status : null,
       keyword: keyword.trim() || null,
       limit: 200,
     });
@@ -148,7 +152,7 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
     const runningIds = new Set(sessions.filter((item) => item.running).map((item) => item.id));
     const finishedIds = [...runningIdsRef.current].filter((id) => !runningIds.has(id));
     runningIdsRef.current = runningIds;
-    if (!status || finishedIds.length === 0) return;
+    if (!status || status === "unread" || finishedIds.length === 0) return;
     for (const id of finishedIds) {
       const session = sessions.find((item) => item.id === id);
       if (!session || session.running) continue;
@@ -189,10 +193,14 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
     }
     const needle = keyword.trim().toLowerCase();
     return [...byId.values()]
-      .filter((item) => !status || item.status === status)
+      .filter((item) => {
+        if (!status) return true;
+        if (status === "unread") return unreadIds.has(item.id);
+        return item.status === status;
+      })
       .filter((item) => !needle || item.sql.toLowerCase().includes(needle) || item.displayName.toLowerCase().includes(needle))
       .sort((a, b) => b.executedAt - a.executedAt || b.id.localeCompare(a.id));
-  }, [keyword, records, seenAt, sessions, status]);
+  }, [keyword, records, seenAt, sessions, status, unreadIds]);
 
   const groups = useMemo(() => {
     if (groupMode === "flat") return [];
@@ -223,6 +231,7 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
 
   const openRecord = useCallback(
     async (record: SqlExecRecord) => {
+      clearSqlExecUnread(record.id);
       setSelectedId(record.id);
       onHighlightSql?.(record.sql);
       const live = sessions.find(
@@ -319,9 +328,9 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
       <button
         key={record.id}
         type="button"
-        className={`flex w-full flex-col gap-0.5 border-b border-border/60 py-1.5 text-left ${
+        className={`relative flex w-full flex-col gap-0.5 border-b border-border/60 py-1.5 text-left ${
           nested ? "border-l border-border/70 py-1 pl-5 pr-2" : "px-2"
-        } ${active ? "bg-accent/40" : "hover:bg-accent/20"}`}
+        } ${unreadIds.has(record.id) ? "pr-9" : ""} ${active ? "bg-accent/40" : "hover:bg-accent/20"}`}
         onClick={() => void openRecord(record)}
         onDoubleClick={() => {
           if (!record.pinned) {
@@ -335,6 +344,9 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
           setContextMenu({ x: event.clientX, y: event.clientY, id: record.id });
         }}
       >
+        {unreadIds.has(record.id) ? (
+          <span className="sql-exec-unread" title={t("database.sqlExec.unread")} />
+        ) : null}
         {nested ? null : (
           <span className="flex min-w-0 items-center gap-1 text-[11px] text-foreground">
             <span
@@ -387,6 +399,7 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
                 { value: "ok", label: t("database.sqlExec.statusOk") },
                 { value: "error", label: t("database.sqlExec.failed") },
                 { value: "cancelled", label: t("database.sqlExec.cancelled") },
+                { value: "unread", label: t("database.sqlExec.unread") },
               ]}
             />
             <Select

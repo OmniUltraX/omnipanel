@@ -21,6 +21,7 @@ import { formatSql } from "../sqlIntel/sqlFormat";
 import {
   appendSqlExecution,
   makeSqlExecId,
+  markSqlExecBatchUnread,
   rebindSqlExecutionFile,
   sqlExecDisplayName,
 } from "../sql/sqlExecLog";
@@ -403,6 +404,8 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
     const sqlFileId = historyTab?.kind === "sql" ? historyTab.sqlFileId ?? null : null;
     let anySuccess = false;
     let lastRunId: string | null = null;
+    const batchIds: string[] = [];
+    const trackBatch = plannedSessions.length > 1;
 
     const currentRunId = () =>
       useDbWorkspaceTabStore.getState().sqlTabStates[resolvedTabId]?.activeQueryRunId ?? null;
@@ -453,6 +456,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
         },
       ) => {
         const executionId = makeSqlExecId();
+        if (trackBatch) batchIds.push(executionId);
         updateSqlResultSession(resolvedTabId, session.id, { executionId });
         void appendSqlExecution({
           id: executionId,
@@ -552,6 +556,14 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       } catch {
         // 会话可能尚未建立
       }
+    }
+
+    if (trackBatch && batchIds.length > 1) {
+      const current = useDbWorkspaceTabStore.getState().sqlTabStates[resolvedTabId];
+      const focused = current?.resultSessions?.find(
+        (item) => item.id === current.activeResultSessionId,
+      )?.executionId;
+      markSqlExecBatchUnread(batchIds.filter((id) => id !== focused));
     }
 
     if (currentRunId() === lastRunId) {

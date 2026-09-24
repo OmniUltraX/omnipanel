@@ -7227,6 +7227,17 @@
         background: var(--warn);
     }
 
+    .sql-exec-unread {
+        position: absolute;
+        top: 5px;
+        right: 6px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 0 2px var(--panel, var(--background));
+    }
+
     .sql-repair-md {
         line-height: 1.5;
     }

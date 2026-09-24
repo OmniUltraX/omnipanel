@@ -1804,6 +1804,7 @@ export default {
       empty: "No executions yet",
       noResult: "No saved result",
       failed: "Failed",
+      unread: "Unread",
       cancelled: "Cancelled",
       truncated: "First 20 rows",
       truncatedHint: "Only the first 20 rows were kept. Run the statement again for the full page.",

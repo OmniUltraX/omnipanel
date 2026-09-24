@@ -1795,6 +1795,7 @@ export default {
       empty: "还没有执行记录",
       noResult: "没有留下结果",
       failed: "失败",
+      unread: "未读",
       cancelled: "已取消",
       truncated: "仅前 20 行",
       truncatedHint: "只留下了前 20 行，要看完整结果请重新执行",
