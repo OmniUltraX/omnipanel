@@ -22,6 +22,11 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { quickInput } from "../../lib/quickInput";
+import {
+  buildSidebarNoteMenuItem,
+  SidebarNoteKeys,
+} from "../../lib/sidebarNotes";
+import { useSidebarNoteStore } from "../../stores/sidebarNoteStore";
 import { ScopedSearch } from "../ui/ScopedSearch";
 import {
   syncFromOpenSshConfig,
@@ -772,6 +777,8 @@ export function HostListPanel({
     return items;
   };
 
+  const sidebarNotes = useSidebarNoteStore((s) => s.notes);
+
   const buildHostCtxItems = (host: WorkspaceResource): ContextMenuItem[] => {
     const hasPanel = sshHasPanel(host.id);
     return [
@@ -828,6 +835,7 @@ export function HostListPanel({
           }
         },
       },
+      buildSidebarNoteMenuItem(SidebarNoteKeys.sshHost(host.id), t),
       {
         id: "host-duplicate",
         label: t("ssh.context.duplicate"),
@@ -985,6 +993,7 @@ export function HostListPanel({
     const treeKey = makeSshHostTreeKey(host.id);
     const dragKey = sshSidebarConnectionNodeKey(host.id);
     const selected = selectedIds.includes(host.id);
+    const note = sidebarNotes[SidebarNoteKeys.sshHost(host.id)];
     return (
       <div key={host.id} className="ssh-tree-host">
         <SidebarTreeNode
@@ -1016,6 +1025,7 @@ export function HostListPanel({
               </span>
             </span>
           }
+          note={note}
           trailing={<HostPanelIcons sshId={host.id} />}
           hasChildren={false}
           expanded={false}

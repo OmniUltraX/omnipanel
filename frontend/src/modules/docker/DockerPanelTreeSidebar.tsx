@@ -33,6 +33,11 @@ import {
   useSidebarTreeSelection,
 } from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo } from "@/ipc/bindings";
+import {
+  buildSidebarNoteMenuItem,
+  SidebarNoteKeys,
+} from "@/lib/sidebarNotes";
+import { useSidebarNoteStore } from "@/stores/sidebarNoteStore";
 import { isBuiltinLocalDockerConnection } from "./constants";
 import {
   makeDockerComposeProjectTreeKey,
@@ -270,6 +275,7 @@ export function DockerPanelTreeSidebar({
   const deleteFolder = useDockerSidebarTreeStore((s) => s.deleteFolder);
   const moveNode = useDockerSidebarTreeStore((s) => s.moveNode);
   const pruneMissingConnections = useDockerSidebarTreeStore((s) => s.pruneMissingConnections);
+  const sidebarNotes = useSidebarNoteStore((s) => s.notes);
 
   useEffect(() => {
     if (!activeConnectionId) return;
@@ -509,6 +515,10 @@ export function DockerPanelTreeSidebar({
         icon: contextMenuIcons.folder,
         onClick: () => handleCreateFolder(null),
       },
+      buildSidebarNoteMenuItem(
+        SidebarNoteKeys.dockerConnection(ctxTarget.connection.connectionId),
+        t,
+      ),
     ];
     if (!isBuiltinLocalDockerConnection(ctxTarget.connection.connectionId)) {
       items.push(
@@ -617,6 +627,7 @@ export function DockerPanelTreeSidebar({
               </span>
             </span>
           }
+          note={sidebarNotes[SidebarNoteKeys.dockerConnection(connection.connectionId)]}
           hasChildren
           expanded={connectionExpanded}
           active={activeNavKey === connectionKey || activeConnectionId === connection.connectionId}

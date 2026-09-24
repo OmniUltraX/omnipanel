@@ -22,6 +22,10 @@ import {
   type TreeRowMouseEvent,
 } from "@/components/ui/sidebar-tree";
 import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
+import {
+  buildSidebarNoteMenuItem,
+  SidebarNoteKeys,
+} from "@/lib/sidebarNotes";
 import { afterPaintIdle } from "@/lib/yieldToMain";
 import { ServerTreeIcon, serverTreeNodeClassName } from "../server/panel/serverTreeIcons";
 import { pluginDisplayName } from "../plugins/pluginDisplayName";
@@ -45,6 +49,7 @@ import { copyCloudText } from "./cloudDetailUi";
 import { addCloudInstanceToSsh } from "./cloudResourceLinks";
 import type { CloudResourceRow } from "../../ipc/bindings";
 import { formatIpcError } from "../../ipc/result";
+import { useSidebarNoteStore } from "@/stores/sidebarNoteStore";
 
 type CloudTreeCtxTarget =
   | { kind: "account"; account: CloudAccount }
@@ -233,6 +238,8 @@ function CloudCapabilityBranch({
     );
   }, [regionRows, searchQuery]);
 
+  const sidebarNotes = useSidebarNoteStore((s) => s.notes);
+
   const label = cloudCapabilityLabel(t, capabilityId, account.pluginId);
   const countBadge =
     rows == null ? (refreshing ? "…" : null) : String(regionRows.length);
@@ -294,6 +301,7 @@ function CloudCapabilityBranch({
                   nodeType="cloud-instance"
                   treeKey={itemKey}
                   label={row.name || row.id}
+                  note={sidebarNotes[SidebarNoteKeys.cloudInstance(account.id, row.id)]}
                   afterLabel={
                     !global && row.regionId ? (
                       <span className="sidebar-tag-chip badge badge-muted">{cloudRegionLabel(row.regionId)}</span>
@@ -384,6 +392,7 @@ export function CloudTreeSidebar({
   const refreshConnections = useConnectionStore((s) => s.refresh);
   const connectionsLoading = useConnectionStore((s) => s.loading);
   const saveConn = useConnectionStore((s) => s.save);
+  const sidebarNotes = useSidebarNoteStore((s) => s.notes);
   // storageKey 沿用旧 key，用户现有展开态不断（与服务器面板共用同一份展开表）。
   const { isExpanded, toggle, ensureExpanded, setAllExpanded } = usePersistedTreeExpanded(
     "omnipanel-server-tree-expanded.v1",
@@ -552,6 +561,7 @@ export function CloudTreeSidebar({
           onClick: () => onEditAccount(ctxTarget.account),
         });
       }
+      items.push(buildSidebarNoteMenuItem(SidebarNoteKeys.cloudAccount(ctxTarget.account.id), t));
       if (onDeleteAccount) {
         items.push({
           id: "delete",
@@ -605,6 +615,7 @@ export function CloudTreeSidebar({
           "permanent",
         ),
     });
+    items.push(buildSidebarNoteMenuItem(SidebarNoteKeys.cloudInstance(account.id, row.id), t));
     items.push({
       id: "copyId",
       label: t("cloud.tree.copyId"),
@@ -726,6 +737,7 @@ export function CloudTreeSidebar({
                     nodeType="cloud-account"
                     treeKey={accountKey}
                     label={account.name}
+                    note={sidebarNotes[SidebarNoteKeys.cloudAccount(account.id)]}
                     afterLabel={
                       <span className="sidebar-tag-chip badge badge-muted">
                         {pluginDisplayName(account.pluginId, t)}

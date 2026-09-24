@@ -4212,6 +4212,18 @@ pub async fn dispatch(
             let token = get_str(&args, "token").unwrap_or_default();
             respond_omni(crate::auth_cmds::auth_presence(token).await)
         }
+        "auth_api_request" => {
+            let token = get_str(&args, "token").unwrap_or_default();
+            let method = get_str(&args, "method").unwrap_or_else(|| "GET".into());
+            let path = get_str(&args, "path").unwrap_or_default();
+            let body = get_str(&args, "body");
+            let device_id = get_str(&args, "deviceId");
+            let app_id = get_str(&args, "appId");
+            respond_omni(
+                crate::auth_cmds::auth_api_request(token, method, path, body, device_id, app_id)
+                    .await,
+            )
+        }
         "auth_logout" => {
             let token = get_str(&args, "token").unwrap_or_default();
             respond_omni(crate::auth_cmds::auth_logout(token).await)

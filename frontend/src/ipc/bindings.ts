@@ -58,7 +58,7 @@ export const commands = {
 	syncMasterKeyValidate: (key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_validate", { key })),
 	syncTeamKeyStatus: (teamId: number) => typedError<SyncTeamKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_status", { teamId })),
 	syncTeamKeyGetOrCreate: (teamId: number) => typedError<SyncTeamKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_get_or_create", { teamId })),
-	/** 导出明文密钥供小程序扫码落库（含 teamId + keyB64）。 */
+	/**  导出明文密钥供小程序扫码（QR：`omnipanel://sync-key?team_id=&key=`）。 */
 	syncTeamKeyExportForMiniapp: (teamId: number) => typedError<SyncTeamKeyExportForMiniappResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_export_for_miniapp", { teamId })),
 	syncTeamKeyClear: (teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_clear", { teamId })),
 	syncTeamKeyExportFile: (teamId: number, path: string, passphrase: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_export_file", { teamId, path, passphrase })),
@@ -129,6 +129,7 @@ export const commands = {
 	presenceSetOsEnabled: (enabled: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("presence_set_os_enabled", { enabled })),
 	presenceVerify: (action: string, target: string, reason: string) => typedError<PresenceTokenIssued, OmniError_Serialize>(__TAURI_INVOKE("presence_verify", { action, target, reason })),
 	presenceIssueTyped: (action: string, target: string, typed: string) => typedError<PresenceTokenIssued, OmniError_Serialize>(__TAURI_INVOKE("presence_issue_typed", { action, target, typed })),
+	/**  同一次在场确认的后续签发（分片 SSH / 多主机），不再弹系统验证。 */
 	presenceIssueLeased: (action: string, target: string) => typedError<PresenceTokenIssued, OmniError_Serialize>(__TAURI_INVOKE("presence_issue_leased", { action, target })),
 	dbRestartService: (sshConnectionId: string, service: string, kind: string, location: string, presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_restart_service", { sshConnectionId, service, kind, location, presenceToken })),
 	dbDropTable: (connection: DbConnectionConfig, objects: DbDropObject[], presenceToken: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_drop_table", { connection, objects, presenceToken })),
@@ -347,7 +348,7 @@ export const commands = {
 	cloudResolveSecret: (connectionId: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_resolve_secret", { connectionId })),
 	/**  测试云账户连通性。`secret` 可传表单明文；为空时读 Vault。 */
 	cloudTest: (connection: Connection, secret: string | null) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("cloud_test", { connection, secret })),
-	/**  过渡：产品级列表，内部仍走同一客户端。前端主路径请用 `cloud_list_resources`。 */
+	/**  过渡：产品级列表，内部走 `listResources`。前端主路径请用 `cloud_list_resources`。 */
 	cloudListOss: (connectionId: string, region: string | null) => typedError<CloudOssBucket[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_oss", { connectionId, region })),
 	cloudListSwas: (connectionId: string, region: string | null) => typedError<CloudSwasInstance[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_swas", { connectionId, region })),
 	cloudListDomains: (connectionId: string) => typedError<CloudDomainItem[], OmniError_Serialize>(__TAURI_INVOKE("cloud_list_domains", { connectionId })),
@@ -1150,25 +1151,25 @@ export const commands = {
 	pluginSecretHas: (pluginId: string, key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_has", { pluginId, key })),
 	pluginSecretGet: (pluginId: string, key: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_get", { pluginId, key })),
 	pluginSecretDelete: (pluginId: string, key: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_secret_delete", { pluginId, key })),
-	/**  目录导入：注册为链接工程（原地编辑）+ 安装 + 默认热重载。 */
-	pluginDevImport: (path: string) => typedError<DevProjectInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_import", { path })),
+	/**  目录导入：注册为工作台链接工程（原地编辑）+ 安装到本机 + 默认开启热重载。 */
+	pluginDevImport: (path: string) => typedError<DevProjectInfo, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_import", { path })),
 	/**  开启热重载：先装一次当前内容，再注册轮询监听（未链接的目录顺手建链接）。 */
-	pluginDevWatch: (path: string) => typedError<DevWatchInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch", { path })),
+	pluginDevWatch: (path: string) => typedError<DevWatchInfo, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch", { path })),
 	/**  按工作台工程名开启热重载（user/repo/linked 通吃，目录由工作台解析）。 */
-	pluginDevWatchProject: (project: string) => typedError<DevWatchInfo_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch_project", { project })),
+	pluginDevWatchProject: (project: string) => typedError<DevWatchInfo, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_watch_project", { project })),
 	/**  关闭指定插件的热重载（保留链接，可再次开启）。 */
 	pluginDevUnwatch: (pluginId: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_unwatch", { pluginId })),
 	/**  取消链接：删链接 + 关监听，不动源码目录，不卸载已装插件。 */
 	pluginDevUnlinkProject: (project: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_unlink_project", { project })),
 	/**  开发期条目一览：会话监听 ∪ 已链接（重启后链接仍在，监听可一键恢复）。 */
-	pluginDevStatus: () => typedError<DevWatchInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_status")),
-	/**  列出用户目录 + 开发态仓库目录（同名以用户目录为准）。 */
+	pluginDevStatus: () => typedError<DevWatchInfo[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dev_status")),
+	/**  列出用户目录 + 开发态仓库目录 + 开发链接工程（同名以用户目录为准）。 */
 	pluginStudioListProjects: () => typedError<StudioProject_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_list_projects")),
 	/**  脚手架：新建一律写用户目录。有仓库+node 时复用 create-plugin.mjs；否则写内置 JS/L1 骨架。 */
 	pluginStudioScaffold: (name: string, kind: string, starter: string | null) => typedError<StudioProject_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_scaffold", { name, kind, starter })),
 	/**  记录 AI 脚手架意图（detail 仅为摘要）。 */
 	pluginStudioAuditScaffold: (project: string, prompt: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_audit_scaffold", { project, prompt })),
-	/**  删除工程目录（用户目录或仓库 plugins-custom，禁锢与读写相同）。 */
+	/**  删除工程：用户/仓库目录按禁锢删除；链接工程只取消链接（不动源码目录，不卸载已装插件）。 */
 	pluginStudioRemoveProject: (name: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_remove_project", { name })),
 	/**  读工程文件（文本，≤512KB）。 */
 	pluginStudioReadFile: (project: string, path: string) => typedError<string, OmniError_Serialize>(__TAURI_INVOKE("plugin_studio_read_file", { project, path })),
@@ -1335,6 +1336,11 @@ export const commands = {
 	authPublicQrcodes: () => typedError<AuthPublicQrcodes, OmniError_Serialize>(__TAURI_INVOKE("auth_public_qrcodes")),
 	/**  刷新设备在线 presence（POST /api/presence）。 */
 	authPresence: (token: string) => typedError<AuthPresenceResult, OmniError_Serialize>(__TAURI_INVOKE("auth_presence", { token })),
+	/**
+	 *  通用 omniserver API 代理（GET/POST/PUT/PATCH/DELETE → `https://mp.99.protected.fun`）。
+	 *  打包 WebView 不能直连外域（CORS → Failed to fetch）；登录等已走此路径，同步密钥中继等同理。
+	 */
+	authApiRequest: (token: string, method: string, path: string, body: string | null, deviceId: string | null, appId: string | null) => typedError<AuthApiResponse, OmniError_Serialize>(__TAURI_INVOKE("auth_api_request", { token, method, path, body, deviceId, appId })),
 	/**  登出当前会话（POST /api/logout），服务端会立刻清除 presence。 */
 	authLogout: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("auth_logout", { token })),
 	/**  通过后端代理 SSE，等待扫码登录成功。 */
@@ -1926,6 +1932,16 @@ export type AuthAccountLinks = {
 	wechat: AuthAccountLinkStatus,
 	github: AuthAccountLinkStatus,
 	email: AuthAccountLinkStatus,
+};
+
+/**  经后端代理的 omniserver HTTP 响应（避免打包 WebView CORS）。 */
+export type AuthApiResponse = {
+	/**  HTTP 状态码 */
+	status: number,
+	/**  响应正文（原文） */
+	body: string,
+	/**  Content-Type（缺省为空） */
+	contentType: string,
 };
 
 export type AuthBindingsBound = {
@@ -2966,34 +2982,27 @@ export type DbxInstallAttempt = {
 	message: string,
 };
 
-export type PluginEnsureRequest = {
-	approveIds: string[],
+/**  目录导入结果：链接工程名 + 安装信息（监听已默认开启）。 */
+export type DevProjectInfo = {
+	project: string,
+	pluginId: string,
+	version: string,
+	dir: string,
+	watching: boolean,
 };
 
-export type PluginEnsureItem = {
-	id: string,
-	name: string,
-};
-
-export type PluginEnsurePendingItem = {
-	id: string,
-	name: string,
-	kind: PluginKind,
-	sourceId: string,
-	permissions: string[],
-};
-
-export type PluginEnsureFailItem = {
-	id: string,
-	message: string,
-};
-
-export type PluginEnsureResult = {
-	skipped: PluginEnsureItem[],
-	installed: PluginEnsureItem[],
-	pendingConfirm: PluginEnsurePendingItem[],
-	failed: PluginEnsureFailItem[],
-	notFound: PluginEnsureItem[],
+/**  开发期监听条目（`plugin_dev_status` 出参）。 */
+export type DevWatchInfo = {
+	/**  链接工程名（工作台工程列表用；纯会话条目为空）。 */
+	project: string,
+	pluginId: string,
+	version: string,
+	dir: string,
+	watching: boolean,
+	enabled: boolean,
+	activated: boolean,
+	lastReloadMs: number,
+	lastError: string,
 };
 
 export type DiscoveryScope = {
@@ -3032,50 +3041,6 @@ export type DiskStats_Serialize = {
 	disks: DiskDeviceStats[],
 	readBytes?: number | null,
 	writeBytes?: number | null,
-};
-
-export type DevProjectInfo = DevProjectInfo_Serialize | DevProjectInfo_Deserialize;
-
-export type DevProjectInfo_Deserialize = {
-	project: string,
-	pluginId: string,
-	version: string,
-	dir: string,
-	watching: boolean,
-};
-
-export type DevProjectInfo_Serialize = {
-	project: string,
-	pluginId: string,
-	version: string,
-	dir: string,
-	watching: boolean,
-};
-
-export type DevWatchInfo = DevWatchInfo_Serialize | DevWatchInfo_Deserialize;
-
-export type DevWatchInfo_Deserialize = {
-	project: string,
-	pluginId: string,
-	version: string,
-	dir: string,
-	watching: boolean,
-	enabled: boolean,
-	activated: boolean,
-	lastReloadMs: number,
-	lastError: string,
-};
-
-export type DevWatchInfo_Serialize = {
-	project: string,
-	pluginId: string,
-	version: string,
-	dir: string,
-	watching: boolean,
-	enabled: boolean,
-	activated: boolean,
-	lastReloadMs: number,
-	lastError: string,
 };
 
 /**  Docker auto-detection result. */
@@ -4908,6 +4873,36 @@ export type PanelProbeResult = {
 
 export type PluginDistribution = "bundled" | "download";
 
+export type PluginEnsureFailItem = {
+	id: string,
+	message: string,
+};
+
+export type PluginEnsureItem = {
+	id: string,
+	name: string,
+};
+
+export type PluginEnsurePendingItem = {
+	id: string,
+	name: string,
+	kind: PluginKind,
+	sourceId: string,
+	permissions: string[],
+};
+
+export type PluginEnsureRequest = {
+	approveIds?: string[],
+};
+
+export type PluginEnsureResult = {
+	skipped: PluginEnsureItem[],
+	installed: PluginEnsureItem[],
+	pendingConfirm: PluginEnsurePendingItem[],
+	failed: PluginEnsureFailItem[],
+	notFound: PluginEnsureItem[],
+};
+
 /**
  *  插件身份。新增 kind 只接受平台级能力（多租户），不为单一产品开口子。
  *  `knowledge`（知识源适配器：思源/Obsidian/Logseq/Notion 只读镜像）即此类。
@@ -5016,7 +5011,7 @@ export type ProvidersFile = {
 	cliProviders?: CliProviderRecord[],
 };
 
-/**  Proxy 配置，从前端设置同步到后端。 */
+/**  HTTP 代理配置 DTO（与前端设置 / 桌面 AppState 字段对齐）。 */
 export type ProxyConfig = {
 	enabled: boolean,
 	protocol: string,
@@ -6183,16 +6178,16 @@ export type SyncTeamKeyEphemeralKeypair = {
 	wrapAlg: string,
 };
 
-export type SyncTeamKeyGetOrCreateResult = {
-	fingerprint: string,
-	/**  true = 本次新生成，应提示备份 */
-	created: boolean,
-};
-
 export type SyncTeamKeyExportForMiniappResult = {
 	teamId: number,
 	keyB64: string,
 	fingerprint: string,
+};
+
+export type SyncTeamKeyGetOrCreateResult = {
+	fingerprint: string,
+	/**  true = 本次新生成，应提示备份 */
+	created: boolean,
 };
 
 export type SyncTeamKeyImportResult = {

@@ -43,6 +43,11 @@ import {
 } from "./serverResourceLabels";
 import type { ServerSidebarNavigate } from "./serverSidebarNav";
 import { hasSidebarTreeSearch, sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
+import {
+  buildSidebarNoteMenuItem,
+  SidebarNoteKeys,
+} from "@/lib/sidebarNotes";
+import { useSidebarNoteStore } from "@/stores/sidebarNoteStore";
 import { serverEntryMatchesSearch } from "../serverTreeSearch";
 import { ServerTreeIcon, serverTreeIconKindForPanel, serverTreeNodeClassName } from "./serverTreeIcons";
 
@@ -365,6 +370,8 @@ export function ServerPanelTreeSidebar({
     return map;
   }, [servers]);
 
+  const sidebarNotes = useSidebarNoteStore((s) => s.notes);
+
   const ctxItems: ContextMenuItem[] = [
     {
       id: "edit",
@@ -372,6 +379,9 @@ export function ServerPanelTreeSidebar({
       icon: contextMenuIcons.edit,
       onClick: () => ctxServer && onEditServer?.(ctxServer),
     },
+    ...(ctxServer
+      ? [buildSidebarNoteMenuItem(SidebarNoteKeys.server(ctxServer.id), t)]
+      : []),
     {
       id: "delete",
       label: t("server.sidebar.delete"),
@@ -485,6 +495,7 @@ export function ServerPanelTreeSidebar({
                       </span>
                     </span>
                   }
+                  note={sidebarNotes[SidebarNoteKeys.server(server.id)]}
                   hasChildren
                   expanded={serverExpanded}
                   active={activeNavKey === serverKey || activeServerId === server.id}

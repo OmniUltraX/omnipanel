@@ -23,6 +23,7 @@ import {
 } from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
 import { StatusDot } from "../../components/ui/primitives/StatusDot";
+import { SidebarNoteKeys, useSidebarNote } from "../../lib/sidebarNotes";
 import type { FileManagerConnectionInfo } from "../../ipc/bindings";
 import type { FileFavorite } from "../../stores/filesFavoritesStore";
 import type { FileProtocol } from "./FileConnectionDialog";
@@ -91,6 +92,7 @@ function ConnectionRow({
     onDoubleClick: () => onPin(conn),
   });
   const online = conn.status === "online";
+  const note = useSidebarNote(SidebarNoteKeys.filesConnection(conn.id));
 
   return (
     <div
@@ -120,7 +122,16 @@ function ConnectionRow({
         title={online ? t("common.statusOnline") : t("common.statusIdle")}
         className="fm-conn-item__status"
       />
-      <span className="conn-name">{conn.name}</span>
+      {note ? (
+        <span className="sidebar-tree-label-stack">
+          <span className="conn-name">{conn.name}</span>
+          <span className="sidebar-tree-note" title={note}>
+            {note}
+          </span>
+        </span>
+      ) : (
+        <span className="conn-name">{conn.name}</span>
+      )}
     </div>
   );
 }

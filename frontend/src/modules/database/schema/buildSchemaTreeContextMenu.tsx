@@ -13,6 +13,7 @@ import {
 import { isSchemaNodeDropSupported } from "./schemaTreeDropSql";
 import { resolveSidebarTreeDeleteTargets } from "@/components/ui/sidebar-tree";
 import { buildDatabaseConnectionSharePayload } from "../../share/resourceShare";
+import { buildSidebarNoteMenuItem, SidebarNoteKeys } from "@/lib/sidebarNotes";
 import type { CachedConnection } from "./schemaCacheMerge";
 
 export type SchemaCtxMenuState = {
@@ -146,6 +147,17 @@ export function buildSchemaTreeContextMenuItems(
             ? [connection]
             : undefined,
     }) ?? [];
+  const noteItems: ContextMenuItem[] = [];
+  if (item.type === "connection" && item.connId) {
+    noteItems.push(buildSidebarNoteMenuItem(SidebarNoteKeys.databaseConnection(item.connId), t));
+  } else if (item.type === "table" && item.connId && item.dbName && item.tableName) {
+    noteItems.push(
+      buildSidebarNoteMenuItem(
+        SidebarNoteKeys.databaseTable(item.connId, item.dbName, item.tableName),
+        t,
+      ),
+    );
+  }
   const connRefreshing = connection ? Boolean(refreshingNodeIds[item.id]) : false;
   const canRefresh = Boolean(connection && isConnectionEnabled(connection));
   const refreshItem: ContextMenuItem = {
@@ -190,11 +202,12 @@ export function buildSchemaTreeContextMenuItems(
           },
         ]
       : [];
-  if (extra.length === 0) {
+  if (extra.length === 0 && noteItems.length === 0) {
     return [...trailingItems, ...shareItems];
   }
   return [
     ...extra,
+    ...noteItems,
     { id: "sep-refresh", label: "", separator: true },
     ...trailingItems,
     ...shareItems,

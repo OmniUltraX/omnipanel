@@ -215,8 +215,9 @@ export function LogViewer({
     if (!term) return;
     if (lastTextRef.current === text) return;
 
+    const hadPrev = lastTextRef.current !== null;
     const prev = lastTextRef.current ?? "";
-    const stickToBottom = autoScrollRef.current && (lastTextRef.current === null || isTerminalAtBottom(term));
+    const stickToBottom = autoScrollRef.current && (!hadPrev || isTerminalAtBottom(term));
     lastTextRef.current = text;
 
     const finishWrite = () => {
@@ -226,7 +227,8 @@ export function LogViewer({
       }
     };
 
-    if (streaming && prev && text.startsWith(prev) && text.length > prev.length) {
+    // hadPrev：避免 prev="" 时被当成 falsy，导致清空后每次追加都全量 reset。
+    if (streaming && hadPrev && text.startsWith(prev) && text.length > prev.length) {
       const delta = text.slice(prev.length);
       term.write(normalizeLogNewlines(delta), finishWrite);
       return;

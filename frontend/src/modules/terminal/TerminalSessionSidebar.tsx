@@ -58,6 +58,11 @@ import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import { GlobalTagEditor } from "../tags/GlobalTagEditor";
 import { FormDialog } from "../../components/ui/form/FormDialog";
+import {
+  buildSidebarNoteMenuItem,
+  SidebarNoteKeys,
+} from "../../lib/sidebarNotes";
+import { useSidebarNoteStore } from "../../stores/sidebarNoteStore";
 
 const EXPANDED_STORAGE_KEY = "omnipanel-terminal-session-tree-expanded";
 const CONNECTION_POINTER_DRAG_THRESHOLD_PX = 6;
@@ -157,6 +162,7 @@ export function TerminalSessionSidebar({
   onRenameConnection,
 }: TerminalSessionSidebarProps) {
   const { t } = useI18n();
+  const sidebarNotes = useSidebarNoteStore((s) => s.notes);
   const sessions = useTerminalStore((s) => s.sessions);
   const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
@@ -404,6 +410,7 @@ export function TerminalSessionSidebar({
         );
       }
       items.push(
+        buildSidebarNoteMenuItem(SidebarNoteKeys.terminalConnection(group.resourceId), t),
         { id: "conn-sep-tags", separator: true, label: "" },
         {
           id: "conn-tags",
@@ -642,6 +649,7 @@ export function TerminalSessionSidebar({
                         nodeType="connection"
                         treeKey={connectionKey}
                         label={group.name}
+                        note={sidebarNotes[SidebarNoteKeys.terminalConnection(group.resourceId)]}
                         icon={<SidebarIcon kind="connection" />}
                         hasChildren
                         expanded={expanded}
@@ -694,6 +702,7 @@ export function TerminalSessionSidebar({
                                 nodeType="session"
                                 treeKey={makeSessionTreeKey(session.id)}
                                 label={session.title}
+                                note={sidebarNotes[SidebarNoteKeys.terminalSession(session.id)]}
                                 hasChildren={false}
                                 expanded={false}
                                 active={isActive}
@@ -761,6 +770,10 @@ export function TerminalSessionSidebar({
             icon: contextMenuIcons.rename,
             onClick: () => handleRenameSession(sessionCtxMenu.session),
           },
+          buildSidebarNoteMenuItem(
+            SidebarNoteKeys.terminalSession(sessionCtxMenu.session.id),
+            t,
+          ),
           {
             id: "session-ai-rename",
             label: aiNamingIds.has(sessionCtxMenu.session.id)

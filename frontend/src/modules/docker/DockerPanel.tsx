@@ -147,6 +147,7 @@ export function DockerPanel() {
   const selectContainer = useDockerPanelDockStore((s) => s.selectContainer);
   const selectCompose = useDockerPanelDockStore((s) => s.selectCompose);
   const closeTab = useDockerPanelDockStore((s) => s.closeTab);
+  const promoteTab = useDockerPanelDockStore((s) => s.promoteTab);
   const handleCloseTab = useCallback(
     (tabId: string) => {
       closeDockTabNow({
@@ -154,6 +155,12 @@ export function DockerPanel() {
       });
     },
     [closeTab],
+  );
+  const handleTabDoubleClick = useCallback(
+    (tabId: string) => {
+      promoteTab(tabId);
+    },
+    [promoteTab],
   );
 
   const handleDockTabContextMenu = useCallback(
@@ -717,6 +724,7 @@ export function DockerPanel() {
             activeTabId={activeTabId ?? ""}
             onActiveTabChange={setActiveTabId}
             onCloseTab={handleCloseTab}
+            onTabDoubleClick={handleTabDoubleClick}
             onTabContextMenu={handleDockTabContextMenu}
             enabled={isActiveRoute}
             stickyVisit

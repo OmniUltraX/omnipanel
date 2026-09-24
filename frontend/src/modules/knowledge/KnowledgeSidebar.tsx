@@ -34,6 +34,11 @@ import { commands, type KnowledgeSearchResult } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { quickInput } from "../../lib/quickInput";
 import { appConfirm } from "../../lib/appConfirm";
+import {
+  buildSidebarNoteMenuItem,
+  SidebarNoteKeys,
+  useSidebarNote,
+} from "../../lib/sidebarNotes";
 import { publishModuleStatusLog } from "../../lib/moduleStatusLog";
 import { useKnowledgeStore } from "../../stores/knowledgeStore";
 import { useKnowledgeWorkspaceStore } from "../../stores/knowledgeWorkspaceStore";
@@ -134,6 +139,9 @@ function TreeRow({
   // 镜像锁定条目不可拖拽（拖走下次同步会被搬回）。
   const draggable = !isMirrorLocked(entry);
   const selection = useSidebarTreeSelection();
+  const note = useSidebarNote(
+    isFolder ? null : SidebarNoteKeys.knowledgeEntry(entry.id),
+  );
 
   const handleSelect = (event: TreeRowMouseEvent) => {
     selection?.handleSelect(entry.id, event);
@@ -167,6 +175,7 @@ function TreeRow({
       }`}
       icon={isFolder ? <SidebarIcon kind="folder" /> : <SidebarIcon kind="document" />}
       label={entry.title}
+      note={note}
       afterLabel={
         <>
           {mirrorLabel ? (
@@ -780,6 +789,9 @@ export function KnowledgeSidebar() {
         icon: contextMenuIcons.copy,
         onClick: () => void handleCopyTitle(ctxEntry),
       },
+      ...(!isFolder
+        ? [buildSidebarNoteMenuItem(SidebarNoteKeys.knowledgeEntry(ctxEntry.id), t)]
+        : []),
       ...(!locked
         ? [
             {

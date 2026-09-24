@@ -69,6 +69,18 @@ pub struct AuthPresenceResult {
     pub ttl_sec: i64,
 }
 
+/// 经后端代理的 omniserver HTTP 响应（避免打包 WebView CORS）。
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthApiResponse {
+    /// HTTP 状态码
+    pub status: u16,
+    /// 响应正文（原文）
+    pub body: String,
+    /// Content-Type（缺省为空）
+    pub content_type: String,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthLoginSuccess {
@@ -340,6 +352,25 @@ struct ApiPublicQrcodesResponse {
 
 fn auth_url(path: &str) -> String {
     format!("{}{}", AUTH_API_BASE.trim_end_matches('/'), path)
+}
+
+/// 仅允许代理本服务 `/api/` 路径，防止 SSRF。
+fn validate_auth_api_path(path: &str) -> Result<String, OmniError> {
+    let trimmed = path.trim();
+    if !trimmed.starts_with("/api/") {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "仅允许代理 /api/ 路径",
+        ));
+    }
+    if trimmed.contains("://") || trimmed.contains('\\') {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "非法 API 路径"));
+    }
+    let path_only = trimmed.split('?').next().unwrap_or(trimmed);
+    if path_only.split('/').any(|seg| seg == "..") {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "非法 API 路径"));
+    }
+    Ok(trimmed.to_string())
 }
 
 /// 客户端身份 Header（登录落库 / 绑定出码共用）。
@@ -1338,6 +1369,92 @@ pub async fn auth_presence(
     Ok(AuthPresenceResult {
         ok: parsed.ok.unwrap_or(true),
         ttl_sec: parsed.ttl_sec.unwrap_or(180).max(30),
+    })
+}
+
+/// 通用 omniserver API 代理（GET/POST/PUT/PATCH/DELETE → `https://mp.99.protected.fun`）。
+/// 打包 WebView 不能直连外域（CORS → Failed to fetch）；登录等已走此路径，同步密钥中继等同理。
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_api_request(
+    state: State<'_, AppState>,
+    token: String,
+    method: String,
+    path: String,
+    body: Option<String>,
+    device_id: Option<String>,
+    app_id: Option<String>,
+) -> Result<AuthApiResponse, OmniError> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "缺少登录凭证"));
+    }
+    let path = validate_auth_api_path(&path)?;
+    let method = method.trim().to_uppercase();
+    let method = match method.as_str() {
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE" => method,
+        _ => {
+            return Err(OmniError::new(
+                ErrorCode::InvalidInput,
+                format!("不支持的 HTTP 方法: {method}"),
+            ));
+        }
+    };
+
+    let proxy_config = state.proxy_config.lock().await.clone();
+    let identity = load_or_create_device_identity()?;
+    let url = auth_url(&path);
+    let client = build_http_client_for_url(&url, &proxy_config, Duration::from_secs(60))
+        .map_err(|e| OmniError::new(ErrorCode::Connection, "创建 HTTP 客户端失败").with_cause(e))?;
+
+    let http_method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| {
+        OmniError::new(ErrorCode::InvalidInput, format!("无效 HTTP 方法: {method}"))
+    })?;
+    let app = app_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(CLIENT_APP_ID);
+    let mut req = apply_client_identity_headers_with_app(
+        client
+            .request(http_method, &url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}")),
+        &identity,
+        app,
+    );
+    if let Some(did) = device_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        req = req.header("X-Device-Id", did);
+    }
+    if let Some(payload) = body.as_deref().filter(|s| !s.is_empty()) {
+        req = req
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(payload.to_string());
+    }
+
+    let resp = req.send().await.map_err(|e| {
+        OmniError::new(ErrorCode::Connection, "请求认证服务失败")
+            .with_cause(format_reqwest_error(&e))
+    })?;
+
+    let status = resp.status().as_u16();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let body = resp.text().await.map_err(|e| {
+        OmniError::new(ErrorCode::Io, "读取认证服务响应失败").with_cause(e.to_string())
+    })?;
+
+    Ok(AuthApiResponse {
+        status,
+        body,
+        content_type,
     })
 }
 

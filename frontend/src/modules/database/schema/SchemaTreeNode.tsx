@@ -17,6 +17,7 @@ import {
   useSidebarTreeSelection,
 } from "@/components/ui/sidebar-tree";
 import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
+import { SidebarNoteKeys, useSidebarNote } from "@/lib/sidebarNotes";
 
 export interface TreeNodeProps {
   item: SchemaTreeItem;
@@ -98,6 +99,13 @@ export const TreeNode = memo(
   const { type, label } = item;
   const isConnection = type === "connection";
   const connId = item.connId;
+  const noteKey =
+    type === "connection" && connId
+      ? SidebarNoteKeys.databaseConnection(connId)
+      : type === "table" && connId && item.dbName && item.tableName
+        ? SidebarNoteKeys.databaseTable(connId, item.dbName, item.tableName)
+        : null;
+  const note = useSidebarNote(noteKey);
   // 按连接订阅状态点，探测 online/offline 时不整树重渲
   const runtimeStatus = useDbConnectionRuntimeStore((s) =>
     isConnection && connId
@@ -353,6 +361,7 @@ export const TreeNode = memo(
           ) : null}
         </>
       }
+      note={note}
       afterLabel={
         <>
           {isPk ? <span className="tree-badge tree-badge--pk">PK</span> : null}

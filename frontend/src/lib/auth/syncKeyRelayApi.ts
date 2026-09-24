@@ -10,9 +10,8 @@ export {
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
+import { authOmniFetch } from "./authOmniFetch";
 import { importSyncTeamKeyFile } from "./syncTeamKeyApi";
-
-const AUTH_ASSET_BASE = "https://mp.99.protected.fun";
 
 export type SyncKeyRelayErrorCode = "no_online_peer" | "request_failed" | "timeout";
 
@@ -64,16 +63,12 @@ async function authFetch(
   path: string,
   init?: RequestInit & { deviceId?: string },
 ): Promise<Response> {
-  const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  headers.set("X-App-Id", "omni-client");
   const deviceId = (init?.deviceId ?? (await resolveDeviceId())).trim();
-  if (deviceId) headers.set("X-Device-Id", deviceId);
-  if (init?.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
   const { deviceId: _deviceId, ...rest } = init ?? {};
-  return fetch(`${AUTH_ASSET_BASE}${path}`, { ...rest, headers });
+  return authOmniFetch(token, path, {
+    ...rest,
+    deviceId: deviceId || undefined,
+  });
 }
 
 export async function listPendingKeyRelays(token: string): Promise<PendingKeyRelayItem[]> {

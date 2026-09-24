@@ -51,6 +51,8 @@ interface DockerPanelDockState {
     composeProject: string,
     mode?: DockerConnectionDockOpenMode,
   ) => void;
+  /** 预览 Tab 升级为常驻（右侧工作区顶部双击） */
+  promoteTab: (tabId: string) => void;
   closeTab: (tabId: string) => void;
   setActiveTabId: (tabId: string | null) => void;
   setDockLayout: (layout: SerializedDockview | null) => void;
@@ -570,6 +572,14 @@ export const useDockerPanelDockStore = create<DockerPanelDockState>()(
             activeTabId: id,
           };
         });
+      },
+
+      promoteTab: (tabId) => {
+        set((state) => ({
+          tabs: state.tabs.map((tab) =>
+            tab.id === tabId ? { ...tab, preview: false } : tab,
+          ),
+        }));
       },
 
       closeTab: (tabId) => {
