@@ -159,8 +159,31 @@ export function DockerContainerLogsView({
     if (streamBusy || streamIdRef.current) return;
     setStreamBusy(true);
     setError(null);
-    setLines([]);
+
+    // 先挂监听再 start：后端 spawn 后会立刻 emit --tail 历史行，后挂 listen 会丢光。
+    let ready = false;
+    const early: Array<{ streamId: string; stream: string; message: string }> = [];
+
     try {
+      const unlistenLog = await listen<DockerLogEventPayload>(DOCKER_LOG, (event) => {
+        const { streamId, stream, message } = event.payload;
+        if (!message) return;
+        if (!ready) {
+          early.push({ streamId, stream, message });
+          return;
+        }
+        if (streamId !== streamIdRef.current) return;
+        setLines((current) => [...current, { stream, message }]);
+      });
+      const unlistenEnd = await listen<DockerLogEndPayload>(DOCKER_LOG_END, (event) => {
+        if (!streamIdRef.current || event.payload.streamId !== streamIdRef.current) return;
+        if (event.payload.error) {
+          setError(event.payload.error);
+        }
+        void stopFollowStream();
+      });
+      unlistenRefs.current = [unlistenLog, unlistenEnd];
+
       const streamId = await startDockerContainerLogStream(
         connectionId,
         containerId,
@@ -169,23 +192,15 @@ export function DockerContainerLogsView({
         true,
       );
       streamIdRef.current = streamId;
+      const initial = early
+        .filter((item) => item.streamId === streamId)
+        .map(({ stream, message }) => ({ stream, message }));
+      ready = true;
+      // 缓冲为空时保留 oneshot 内容，避免开启跟踪瞬间被清空成空白。
+      if (initial.length > 0) {
+        setLines(initial);
+      }
       setFollowing(true);
-
-      const unlistenLog = await listen<DockerLogEventPayload>(DOCKER_LOG, (event) => {
-        if (event.payload.streamId !== streamId) return;
-        const message = event.payload.message;
-        if (!message) return;
-        const stream = event.payload.stream;
-        setLines((current) => [...current, { stream, message }]);
-      });
-      const unlistenEnd = await listen<DockerLogEndPayload>(DOCKER_LOG_END, (event) => {
-        if (event.payload.streamId !== streamId) return;
-        if (event.payload.error) {
-          setError(event.payload.error);
-        }
-        void stopFollowStream();
-      });
-      unlistenRefs.current = [unlistenLog, unlistenEnd];
     } catch (e) {
       setError(String(e));
       await stopFollowStream();
