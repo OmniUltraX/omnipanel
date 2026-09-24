@@ -106,7 +106,11 @@ export function evaluateDynamicPluginModule(
       /* ignore expression fallback */
     }
     return null;
-  } catch {
+  } catch (err) {
+    // 打包 CSP 缺 'unsafe-eval' 时 new Function 会抛 EvalError；记下来便于诊断。
+    if (err instanceof Error && /eval|unsafe-eval/i.test(err.message)) {
+      console.error("[plugin-runtime] ui entry eval blocked (CSP needs 'unsafe-eval')", err.message);
+    }
     return null;
   }
 }
