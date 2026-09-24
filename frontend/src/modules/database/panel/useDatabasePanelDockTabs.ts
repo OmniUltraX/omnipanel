@@ -19,8 +19,8 @@ import { registerDatabaseTabCloser } from "../databaseSessionService";
 import type { DbConnectionConfig } from "../api";
 import type { SyncTask } from "../toolbox/types";
 import {
+  findPreviewDockTab,
   findTabIdForSyncTask,
-  syncTaskDockTabId,
   makeSyncTaskWorkspaceTab,
   findTabIdForSqlFile,
   findTabIdForTreeChartFile,
@@ -29,13 +29,13 @@ import {
   findTabIdForRedisQuery,
   findTabIdForSlowQueryLog,
   findTabIdForBinlog,
+  findTabIdForSqlExecLog,
   findTabIdForDesigner,
   findTabIdForTable,
   isModuleDockTab,
   isScratchSqlTab,
   type SchemaDockOpenMode,
   type DbWorkspaceTab,
-  type ToolboxWorkspaceTab,
 } from "../workspace/workspaceTabs";
 import {
   createDefaultSqlTabState,
@@ -183,53 +183,6 @@ export function useDatabasePanelDockTabs(deps: UseDatabasePanelDockTabsDeps) {
     },
     [pushSidebarLinkageForTabId, syncConnForTabId],
   );
-  const openSyncTaskTab = useCallback(
-    (task: SyncTask, runAfterLoad = false) => {
-      const tabId =
-        findTabIdForSyncTask(workspaceTabsRef.current, task.id) ?? syncTaskDockTabId(task.id);
-      const existing = workspaceTabsRef.current.find((item) => item.id === tabId);
-      const syncAction =
-        task.kind === "schemaSync"
-          ? t("database.workspace.tabAction.schemaSync")
-          : t("database.workspace.tabAction.dataSync");
-      if (!existing) {
-        const tab = makeSyncTaskWorkspaceTab(task, syncAction);
-        setWorkspaceTabs((prev) => (prev.some((item) => item.id === tab.id) ? prev : [...prev, tab]));
-      } else {
-        const nextLabel = makeSyncTaskWorkspaceTab(task, syncAction).label;
-        if (
-          existing.label !== nextLabel ||
-          (existing as ToolboxWorkspaceTab).toolboxTab !== task.kind
-        ) {
-          setWorkspaceTabs((prev) =>
-            prev.map((item) =>
-              item.id === tabId
-                ? { ...item, label: nextLabel, toolboxTab: task.kind } as DbWorkspaceTab
-                : item,
-            ),
-          );
-        }
-      }
-      activateWorkspaceTab(tabId);
-      useDbSyncTaskStore.getState().setActiveTaskId(task.id);
-      useDbSyncTaskStore.getState().requestLoad(task.id, runAfterLoad);
-    },
-    [activateWorkspaceTab, setWorkspaceTabs, t],
-  );
-
-  const handleOpenSyncTask = useCallback(
-    (task: SyncTask) => {
-      openSyncTaskTab(task, false);
-    },
-    [openSyncTaskTab],
-  );
-
-  const handleRunSyncTask = useCallback(
-    (task: SyncTask) => {
-      openSyncTaskTab(task, true);
-    },
-    [openSyncTaskTab],
-  );
 
   const clearPreviewTabSlotData = useCallback(
     (tabId: string) => {
@@ -312,10 +265,10 @@ export function useDatabasePanelDockTabs(deps: UseDatabasePanelDockTabsDeps) {
         clearPreviewTabSlotData(previewTabId);
       }
       patchDockTabPreviewMeta(previewTabId, true);
-      setWorkspaceTabs((prev) =>
-        prev.map((tab) =>
-          tab.id === previewTabId ? { ...nextTab, id: previewTabId, preview: true } : tab,
-        ),
+      const replaced = { ...nextTab, id: previewTabId, preview: true as const };
+      setWorkspaceTabs((prev) => prev.map((tab) => (tab.id === previewTabId ? replaced : tab)));
+      workspaceTabsRef.current = workspaceTabsRef.current.map((tab) =>
+        tab.id === previewTabId ? replaced : tab,
       );
       activateWorkspaceTab(previewTabId);
       return previewTabId;
@@ -328,6 +281,87 @@ export function useDatabasePanelDockTabs(deps: UseDatabasePanelDockTabsDeps) {
       setCommittingTabs,
     ],
   );
+
+  const openSyncTaskTab = useCallback(
+    (task: SyncTask, runAfterLoad = false, mode: SchemaDockOpenMode = "permanent") => {
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const syncAction =
+        task.kind === "schemaSync"
+          ? t("database.workspace.tabAction.schemaSync")
+          : t("database.workspace.tabAction.dataSync");
+      const tabTemplate = makeSyncTaskWorkspaceTab(task, syncAction);
+      const finish = (tabId: string) => {
+        activateWorkspaceTab(tabId);
+        useDbSyncTaskStore.getState().setActiveTaskId(task.id);
+        useDbSyncTaskStore.getState().requestLoad(task.id, runAfterLoad);
+      };
+      const existingId = findTabIdForSyncTask(moduleTabs, task.id);
+      if (existingId) {
+        const existing = moduleTabs.find((item) => item.id === existingId);
+        if (
+          existing &&
+          (existing.label !== tabTemplate.label ||
+            (existing.kind === "toolbox" && existing.toolboxTab !== task.kind))
+        ) {
+          setWorkspaceTabs((prev) =>
+            prev.map((item) =>
+              item.id === existingId
+                ? ({ ...item, label: tabTemplate.label, toolboxTab: task.kind } as DbWorkspaceTab)
+                : item,
+            ),
+          );
+        }
+        if (mode === "permanent") {
+          activateExistingDockTab(existingId, "permanent");
+        } else {
+          activateWorkspaceTab(existingId);
+        }
+        useDbSyncTaskStore.getState().setActiveTaskId(task.id);
+        useDbSyncTaskStore.getState().requestLoad(task.id, runAfterLoad);
+        return;
+      }
+      if (mode === "permanent") {
+        setWorkspaceTabs((prev) =>
+          prev.some((item) => item.id === tabTemplate.id) ? prev : [...prev, tabTemplate],
+        );
+        workspaceTabsRef.current = workspaceTabsRef.current.some((item) => item.id === tabTemplate.id)
+          ? workspaceTabsRef.current
+          : [...workspaceTabsRef.current, tabTemplate];
+        finish(tabTemplate.id);
+        return;
+      }
+      const previewTab = findPreviewDockTab(moduleTabs);
+      if (previewTab?.kind === "toolbox" && previewTab.syncTaskId === task.id) {
+        finish(previewTab.id);
+        return;
+      }
+      if (previewTab) {
+        finish(replacePreviewDockTab(previewTab.id, tabTemplate));
+        return;
+      }
+      const tab = { ...tabTemplate, preview: true as const };
+      patchDockTabPreviewMeta(tab.id, true);
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      workspaceTabsRef.current = [...workspaceTabsRef.current, tab];
+      finish(tab.id);
+    },
+    [activateExistingDockTab, activateWorkspaceTab, replacePreviewDockTab, setWorkspaceTabs, t],
+  );
+
+  const handleOpenSyncTask = useCallback(
+    (task: SyncTask, mode: SchemaDockOpenMode = "permanent") => {
+      openSyncTaskTab(task, false, mode);
+    },
+    [openSyncTaskTab],
+  );
+
+  const handleRunSyncTask = useCallback(
+    (task: SyncTask) => {
+      openSyncTaskTab(task, true);
+    },
+    [openSyncTaskTab],
+  );
+
   const closeWorkspaceTabs = useCallback(
     (tabIds: string[]) => {
       const uniqueIds = [...new Set(tabIds.filter(Boolean))];
@@ -513,6 +547,15 @@ export function useDatabasePanelDockTabs(deps: UseDatabasePanelDockTabsDeps) {
 
       if (tab.kind === "slow-query") {
         const existing = findTabIdForSlowQueryLog(workspaceTabsRef.current, tab.connId);
+        if (existing) {
+          activateWorkspaceTab(existing);
+          removeRecentClosedPanel(entry.closedAt);
+          return;
+        }
+      }
+
+      if (tab.kind === "sql-exec-log") {
+        const existing = findTabIdForSqlExecLog(workspaceTabsRef.current, tab.connId);
         if (existing) {
           activateWorkspaceTab(existing);
           removeRecentClosedPanel(entry.closedAt);

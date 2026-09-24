@@ -8,7 +8,9 @@ import {
   type DbConnectionConfig,
 } from "../api";
 import { hostCapabilities } from "../hostCapabilities";
-import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
+import { buildTableObjectContextMenu } from "../schema/buildTableObjectContextMenu";
+import { getCachedTableNames } from "../schema/schemaCacheMerge";
+import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import type { SlowLogAvailability } from "../mysqlSlowQueryLog";
 import type { BinlogAvailability } from "../mysqlBinlog";
 import { showToast } from "../../../stores/toastStore";
@@ -18,8 +20,8 @@ export type BuildDatabaseSchemaContextMenuDeps = {
   handleExportDatabase: (connection: DbConnectionConfig, dbName: string) => void | Promise<void>;
   handleOpenImportDatabase: (connection: DbConnectionConfig, dbName: string) => void;
   handleDesignTable: (selection: SchemaTableSelection) => void;
-  copyNameForTable: (selection: SchemaTableSelection) => void;
-  copyDdlForTable: (selection: SchemaTableSelection) => void | Promise<void>;
+  handleSelectTable: (selection: SchemaTableSelection, mode?: "preview" | "permanent") => void;
+  openTableQuery: (selection: SchemaTableSelection) => void;
   ensureSlowLogAvailability: (connection: DbConnectionConfig) => Promise<SlowLogAvailability>;
   ensureBinlogAvailability: (connection: DbConnectionConfig) => Promise<BinlogAvailability>;
   resolveSlowLogDisabledReason: (availability: SlowLogAvailability) => string;
@@ -27,6 +29,7 @@ export type BuildDatabaseSchemaContextMenuDeps = {
   openSlowQueryLogTab: (connection: DbConnectionConfig, availability: SlowLogAvailability) => void;
   openDialectSlowQueryTab: (connection: DbConnectionConfig) => void;
   openBinlogTab: (connection: DbConnectionConfig, availability: BinlogAvailability) => void;
+  openSqlExecLog: (connection: DbConnectionConfig) => void;
   toggleConnectionEnabled: (connId: string, enabled: boolean) => void | Promise<void>;
   setEditingConnection: (connection: DbConnectionConfig | null) => void;
   setDialogOpen: (open: boolean) => void;
@@ -101,8 +104,8 @@ export function buildDatabaseSchemaContextMenuItems(
     handleExportDatabase,
     handleOpenImportDatabase,
     handleDesignTable,
-    copyNameForTable,
-    copyDdlForTable,
+    handleSelectTable,
+    openTableQuery,
     ensureSlowLogAvailability,
     ensureBinlogAvailability,
     resolveSlowLogDisabledReason,
@@ -110,6 +113,7 @@ export function buildDatabaseSchemaContextMenuItems(
     openSlowQueryLogTab,
     openDialectSlowQueryTab,
     openBinlogTab,
+    openSqlExecLog,
     toggleConnectionEnabled,
     setEditingConnection,
     setDialogOpen,
@@ -148,39 +152,28 @@ export function buildDatabaseSchemaContextMenuItems(
 
   if (item.type === "table" && context.tableSelection) {
     const selection = context.tableSelection;
-    const canDesign = supportsTableDesign(selection.connection);
-    const items: ContextMenuItem[] = [];
-    if (canDesign) {
-      items.push({
-        id: "design-table",
-        label: t("database.contextMenu.designTable"),
-        icon: contextMenuIcons.design,
-        onClick: () => handleDesignTable(selection),
-      });
-    }
-    items.push({
-      id: "copy",
-      label: t("database.contextMenu.copy"),
-      icon: contextMenuIcons.copy,
-      children: [
-        {
-          id: "copy-name",
-          label: t("database.contextMenu.copyName"),
-          onClick: () => copyNameForTable(selection),
-        },
-        {
-          id: "copy-ddl",
-          label: t("database.contextMenu.copyDdl"),
-          onClick: () => copyDdlForTable(selection),
-        },
-        {
-          id: "copy-data",
-          label: t("database.contextMenu.copyData"),
-          disabled: true,
-        },
-      ],
+    const existingNames = getCachedTableNames(
+      useDbSchemaCacheStore.getState().snapshot,
+      selection.connId,
+      selection.dbName,
+    );
+    return buildTableObjectContextMenu({
+      t,
+      selection,
+      tableNames: [selection.tableName],
+      existingNames,
+      includeDelete: false,
+      includeRefresh: false,
+      onViewData: (target) => handleSelectTable(target, "preview"),
+      onViewDataNewTab: (target) => handleSelectTable(target, "permanent"),
+      onNewQuery: openTableQuery,
+      onDesign: handleDesignTable,
+      onExportDatabase: isMysqlConnectionInfoCapable(selection.connection)
+        ? (target) => {
+            void handleExportDatabase(target.connection, target.dbName);
+          }
+        : undefined,
     });
-    return items;
   }
 
   if (item.type === "connection" && context.connection) {
@@ -248,6 +241,12 @@ export function buildDatabaseSchemaContextMenuItems(
         onClick: () => {
           void toggleConnectionEnabled(connection.id, !connEnabled);
         },
+      },
+      {
+        id: "sql-exec-log",
+        label: t("database.sqlExec.connLog"),
+        disabled: !connEnabled,
+        onClick: () => openSqlExecLog(connection),
       },
       ...slowLogItems,
       {

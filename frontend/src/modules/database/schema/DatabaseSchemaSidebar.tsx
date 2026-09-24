@@ -20,6 +20,7 @@ import type { DbSqlFileNode } from "../../../stores/dbSqlFileStore";
 import type { DbTreeChartFileNode } from "../../../stores/dbTreeChartFileStore";
 
 import type { SyncTask } from "../toolbox/types";
+import type { SchemaDockOpenMode } from "../workspace/workspaceTabs";
 
 const SECTION_STORAGE_KEY = "omnipanel-db-schema-sidebar-sections";
 const SIZE_STORAGE_KEY = "omnipanel-db-schema-sidebar-sizes";
@@ -28,11 +29,13 @@ type SectionKey = "connections" | "queries" | "syncTasks";
 
 export interface DatabaseSchemaSidebarProps
   extends Omit<SchemaBrowserProps, "activeConnId" | "activeTableKey" | "activeDatabaseKey" | "openTabNodeIds"> {
-  onOpenSqlFile: (file: DbSqlFileNode) => void;
+  onOpenSqlFile: (file: DbSqlFileNode, mode?: SchemaDockOpenMode) => void;
   onNewTreeChart?: () => void;
-  onOpenTreeChartFile?: (file: DbTreeChartFileNode) => void;
+  onOpenTreeChartFile?: (file: DbTreeChartFileNode, mode?: SchemaDockOpenMode) => void;
+  activeSqlFileId?: string | null;
   activeTreeChartFileId?: string | null;
-  onOpenSyncTask: (task: SyncTask) => void;
+  activeSyncTaskId?: string | null;
+  onOpenSyncTask: (task: SyncTask, mode?: SchemaDockOpenMode) => void;
   onRunSyncTask: (task: SyncTask) => void;
   sqlQueryBindingContext?: { connId: string; database: string } | null;
 }
@@ -42,7 +45,9 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
   onOpenSqlFile,
   onNewTreeChart,
   onOpenTreeChartFile,
+  activeSqlFileId,
   activeTreeChartFileId,
+  activeSyncTaskId,
   onOpenSyncTask,
   onRunSyncTask,
   sqlQueryBindingContext,
@@ -83,6 +88,7 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
         onOpenFile={onOpenSqlFile}
         onNewTreeChart={onNewTreeChart}
         onOpenTreeChartFile={onOpenTreeChartFile}
+        activeFileId={activeSqlFileId}
         activeTreeChartFileId={activeTreeChartFileId}
         connections={schemaProps.connectionConfigs ?? []}
         sqlQueryBindingContext={sqlQueryBindingContext}
@@ -95,6 +101,7 @@ export const DatabaseSchemaSidebar = memo(function DatabaseSchemaSidebar({
         }}
       />
       <SyncTaskListPanel
+        activeTaskId={activeSyncTaskId ?? null}
         onOpenTask={onOpenSyncTask}
         onRunTask={onRunSyncTask}
         section={{

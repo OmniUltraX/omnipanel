@@ -792,6 +792,38 @@ const MIGRATIONS: &[&str] = &[
                CAST(mtime_ms AS TEXT), entry_id, status, updated_at
         FROM siyuan_file_state;
     "#,
+    // v41 — SQL 编辑器执行记录与可选的第 0 页结果。
+    r#"
+    CREATE TABLE IF NOT EXISTS sql_executions (
+        id TEXT PRIMARY KEY,
+        executed_at INTEGER NOT NULL,
+        connection_id TEXT NOT NULL DEFAULT '',
+        connection_name TEXT NOT NULL DEFAULT '',
+        database_name TEXT NOT NULL DEFAULT '',
+        env_tag TEXT NOT NULL DEFAULT '',
+        sql_file_id TEXT,
+        tab_id TEXT NOT NULL DEFAULT '',
+        sql TEXT NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        elapsed_ms INTEGER,
+        rows_affected INTEGER NOT NULL DEFAULT 0,
+        row_count INTEGER NOT NULL DEFAULT 0,
+        error TEXT NOT NULL DEFAULT '',
+        pinned INTEGER NOT NULL DEFAULT 0,
+        result_truncated INTEGER NOT NULL DEFAULT 0,
+        normalized_sql TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS sql_execution_results (
+        execution_id TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
+        byte_size INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (execution_id) REFERENCES sql_executions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_sql_exec_file ON sql_executions(sql_file_id, executed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sql_exec_conn ON sql_executions(connection_id, executed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sql_exec_at ON sql_executions(executed_at DESC);
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。

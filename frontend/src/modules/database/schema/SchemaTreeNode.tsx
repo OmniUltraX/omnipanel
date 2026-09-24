@@ -370,7 +370,10 @@ export const TreeNode = memo(
       onSelect={(event: TreeRowMouseEvent) => {
         selection?.handleSelect(item.id, event);
         handlersRef.current.onPathFocus?.();
-        // 单击打开预览 Tab（斜体可替换）
+        // 修饰键只改选区。单击打开预览 Tab（斜体可替换），双击再升格常驻。
+        if (event.ctrlKey || event.metaKey || event.shiftKey) {
+          return;
+        }
         handlersRef.current.onPreviewOpen?.();
       }}
       onActivate={() => {

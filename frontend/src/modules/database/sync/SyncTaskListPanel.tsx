@@ -7,20 +7,27 @@ import { appConfirm } from "../../../lib/appConfirm";
 import { quickInput } from "../../../lib/quickInput";
 import { useDbSyncTaskStore } from "../../../stores/dbSyncTaskStore";
 import type { SyncTask } from "../toolbox/types";
+import type { SchemaDockOpenMode } from "../workspace/workspaceTabs";
 import type { SchemaSidebarSectionConfig } from "../schema/SchemaSidebarSection";
 import { SchemaSidebarSection } from "../schema/SchemaSidebarSection";
 import { CreateSyncTaskDialog } from "./CreateSyncTaskDialog";
 
 interface SyncTaskListPanelProps {
-  onOpenTask: (task: SyncTask) => void;
+  /** 当前工作区标签对应的任务；不是该标签时不高亮 */
+  activeTaskId?: string | null;
+  onOpenTask: (task: SyncTask, mode?: SchemaDockOpenMode) => void;
   onRunTask: (task: SyncTask) => void;
   section?: SchemaSidebarSectionConfig;
 }
 
-export function SyncTaskListPanel({ onOpenTask, onRunTask, section }: SyncTaskListPanelProps) {
+export function SyncTaskListPanel({
+  activeTaskId = null,
+  onOpenTask,
+  onRunTask,
+  section,
+}: SyncTaskListPanelProps) {
   const { t } = useI18n();
   const tasks = useDbSyncTaskStore((s) => s.tasks);
-  const activeTaskId = useDbSyncTaskStore((s) => s.activeTaskId);
   const deleteTask = useDbSyncTaskStore((s) => s.deleteTask);
   const updateTask = useDbSyncTaskStore((s) => s.updateTask);
   const addTask = useDbSyncTaskStore((s) => s.addTask);
@@ -95,7 +102,16 @@ export function SyncTaskListPanel({ onOpenTask, onRunTask, section }: SyncTaskLi
                 <button
                   type="button"
                   className={`db-sync-task-item${activeTaskId === task.id ? " db-sync-task-item--active" : ""}`}
-                  onClick={() => onOpenTask(task)}
+                  onClick={(event) => {
+                    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+                      return;
+                    }
+                    onOpenTask(task, "preview");
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    onOpenTask(task, "permanent");
+                  }}
                   onContextMenu={(event: ReactMouseEvent) => {
                     event.preventDefault();
                     setCtxMenu({ x: event.clientX, y: event.clientY, task });

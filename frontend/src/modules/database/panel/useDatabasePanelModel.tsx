@@ -15,6 +15,7 @@ import { DatabaseTablesPanel } from "../workspace/DatabaseTablesPanel";
 import { DatabaseSlowQueryLogPanel } from "../workspace/DatabaseSlowQueryLogPanel";
 import { DialectSlowQueryPanel } from "../workspace/DialectSlowQueryPanel";
 import { DatabaseBinlogPanel } from "../workspace/DatabaseBinlogPanel";
+import { DatabaseSqlExecLogPanel } from "../workspace/DatabaseSqlExecLogPanel";
 import { RedisQueryPanel } from "../redis/RedisQueryPanel";
 import { ConnectionInfoSlot } from "../workbench/ConnectionInfoSlot";
 import { ConnectionResolvedDockPane } from "../workspace/ConnectionResolvedDockPane";
@@ -29,10 +30,9 @@ import { useDatabasePanelTablePreview } from "./useDatabasePanelTablePreview";
 import { useDatabasePanelDockTabs } from "./useDatabasePanelDockTabs";
 import { useDatabasePanelConnections } from "./useDatabasePanelConnections";
 import { useDatabasePanelMysqlTransfer } from "./useDatabasePanelMysqlTransfer";
-import {
-  useDatabasePanelCsvExport,
-  writeToClipboard,
-} from "./useDatabasePanelCsvExport";
+import { useDatabasePanelCsvExport } from "./useDatabasePanelCsvExport";
+import { registerTableDatabaseExport, registerTableSqlOpener } from "../schema/tableObjectActions";
+import { registerSqlFileOpener } from "../sql/sqlExecLog";
 import { useActionStore } from "../../../stores/actionStore";
 import { useDbSchemaFilterStore } from "../../../stores/dbSchemaFilterStore";
 import { useResourceProfileNavStore } from "../../../lib/resource/resourceProfileNavStore";
@@ -58,7 +58,6 @@ import {
   type DbTreeChartFileNode } from "../../../stores/dbTreeChartFileStore";
 import { useDbScratchQueryStore } from "../../../stores/dbScratchQueryStore";
 import {
-  fetchTableDdl,
   introspectTable,
   listDatabases,
   isMysqlConnectionInfoCapable,
@@ -100,11 +99,13 @@ import {
   findTabIdForRedisQuery,
   findTabIdForSlowQueryLog,
   findTabIdForBinlog,
+  findTabIdForSqlExecLog,
   findPreviewDockTab,
   makeDesignerTabId,
   makeConnectionInfoTabId,
   makeSlowQueryLogTabId,
   makeBinlogTabId,
+  makeSqlExecLogTabId,
   makeRedisQueryTabId,
   isModuleDockTab,
   isToolboxTab,
@@ -122,6 +123,7 @@ import {
   type ConnectionInfoWorkspaceTab,
   type SlowQueryLogWorkspaceTab,
   type BinlogWorkspaceTab,
+  type SqlExecLogWorkspaceTab,
   type DbWorkspaceTab,
   type RedisQueryWorkspaceTab,
   type SqlWorkspaceTab,
@@ -1155,16 +1157,6 @@ export function useDatabasePanelModel() {
   );
 
 
-  const copyNameForTable = useCallback((selection: SchemaTableSelection) => {
-    void writeToClipboard(`\`${selection.dbName}\`.\`${selection.tableName}\``);
-  }, []);
-
-  const copyDdlForTable = useCallback((selection: SchemaTableSelection) => {
-    fetchTableDdl(selection.connection, selection.dbName, selection.tableName)
-      .then((ddl) => writeToClipboard(ddl))
-      .catch((err) => console.error("[db.copyDdl] fetchTableDdl failed", err));
-  }, []);
-
   const handleDesignTable = useCallback(
     (selection: SchemaTableSelection) => {
       if (!supportsTableDesign(selection.connection)) {
@@ -1267,6 +1259,19 @@ export function useDatabasePanelModel() {
     },
     [activateWorkspaceTab, connections, setActiveConnIdIfChanged, setSqlTabStates, setTabModes],
   );
+
+  useEffect(() => {
+    const unregisterSql = registerTableSqlOpener((connId, database, sql) => {
+      openSqlDraftTab(connId, database, sql);
+    });
+    const unregisterExport = registerTableDatabaseExport((connection, databaseName) => {
+      void handleExportDatabase(connection, databaseName);
+    });
+    return () => {
+      unregisterSql();
+      unregisterExport();
+    };
+  }, [handleExportDatabase, openSqlDraftTab]);
 
   /** 快捷启动 / follow：打开草稿后自动执行 */
   const pendingSqlAutoRunRef = useRef<{ tabId: string; sql: string } | null>(null);
@@ -1394,6 +1399,28 @@ export function useDatabasePanelModel() {
     [activateWorkspaceTab, setActiveConnIdIfChanged, setWorkspaceTabs, t],
   );
 
+  const openSqlExecLog = useCallback(
+    (connection: DbConnectionConfig) => {
+      setActiveConnIdIfChanged(connection.id);
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const existingTabId = findTabIdForSqlExecLog(moduleTabs, connection.id);
+      if (existingTabId) {
+        activateWorkspaceTab(existingTabId);
+        return;
+      }
+      const tabId = makeSqlExecLogTabId();
+      const tab: SqlExecLogWorkspaceTab = {
+        id: tabId,
+        kind: "sql-exec-log",
+        label: makeConnectionScopedTabLabel(t("database.sqlExec.connLog"), connection.name),
+        connId: connection.id,
+      };
+      setWorkspaceTabs((prev) => [...prev, tab]);
+      activateWorkspaceTab(tabId);
+    },
+    [activateWorkspaceTab, setActiveConnIdIfChanged, setWorkspaceTabs, t],
+  );
+
   useEffect(() => {
     return useDbMysqlLogNavStore.subscribe((state, prev) => {
       if (!state.pending || state.pending === prev.pending) {
@@ -1438,6 +1465,9 @@ export function useDatabasePanelModel() {
   ]);
 
   const openProfile = useResourceProfileNavStore((s) => s.openProfile);
+  const selectTableForMenuRef = useRef<
+    (selection: SchemaTableSelection, mode?: "preview" | "permanent") => void
+  >(() => {});
 
   const buildSchemaContextMenuItems = useCallback(
     (item: SchemaTreeItem, context: SchemaContextMenuContext) =>
@@ -1447,8 +1477,8 @@ export function useDatabasePanelModel() {
           handleExportDatabase,
           handleOpenImportDatabase,
           handleDesignTable,
-          copyNameForTable,
-          copyDdlForTable,
+          handleSelectTable: (selection, mode) => selectTableForMenuRef.current(selection, mode),
+          openTableQuery,
           ensureSlowLogAvailability,
           ensureBinlogAvailability,
           resolveSlowLogDisabledReason,
@@ -1456,6 +1486,7 @@ export function useDatabasePanelModel() {
           openSlowQueryLogTab,
           openDialectSlowQueryTab,
           openBinlogTab,
+          openSqlExecLog,
           toggleConnectionEnabled,
           setEditingConnection,
           setDialogOpen,
@@ -1466,15 +1497,15 @@ export function useDatabasePanelModel() {
         context,
       ),
     [
-      copyDdlForTable,
-      copyNameForTable,
       handleDesignTable,
+      openTableQuery,
       handleDeleteConnection,
       handleExportDatabase,
       handleOpenImportDatabase,
       openSlowQueryLogTab,
       openDialectSlowQueryTab,
       openBinlogTab,
+      openSqlExecLog,
       ensureSlowLogAvailability,
       ensureBinlogAvailability,
       resolveSlowLogDisabledReason,
@@ -1677,6 +1708,7 @@ export function useDatabasePanelModel() {
       setWorkspaceTabs,
     ],
   );
+  selectTableForMenuRef.current = handleSelectTable;
 
   const activeSqlSidebarSeed = useDbWorkspaceTabStore(
     useShallow((state) => {
@@ -1941,40 +1973,89 @@ export function useDatabasePanelModel() {
   );
 
   const openSqlFile = useCallback(
-    (file: DbSqlFileNode) => {
-      const existingTabId = findTabIdForSqlFile(workspaceTabs, file.id);
+    (file: DbSqlFileNode, mode: SchemaDockOpenMode = "permanent") => {
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const existingTabId = findTabIdForSqlFile(moduleTabs, file.id);
       if (existingTabId) {
-        activateWorkspaceTab(existingTabId);
+        activateExistingDockTab(existingTabId, mode);
         syncSqlFileTabHeaderMeta(
           existingTabId,
           dirtySqlWorkspaceTabIds.has(existingTabId),
         );
         return;
       }
-      const tabId = makeSqlTabId();
       const connName = file.connId
         ? connections.find((item) => item.id === file.connId)?.name ?? file.connId
         : "";
       const fileAction = file.name.replace(/\.sql$/i, "") || t("database.workspace.tabAction.sql");
-      const tab: SqlWorkspaceTab = {
-        id: tabId,
+      const tabTemplate: SqlWorkspaceTab = {
+        id: "",
         kind: "sql",
         label: makeSqlTabLabel({
           action: fileAction,
           database: file.database,
-          connection: connName || null }),
-        sqlFileId: file.id };
-      setSqlTabStates((prev) => ({
-        ...prev,
-        [tabId]: {
-          ...createDefaultSqlTabState(file.database ?? "", file.connId ?? ""),
-          sql: file.sql ?? "" } }));
+          connection: connName || null,
+        }),
+        sqlFileId: file.id,
+      };
+      const seedSqlTab = (tabId: string) => {
+        setSqlTabStates((prev) => ({
+          ...prev,
+          [tabId]: {
+            ...createDefaultSqlTabState(file.database ?? "", file.connId ?? ""),
+            sql: file.sql ?? "",
+          },
+        }));
+        setDirtySqlWorkspaceTabIds((prev) => {
+          if (!prev.has(tabId)) {
+            return prev;
+          }
+          const next = new Set(prev);
+          next.delete(tabId);
+          return next;
+        });
+        setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
+        syncSqlFileTabHeaderMeta(tabId, false);
+      };
+      const previewTab = findPreviewDockTab(moduleTabs);
+      if (mode === "permanent") {
+        const tabId = makeSqlTabId();
+        const tab = { ...tabTemplate, id: tabId };
+        setWorkspaceTabs((prev) => [...prev, tab]);
+        workspaceTabsRef.current = [...workspaceTabsRef.current, tab];
+        activateWorkspaceTab(tabId);
+        seedSqlTab(tabId);
+        return;
+      }
+      if (previewTab && previewTab.kind === "sql" && previewTab.sqlFileId === file.id) {
+        activateWorkspaceTab(previewTab.id);
+        return;
+      }
+      if (previewTab) {
+        const tabId = replacePreviewDockTab(previewTab.id, tabTemplate);
+        workspaceTabsRef.current = workspaceTabsRef.current.map((tab) =>
+          tab.id === previewTab.id ? { ...tabTemplate, id: previewTab.id, preview: true } : tab,
+        );
+        seedSqlTab(tabId);
+        return;
+      }
+      const tabId = makeSqlTabId();
+      const tab = { ...tabTemplate, id: tabId, preview: true as const };
+      patchDockTabPreviewMeta(tabId, true);
       setWorkspaceTabs((prev) => [...prev, tab]);
+      workspaceTabsRef.current = [...workspaceTabsRef.current, tab];
       activateWorkspaceTab(tabId);
-      setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
-      syncSqlFileTabHeaderMeta(tabId, false);
+      seedSqlTab(tabId);
     },
-    [workspaceTabs, dirtySqlWorkspaceTabIds, syncSqlFileTabHeaderMeta, connections, t],
+    [
+      activateExistingDockTab,
+      activateWorkspaceTab,
+      connections,
+      dirtySqlWorkspaceTabIds,
+      replacePreviewDockTab,
+      syncSqlFileTabHeaderMeta,
+      t,
+    ],
   );
   openSqlFileRef.current = openSqlFile;
 
@@ -1986,6 +2067,21 @@ export function useDatabasePanelModel() {
           .filter((node) => node.type === "file")
           .map((node) => [node.id, node]),
       );
+      const prevFileIds = new Set(
+        prev.nodes.filter((node) => node.type === "file").map((node) => node.id),
+      );
+      const removedTabIds = workspaceTabsRef.current
+        .filter(
+          (tab) =>
+            tab.kind === "sql" &&
+            tab.sqlFileId != null &&
+            prevFileIds.has(tab.sqlFileId) &&
+            !files.has(tab.sqlFileId),
+        )
+        .map((tab) => tab.id);
+      if (removedTabIds.length > 0) {
+        closeWorkspaceTabsRef.current(removedTabIds);
+      }
       setWorkspaceTabs((tabs) => {
         let changed = false;
         const next = tabs.map((tab) => {
@@ -2011,26 +2107,77 @@ export function useDatabasePanelModel() {
     });
   }, [setWorkspaceTabs]);
 
+  useEffect(() => {
+    return useDbTreeChartFileStore.subscribe((state, prev) => {
+      if (state.nodes === prev.nodes) return;
+      const nextIds = new Set(state.nodes.map((node) => node.id));
+      const prevIds = new Set(prev.nodes.map((node) => node.id));
+      const removedTabIds = workspaceTabsRef.current
+        .filter(
+          (tab) =>
+            tab.kind === "tree-chart" &&
+            prevIds.has(tab.treeChartFileId) &&
+            !nextIds.has(tab.treeChartFileId),
+        )
+        .map((tab) => tab.id);
+      if (removedTabIds.length > 0) {
+        closeWorkspaceTabsRef.current(removedTabIds);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    return registerSqlFileOpener((sqlFileId) => {
+      const file = useDbSqlFileStore.getState().getNode(sqlFileId);
+      if (file && file.type === "file") openSqlFile(file);
+    });
+  }, [openSqlFile]);
+
   const openTreeChartFile = useCallback(
-    (file: DbTreeChartFileNode) => {
-      const existingTabId = findTabIdForTreeChartFile(workspaceTabsRef.current, file.id);
+    (file: DbTreeChartFileNode, mode: SchemaDockOpenMode = "permanent") => {
+      const moduleTabs = workspaceTabsRef.current.filter(isModuleDockTab);
+      const existingTabId = findTabIdForTreeChartFile(moduleTabs, file.id);
       if (existingTabId) {
-        activateWorkspaceTab(existingTabId);
+        activateExistingDockTab(existingTabId, mode);
         return;
       }
-      const tabId = makeTreeChartTabId();
-      const tab: TreeChartWorkspaceTab = {
-        id: tabId,
+      const tabTemplate: TreeChartWorkspaceTab = {
+        id: "",
         kind: "tree-chart",
         label: makeTreeChartTabLabel(
           t("database.workspace.tabAction.treeChart"),
           formatTreeChartFileLabel(file.name),
         ),
-        treeChartFileId: file.id };
+        treeChartFileId: file.id,
+      };
+      const previewTab = findPreviewDockTab(moduleTabs);
+      if (mode === "permanent") {
+        const tabId = makeTreeChartTabId();
+        const tab = { ...tabTemplate, id: tabId };
+        setWorkspaceTabs((prev) => [...prev, tab]);
+        workspaceTabsRef.current = [...workspaceTabsRef.current, tab];
+        activateWorkspaceTab(tabId);
+        return;
+      }
+      if (previewTab?.kind === "tree-chart" && previewTab.treeChartFileId === file.id) {
+        activateWorkspaceTab(previewTab.id);
+        return;
+      }
+      if (previewTab) {
+        replacePreviewDockTab(previewTab.id, tabTemplate);
+        workspaceTabsRef.current = workspaceTabsRef.current.map((tab) =>
+          tab.id === previewTab.id ? { ...tabTemplate, id: previewTab.id, preview: true } : tab,
+        );
+        return;
+      }
+      const tabId = makeTreeChartTabId();
+      const tab = { ...tabTemplate, id: tabId, preview: true as const };
+      patchDockTabPreviewMeta(tabId, true);
       setWorkspaceTabs((prev) => [...prev, tab]);
+      workspaceTabsRef.current = [...workspaceTabsRef.current, tab];
       activateWorkspaceTab(tabId);
     },
-    [activateWorkspaceTab, setWorkspaceTabs, t],
+    [activateExistingDockTab, activateWorkspaceTab, replacePreviewDockTab, setWorkspaceTabs, t],
   );
 
   const openTreeChartTab = useCallback(async () => {
@@ -2530,6 +2677,16 @@ export function useDatabasePanelModel() {
               closable: true,
               preview };
           }
+          if (tab.kind === "sql-exec-log") {
+            return {
+              id: tab.id,
+              label: tab.label,
+              panelType: "database-sql-exec-log",
+              icon: "database" as const,
+              tooltip: t("database.sqlExec.connLog"),
+              closable: true,
+              preview };
+          }
           if (tab.kind === "binlog") {
             return {
               id: tab.id,
@@ -2632,8 +2789,8 @@ export function useDatabasePanelModel() {
                       <DatabaseTablesPanel
                         selection={selection}
                         onDesignTable={handleDesignTable}
-                        onOpenTableData={(tableSelection) =>
-                          handleSelectTable(tableSelection, "permanent")
+                        onOpenTableData={(tableSelection, mode) =>
+                          handleSelectTable(tableSelection, mode ?? "permanent")
                         }
                         onExportDatabase={
                           isMysqlConnectionInfoCapable(connection)
@@ -2713,6 +2870,20 @@ export function useDatabasePanelModel() {
                       />
                     )
                   }
+                </DbDockTabActive>
+              </div>
+            )}
+          </ConnectionResolvedDockPane>
+        );
+      }
+
+      if (tab.kind === "sql-exec-log") {
+        return (
+          <ConnectionResolvedDockPane connId={tab.connId}>
+            {(connection) => (
+              <div className="db-workspace-pane db-dock-pane">
+                <DbDockTabActive tabId={tab.id}>
+                  {(active) => <DatabaseSqlExecLogPanel connection={connection} active={active} />}
                 </DbDockTabActive>
               </div>
             )}
@@ -2881,6 +3052,16 @@ export function useDatabasePanelModel() {
     return tab?.kind === "tree-chart" ? tab.treeChartFileId : null;
   }, [workspaceTabs, activeWorkspaceTabId]);
 
+  const activeSqlFileId = useMemo(() => {
+    const tab = workspaceTabs.find((item) => item.id === activeWorkspaceTabId);
+    return tab?.kind === "sql" && tab.sqlFileId ? tab.sqlFileId : null;
+  }, [workspaceTabs, activeWorkspaceTabId]);
+
+  const activeSyncTaskId = useMemo(() => {
+    const tab = workspaceTabs.find((item) => item.id === activeWorkspaceTabId);
+    return tab?.kind === "toolbox" ? tab.syncTaskId : null;
+  }, [workspaceTabs, activeWorkspaceTabId]);
+
   const handleCreateConnection = useCallback(() => {
     setEditingConnection(null);
     setDialogOpen(true);
@@ -2969,7 +3150,10 @@ export function useDatabasePanelModel() {
       : EMPTY_TAB_DIRTY_ROWS,
   );
   return {
+    activeConnId,
     activeTabContextValue,
+    activeSqlFileId,
+    activeSyncTaskId,
     activeTreeChartFileId,
     activeWorkspaceId,
     activeWorkspaceTab,
@@ -3002,6 +3186,7 @@ export function useDatabasePanelModel() {
     handleNewSqlQuery,
     handleNewTreeChart,
     handleOpenScratchQuery,
+    openSqlExecLog,
     handleOpenSyncTask,
     handlePanelTransferredToWorkspace,
     handleRowSave,

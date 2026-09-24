@@ -7,6 +7,7 @@ import { SqlNewQueryIcon, TreeChartIcon } from "./SqlNewQueryIcon";
 import { ScopedSearch, type ScopedSearchHandle } from "../../../components/ui/search/ScopedSearch";
 import { ContextMenu } from "../../../components/ui/menu/ContextMenu";
 import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
+import { appConfirm } from "../../../lib/appConfirm";
 import { quickInput } from "../../../lib/quickInput";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { useDbSqlFileStore, type DbSqlFileNode } from "../../../stores/dbSqlFileStore";
@@ -26,7 +27,14 @@ import {
   describeSqlFileDragTarget,
   sqlFileDndLog,
 } from "./sqlQueryFileDnDDebug";
-import { SidebarTreeNode, SidebarTreeSelectionProvider } from "@/components/ui/sidebar-tree";
+import {
+  SidebarTreeNode,
+  SidebarTreeSelectionProvider,
+  useSidebarTreeSelection,
+  type TreeRowMouseEvent,
+} from "@/components/ui/sidebar-tree";
+import { parseTreeChartDocument } from "../treeChart/treeChartDocument";
+import type { SchemaDockOpenMode } from "../workspace/workspaceTabs";
 import type { DbConnectionConfig } from "../api";
 import {
   formatSqlFileBindingMeta,
@@ -40,13 +48,67 @@ import {
 } from "./sqlQueryFilePointerDnD";
 
 interface SqlQueryFilePanelProps {
-  onOpenFile: (file: DbSqlFileNode) => void;
+  onOpenFile: (file: DbSqlFileNode, mode?: SchemaDockOpenMode) => void;
   onNewTreeChart?: () => void;
-  onOpenTreeChartFile?: (file: DbTreeChartFileNode) => void;
+  onOpenTreeChartFile?: (file: DbTreeChartFileNode, mode?: SchemaDockOpenMode) => void;
+  /** 当前工作区标签对应的查询文件；切走后不高亮 */
+  activeFileId?: string | null;
   activeTreeChartFileId?: string | null;
   section?: SchemaSidebarSectionConfig;
   connections?: readonly DbConnectionConfig[];
   sqlQueryBindingContext?: SqlQueryBindingContext | null;
+}
+
+/** 高亮跟当前标签走，避免切到表之后查询行还停在上次点开的那条。 */
+function QueryTreeActiveSync({ activeId }: { activeId: string | null }) {
+  const selection = useSidebarTreeSelection();
+  const setSelectedIds = selection?.setSelectedIds;
+  const clearSelection = selection?.clearSelection;
+  useEffect(() => {
+    if (!activeId) {
+      clearSelection?.();
+      return;
+    }
+    setSelectedIds?.([activeId]);
+  }, [activeId, setSelectedIds, clearSelection]);
+  return null;
+}
+
+function sqlTextHasContent(sql: string | undefined): boolean {
+  return Boolean(sql?.trim());
+}
+
+function sqlDeleteHasContent(nodes: readonly DbSqlFileNode[], node: DbSqlFileNode): boolean {
+  if (node.type === "file") {
+    return sqlTextHasContent(node.sql);
+  }
+  const folderIds = new Set<string>([node.id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const entry of nodes) {
+      if (
+        entry.type === "folder" &&
+        entry.parentId &&
+        folderIds.has(entry.parentId) &&
+        !folderIds.has(entry.id)
+      ) {
+        folderIds.add(entry.id);
+        changed = true;
+      }
+    }
+  }
+  return nodes.some(
+    (entry) =>
+      entry.type === "file" &&
+      entry.parentId != null &&
+      folderIds.has(entry.parentId) &&
+      sqlTextHasContent(entry.sql),
+  );
+}
+
+function treeChartDeleteHasContent(node: DbTreeChartFileNode): boolean {
+  return parseTreeChartDocument(node.document).panels.length > 0;
 }
 
 function dropTargetIdFromPointerHit(
@@ -90,8 +152,8 @@ function FolderTree({
   search: string;
   expandedIds: Set<string>;
   onToggleFolder: (id: string) => void;
-  onOpenFile: (file: DbSqlFileNode) => void;
-  onOpenTreeChartFile: (file: DbTreeChartFileNode) => void;
+  onOpenFile: (file: DbSqlFileNode, mode?: SchemaDockOpenMode) => void;
+  onOpenTreeChartFile: (file: DbTreeChartFileNode, mode?: SchemaDockOpenMode) => void;
   onContextMenuSql: (node: DbSqlFileNode, event: ReactMouseEvent) => void;
   onContextMenuTreeChart: (node: DbTreeChartFileNode, event: ReactMouseEvent) => void;
   activeFileId?: string | null;
@@ -107,6 +169,14 @@ function FolderTree({
     [sqlNodes, treeChartNodes, parentId],
   );
   const q = search.trim();
+  const selection = useSidebarTreeSelection();
+  const selectThenOpen = (id: string, event: TreeRowMouseEvent, openPreview: () => void) => {
+    selection?.handleSelect(id, event);
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      return;
+    }
+    openPreview();
+  };
 
   const visibleItems = useMemo(() => {
     if (!q) {
@@ -156,6 +226,7 @@ function FolderTree({
                 }
                 label={node.name}
                 onToggle={() => onToggleFolder(node.id)}
+                onActivate={() => onToggleFolder(node.id)}
                 onPointerDown={(event) => onNodePointerDown(node.id, event)}
                 onContextMenu={(event) => onContextMenuSql(node, event)}
               />
@@ -208,7 +279,10 @@ function FolderTree({
               icon={<TreeChartIcon size={14} />}
               label={node.name}
               onToggle={() => {}}
-              onActivate={() => onOpenTreeChartFile(node)}
+              onSelect={(event) =>
+                selectThenOpen(node.id, event, () => onOpenTreeChartFile(node, "preview"))
+              }
+              onActivate={() => onOpenTreeChartFile(node, "permanent")}
               onPointerDown={(event) => onNodePointerDown(node.id, event)}
               onContextMenu={(event) => onContextMenuTreeChart(node, event)}
             />
@@ -252,7 +326,8 @@ function FolderTree({
               ) : undefined
             }
             onToggle={() => {}}
-            onActivate={() => onOpenFile(node)}
+            onSelect={(event) => selectThenOpen(node.id, event, () => onOpenFile(node, "preview"))}
+            onActivate={() => onOpenFile(node, "permanent")}
             onPointerDown={(event) => onNodePointerDown(node.id, event)}
             onContextMenu={(event) => onContextMenuSql(node, event)}
           />
@@ -266,6 +341,7 @@ export function SqlQueryFilePanel({
   onOpenFile,
   onNewTreeChart,
   onOpenTreeChartFile,
+  activeFileId = null,
   activeTreeChartFileId,
   section,
   connections = [],
@@ -288,7 +364,6 @@ export function SqlQueryFilePanel({
   const [search, setSearch] = useState("");
   const stickyAncestors = useMemo(() => !search.trim(), [search]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -361,13 +436,12 @@ export function SqlQueryFilePanel({
   }, []);
 
   const handleOpenFile = useCallback(
-    (file: DbSqlFileNode) => {
+    (file: DbSqlFileNode, mode: SchemaDockOpenMode = "permanent") => {
       if (skipClickAfterDropRef.current) {
         skipClickAfterDropRef.current = false;
         return;
       }
-      setActiveFileId(file.id);
-      onOpenFile(file);
+      onOpenFile(file, mode);
     },
     [onOpenFile],
   );
@@ -552,12 +626,12 @@ export function SqlQueryFilePanel({
   }, [applyPointerDrop, canMoveQueryNodeToParent, cleanupPointerDrag]);
 
   const handleOpenTreeChartFile = useCallback(
-    (file: DbTreeChartFileNode) => {
+    (file: DbTreeChartFileNode, mode: SchemaDockOpenMode = "permanent") => {
       if (skipClickAfterDropRef.current) {
         skipClickAfterDropRef.current = false;
         return;
       }
-      onOpenTreeChartFile?.(file);
+      onOpenTreeChartFile?.(file, mode);
     },
     [onOpenTreeChartFile],
   );
@@ -577,6 +651,49 @@ export function SqlQueryFilePanel({
       await flushTreeChartFiles();
     },
     [flushTreeChartFiles, renameTreeChartNode, t],
+  );
+
+  const handleDeleteSqlNode = useCallback(
+    async (node: DbSqlFileNode) => {
+      const current = useDbSqlFileStore.getState().nodes;
+      if (sqlDeleteHasContent(current, node)) {
+        const confirmed = await appConfirm(
+          node.type === "folder"
+            ? t("database.queryFiles.deleteFolderConfirm", { name: node.name })
+            : t("database.queryFiles.deleteFileConfirm", { name: node.name }),
+          t("database.queryFiles.deleteTitle"),
+          {
+            confirmLabel: t("common.delete"),
+            cancelLabel: t("common.cancel"),
+          },
+        );
+        if (!confirmed) return;
+      }
+      deleteNode(node.id);
+      if (node.type === "folder") {
+        detachTreeChartFromFolder(node.id);
+      }
+    },
+    [deleteNode, detachTreeChartFromFolder, t],
+  );
+
+  const handleDeleteTreeChart = useCallback(
+    async (node: DbTreeChartFileNode) => {
+      if (treeChartDeleteHasContent(node)) {
+        const confirmed = await appConfirm(
+          t("database.treeChart.deleteConfirm", { name: node.name }),
+          t("database.treeChart.deleteTitle"),
+          {
+            confirmLabel: t("common.delete"),
+            cancelLabel: t("common.cancel"),
+          },
+        );
+        if (!confirmed) return;
+      }
+      deleteTreeChartNode(node.id);
+      await flushTreeChartFiles();
+    },
+    [deleteTreeChartNode, flushTreeChartFiles, t],
   );
 
   const handleCreateFolder = useCallback(async (parentId: string | null = null) => {
@@ -686,6 +803,7 @@ export function SqlQueryFilePanel({
         placeholder={t("database.queryFiles.search")}
       >
         <SidebarTreeSelectionProvider>
+        <QueryTreeActiveSync activeId={activeFileId ?? activeTreeChartFileId ?? null} />
         <div
           ref={treeRootRef}
           className={`sql-query-file-tree${stickyAncestors ? " sql-query-file-tree--sticky-ancestors" : ""}${dropTargetId === "__root__" ? " sql-query-file-tree--root-drop" : ""}`}
@@ -752,10 +870,7 @@ export function SqlQueryFilePanel({
                       label: t("database.treeChart.delete"),
                       icon: contextMenuIcons.delete,
                       danger: true,
-                      onClick: () => {
-                        deleteTreeChartNode(ctxMenu.node!.id);
-                        void flushTreeChartFiles();
-                      },
+                      onClick: () => void handleDeleteTreeChart(ctxMenu.node as DbTreeChartFileNode),
                     },
                   ]
                 : ctxMenu.node && (ctxMenu.node as DbSqlFileNode).type === "folder"
@@ -783,11 +898,7 @@ export function SqlQueryFilePanel({
                         label: t("database.queryFiles.delete"),
                         icon: contextMenuIcons.delete,
                         danger: true,
-                        onClick: () => {
-                          const folderId = ctxMenu.node!.id;
-                          deleteNode(folderId);
-                          detachTreeChartFromFolder(folderId);
-                        },
+                        onClick: () => void handleDeleteSqlNode(ctxMenu.node as DbSqlFileNode),
                       },
                     ]
                   : ctxMenu.node
@@ -803,7 +914,7 @@ export function SqlQueryFilePanel({
                           label: t("database.queryFiles.delete"),
                           icon: contextMenuIcons.delete,
                           danger: true,
-                          onClick: () => deleteNode(ctxMenu.node!.id),
+                          onClick: () => void handleDeleteSqlNode(ctxMenu.node as DbSqlFileNode),
                         },
                       ]
                     : []

@@ -1,4 +1,4 @@
-/** Schema 侧栏双击打开面板；默认常驻标签。`preview` 仅兼容旧会话数据。 */
+/** 侧栏单击预览、双击常驻。 */
 export type SchemaDockOpenMode = "preview" | "permanent";
 
 export type SqlWorkspaceTab = {
@@ -11,7 +11,7 @@ export type SqlWorkspaceTab = {
   scratchQuery?: boolean;
   /** 是否仅在底部工作区中显示（例如移动到工作区后） */
   workspaceOnly?: boolean;
-  /** @deprecated 旧预览槽位；新打开为常驻 */
+  /** 单击预览槽位；双击升格为常驻后清除 */
   preview?: boolean;
 };
 
@@ -81,6 +81,15 @@ export type SlowQueryLogWorkspaceTab = {
   preview?: boolean;
 };
 
+export type SqlExecLogWorkspaceTab = {
+  id: string;
+  kind: "sql-exec-log";
+  label: string;
+  connId: string;
+  workspaceOnly?: boolean;
+  preview?: boolean;
+};
+
 export type BinlogWorkspaceTab = {
   id: string;
   kind: "binlog";
@@ -126,6 +135,7 @@ export type DbWorkspaceTab =
   | ConnectionInfoWorkspaceTab
   | SlowQueryLogWorkspaceTab
   | BinlogWorkspaceTab
+  | SqlExecLogWorkspaceTab
   | RedisQueryWorkspaceTab
   | ToolboxWorkspaceTab
   | TreeChartWorkspaceTab;
@@ -156,6 +166,10 @@ export function isSlowQueryLogTab(tab: DbWorkspaceTab): tab is SlowQueryLogWorks
 
 export function isBinlogTab(tab: DbWorkspaceTab): tab is BinlogWorkspaceTab {
   return tab.kind === "binlog";
+}
+
+export function isSqlExecLogTab(tab: DbWorkspaceTab): tab is SqlExecLogWorkspaceTab {
+  return tab.kind === "sql-exec-log";
 }
 
 export function isRedisQueryTab(tab: DbWorkspaceTab): tab is RedisQueryWorkspaceTab {
@@ -264,6 +278,10 @@ export function makeSlowQueryLogTabId(): string {
 
 export function makeBinlogTabId(): string {
   return `binlog:${Date.now()}`;
+}
+
+export function makeSqlExecLogTabId(): string {
+  return `sqllog:${Date.now()}`;
 }
 
 export function makeRedisQueryTabId(): string {
@@ -402,6 +420,10 @@ export function makeBinlogTabKey(connId: string): string {
   return `binlog:${connId}`;
 }
 
+export function makeSqlExecLogTabKey(connId: string): string {
+  return `sqllog:${connId}`;
+}
+
 /** 数据库列表 Tab 唯一键：连接 + 库名 */
 export function makeDatabaseTabKey(connId: string, dbName: string): string {
   return `db:${connId}:${dbName}`;
@@ -496,6 +518,15 @@ export function findTabIdForBinlog(
 ): string | undefined {
   return tabs.find(
     (tab) => isModuleDockTab(tab) && tab.kind === "binlog" && tab.connId === connId,
+  )?.id;
+}
+
+export function findTabIdForSqlExecLog(
+  tabs: DbWorkspaceTab[],
+  connId: string,
+): string | undefined {
+  return tabs.find(
+    (tab) => isModuleDockTab(tab) && tab.kind === "sql-exec-log" && tab.connId === connId,
   )?.id;
 }
 

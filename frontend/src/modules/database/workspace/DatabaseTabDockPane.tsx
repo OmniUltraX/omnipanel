@@ -12,12 +12,14 @@ import { DatabaseConnectionInfoPanel } from "./DatabaseConnectionInfoPanel";
 import { DatabaseSlowQueryLogPanel } from "./DatabaseSlowQueryLogPanel";
 import { DialectSlowQueryPanel } from "./DialectSlowQueryPanel";
 import { DatabaseBinlogPanel } from "./DatabaseBinlogPanel";
+import { DatabaseSqlExecLogPanel } from "./DatabaseSqlExecLogPanel";
 import { DatabaseTablesPanel } from "./DatabaseTablesPanel";
 import {
   isConnectionInfoTab,
   isDatabaseListTab,
   isSlowQueryLogTab,
   isBinlogTab,
+  isSqlExecLogTab,
   isSqlWorkspaceTab,
   isTableDesignerTab,
   isRedisQueryTab,
@@ -141,6 +143,12 @@ export function DatabaseTabDockPane({ tabId, isActive: _isActive }: DatabaseTabD
                   active={_isActive}
                 />
               );
+            })()
+          ) : isSqlExecLogTab(tab) ? (
+            (() => {
+              const connection = resolveConn(tab.connId);
+              if (!connection) return <SnapshotMissingFallback tabId={tabId} />;
+              return <DatabaseSqlExecLogPanel connection={connection} active={_isActive} />;
             })()
           ) : isBinlogTab(tab) ? (
             (() => {

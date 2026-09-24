@@ -38,7 +38,7 @@ export interface SchemaBrowserProps {
   ) => void;
   onSelectTable?: (selection: SchemaTableSelection, mode?: SchemaDockOpenMode) => void;
   onSelectDatabase?: (selection: SchemaDatabaseSelection, mode?: SchemaDockOpenMode) => void;
-  onOpenSqlFile?: (file: DbSqlFileNode) => void;
+  onOpenSqlFile?: (file: DbSqlFileNode, mode?: SchemaDockOpenMode) => void;
   buildSchemaContextMenuItems?: (
     item: SchemaTreeItem,
     context: SchemaContextMenuContext,

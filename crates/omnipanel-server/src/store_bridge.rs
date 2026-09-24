@@ -961,3 +961,57 @@ pub async fn ai_list_session_traces(
     let storage = state.storage.lock().await;
     storage.ai_trace_list(&session_id)
 }
+
+/* ==================== SQL 执行记录 ==================== */
+
+pub async fn db_sql_exec_append(
+    state: &ServerState,
+    input: omnipanel_store::SqlExecAppend,
+) -> Result<omnipanel_store::SqlExecRecord, OmniError> {
+    let storage = state.storage.lock().await;
+    omnipanel_store::append_sql_execution(&storage, &input)
+}
+
+pub async fn db_sql_exec_list(
+    state: &ServerState,
+    filter: omnipanel_store::SqlExecListFilter,
+) -> Result<Vec<omnipanel_store::SqlExecRecord>, OmniError> {
+    let storage = state.storage.lock().await;
+    omnipanel_store::list_sql_executions(&storage, &filter)
+}
+
+pub async fn db_sql_exec_result(
+    state: &ServerState,
+    id: String,
+) -> Result<Option<omnipanel_store::SqlExecResultPage>, OmniError> {
+    let storage = state.storage.lock().await;
+    omnipanel_store::get_sql_execution_result(&storage, &id)
+}
+
+pub async fn db_sql_exec_set_pinned(
+    state: &ServerState,
+    id: String,
+    pinned: bool,
+) -> Result<(), OmniError> {
+    let storage = state.storage.lock().await;
+    omnipanel_store::set_sql_execution_pinned(&storage, &id, pinned)
+}
+
+pub async fn db_sql_exec_delete(state: &ServerState, id: String) -> Result<(), OmniError> {
+    let storage = state.storage.lock().await;
+    omnipanel_store::delete_sql_execution(&storage, &id)
+}
+
+pub async fn db_sql_exec_clear(state: &ServerState, connection_id: String) -> Result<u32, OmniError> {
+    let storage = state.storage.lock().await;
+    omnipanel_store::clear_sql_executions(&storage, &connection_id)
+}
+
+pub async fn db_sql_exec_rebind_file(
+    state: &ServerState,
+    tab_id: String,
+    sql_file_id: String,
+) -> Result<u32, OmniError> {
+    let storage = state.storage.lock().await;
+    omnipanel_store::rebind_sql_execution_file(&storage, &tab_id, &sql_file_id)
+}

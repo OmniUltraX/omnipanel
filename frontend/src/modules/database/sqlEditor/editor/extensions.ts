@@ -36,6 +36,7 @@ import {
 import { createSqlLinter } from "../language/lint";
 import { createSqlHoverTooltip } from "../language/hover";
 import { createSqlLintRunGutter } from "../language/runStatementGutter";
+import { createSqlStatementFrame } from "../language/sqlStatementFrame";
 import { createFunctionSignaturePlugin } from "../language/signature";
 import { createInsertColumnInlayExtension } from "../language/insertColumnInlays";
 import { createSqlSemanticHighlight } from "../language/semantic";
@@ -84,6 +85,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     dropCursor(),
     history(),
     ...createSqlLintRunGutter(getOnRun ?? (() => undefined), getReadOnly),
+    ...createSqlStatementFrame(),
     EditorState.tabSize.of(2),
     indentOnInput(),
     bracketMatching(),

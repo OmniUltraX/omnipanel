@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useI18n } from "../../../i18n";
+import { useDbWorkspace } from "../../../contexts/DbWorkspaceContext";
 import { textSearchMatches } from "../../../lib/textSearchMatch";
 import { commands } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
@@ -10,6 +11,7 @@ import { fetchTableDdl, fetchDatabaseTableDetails, isConnectionEnabled, isMysqlC
 import { supportsTableDesign } from "../tableDesigner/resolveTableDesignerDriver";
 import { formatSqlDdl } from "../sql/formatSqlDdl";
 import { makeQueryRunId } from "../sql";
+import { prefetchTableSqlHistory } from "../sql/sqlExecLog";
 import type { SchemaDatabaseSelection, SchemaTableSelection } from "../schema/SchemaBrowser";
 import { TableDdlViewer } from "../table/TableDdlViewer";
 import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
@@ -45,13 +47,16 @@ import { DetailPanelShell } from "../../../components/ui/layout/DetailPanelShell
 import { Button } from "../../../components/ui/primitives/Button";
 import { TextInput } from "../../../components/ui/form/TextInput";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
-import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
+import { buildTableObjectContextMenu } from "../schema/buildTableObjectContextMenu";
 import { showToast } from "../../../stores/toastStore";
 
 interface DatabaseTablesPanelProps {
   selection: SchemaDatabaseSelection;
   onDesignTable?: (selection: SchemaTableSelection) => void;
-  onOpenTableData?: (selection: SchemaTableSelection) => void;
+  onOpenTableData?: (
+    selection: SchemaTableSelection,
+    mode?: "preview" | "permanent",
+  ) => void;
   onExportDatabase?: (selection: SchemaDatabaseSelection) => void;
   onImportDatabase?: (selection: SchemaDatabaseSelection) => void;
 }
@@ -163,6 +168,7 @@ export function DatabaseTablesPanel({
   onImportDatabase,
 }: DatabaseTablesPanelProps) {
   const { t } = useI18n();
+  const openTableQuery = useDbWorkspace().openTableQuery;
   const hydrateSchemaCache = useDbSchemaCacheStore((s) => s.hydrate);
   const cacheHydrated = useDbSchemaCacheStore((s) => s.hydrated);
   const schemaSnapshot = useDbSchemaCacheStore((s) => s.snapshot);
@@ -620,13 +626,16 @@ export function DatabaseTablesPanel({
   );
 
   const handleOpenTableData = useCallback(
-    (tableName: string) => {
-      onOpenTableData?.({
-        connId: selection.connId,
-        dbName: selection.dbName,
-        tableName,
-        connection: selection.connection,
-      });
+    (tableName: string, mode: "preview" | "permanent" = "permanent") => {
+      onOpenTableData?.(
+        {
+          connId: selection.connId,
+          dbName: selection.dbName,
+          tableName,
+          connection: selection.connection,
+        },
+        mode,
+      );
     },
     [onOpenTableData, selection.connId, selection.dbName, selection.connection],
   );
@@ -913,6 +922,9 @@ export function DatabaseTablesPanel({
         selectionAnchorRef.current = tableName;
       }
       setContextMenu({ x: event.clientX, y: event.clientY, tableName });
+      void prefetchTableSqlHistory(selection.connId, selection.dbName, tableName).then(() => {
+        setContextMenu((current) => (current ? { ...current } : current));
+      });
     },
     [selectedTableNames],
   );
@@ -926,124 +938,49 @@ export function DatabaseTablesPanel({
       selectedTableNames.size > 0
         ? sortedTables.filter((name) => selectedTableNames.has(name))
         : [contextMenu.tableName];
-    const count = targets.length;
-    const single = count === 1 ? targets[0]! : null;
-    const canClone = isCloneTableSqlSupported(selection.connection.db_type);
-    const canDrop = isSchemaDropSqlSupported(selection.connection.db_type);
-
-    const items: ContextMenuItem[] = [];
-    if (single && canOpenTableData) {
-      items.push({
-        id: "open-data",
-        label: t("database.contextMenu.viewTableData"),
-        icon: contextMenuIcons.open,
-        onClick: () => handleOpenTableData(single),
-      });
-    }
-    if (single && canDesign) {
-      items.push({
-        id: "design",
-        label: t("database.contextMenu.designTable"),
-        icon: contextMenuIcons.design,
-        onClick: () => handleDesignTable(single),
-      });
-    }
-    if (single) {
-      items.push({
-        id: "view-ddl",
-        label: t("database.contextMenu.viewDdl"),
-        icon: contextMenuIcons.file,
-        onClick: () => handleOpenDdlDrawer(single),
-      });
-    }
-
-    items.push({ id: "sep-copy", label: "", separator: true });
-    items.push({
-      id: "copy",
-      label: t("database.contextMenu.copy"),
-      icon: contextMenuIcons.copy,
-      children: [
-        {
-          id: "copy-names",
-          label:
-            count > 1
-              ? t("database.tablesPanel.copyNames", { count })
-              : t("database.contextMenu.copyName"),
-          onClick: () => {
-            clipboardTablesRef.current = targets;
-            void navigator.clipboard.writeText(targets.join("\n")).then(
-              () => showToast(t("database.tablesPanel.copiedNames", { count })),
-              () => showToast(t("database.tablesPanel.copyFailed")),
-            );
-          },
-        },
-        ...(single
-          ? [
-              {
-                id: "copy-ddl",
-                label: t("database.contextMenu.copyDdl"),
-                onClick: () => {
-                  void (async () => {
-                    try {
-                      const cached = readTableDdlCache(
-                        selection.connId,
-                        selection.dbName,
-                        single,
-                        selection.connection,
-                      );
-                      const text =
-                        cached ??
-                        (await fetchTableDdl(
-                          selection.connection,
-                          selection.dbName,
-                          single,
-                        ));
-                      await navigator.clipboard.writeText(text);
-                      showToast(t("database.contextMenu.copyDdlDone"));
-                    } catch {
-                      showToast(t("database.contextMenu.copyDdlFailed"));
-                    }
-                  })();
-                },
-              } satisfies ContextMenuItem,
-            ]
-          : []),
-      ],
+    const anchor = targets[0] ?? contextMenu.tableName;
+    const tableSelection: SchemaTableSelection = {
+      connId: selection.connId,
+      dbName: selection.dbName,
+      tableName: anchor,
+      connection: selection.connection,
+    };
+    return buildTableObjectContextMenu({
+      t,
+      selection: tableSelection,
+      tableNames: targets,
+      existingNames: tables,
+      includeDelete: true,
+      includeRefresh: true,
+      onViewData: (target) => handleOpenTableData(target.tableName, "preview"),
+      onViewDataNewTab: (target) => handleOpenTableData(target.tableName, "permanent"),
+      onNewQuery: (target) => openTableQuery(target),
+      onDesign: (target) => handleDesignTable(target.tableName),
+      onViewDdl: (target) => handleOpenDdlDrawer(target.tableName),
+      onExportDatabase: onExportDatabase
+        ? () => onExportDatabase(selection)
+        : undefined,
+      onDelete: (names) => void handleDeleteTables(names),
+      onCopiedNames: (names) => {
+        clipboardTablesRef.current = names;
+      },
+      onRefresh: () => void refreshDatabaseTables(),
+      onMutated: () => void refreshDatabaseTables(),
     });
-
-    items.push({ id: "sep-clone", label: "", separator: true });
-    items.push({
-      id: "clone",
-      label: t("database.tablesPanel.cloneTables", { count }),
-      icon: contextMenuIcons.duplicate,
-      disabled: !canClone,
-      onClick: () => void handleCloneTables(targets),
-    });
-    items.push({
-      id: "delete",
-      label: t("database.tablesPanel.deleteTables", { count }),
-      icon: contextMenuIcons.delete,
-      danger: true,
-      disabled: !canDrop,
-      onClick: () => void handleDeleteTables(targets),
-    });
-
-    return items;
   }, [
-    canDesign,
-    canOpenTableData,
     contextMenu,
-    handleCloneTables,
     handleDeleteTables,
     handleDesignTable,
     handleOpenDdlDrawer,
     handleOpenTableData,
+    onExportDatabase,
+    openTableQuery,
+    refreshDatabaseTables,
     selectedTableNames,
-    selection.connId,
-    selection.connection,
-    selection.dbName,
+    selection,
     sortedTables,
     t,
+    tables,
   ]);
 
   const handleCopyDdl = useCallback(async () => {

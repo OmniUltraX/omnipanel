@@ -126,3 +126,26 @@ export function clearSqlQueryHistory(scopeId: string): void {
   delete map[scopeId];
   writeAll(map);
 }
+
+/** 跨 SQL 标签搜索历史，按执行时间倒序，相同 SQL 只保留最新一条。 */
+export function searchSqlQueryHistory(
+  predicate: (entry: SqlQueryHistoryEntry) => boolean,
+  limit = 12,
+): SqlQueryHistoryEntry[] {
+  const all: SqlQueryHistoryEntry[] = [];
+  for (const list of Object.values(readAll())) {
+    for (const entry of list) {
+      if (predicate(entry)) all.push(entry);
+    }
+  }
+  const seen = new Set<string>();
+  return all
+    .sort((a, b) => b.executedAt - a.executedAt)
+    .filter((entry) => {
+      const key = normalizeHistorySql(entry.sql);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
+}

@@ -746,6 +746,46 @@ pub async fn dispatch(
                 };
             respond(omnipanel_db::db_refresh_schema_node(refresh_args).await)
         }
+        "db_sql_exec_append" => {
+            let input = match serde_json::from_value(args.get("input").cloned().unwrap_or(args.clone())) {
+                Ok(v) => v,
+                Err(e) => return InvokeResponse::err(format!("解析 db_sql_exec_append 失败: {e}")),
+            };
+            respond_omni(crate::store_bridge::db_sql_exec_append(state, input).await)
+        }
+        "db_sql_exec_list" => {
+            let filter = match serde_json::from_value(args.get("filter").cloned().unwrap_or(args.clone())) {
+                Ok(v) => v,
+                Err(e) => return InvokeResponse::err(format!("解析 db_sql_exec_list 失败: {e}")),
+            };
+            respond_omni(crate::store_bridge::db_sql_exec_list(state, filter).await)
+        }
+        "db_sql_exec_result" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond_omni(crate::store_bridge::db_sql_exec_result(state, id).await)
+        }
+        "db_sql_exec_set_pinned" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            let pinned = args.get("pinned").and_then(|v| v.as_bool()).unwrap_or(false);
+            respond_omni(crate::store_bridge::db_sql_exec_set_pinned(state, id, pinned).await)
+        }
+        "db_sql_exec_delete" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond_omni(crate::store_bridge::db_sql_exec_delete(state, id).await)
+        }
+        "db_sql_exec_clear" => {
+            let connection_id = get_str(&args, "connectionId")
+                .or_else(|| get_str(&args, "connection_id"))
+                .unwrap_or_default();
+            respond_omni(crate::store_bridge::db_sql_exec_clear(state, connection_id).await)
+        }
+        "db_sql_exec_rebind_file" => {
+            let tab_id = get_str(&args, "tabId").or_else(|| get_str(&args, "tab_id")).unwrap_or_default();
+            let sql_file_id = get_str(&args, "sqlFileId")
+                .or_else(|| get_str(&args, "sql_file_id"))
+                .unwrap_or_default();
+            respond_omni(crate::store_bridge::db_sql_exec_rebind_file(state, tab_id, sql_file_id).await)
+        }
         "db_sql_files_load" => respond_omni(crate::store_bridge::db_sql_files_load(state).await),
         "db_sql_files_save" => {
             let file =

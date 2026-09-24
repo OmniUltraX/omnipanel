@@ -28,6 +28,7 @@ mod plugin_settings;
 mod plugin_sources;
 mod resource_profile;
 mod schema_cache;
+mod sql_exec_log;
 mod schema_filters;
 mod schema_tree_expanded;
 mod secrets_crypto;
@@ -153,6 +154,11 @@ pub use ssh_keys::{SshKeyRecord, gen_ssh_key_id, ssh_key_passphrase_ref, ssh_key
 pub use ssh_vault::{
     ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
     inject_ssh_vault_into_config, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
+};
+pub use sql_exec_log::{
+    SqlExecAppend, SqlExecListFilter, SqlExecRecord, SqlExecResultPage, append_sql_execution,
+    clear_sql_executions, delete_sql_execution, get_sql_execution_result, list_sql_executions,
+    rebind_sql_execution_file, set_sql_execution_pinned,
 };
 pub use storage::{AuditEntry, Storage};
 pub use sync_crypto::{

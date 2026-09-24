@@ -11,6 +11,7 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 import { getShortcutKeys, matchesShortcut } from "../../../stores/shortcutsStore";
 import { quickInput } from "../../../lib/quickInput";
 import { isSqlEditorFocused, sqlAtOffset } from "../sqlIntel/sqlStatement";
+import { splitSqlStatements } from "../sqlIntel/sqlLex";
 import { makeQueryRunId, isQueryCancelledError } from "../sql/queryRun";
 import { resolveSqlPresenceToken } from "../sql/sqlPresence";
 import { useDbSqlFileStore } from "../../../stores/dbSqlFileStore";
@@ -18,15 +19,15 @@ import { useDbScratchQueryStore } from "../../../stores/dbScratchQueryStore";
 import type { DbConnectionConfig } from "../api";
 import { formatSql } from "../sqlIntel/sqlFormat";
 import {
-  appendSuccessfulSqlQueryHistory,
-  resolveSqlHistoryScopeId,
-} from "../sql/sqlQueryHistoryStore";
+  appendSqlExecution,
+  makeSqlExecId,
+  rebindSqlExecutionFile,
+  sqlExecDisplayName,
+} from "../sql/sqlExecLog";
 import { patchDockTabFileMeta } from "../../../components/dock/dockTabLiveMeta";
 import {
   createDefaultSqlTabState,
-  createSqlResultSession,
-  findTemporarySqlResultSession,
-  reuseTemporarySqlResultSession,
+  planSqlExecutionSessions,
   type QueryResult,
   type SqlResultSession,
   type SqlTabState,
@@ -359,10 +360,10 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       return;
     }
 
-    const runId = makeQueryRunId();
     const freshResult = options?.freshResult === true;
-    const tempSession = freshResult ? undefined : findTemporarySqlResultSession(sessions);
-    if (tempSession && tabState.activeQueryRunId) {
+    const statementSqls = splitSqlStatements(sql).map((part) => part.sql);
+    const statements = statementSqls.length > 0 ? statementSqls : [sql];
+    if (tabState.activeQueryRunId) {
       try {
         await invoke("db_cancel_query", { runId: tabState.activeQueryRunId });
       } catch {
@@ -370,23 +371,16 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       }
     }
 
-    const session = freshResult
-      ? createSqlResultSession(sql, true)
-      : tempSession
-        ? reuseTemporarySqlResultSession(tempSession, sql)
-        : createSqlResultSession(sql);
-    const nextSessions = freshResult
-      ? [...sessions, session]
-      : tempSession
-        ? sessions.map((item) => (item.id === tempSession.id ? session : item))
-        : [...sessions, session];
-
+    const planned = planSqlExecutionSessions(sessions, statements, freshResult);
+    const plannedSessions = planned.runSessionIds
+      .map((id) => planned.sessions.find((item) => item.id === id))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
     updateSqlTabState(resolvedTabId, {
       running: true,
-      activeQueryRunId: runId,
+      activeQueryRunId: null,
       error: null,
-      resultSessions: nextSessions,
-      activeResultSessionId: session.id,
+      resultSessions: planned.sessions,
+      activeResultSessionId: planned.activeSessionId,
     });
 
     enqueueAction({
@@ -398,71 +392,174 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       source: "用户",
     });
 
-    const started = performance.now();
     const useManualTxn = tabState.autoCommit === false;
-    const presenceToken = await resolveSqlPresenceToken(conn, sql, t);
-    if (presenceToken === null) {
-      updateSqlTabState(resolvedTabId, { running: false, activeQueryRunId: null });
-      return;
-    }
-    try {
-      const res = useManualTxn
-        ? await invoke<QueryResult>("db_execute_query_in_session", {
-            sessionId: resolvedTabId,
-            connection: conn,
-            sql,
-            runId,
-            limit: pageSize,
-            offset: 0,
-            presenceToken: presenceToken ?? null,
-          })
-        : await invoke<QueryResult>("db_execute_query", {
-            connection: conn,
-            sql,
-            runId,
-            limit: pageSize,
-            offset: 0,
-            presenceToken: presenceToken ?? null,
-          });
-      const elapsed = Math.round(performance.now() - started);
-      const hasMore = res.columns.length > 0 && res.rows.length >= pageSize;
-      updateSqlResultSession(resolvedTabId, session.id, {
-        result: res,
-        resultPage: 0,
-        resultHasMore: hasMore,
-        elapsed,
-        running: false,
-      });
-      updateSqlTabState(resolvedTabId, {
-        running: false,
-        activeQueryRunId: null,
-        ...(useManualTxn ? { inTransaction: true } : {}),
-      });
+    // 多条语句共用一条连接，用户变量和临时表在脚本内仍然可见；
+    // 每条成功后提交，保持自动提交语义。手动事务继续用标签自己的会话。
+    const scriptSessionId =
+      !useManualTxn && plannedSessions.length > 1
+        ? `${resolvedTabId}::script::${makeQueryRunId()}`
+        : null;
+    const historyTab = workspaceTabsRef.current.find((item) => item.id === resolvedTabId);
+    const sqlFileId = historyTab?.kind === "sql" ? historyTab.sqlFileId ?? null : null;
+    let anySuccess = false;
+    let lastRunId: string | null = null;
 
-      const historyTab = workspaceTabsRef.current.find((item) => item.id === resolvedTabId);
-      const historyScope = resolveSqlHistoryScopeId(
-        historyTab?.kind === "sql" ? historyTab.sqlFileId : undefined,
-        resolvedTabId,
-      );
-      appendSuccessfulSqlQueryHistory(historyScope, {
-        sql,
-        elapsedMs: elapsed,
-        connectionName: conn.name,
-        database: conn.database,
-        rowsAffected: res.rowsAffected,
-        rowCount: res.rows.length,
+    const currentRunId = () =>
+      useDbWorkspaceTabStore.getState().sqlTabStates[resolvedTabId]?.activeQueryRunId ?? null;
+
+    const dropSessions = (sessionIds: string[], activeSessionId: string | null) => {
+      const current = useDbWorkspaceTabStore.getState().sqlTabStates[resolvedTabId];
+      const drop = new Set(sessionIds);
+      const kept = (current?.resultSessions ?? []).filter((item) => !drop.has(item.id));
+      updateSqlTabState(resolvedTabId, {
+        resultSessions: kept,
+        activeResultSessionId:
+          activeSessionId && kept.some((item) => item.id === activeSessionId)
+            ? activeSessionId
+            : kept[kept.length - 1]?.id ?? null,
       });
-    } catch (e) {
-      updateSqlResultSession(resolvedTabId, session.id, {
-        result: null,
-        error: isQueryCancelledError(e)
+    };
+
+    for (let index = 0; index < plannedSessions.length; index += 1) {
+      const session = plannedSessions[index]!;
+      const runId = makeQueryRunId();
+      lastRunId = runId;
+      updateSqlTabState(resolvedTabId, {
+        running: true,
+        activeQueryRunId: runId,
+        activeResultSessionId: session.id,
+      });
+      updateSqlResultSession(resolvedTabId, session.id, { running: true, error: null });
+
+      const presenceToken = await resolveSqlPresenceToken(conn, session.sql, t);
+      if (currentRunId() !== runId) break;
+      if (presenceToken === null) {
+        dropSessions(
+          plannedSessions.slice(index).map((item) => item.id),
+          plannedSessions[index - 1]?.id ?? null,
+        );
+        break;
+      }
+
+      const started = performance.now();
+      const logExec = (
+        status: "ok" | "error" | "cancelled",
+        extra: {
+          elapsedMs: number;
+          rowsAffected?: number;
+          error?: string;
+          columns?: string[];
+          rows?: unknown[][];
+        },
+      ) => {
+        const executionId = makeSqlExecId();
+        updateSqlResultSession(resolvedTabId, session.id, { executionId });
+        void appendSqlExecution({
+          id: executionId,
+          executedAt: Date.now(),
+          connectionId: conn.id,
+          connectionName: conn.name,
+          databaseName: conn.database,
+          envTag: "",
+          sqlFileId,
+          tabId: resolvedTabId,
+          sql: session.sql,
+          displayName: sqlExecDisplayName(session.sql, "SQL"),
+          status,
+          elapsedMs: extra.elapsedMs,
+          rowsAffected: extra.rowsAffected ?? 0,
+          error: extra.error ?? "",
+          pinned: Boolean(session.pinned),
+          columns: extra.columns ?? [],
+          rows: extra.rows ?? [],
+        });
+      };
+      try {
+        const res =
+          useManualTxn || scriptSessionId
+            ? await invoke<QueryResult>("db_execute_query_in_session", {
+                sessionId: scriptSessionId ?? resolvedTabId,
+                connection: conn,
+                sql: session.sql,
+                runId,
+                limit: pageSize,
+                offset: 0,
+                presenceToken: presenceToken ?? null,
+              })
+            : await invoke<QueryResult>("db_execute_query", {
+                connection: conn,
+                sql: session.sql,
+                runId,
+                limit: pageSize,
+                offset: 0,
+                presenceToken: presenceToken ?? null,
+              });
+        if (currentRunId() !== runId) {
+          logExec("cancelled", { elapsedMs: Math.round(performance.now() - started) });
+          break;
+        }
+        if (scriptSessionId) {
+          await invoke("db_query_session_commit", { sessionId: scriptSessionId });
+          if (currentRunId() !== runId) break;
+        }
+        const elapsed = Math.round(performance.now() - started);
+        const hasMore = res.columns.length > 0 && res.rows.length >= pageSize;
+        updateSqlResultSession(resolvedTabId, session.id, {
+          result: res,
+          resultPage: 0,
+          resultHasMore: hasMore,
+          elapsed,
+          running: false,
+        });
+        anySuccess = true;
+        logExec("ok", {
+          elapsedMs: elapsed,
+          rowsAffected: res.rowsAffected,
+          columns: res.columns,
+          rows: res.rows,
+        });
+      } catch (e) {
+        const cancelled = currentRunId() !== runId || isQueryCancelledError(e);
+        if (currentRunId() !== runId && !isQueryCancelledError(e)) {
+          logExec("cancelled", { elapsedMs: Math.round(performance.now() - started) });
+          break;
+        }
+        const message = cancelled
           ? t("database.queryCancelled")
           : typeof e === "string"
             ? e
-            : JSON.stringify(e),
+            : JSON.stringify(e);
+        updateSqlResultSession(resolvedTabId, session.id, {
+          result: null,
+          error: message,
+          running: false,
+        });
+        logExec(cancelled ? "cancelled" : "error", {
+          elapsedMs: Math.round(performance.now() - started),
+          error: cancelled ? "" : message,
+        });
+        dropSessions(
+          plannedSessions.slice(index + 1).map((item) => item.id),
+          session.id,
+        );
+        break;
+      }
+    }
+
+    if (scriptSessionId) {
+      try {
+        await invoke("db_query_session_close", { sessionId: scriptSessionId });
+      } catch {
+        // 会话可能尚未建立
+      }
+    }
+
+    if (currentRunId() === lastRunId) {
+      updateSqlTabState(resolvedTabId, {
         running: false,
+        activeQueryRunId: null,
+        ...(useManualTxn && anySuccess ? { inTransaction: true } : {}),
       });
-      updateSqlTabState(resolvedTabId, { running: false, activeQueryRunId: null });
     }
   }, [
     connectionForSqlTab,
@@ -500,9 +597,15 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       // 查询可能已结束
     }
 
-    const activeSessionId = tabState.activeResultSessionId;
-    if (activeSessionId) {
-      updateSqlResultSession(tabId, activeSessionId, {
+    const runningSessions = (tabState.resultSessions ?? []).filter((item) => item.running);
+    const cancelTargets =
+      runningSessions.length > 0
+        ? runningSessions
+        : tabState.activeResultSessionId
+          ? (tabState.resultSessions ?? []).filter((item) => item.id === tabState.activeResultSessionId)
+          : [];
+    for (const session of cancelTargets) {
+      updateSqlResultSession(tabId, session.id, {
         running: false,
         error: t("database.queryCancelled"),
       });
@@ -696,6 +799,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
         return next;
       });
       syncSqlFileTabHeaderMeta(tabId, false, true);
+      await rebindSqlExecutionFile(tabId, file.id);
       await store.flushToDisk();
     },
     [activeWorkspaceTabId, t, syncSqlFileTabHeaderMeta, resolveConnection, updateSqlTabState],

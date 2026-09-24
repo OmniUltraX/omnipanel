@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -13,7 +12,6 @@ import { Button } from "../../../components/ui/primitives/Button";
 import { Select } from "../../../components/ui/form/Select";
 import {
   IconSettings,
-  IconClock,
   IconStop,
   IconCheckCircle,
   IconXCircle,
@@ -28,14 +26,7 @@ import {
   SQL_EDITOR_FONT_SIZE_OPTIONS,
   SQL_EDITOR_LINE_HEIGHT_OPTIONS,
 } from "../../../stores/settingsStore";
-import {
-  clearSqlQueryHistory,
-  listSqlQueryHistory,
-  type SqlQueryHistoryEntry,
-} from "./sqlQueryHistoryStore";
-import { sqlHistoryKindLabel, sqlHistoryKindTone } from "./classifySqlHistoryKind";
-
-/** 设置/历史浮层；Select 下拉需高于此值，否则会被面板挡住 */
+/** 设置浮层；Select 下拉需高于此值，否则会被面板挡住 */
 const SQL_TOOLBAR_POPOVER_Z_INDEX = 200000;
 const SQL_TOOLBAR_SELECT_Z_INDEX = SQL_TOOLBAR_POPOVER_Z_INDEX + 10;
 
@@ -114,60 +105,7 @@ function AnchorPopover({
   );
 }
 
-function formatTime(ts: number): string {
-  try {
-    return new Date(ts).toLocaleString();
-  } catch {
-    return String(ts);
-  }
-}
-
-function HistoryList({
-  scopeId,
-  refreshKey,
-  onPick,
-}: {
-  scopeId: string;
-  refreshKey: number;
-  onPick: (sql: string) => void;
-}) {
-  const { t } = useI18n();
-  const items = useMemo(() => listSqlQueryHistory(scopeId), [scopeId, refreshKey]);
-
-  if (items.length === 0) {
-    return <div className="sql-toolbar-popover__empty">{t("database.sqlToolbar.historyEmpty")}</div>;
-  }
-
-  return (
-    <div className="sql-toolbar-history">
-      <ul className="sql-toolbar-history__list">
-        {items.map((item: SqlQueryHistoryEntry) => (
-          <li key={item.id} className="sql-toolbar-history__item">
-            <button
-              type="button"
-              className="sql-toolbar-history__pick"
-              onClick={() => onPick(item.sql)}
-            >
-            <div className="sql-toolbar-history__meta">
-              <span
-                className={`sql-toolbar-history__tag sql-toolbar-history__tag--${sqlHistoryKindTone(item.kind)}`}
-              >
-                {sqlHistoryKindLabel(item.kind)}
-              </span>
-              <span>{formatTime(item.executedAt)}</span>
-              {item.elapsedMs != null ? <span>{item.elapsedMs}ms</span> : null}
-            </div>
-            <pre className="sql-toolbar-history__sql">{item.sql}</pre>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 export interface SqlToolbarLeftControlsProps {
-  historyScopeId: string;
   running: boolean;
   autoCommit: boolean;
   inTransaction: boolean;
@@ -177,11 +115,9 @@ export interface SqlToolbarLeftControlsProps {
   onAutoCommitChange: (autoCommit: boolean) => void;
   onCommit: () => void;
   onRollback: () => void;
-  onPickHistory: (sql: string) => void;
 }
 
 export function SqlToolbarLeftControls({
-  historyScopeId,
   running,
   autoCommit,
   inTransaction,
@@ -191,14 +127,10 @@ export function SqlToolbarLeftControls({
   onAutoCommitChange,
   onCommit,
   onRollback,
-  onPickHistory,
 }: SqlToolbarLeftControlsProps) {
   const { t } = useI18n();
   const settingsAnchorRef = useRef<HTMLSpanElement>(null);
-  const historyAnchorRef = useRef<HTMLSpanElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyRefresh, setHistoryRefresh] = useState(0);
 
   const sqlKeywordCase = useSettingsStore((s) => s.sqlKeywordCase);
   const sqlEditorFontFamily = useSettingsStore((s) => s.sqlEditorFontFamily);
@@ -207,12 +139,6 @@ export function SqlToolbarLeftControls({
   const formatSqlOnSave = useSettingsStore((s) => s.formatSqlOnSave);
   const databaseQueryPageSize = useSettingsStore((s) => s.databaseQueryPageSize);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
-
-  const openHistory = () => {
-    setSettingsOpen(false);
-    setHistoryRefresh((n) => n + 1);
-    setHistoryOpen(true);
-  };
 
   return (
     <div className="sql-toolbar-left">
@@ -224,23 +150,10 @@ export function SqlToolbarLeftControls({
           aria-label={t("database.sqlToolbar.settings")}
           aria-expanded={settingsOpen}
           onClick={() => {
-            setHistoryOpen(false);
             setSettingsOpen((v) => !v);
           }}
         >
           <IconSettings size={12} />
-        </Button>
-      </span>
-      <span ref={historyAnchorRef} className="sql-toolbar-left__anchor">
-        <Button
-          variant="icon"
-          size="icon-xs"
-          title={t("database.sqlToolbar.history")}
-          aria-label={t("database.sqlToolbar.history")}
-          aria-expanded={historyOpen}
-          onClick={openHistory}
-        >
-          <IconClock size={12} />
         </Button>
       </span>
       <Button
@@ -394,35 +307,6 @@ export function SqlToolbarLeftControls({
             panelZIndex={SQL_TOOLBAR_SELECT_Z_INDEX}
           />
         </label>
-      </AnchorPopover>
-
-      <AnchorPopover
-        anchorRef={historyAnchorRef}
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        className="sql-toolbar-popover sql-toolbar-popover--history"
-      >
-        <div className="sql-toolbar-popover__title-row">
-          <div className="sql-toolbar-popover__title">{t("database.sqlToolbar.historyTitle")}</div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              clearSqlQueryHistory(historyScopeId);
-              setHistoryRefresh((n) => n + 1);
-            }}
-          >
-            {t("database.sqlToolbar.historyClear")}
-          </Button>
-        </div>
-        <HistoryList
-          scopeId={historyScopeId}
-          refreshKey={historyRefresh}
-          onPick={(sql) => {
-            onPickHistory(sql);
-            setHistoryOpen(false);
-          }}
-        />
       </AnchorPopover>
     </div>
   );

@@ -17,7 +17,10 @@ import { useDatabasePanelModel } from "./panel/useDatabasePanelModel";
 
 export function DatabasePanel() {
   const {
+    activeConnId,
     activeTabContextValue,
+    activeSqlFileId,
+    activeSyncTaskId,
     activeTreeChartFileId,
     activeWorkspaceId,
     activeWorkspaceTab,
@@ -50,6 +53,7 @@ export function DatabasePanel() {
     handleNewSqlQuery,
     handleNewTreeChart,
     handleOpenScratchQuery,
+    openSqlExecLog,
     handleOpenSyncTask,
     handlePanelTransferredToWorkspace,
     handleRowSave,
@@ -127,6 +131,23 @@ export function DatabasePanel() {
           >
             <DockTabIcon kind="sql" />
           </button>
+          <button
+            type="button"
+            className={`module-mode-icon-rail__btn${
+              activeWorkspaceTab?.kind === "sql-exec-log" ? " module-mode-icon-rail__btn--active" : ""
+            }`}
+            title={t("database.sqlExec.connLog")}
+            aria-label={t("database.sqlExec.connLog")}
+            onClick={() => {
+              const connId = activeConnId;
+              if (!connId) return;
+              const connection = connections.find((item) => item.id === connId);
+              if (!connection) return;
+              openSqlExecLog(connection);
+            }}
+          >
+            <DockTabIcon kind="database" />
+          </button>
         </div>
       }
       leftSidebar={
@@ -138,7 +159,9 @@ export function DatabasePanel() {
           onOpenSqlFile={openSqlFile}
           onNewTreeChart={handleNewTreeChart}
           onOpenTreeChartFile={openTreeChartFile}
+          activeSqlFileId={activeSqlFileId}
           activeTreeChartFileId={activeTreeChartFileId}
+          activeSyncTaskId={activeSyncTaskId}
           onOpenSyncTask={handleOpenSyncTask}
           onRunSyncTask={handleRunSyncTask}
           onSelectTable={handleSelectTable}

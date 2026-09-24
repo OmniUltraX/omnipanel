@@ -40,7 +40,7 @@ import {
   getSqlEditorMenu,
   subscribeSqlEditorMenu,
 } from "../sql/sqlEditorMenuSignal";
-import { resolveSqlHistoryScopeId } from "../sql/sqlQueryHistoryStore";
+import { registerSqlCursorInsert } from "../sql/sqlExecLog";
 import { isConnectionEnabled } from "../api";
 import type { DatabaseSchema } from "../types";
 import {
@@ -216,6 +216,16 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   );
   const sqlEditorOpenMode = ws.tabModeToEditorOpenMode(_mode);
   const sqlEditorRef = useRef<SqlEditorHandle>(null);
+  useEffect(() => {
+    if (!isActiveTab) return;
+    return registerSqlCursorInsert((sql) => {
+      const editor = sqlEditorRef.current;
+      if (!editor) return;
+      const selection = editor.getSelection();
+      const prefix = selection.doc.trim() ? "\n" : "";
+      editor.replaceRange(selection.head, selection.head, `${prefix}${sql}`);
+    });
+  }, [isActiveTab]);
 
   const canRunSql = Boolean(
     tabConn &&
@@ -510,7 +520,6 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     clearResultSelection,
   ]);
   /** 工具栏通栏在上；预览分栏只占工具栏以下区域 */
-  const historyScopeId = resolveSqlHistoryScopeId(tab.sqlFileId, tab.id);
   const supportsManualTxn = useMemo(() => {
     const t = (tabConn?.db_type ?? "").toLowerCase();
     return t === "mysql" || t === "mariadb" || t === "postgres" || t === "postgresql" || t === "pg";
@@ -520,7 +529,6 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     <>
       <div className="sql-toolbar">
         <SqlToolbarLeftControls
-          historyScopeId={historyScopeId}
           running={tabState.running}
           autoCommit={tabState.autoCommit !== false}
           inTransaction={Boolean(tabState.inTransaction)}
@@ -530,9 +538,6 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           onAutoCommitChange={(next) => void ws.setSqlAutoCommit(tab.id, next)}
           onCommit={() => void ws.commitSqlTransaction(tab.id)}
           onRollback={() => void ws.rollbackSqlTransaction(tab.id)}
-          onPickHistory={(sql) => {
-            ws.updateSqlTabState(tab.id, { sql, cursorOffset: sql.length, error: null });
-          }}
         />
         <div className="sql-toolbar-divider" aria-hidden />
         <Select
@@ -634,7 +639,16 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     >
       <SqlResultSessionsDock
         sqlTabId={tab.id}
+        sqlFileId={tab.sqlFileId}
+        connectionId={tabState.connId}
         sessions={resultSessions}
+        onInsertSql={(sql) => {
+          const editor = sqlEditorRef.current;
+          if (!editor) return;
+          const selection = editor.getSelection();
+          const prefix = selection.doc.trim() ? "\n" : "";
+          editor.replaceRange(selection.head, selection.head, `${prefix}${sql}`);
+        }}
         activeSessionId={tabState.activeResultSessionId}
         onActiveSessionChange={handleActiveSessionChange}
         onCloseSession={handleCloseSession}

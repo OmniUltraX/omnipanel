@@ -302,6 +302,9 @@ export function sanitizeWorkspaceSession(
     if (tab.kind === "binlog") {
       return Boolean(tab.connId && tab.sshConnectionId);
     }
+    if (tab.kind === "sql-exec-log") {
+      return Boolean(tab.connId);
+    }
     if (tab.kind === "toolbox") {
       return (
         Boolean(tab.syncTaskId) &&

@@ -91,6 +91,10 @@ export function buildDatabasePanelContentKeysByTab(params: {
       ].join(":");
       continue;
     }
+    if (tab.kind === "sql-exec-log") {
+      keys[tab.id] = [connectionsFingerprint, tab.connId].join(":");
+      continue;
+    }
     if (tab.kind === "binlog") {
       keys[tab.id] = [
         connectionsFingerprint,

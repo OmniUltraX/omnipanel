@@ -83,6 +83,8 @@ export type SqlResultSession = {
   resultHasMore: boolean;
   /** 固定后不会被后续查询覆盖；未固定时为临时结果。 */
   pinned?: boolean;
+  /** 这一次执行在日志里的 id。会话 id 会被下次临时结果复用，不能当日志主键。 */
+  executionId?: string;
 };
 
 export type SqlTabState = {
@@ -270,6 +272,64 @@ export function createSqlResultSession(sql: string, pinned = false): SqlResultSe
   };
 }
 
+/**
+ * 为一次执行安排结果会话。
+ * 单条语句复用未固定的临时会话；多条语句各占一个会话，并清掉上一轮临时结果。
+ * 固定会话始终保留。freshResult 追加新的固定会话。
+ */
+export function planSqlExecutionSessions(
+  existing: SqlResultSession[],
+  statements: string[],
+  freshResult: boolean,
+): { sessions: SqlResultSession[]; activeSessionId: string; runSessionIds: string[] } {
+  const sqls = statements.map((sql) => sql.trim()).filter(Boolean);
+  if (sqls.length === 0) {
+    const fallback = existing[existing.length - 1];
+    return {
+      sessions: existing,
+      activeSessionId: fallback?.id ?? "",
+      runSessionIds: [],
+    };
+  }
+
+  if (freshResult) {
+    const created = sqls.map((sql) => createSqlResultSession(sql, true));
+    return {
+      sessions: [...existing, ...created],
+      activeSessionId: created[0]!.id,
+      runSessionIds: created.map((item) => item.id),
+    };
+  }
+
+  if (sqls.length === 1) {
+    const sql = sqls[0]!;
+    const temp = findTemporarySqlResultSession(existing);
+    if (temp) {
+      const session = reuseTemporarySqlResultSession(temp, sql);
+      return {
+        sessions: existing
+          .filter((item) => item.pinned || item.id === temp.id)
+          .map((item) => (item.id === temp.id ? session : item)),
+        activeSessionId: session.id,
+        runSessionIds: [session.id],
+      };
+    }
+    const session = createSqlResultSession(sql);
+    return {
+      sessions: [...existing.filter((item) => item.pinned), session],
+      activeSessionId: session.id,
+      runSessionIds: [session.id],
+    };
+  }
+
+  const created = sqls.map((sql) => createSqlResultSession(sql));
+  return {
+    sessions: [...existing.filter((item) => item.pinned), ...created],
+    activeSessionId: created[0]!.id,
+    runSessionIds: created.map((item) => item.id),
+  };
+}
+
 /** 重置临时结果会话以承载新查询。 */
 export function reuseTemporarySqlResultSession(
   session: SqlResultSession,
@@ -284,6 +344,7 @@ export function reuseTemporarySqlResultSession(
     running: true,
     resultPage: 0,
     resultHasMore: false,
+    executionId: undefined,
   };
 }
 
@@ -323,7 +384,7 @@ export function resolveConnIdForWorkspaceTab(
   if (!tab) {
     return null;
   }
-  if (tab.kind === "table" || tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer" || tab.kind === "redis-query" || tab.kind === "slow-query" || tab.kind === "binlog") {
+  if (tab.kind === "table" || tab.kind === "database" || tab.kind === "connection" || tab.kind === "designer" || tab.kind === "redis-query" || tab.kind === "slow-query" || tab.kind === "binlog" || tab.kind === "sql-exec-log") {
     return tab.connId;
   }
   if (tab.kind === "sql") {

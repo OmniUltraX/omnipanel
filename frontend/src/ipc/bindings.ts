@@ -111,6 +111,13 @@ export const commands = {
 	 *  `run_id` 供前端中断长时间查询（`db_cancel_query`）。
 	 */
 	dbExecuteQuery: (connection: DbConnectionConfig, sql: string, runId: string, limit: number | null, offset: number | null, presenceToken: string | null) => typedError<DbQueryResult, string>(__TAURI_INVOKE("db_execute_query", { connection, sql, runId, limit, offset, presenceToken })),
+	dbSqlExecAppend: (input: SqlExecAppend) => typedError<SqlExecRecord, OmniError_Serialize>(__TAURI_INVOKE("db_sql_exec_append", { input })),
+	dbSqlExecList: (filter: SqlExecListFilter) => typedError<SqlExecRecord[], OmniError_Serialize>(__TAURI_INVOKE("db_sql_exec_list", { filter })),
+	dbSqlExecResult: (id: string) => typedError<SqlExecResultPage | null, OmniError_Serialize>(__TAURI_INVOKE("db_sql_exec_result", { id })),
+	dbSqlExecSetPinned: (id: string, pinned: boolean) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_sql_exec_set_pinned", { id, pinned })),
+	dbSqlExecDelete: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("db_sql_exec_delete", { id })),
+	dbSqlExecClear: (connectionId: string) => typedError<number, OmniError_Serialize>(__TAURI_INVOKE("db_sql_exec_clear", { connectionId })),
+	dbSqlExecRebindFile: (tabId: string, sqlFileId: string) => typedError<number, OmniError_Serialize>(__TAURI_INVOKE("db_sql_exec_rebind_file", { tabId, sqlFileId })),
 	/**  中断正在执行的 SQL 查询（按 run_id，与 db_execute_query 配对）。 */
 	dbCancelQuery: (runId: string) => typedError<null, string>(__TAURI_INVOKE("db_cancel_query", { runId })),
 	/**
@@ -6835,6 +6842,68 @@ export type WrapKeyRequest = {
 export type WrapKeyResult = {
 	wrappedKey: string,
 	wrapAlg: string,
+};
+
+export type SqlExecAppend = {
+	id: string,
+	executedAt: number,
+	connectionId: string,
+	connectionName: string,
+	databaseName: string,
+	envTag: string,
+	sqlFileId: string | null,
+	tabId: string,
+	sql: string,
+	displayName: string,
+	status: string,
+	elapsedMs: number | null,
+	rowsAffected: number,
+	error: string,
+	pinned: boolean,
+	columns: string[],
+	rows: unknown[][],
+};
+
+export type SqlExecRecord = {
+	id: string,
+	executedAt: number,
+	connectionId: string,
+	connectionName: string,
+	databaseName: string,
+	envTag: string,
+	sqlFileId: string | null,
+	tabId: string,
+	sql: string,
+	displayName: string,
+	status: string,
+	elapsedMs: number | null,
+	rowsAffected: number,
+	rowCount: number,
+	error: string,
+	pinned: boolean,
+	resultTruncated: boolean,
+	hasResult: boolean,
+};
+
+export type SqlExecResultPage = {
+	columns: string[],
+	rows: unknown[][],
+	rowsAffected: number,
+	truncated: boolean,
+};
+
+export type SqlExecListFilter = {
+	connectionId: string | null,
+	sqlFileId: string | null,
+	tabId: string | null,
+	databaseName: string | null,
+	status: string | null,
+	kind: string | null,
+	keyword: string | null,
+	tableName: string | null,
+	fromMs: number | null,
+	toMs: number | null,
+	limit: number | null,
 };
 
 /* Tauri Specta runtime */

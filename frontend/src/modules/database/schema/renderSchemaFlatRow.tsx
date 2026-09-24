@@ -43,7 +43,7 @@ export type RenderSchemaFlatRowDeps = {
     mode?: SchemaDockOpenMode,
   ) => void;
   onSelectTable?: (selection: SchemaTableSelection, mode?: SchemaDockOpenMode) => void;
-  onOpenSqlFile?: (file: DbSqlFileNode) => void;
+  onOpenSqlFile?: (file: DbSqlFileNode, mode?: "preview" | "permanent") => void;
   resolveSchemaNodeActions: (
     connection: DbConnectionConfig,
     item: SchemaTreeItem,
@@ -220,14 +220,14 @@ export function createRenderSchemaFlatRow(deps: RenderSchemaFlatRowDeps) {
       onPreviewOpen = () => onSelectTable?.(tableSelection, "preview");
       onActivate = () => onSelectTable?.(tableSelection, "permanent");
     } else if (row.labelClickKind === "sql-query" && row.labelClickSqlFileId) {
-      const openBoundSqlFile = () => {
+      const openBoundSqlFile = (mode: "preview" | "permanent") => {
         const file = sqlFilesRef.current.find((entry) => entry.id === row.labelClickSqlFileId);
         if (file) {
-          onOpenSqlFile?.(file);
+          onOpenSqlFile?.(file, mode);
         }
       };
-      onPreviewOpen = openBoundSqlFile;
-      onActivate = openBoundSqlFile;
+      onPreviewOpen = () => openBoundSqlFile("preview");
+      onActivate = () => openBoundSqlFile("permanent");
     } else if (row.labelClickKind === "object-folder") {
       onActivate = () => expandObjectFolderOnActivate(row.item.id);
     }
