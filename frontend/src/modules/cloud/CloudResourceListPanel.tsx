@@ -241,7 +241,7 @@ export function CloudResourceListPanel({
                       await addCloudOssToFile(account, cloudConnection, {
                         id: row.id,
                         name: row.name,
-                        region: row.regionId,
+                        region: cloudRowField(row.fields, "s3Region") || row.regionId,
                         endpoint: cloudRowField(row.fields, "endpoint"),
                       });
                       showToast(t("server.cloud.actions.addedOss", { name: row.name || row.id }));

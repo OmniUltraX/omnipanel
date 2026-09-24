@@ -27,6 +27,7 @@ export type ServerTreeIconKind =
   | "digitalocean"
   | "gcp"
   | "bandwagon"
+  | "qiniu"
   | "apps"
   | "websites"
   | "certificates"
@@ -48,7 +49,8 @@ function isBrandKind(kind: ServerTreeIconKind): kind is ServerTreeBrandIconKind 
     kind === "azure" ||
     kind === "digitalocean" ||
     kind === "gcp" ||
-    kind === "bandwagon"
+    kind === "bandwagon" ||
+    kind === "qiniu"
   );
 }
 

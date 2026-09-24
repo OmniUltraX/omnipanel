@@ -57,6 +57,10 @@ const META = {
     name: "BandwagonHost",
     description: "Manage BandwagonHost (搬瓦工) KVM VPS via KiwiVM API.",
   },
+  "omni.cloud.qiniu": {
+    name: "Qiniu Cloud",
+    description: "Manage Qiniu Kodo object storage buckets and open them in the Files module via S3-compatible endpoints.",
+  },
   "omni.panel.1panel": {
     name: "1Panel",
     description: "Connect to 1Panel hosts for sites, apps, and certificates.",

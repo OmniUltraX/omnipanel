@@ -5,7 +5,7 @@ import { defaultS3Endpoint, resolveS3Provider } from "../files/s3Provider";
 import { normalizeS3ApiEndpoint } from "../files/s3PublicUrl";
 import { saveFileConnection } from "../files/fileApi";
 import type { SshConfigJson } from "../server/panel/serverConnection";
-import { isTencentCloud, parseCloudConfig, PLUGIN_ID_ALIYUN, type CloudAccount } from "./cloudForm";
+import { isQiniuCloud, isTencentCloud, parseCloudConfig, PLUGIN_ID_ALIYUN, type CloudAccount } from "./cloudForm";
 
 export type CloudLinkKind =
   | "compute"
@@ -111,6 +111,29 @@ export function normalizeOssRegion(region: string): string {
   if (!r) return "oss-cn-hangzhou";
   if (r.startsWith("oss-")) return r;
   return `oss-${r}`;
+}
+
+/** Kodo 区域 id（z0/z1…）→ S3 Region ID（cn-east-1…）。 */
+const KODO_TO_S3_REGION: Record<string, string> = {
+  z0: "cn-east-1",
+  "cn-east-1": "cn-east-1",
+  "cn-east-2": "cn-east-2",
+  z1: "cn-north-1",
+  "cn-north-1": "cn-north-1",
+  z2: "cn-south-1",
+  "cn-south-1": "cn-south-1",
+  na0: "us-north-1",
+  "us-north-1": "us-north-1",
+  as0: "ap-southeast-1",
+  "ap-southeast-1": "ap-southeast-1",
+  "ap-southeast-2": "ap-southeast-2",
+  "ap-southeast-3": "ap-southeast-3",
+};
+
+export function normalizeQiniuS3Region(region: string): string {
+  const value = region.trim();
+  if (!value) return "cn-north-1";
+  return KODO_TO_S3_REGION[value] ?? value;
 }
 
 export function findLinkedSshConnection(
@@ -247,9 +270,14 @@ export async function addCloudOssToFile(
   if (!accessKey) throw new Error("NO_AK");
 
   const tencent = isTencentCloud(account.pluginId);
-  const rawRegion = row.region || account.regions[0] || (tencent ? "ap-guangzhou" : "cn-hangzhou");
-  const region = tencent ? rawRegion.replace(/^oss-/, "") : normalizeOssRegion(rawRegion);
-  const providerHint = tencent ? "tencent" : "aliyun";
+  const qiniu = isQiniuCloud(account.pluginId);
+  const rawRegion = row.region || account.regions[0] || (tencent ? "ap-guangzhou" : qiniu ? "cn-north-1" : "cn-hangzhou");
+  const region = tencent
+    ? rawRegion.replace(/^oss-/, "")
+    : qiniu
+      ? normalizeQiniuS3Region(rawRegion)
+      : normalizeOssRegion(rawRegion);
+  const providerHint = tencent ? "tencent" : qiniu ? "qiniu" : "aliyun";
   const endpointRaw = (row.endpoint ?? "").trim() || defaultS3Endpoint(providerHint, region);
   const endpoint = normalizeS3ApiEndpoint(endpointRaw, bucket);
   const provider = resolveS3Provider({ provider: providerHint, endpoint });

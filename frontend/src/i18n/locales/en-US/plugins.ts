@@ -13,6 +13,7 @@ export default {
       digitalocean: "DigitalOcean",
       gcp: "Google Cloud",
       bandwagon: "BandwagonHost",
+      qiniu: "Qiniu Cloud",
       qdrant: "Qdrant",
       clickhouse: "ClickHouse",
       mongodb: "MongoDB",

@@ -98,6 +98,8 @@ export const LEGACY_PLUGIN_ALIASES: Readonly<Record<string, string>> = {
   bandwagon: "omni.cloud.bandwagon",
   bwh: "omni.cloud.bandwagon",
   banwagong: "omni.cloud.bandwagon",
+  qiniu: "omni.cloud.qiniu",
+  kodo: "omni.cloud.qiniu",
 };
 
 export function manifestCloudCapabilities(
