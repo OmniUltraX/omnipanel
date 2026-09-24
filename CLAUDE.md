@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OmniPanel is an AI-native cross-platform engineering workstation for developers. It unifies terminal, SSH, database, Docker, server management, and AI assistance into a single desktop application.
 
-**Status:** v0.8.33（事实源见 `CHANGELOG.md`）。桌面版（Tauri）与 Web 版（`crates/omnipanel-server` + axum）双形态，共用同一套前端与业务 crate。
+**Status:** v0.8.40（事实源见 `CHANGELOG.md`）。桌面版（Tauri）与 Web 版（`crates/omnipanel-server` + axum）双形态，共用同一套前端与业务 crate。
 
 > **本文档只记稳定约定。** 模块进度与版本以 `CHANGELOG.md` 为准，目录结构以实际代码为准。发现本文档与代码不一致时，以代码为准并顺手修正本文档。
 
