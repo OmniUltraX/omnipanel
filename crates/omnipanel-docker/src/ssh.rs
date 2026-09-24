@@ -1261,21 +1261,25 @@ pub async fn compose_action(
         docker_cmd
     };
     let out = session.exec_capture(&cmd).await?;
-    let excerpt = |s: &str| -> String {
-        if s.len() <= 8 * 1024 {
-            s.to_string()
-        } else {
-            let cut = 8 * 1024;
-            format!("{}…[truncated]", &s[..cut])
-        }
-    };
     Ok(DockerComposeResult {
         action,
         project: req.project.clone(),
-        stdout_excerpt: excerpt(&out.stdout),
-        stderr_excerpt: excerpt(&out.stderr),
+        stdout_excerpt: truncate_excerpt(&out.stdout, 8 * 1024),
+        stderr_excerpt: truncate_excerpt(&out.stderr, 8 * 1024),
         exit_code: out.exit_code,
     })
+}
+
+/// 把 `s` 截到 `max_bytes` 字节内（按字符边界）。超长时附加 `…[truncated]`。
+fn truncate_excerpt(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…[truncated]", &s[..cut])
 }
 
 /// 拆分 `repo:tag`，无 `:` 时 tag 默认为 "latest"。
