@@ -18,6 +18,7 @@ export const DOWNLOAD_ONLY_PLUGIN_DIRS = new Set([
   "cloud-digitalocean",
   "cloud-gcp",
   "cloud-bandwagon",
+  "cloud-qiniu",
 ]);
 
 

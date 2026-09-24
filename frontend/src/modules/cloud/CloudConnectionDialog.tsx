@@ -35,6 +35,7 @@ import azureIcon from "../../assets/icons/Azure.svg";
 import digitalOceanIcon from "../../assets/icons/DigitalOcean.svg";
 import gcpIcon from "../../assets/icons/Gcp.svg";
 import bandwagonIcon from "../../assets/icons/Bandwagon.svg";
+import qiniuIcon from "../../assets/icons/Qiniu.svg";
 
 interface CloudConnectionDialogProps {
   open: boolean;
@@ -52,6 +53,7 @@ const PLUGIN_ICONS: Record<string, string> = {
   "omni.cloud.digitalocean": digitalOceanIcon,
   "omni.cloud.gcp": gcpIcon,
   "omni.cloud.bandwagon": bandwagonIcon,
+  "omni.cloud.qiniu": qiniuIcon,
 };
 
 export function CloudConnectionDialog({

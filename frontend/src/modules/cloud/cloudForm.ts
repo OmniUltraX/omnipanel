@@ -20,6 +20,7 @@ export const PLUGIN_ID_AZURE = "omni.cloud.azure";
 export const PLUGIN_ID_DIGITALOCEAN = "omni.cloud.digitalocean";
 export const PLUGIN_ID_GCP = "omni.cloud.gcp";
 export const PLUGIN_ID_BANDWAGON = "omni.cloud.bandwagon";
+export const PLUGIN_ID_QINIU = "omni.cloud.qiniu";
 
 export const EMPTY_CLOUD_FORM: CloudFormData = {
   name: "",
@@ -74,6 +75,11 @@ export function isBandwagonCloud(pluginId: string | null | undefined): boolean {
   );
 }
 
+export function isQiniuCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_QINIU || id === "qiniu" || id === "kodo";
+}
+
 export function cloudBrandKind(
   pluginId: string | null | undefined,
 ):
@@ -85,6 +91,7 @@ export function cloudBrandKind(
   | "digitalocean"
   | "gcp"
   | "bandwagon"
+  | "qiniu"
   | "server" {
   if (isTencentCloud(pluginId)) return "tencent";
   if (isHuaweiCloud(pluginId)) return "huawei";
@@ -94,6 +101,7 @@ export function cloudBrandKind(
   if (isDigitalOceanCloud(pluginId)) return "digitalocean";
   if (isGcpCloud(pluginId)) return "gcp";
   if (isBandwagonCloud(pluginId)) return "bandwagon";
+  if (isQiniuCloud(pluginId)) return "qiniu";
   return "server";
 }
 
@@ -268,6 +276,9 @@ export function cloudAccountConsoleUrl(pluginId: string): string | null {
   if (isBandwagonCloud(id)) {
     return "https://bandwagonhost.com/clientarea.php";
   }
+  if (isQiniuCloud(id)) {
+    return "https://portal.qiniu.com/";
+  }
   return null;
 }
 
@@ -313,7 +324,9 @@ export function buildCloudConnection(
                   ? "gcp"
                   : isBandwagonCloud(pluginId)
                     ? "bandwagon"
-                    : pluginId,
+                    : isQiniuCloud(pluginId)
+                      ? "qiniu"
+                      : pluginId,
     regions,
     region: regions[0],
     accessKeyId: form.accessKeyId.trim(),

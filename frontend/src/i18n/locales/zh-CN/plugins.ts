@@ -13,6 +13,7 @@ export default {
       digitalocean: "DigitalOcean",
       gcp: "Google Cloud",
       bandwagon: "搬瓦工",
+      qiniu: "七牛云",
       qdrant: "Qdrant",
       clickhouse: "ClickHouse",
       mongodb: "MongoDB",

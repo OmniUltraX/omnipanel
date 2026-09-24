@@ -42,7 +42,7 @@
       "description": "Manage ECS, security groups, RDS, metrics, and other Alibaba Cloud resources.",
       "versions": [
         {
-          "version": "0.1.0",
+          "version": "0.1.1",
           "artifact": {
             "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-aliyun-0.1.0.omni-plugin",
             "sha256": "488389dfdaf4e4b4c21051859dc8396ff1db130985544d37bee79deee40ad49f",
@@ -56,7 +56,7 @@
         "vault:read"
       ],
       "createdAt": "2026-08-21T19:08:54+08:00",
-      "updatedAt": "2026-09-03T18:20:17+08:00"
+      "updatedAt": "2026-09-17T15:03:56+08:00"
     },
     {
       "id": "omni.cloud.aws",
@@ -79,7 +79,7 @@
         "vault:read"
       ],
       "createdAt": "2026-09-02T19:04:34+08:00",
-      "updatedAt": "2026-09-10T13:38:43+08:00"
+      "updatedAt": "2026-09-17T15:03:56+08:00"
     },
     {
       "id": "omni.cloud.azure",
@@ -102,7 +102,7 @@
         "vault:read"
       ],
       "createdAt": "2026-09-02T19:04:34+08:00",
-      "updatedAt": "2026-09-10T13:38:43+08:00"
+      "updatedAt": "2026-09-17T15:03:56+08:00"
     },
     {
       "id": "omni.cloud.bandwagon",
@@ -125,7 +125,7 @@
         "vault:read"
       ],
       "createdAt": "2026-09-10T13:38:43+08:00",
-      "updatedAt": "2026-09-10T13:38:43+08:00"
+      "updatedAt": "2026-09-17T15:03:56+08:00"
     },
     {
       "id": "omni.cloud.digitalocean",
@@ -148,7 +148,7 @@
         "vault:read"
       ],
       "createdAt": "2026-09-02T19:04:34+08:00",
-      "updatedAt": "2026-09-10T13:38:43+08:00"
+      "updatedAt": "2026-09-17T15:03:56+08:00"
     },
     {
       "id": "omni.cloud.gcp",
@@ -171,7 +171,7 @@
         "vault:read"
       ],
       "createdAt": "2026-09-02T19:04:34+08:00",
-      "updatedAt": "2026-09-10T13:38:43+08:00"
+      "updatedAt": "2026-09-17T15:03:56+08:00"
     },
     {
       "id": "omni.cloud.huawei",
@@ -194,7 +194,28 @@
         "vault:read"
       ],
       "createdAt": "2026-09-02T19:04:34+08:00",
-      "updatedAt": "2026-09-09T17:33:38+08:00"
+      "updatedAt": "2026-09-17T15:03:56+08:00"
+    },
+    {
+      "id": "omni.cloud.qiniu",
+      "kind": "cloud",
+      "name": "Qiniu Cloud",
+      "description": "Manage Qiniu Kodo object storage buckets and open them in the Files module via S3-compatible endpoints.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-qiniu-0.1.0.omni-plugin",
+            "sha256": "",
+            "size": 8234
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
     },
     {
       "id": "omni.cloud.tencent",
@@ -217,7 +238,7 @@
         "vault:read"
       ],
       "createdAt": "2026-09-02T19:04:34+08:00",
-      "updatedAt": "2026-09-09T17:33:38+08:00"
+      "updatedAt": "2026-09-17T15:03:56+08:00"
     },
     {
       "id": "omni.engine.clickhouse",

@@ -105,6 +105,8 @@ describe("cloud capabilities contract", () => {
     expect(cloudAccountConsoleUrl("tencent")).toBe("https://console.cloud.tencent.com/");
     expect(cloudAccountConsoleUrl("omni.cloud.huawei")).toBe("https://console.huaweicloud.com/");
     expect(cloudAccountConsoleUrl("huawei")).toBe("https://console.huaweicloud.com/");
+    expect(cloudAccountConsoleUrl("omni.cloud.qiniu")).toBe("https://portal.qiniu.com/");
+    expect(cloudAccountConsoleUrl("qiniu")).toBe("https://portal.qiniu.com/");
     expect(cloudAccountConsoleUrl("omni.cloud.unknown")).toBeNull();
   });
 });
@@ -154,6 +156,7 @@ describe("cloud tree keys", () => {
     expect(cloudBrandKind("omni.cloud.digitalocean")).toBe("digitalocean");
     expect(cloudBrandKind("omni.cloud.gcp")).toBe("gcp");
     expect(cloudBrandKind("omni.cloud.bandwagon")).toBe("bandwagon");
+    expect(cloudBrandKind("omni.cloud.qiniu")).toBe("qiniu");
     expect(cloudBrandKind("omni.cloud.aliyun")).toBe("aliyun");
     expect(cloudBrandKind("omni.cloud.tencent")).toBe("tencent");
     expect(cloudBrandKind("omni.cloud.huawei")).toBe("huawei");

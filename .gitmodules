@@ -25,3 +25,6 @@
 [submodule "plugins/cloud-bandwagon"]
 	path = plugins/cloud-bandwagon
 	url = git@github.com:OmniUltraX/omni-plugin-cloud-bandwagon.git
+[submodule "plugins/cloud-qiniu"]
+	path = plugins/cloud-qiniu
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-qiniu.git
