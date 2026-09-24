@@ -36,6 +36,20 @@ export function containerRowLabel(container: DockerContainerSummary): string {
   return container.name || container.shortId || container.id.slice(0, 12) || "—";
 }
 
+/**
+ * 给 `docker logs` / inspect 等 CLI 与 Engine 共用的引用。
+ * Compose recreate 后完整 id 会变，容器名通常仍稳定；优先 name。
+ */
+export function dockerContainerCliRef(
+  container: Pick<DockerContainerSummary, "id" | "shortId" | "name">,
+): string {
+  const name = container.name.trim().replace(/^\//, "");
+  if (name) return name;
+  const shortId = container.shortId.trim();
+  if (shortId) return shortId;
+  return container.id.trim();
+}
+
 type UptimeUnit = "second" | "minute" | "hour" | "day" | "week" | "month" | "year";
 
 export type DockerUptimeSegment = { value: number; unit: UptimeUnit };

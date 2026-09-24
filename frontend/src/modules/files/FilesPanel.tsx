@@ -21,6 +21,7 @@ import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmpty
 import { useI18n } from "../../i18n";
 import { migrateLayoutStorage } from "../../lib/layoutMigration";
 import { appConfirm } from "../../lib/appConfirm";
+import { buildSidebarNoteMenuItem, SidebarNoteKeys } from "../../lib/sidebarNotes";
 import { subscribeDockviewTransfer, relayoutDockviewInstances, getDockviewInstanceByScope } from "../../lib/dockviewRegistry";
 import { deliverMirroredTabToWorkspace } from "../../lib/workspaceSnapshotDelivery";
 import { removeFileTabFromLayout } from "../../stores/filesWorkspaceSessionStore";
@@ -723,7 +724,12 @@ function FilesBrowserView() {
       });
     }
     if (conn.id === LOCAL_CONNECTION_ID) {
-      return [...openItems, { id: "sep-index", separator: true, label: "" }, ...indexItems];
+      return [
+        ...openItems,
+        buildSidebarNoteMenuItem(SidebarNoteKeys.filesConnection(conn.id), t),
+        { id: "sep-index", separator: true, label: "" },
+        ...indexItems,
+      ];
     }
     return [
       ...openItems,
@@ -734,6 +740,7 @@ function FilesBrowserView() {
         icon: contextMenuIcons.edit,
         onClick: () => openEditConnectionDialog(conn.id),
       },
+      buildSidebarNoteMenuItem(SidebarNoteKeys.filesConnection(conn.id), t),
       {
         id: "test",
         label: t("files.context.test"),

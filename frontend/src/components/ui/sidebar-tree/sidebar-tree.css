@@ -128,6 +128,27 @@
     color: inherit;
 }
 
+.sidebar-tree-label-stack {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    line-height: 1.25;
+}
+
+.sidebar-tree-note {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    line-height: 1.2;
+    color: var(--meta);
+    font-style: normal;
+    font-weight: 400;
+}
+
 .sidebar-tree-label .server-tree-server-label {
     flex: 1 1 auto;
     min-width: 0;

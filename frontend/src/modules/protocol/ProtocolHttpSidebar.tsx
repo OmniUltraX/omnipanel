@@ -20,6 +20,11 @@ import {
 } from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { quickInput } from "../../lib/quickInput";
 import { appConfirm } from "../../lib/appConfirm";
+import {
+  buildSidebarNoteMenuItem,
+  SidebarNoteKeys,
+} from "../../lib/sidebarNotes";
+import { useSidebarNoteStore } from "../../stores/sidebarNoteStore";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { IconFolder } from "../../components/ui/icons/Icons";
@@ -172,6 +177,7 @@ function ProtocolTreeHotkeys({
 export function ProtocolHttpSidebar() {
   const { t } = useI18n();
   const openShareDialog = useShareUiStore((s) => s.openShareDialog);
+  const sidebarNotes = useSidebarNoteStore((s) => s.notes);
   const http = useProtocolHttpOptional();
   const openSessionTab = useProtocolWorkspaceStore((s) => s.openSessionTab);
   const activeWorkspaceTabId = useProtocolWorkspaceStore((s) => s.activeTabId);
@@ -907,6 +913,7 @@ export function ProtocolHttpSidebar() {
           });
         },
       });
+      items.push(buildSidebarNoteMenuItem(SidebarNoteKeys.protocolEntry(target.entryId), t));
       items.push({
         id: "delete-entry",
         label: t("protocol.sidebar.deleteRequest"),
@@ -1099,6 +1106,7 @@ export function ProtocolHttpSidebar() {
             hasChildren={false}
             active={selected}
             label={labEntry.name}
+            note={sidebarNotes[SidebarNoteKeys.protocolEntry(labEntry.id)]}
             icon={
               labEntry.protocol === "http" ? (
                 <ProtocolTreeHttpIcon />
@@ -1130,6 +1138,7 @@ export function ProtocolHttpSidebar() {
       draggingKey,
       selectedResourceId,
       expandedFolderIds,
+      sidebarNotes,
       onNodePointerDown,
       openContextMenu,
       consumeSkipClick,

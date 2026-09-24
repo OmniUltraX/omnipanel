@@ -1342,7 +1342,16 @@ fn parse_reclaimed_space(text: &str) -> i64 {
 /// 把远端错误文本归类为可定位的连接/权限错误。
 fn classify_docker_error(detail: &str) -> (DockerConnectionStatus, String) {
     let lower = detail.to_lowercase();
-    if lower.contains("command not found") || lower.contains("not found") {
+    // 须先于泛化 "not found"：否则 "No such container" 会被误判成「未安装 docker」
+    if lower.contains("no such container") {
+        (
+            DockerConnectionStatus::Degraded,
+            format!("容器不存在或已 recreate（{}）", detail.trim()),
+        )
+    } else if lower.contains("command not found")
+        || lower.contains("docker: not found")
+        || lower.contains("'docker' not found")
+    {
         (
             DockerConnectionStatus::Offline,
             "远端未安装 docker 或不在 PATH 中".to_string(),
@@ -1397,6 +1406,16 @@ mod tests {
     fn classifies_permission_error() {
         let (status, _msg) = classify_docker_error("Got permission denied while trying to connect");
         assert_eq!(status, DockerConnectionStatus::Degraded);
+    }
+
+    #[test]
+    fn classifies_no_such_container() {
+        let (status, msg) = classify_docker_error(
+            "Error response from daemon: No such container: a1c09a7268c2790a4d8ed2ea86cdd4bed0199e708b81042d8bc6baf39e7fe51b",
+        );
+        assert_eq!(status, DockerConnectionStatus::Degraded);
+        assert!(msg.contains("recreate") || msg.contains("不存在"));
+        assert!(!msg.contains("未安装 docker"));
     }
 }
 

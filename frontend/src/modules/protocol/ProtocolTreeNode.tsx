@@ -16,6 +16,7 @@ interface ProtocolTreeNodeProps {
   hasChildren: boolean;
   active?: boolean;
   label: ReactNode;
+  note?: string;
   icon?: ReactNode;
   prefix?: ReactNode;
   /** 标题右侧附加内容（如 HTTP METHOD tag） */
@@ -40,6 +41,7 @@ export function ProtocolTreeNode({
   hasChildren,
   active = false,
   label,
+  note,
   icon,
   prefix,
   afterLabel,
@@ -69,6 +71,7 @@ export function ProtocolTreeNode({
       active={active}
       treeKey={dataTreeKey}
       label={<span className="tree-label-name">{label}</span>}
+      note={note}
       icon={icon}
       prefix={prefix}
       afterLabel={afterLabel}

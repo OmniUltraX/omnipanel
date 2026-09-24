@@ -15,11 +15,13 @@ import {
   lifecycleStatusLabel,
   type DockerContainerLifecycleAction,
 } from "./dockerContainerLifecycle";
-import { containerRowLabel, containerUptimeLabel } from "./dockerResourceLabels";
+import { containerRowLabel, containerUptimeLabel, dockerContainerCliRef } from "./dockerResourceLabels";
+import { resolveComposeProjectName } from "./dockerComposeGroups";
 import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
 import { useComposeProjectContainers } from "./hooks/useComposeProjectContainers";
 import { LogsIcon, PlayIcon, RestartIcon, StopIcon, TrashIcon } from "./icons";
 import { DockerContainerSubWindow } from "./subwindows/DockerContainerSubWindow";
+import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
 
 function clampPercent(value: number | null | undefined): number {
   if (value == null || Number.isNaN(value)) return 0;
@@ -322,6 +324,9 @@ export function DockerComposeContainersColumn({
   );
 
   const [logSubWindow, setLogSubWindow] = useState<{
+    /** 列表行匹配用（缓存中的容器 id） */
+    listContainerId: string;
+    /** 实际传给 docker logs / inspect 的引用（优先容器名） */
     containerId: string;
     containerName: string;
   } | null>(null);
@@ -329,18 +334,50 @@ export function DockerComposeContainersColumn({
   const handleViewLogs = useCallback(
     (containerId: string, event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
-      if (logSubWindow?.containerId === containerId) {
+      if (logSubWindow?.listContainerId === containerId) {
         setLogSubWindow(null);
         return;
       }
       const container = projectContainers.find((item) => item.container.id === containerId)?.container;
       if (!container) return;
-      setLogSubWindow({
-        containerId,
-        containerName: container.composeService?.trim() || containerRowLabel(container),
-      });
+      const displayName = container.composeService?.trim() || containerRowLabel(container);
+      const projectKey = composeProject.trim();
+
+      void (async () => {
+        // 侧栏缓存可能仍是 recreate 前的 id；先刷再解析稳定引用（容器名）
+        try {
+          await useDockerSidebarCacheStore.getState().refreshScope({
+            kind: "category",
+            connectionId: connection.connectionId,
+            category: "containers",
+          });
+        } catch {
+          // 刷新失败仍用当前行数据打开，由后端报错
+        }
+
+        const freshList = useDockerSidebarCacheStore
+          .getState()
+          .getEntry(connection.connectionId).containers;
+        const service = container.composeService?.trim() || "";
+        const name = container.name.trim().replace(/^\//, "");
+        const fresh =
+          freshList.find((item) => item.id === container.id) ??
+          freshList.find((item) => {
+            if (resolveComposeProjectName(item) !== projectKey) return false;
+            if (service && item.composeService?.trim() === service) return true;
+            const itemName = item.name.trim().replace(/^\//, "");
+            return Boolean(name) && itemName === name;
+          }) ??
+          container;
+
+        setLogSubWindow({
+          listContainerId: container.id,
+          containerId: dockerContainerCliRef(fresh),
+          containerName: fresh.composeService?.trim() || containerRowLabel(fresh) || displayName,
+        });
+      })();
     },
-    [logSubWindow, projectContainers],
+    [composeProject, connection.connectionId, logSubWindow, projectContainers],
   );
 
   return (
@@ -362,7 +399,7 @@ export function DockerComposeContainersColumn({
                 container={container}
                 stats={stats}
                 busy={Boolean(pendingContainerActions[container.id])}
-                isLogSubWindowOpen={logSubWindow?.containerId === container.id}
+                isLogSubWindowOpen={logSubWindow?.listContainerId === container.id}
                 onViewLogs={handleViewLogs}
                 onAction={handleContainerLifecycle}
                 t={t}

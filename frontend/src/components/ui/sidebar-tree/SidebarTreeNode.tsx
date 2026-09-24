@@ -81,6 +81,8 @@ export type SidebarTreeNodeProps = {
   prefix?: ReactNode;
   /** 标签后的附加内容（如 PK/FK badge） */
   afterLabel?: ReactNode;
+  /** 标题下灰色小字备注（由各模块从 sidebarNoteStore 读入） */
+  note?: string;
   trailing?: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -143,6 +145,7 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
   icon,
   prefix,
   afterLabel,
+  note,
   trailing,
   className = "",
   style,
@@ -249,6 +252,17 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
 
   const labelNode =
     typeof label === "string" ? <span className="tree-label-name">{label}</span> : label;
+  const trimmedNote = note?.trim() || "";
+  const labelWithNote = trimmedNote ? (
+    <span className="sidebar-tree-label-stack">
+      {labelNode}
+      <span className="sidebar-tree-note" title={trimmedNote}>
+        {trimmedNote}
+      </span>
+    </span>
+  ) : (
+    labelNode
+  );
 
   const handleContextMenu = (event: TreeRowMouseEvent) => {
     onContextMenu?.(event);
@@ -320,7 +334,7 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
         </span>
         {icon ? <span className="sidebar-tree-icon tree-icon">{icon}</span> : null}
         {prefix}
-        <span className="sidebar-tree-label tree-label">{labelNode}</span>
+        <span className="sidebar-tree-label tree-label">{labelWithNote}</span>
         {afterLabel}
         {trailingNode}
       </div>

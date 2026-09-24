@@ -4,6 +4,11 @@ import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { SidebarTreeEmpty, SidebarTreeNode } from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo, DockerContainerSummary } from "@/ipc/bindings";
+import {
+  buildSidebarNoteMenuItem,
+  SidebarNoteKeys,
+  useSidebarNote,
+} from "@/lib/sidebarNotes";
 import type { DockerConnectionDockOpenMode } from "./dockerConnectionWorkspaceTabs";
 import {
   containerRowLabel,
@@ -127,7 +132,9 @@ export function DockerContainersTreeBranch({
     if (!ctxTarget) return [];
     if (ctxTarget.kind === "compose") {
       const project = ctxTarget.project;
+      const noteKey = SidebarNoteKeys.dockerCompose(connection.connectionId, project);
       return [
+        buildSidebarNoteMenuItem(noteKey, t),
         {
           id: "compose-down",
           label: t("docker.composePanel.down"),
@@ -151,7 +158,9 @@ export function DockerContainersTreeBranch({
     }
     const container = ctxTarget.container;
     const name = container.name || container.shortId || container.id.slice(0, 12);
+    const noteKey = SidebarNoteKeys.dockerContainer(connection.connectionId, container.id);
     return [
+      buildSidebarNoteMenuItem(noteKey, t),
       {
         id: "container-remove",
         label: t("docker.dockPanel.removeContainer"),
@@ -188,50 +197,19 @@ export function DockerContainersTreeBranch({
     );
   };
 
-  const renderContainerNode = (container: DockerContainerSummary, depth: number) => {
-    const itemKey = makeDockerTreeKey(connection.connectionId, "containers", container.id);
-    const containersRefreshKey = dockerSidebarCategoryRefreshKey(connection.connectionId, "containers");
-    const openItem = (mode?: DockerConnectionDockOpenMode) => {
-      ensureExpanded(makeDockerTreeKey(connection.connectionId));
-      onNavigate(
-        {
-          connectionId: connection.connectionId,
-          category: "containers",
-          itemId: container.id,
-        },
-        mode,
-      );
-    };
-
-    return (
-      <SidebarTreeNode
-        key={container.id}
-        depth={depth}
-        module="docker"
-        nodeType="container"
-        treeKey={itemKey}
-        label={containerRowLabel(container)}
-        icon={<DockerTreeIcon kind="container" />}
-        className={dockerTreeNodeClassName("container")}
-        hasChildren={false}
-        expanded={false}
-        active={activeNavKey === itemKey}
-        dataAttrs={{ "data-docker-container-id": container.id }}
-        shouldIgnoreClick={(target) =>
-          Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
-        }
-        onToggle={() => {}}
-        onSelect={() => openItem("preview")}
-        onActivate={() => openItem("permanent")}
-        onContextMenu={(event) => openContextMenu(event, { kind: "container", container })}
-        trailing={
-          <div className="tree-node-actions">
-            <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
-          </div>
-        }
-      />
-    );
-  };
+  const renderContainerNode = (container: DockerContainerSummary, depth: number) => (
+    <DockerContainerNoteTreeNode
+      key={container.id}
+      connection={connection}
+      container={container}
+      depth={depth}
+      activeNavKey={activeNavKey}
+      ensureExpanded={ensureExpanded}
+      onNavigate={onNavigate}
+      onRefreshCategory={onRefreshCategory}
+      onContextMenu={openContextMenu}
+    />
+  );
 
   if (loading && containers.length === 0) {
     return <SidebarTreeEmpty>{t("docker.sidebar.treeLoading")}</SidebarTreeEmpty>;
@@ -264,33 +242,20 @@ export function DockerContainersTreeBranch({
 
         return (
           <div key={group.project} className="server-tree-category docker-compose-project-category">
-            <SidebarTreeNode
-              depth={1}
-              module="docker"
-              nodeType="compose-project"
-              treeKey={projectKey}
-              label={group.project}
-              icon={<DockerTreeIcon kind="compose-project" />}
-              className={dockerTreeNodeClassName("compose-project")}
-              hasChildren
-              expanded={projectExpanded}
-              active={activeNavKey === projectKey}
+            <DockerComposeNoteTreeNode
+              connection={connection}
+              project={group.project}
+              projectKey={projectKey}
+              projectExpanded={projectExpanded}
+              containerCount={projectContainers.length}
+              activeNavKey={activeNavKey}
+              containersRefreshKey={containersRefreshKey}
               onToggle={() => toggle(projectKey)}
-              onSelect={() => openComposeProject(group.project, "preview")}
-              onActivate={() => openComposeProject(group.project, "permanent")}
+              onOpenPreview={() => openComposeProject(group.project, "preview")}
+              onOpenPermanent={() => openComposeProject(group.project, "permanent")}
+              onRefreshCategory={onRefreshCategory}
               onContextMenu={(event) =>
                 openContextMenu(event, { kind: "compose", project: group.project })
-              }
-              shouldIgnoreClick={(target) =>
-                Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
-              }
-              trailing={
-                <>
-                  <span className="server-tree-badge">{projectContainers.length}</span>
-                  <div className="tree-node-actions">
-                    <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
-                  </div>
-                </>
               }
             />
             {projectExpanded ? (
@@ -318,3 +283,130 @@ export function DockerContainersTreeBranch({
     </>
   );
 }
+
+function DockerContainerNoteTreeNode({
+  connection,
+  container,
+  depth,
+  activeNavKey,
+  ensureExpanded,
+  onNavigate,
+  onRefreshCategory,
+  onContextMenu,
+}: {
+  connection: DockerConnectionInfo;
+  container: DockerContainerSummary;
+  depth: number;
+  activeNavKey: string | null;
+  ensureExpanded: (key: string) => void;
+  onNavigate: DockerSidebarNavigate;
+  onRefreshCategory: () => void;
+  onContextMenu: (event: ReactMouseEvent, target: TreeContextTarget) => void;
+}) {
+  const noteKey = SidebarNoteKeys.dockerContainer(connection.connectionId, container.id);
+  const note = useSidebarNote(noteKey);
+  const itemKey = makeDockerTreeKey(connection.connectionId, "containers", container.id);
+  const containersRefreshKey = dockerSidebarCategoryRefreshKey(connection.connectionId, "containers");
+  const openItem = (mode?: DockerConnectionDockOpenMode) => {
+    ensureExpanded(makeDockerTreeKey(connection.connectionId));
+    onNavigate(
+      {
+        connectionId: connection.connectionId,
+        category: "containers",
+        itemId: container.id,
+      },
+      mode,
+    );
+  };
+
+  return (
+    <SidebarTreeNode
+      depth={depth}
+      module="docker"
+      nodeType="container"
+      treeKey={itemKey}
+      label={containerRowLabel(container)}
+      note={note}
+      icon={<DockerTreeIcon kind="container" />}
+      className={dockerTreeNodeClassName("container")}
+      hasChildren={false}
+      expanded={false}
+      active={activeNavKey === itemKey}
+      dataAttrs={{ "data-docker-container-id": container.id }}
+      shouldIgnoreClick={(target) =>
+        Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
+      }
+      onToggle={() => {}}
+      onSelect={() => openItem("preview")}
+      onActivate={() => openItem("permanent")}
+      onContextMenu={(event) => onContextMenu(event, { kind: "container", container })}
+      trailing={
+        <div className="tree-node-actions">
+          <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
+        </div>
+      }
+    />
+  );
+}
+
+function DockerComposeNoteTreeNode({
+  connection,
+  project,
+  projectKey,
+  projectExpanded,
+  containerCount,
+  activeNavKey,
+  containersRefreshKey,
+  onToggle,
+  onOpenPreview,
+  onOpenPermanent,
+  onRefreshCategory,
+  onContextMenu,
+}: {
+  connection: DockerConnectionInfo;
+  project: string;
+  projectKey: string;
+  projectExpanded: boolean;
+  containerCount: number;
+  activeNavKey: string | null;
+  containersRefreshKey: string;
+  onToggle: () => void;
+  onOpenPreview: () => void;
+  onOpenPermanent: () => void;
+  onRefreshCategory: () => void;
+  onContextMenu: (event: ReactMouseEvent) => void;
+}) {
+  const note = useSidebarNote(SidebarNoteKeys.dockerCompose(connection.connectionId, project));
+
+  return (
+    <SidebarTreeNode
+      depth={1}
+      module="docker"
+      nodeType="compose-project"
+      treeKey={projectKey}
+      label={project}
+      note={note}
+      icon={<DockerTreeIcon kind="compose-project" />}
+      className={dockerTreeNodeClassName("compose-project")}
+      hasChildren
+      expanded={projectExpanded}
+      active={activeNavKey === projectKey}
+      onToggle={onToggle}
+      onSelect={onOpenPreview}
+      onActivate={onOpenPermanent}
+      onContextMenu={onContextMenu}
+      shouldIgnoreClick={(target) =>
+        Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"))
+      }
+      trailing={
+        <>
+          <span className="server-tree-badge">{containerCount}</span>
+          <div className="tree-node-actions">
+            <DockerTreeRefreshButton refreshKey={containersRefreshKey} onRefresh={onRefreshCategory} />
+          </div>
+        </>
+      }
+    />
+  );
+}
+
