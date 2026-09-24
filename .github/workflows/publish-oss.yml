@@ -1,0 +1,94 @@
+name: Publish Release to Aliyun OSS
+
+# 将已有 GitHub Release 资产同步到 OSS（不重新构建）。
+# 用于发版流水线 publish-oss 失败后的补传，或脚本修复后对旧 tag 重跑。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "已存在的 release tag（如 v0.8.40）"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish-oss:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository (master scripts)
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Require Aliyun OSS secrets
+        shell: bash
+        env:
+          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+          ALIYUN_OSS_ENDPOINT: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
+          ALIYUN_OSS_PUBLIC_BASE_URL: ${{ secrets.ALIYUN_OSS_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            ALIYUN_OSS_ACCESS_KEY_ID \
+            ALIYUN_OSS_ACCESS_KEY_SECRET \
+            ALIYUN_OSS_BUCKET \
+            ALIYUN_OSS_ENDPOINT \
+            ALIYUN_OSS_PUBLIC_BASE_URL
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::缺少 OSS secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Download GitHub Release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          case "$TAG" in
+            v*) ;;
+            *) TAG="v$TAG" ;;
+          esac
+          echo "Downloading release $TAG"
+          mkdir -p release-assets
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --dir release-assets
+          ls -la release-assets
+
+      - name: Install ali-oss
+        run: npm install --no-save ali-oss@6
+
+      - name: Publish updater assets to Aliyun OSS
+        env:
+          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
+          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+          ALIYUN_OSS_ENDPOINT: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
+          ALIYUN_OSS_PUBLIC_BASE_URL: ${{ secrets.ALIYUN_OSS_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          case "$TAG" in
+            v*) ;;
+            *) TAG="v$TAG" ;;
+          esac
+          node scripts/publish-updater-to-aliyun-oss.mjs \
+            --dir release-assets \
+            --tag "$TAG" \
+            --repo "${{ github.repository }}"
