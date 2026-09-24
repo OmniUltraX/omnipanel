@@ -163,6 +163,60 @@ async function loadVersionsIndex(client) {
   }
 }
 
+/** 超过此大小走分片上传（单次 put 对 ~50MB+ 安装包易 ResponseTimeout）。 */
+const MULTIPART_THRESHOLD_BYTES = 5 * 1024 * 1024;
+const UPLOAD_ATTEMPTS = 4;
+const CLIENT_TIMEOUT_MS = 30 * 60 * 1000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableOssError(err) {
+  const name = String(err?.name ?? err?.code ?? "");
+  const msg = String(err?.message ?? err ?? "");
+  return (
+    /timeout|Timeout|ECONNRESET|EPIPE|socket hang up|RequestError|ConnectionTimeout|ResponseTimeout/i.test(
+      `${name} ${msg}`,
+    ) || Number(err?.status) >= 500
+  );
+}
+
+/**
+ * 小文件 put；大文件 multipartUpload。瞬时网络错误自动重试。
+ */
+async function uploadObject(client, objectKey, filePath, headers) {
+  const size = fs.statSync(filePath).size;
+  const useMultipart = size >= MULTIPART_THRESHOLD_BYTES;
+  let lastErr;
+  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      if (useMultipart) {
+        await client.multipartUpload(objectKey, filePath, {
+          parallel: 4,
+          partSize: 2 * 1024 * 1024,
+          timeout: CLIENT_TIMEOUT_MS,
+          headers,
+        });
+      } else {
+        await client.put(objectKey, filePath, { headers, timeout: CLIENT_TIMEOUT_MS });
+      }
+      return;
+    } catch (err) {
+      lastErr = err;
+      const retryable = isRetryableOssError(err);
+      console.warn(
+        `  上传失败 (${attempt}/${UPLOAD_ATTEMPTS})${retryable ? "，将重试" : ""}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+      if (!retryable || attempt === UPLOAD_ATTEMPTS) break;
+      await sleep(Math.min(30_000, 2000 * 2 ** (attempt - 1)));
+    }
+  }
+  throw lastErr;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.dir || !args.tag || !args.repo) {
@@ -194,7 +248,8 @@ async function main() {
     endpoint,
     // 公网 endpoint；内网可再配
     secure: true,
-    timeout: 10 * 60 * 1000,
+    // 安装包可达数十 MB；单次 put 默认 10min 易 ResponseTimeout，配合下方分片上传。
+    timeout: CLIENT_TIMEOUT_MS,
   });
 
   const tag = args.tag;
@@ -206,7 +261,9 @@ async function main() {
   const entries = fs
     .readdirSync(assetsDir)
     .map((name) => ({ name, full: path.join(assetsDir, name) }))
-    .filter((e) => fs.statSync(e.full).isFile());
+    .filter((e) => fs.statSync(e.full).isFile())
+    // 小文件先传，避免大包超时前日志里像「一个都没上去」
+    .sort((a, b) => fs.statSync(a.full).size - fs.statSync(b.full).size);
 
   if (entries.length === 0) {
     throw new Error(`资产目录为空: ${assetsDir}`);
@@ -216,11 +273,10 @@ async function main() {
   for (const entry of entries) {
     const objectKey = `${tagPrefix}/${entry.name}`;
     const size = fs.statSync(entry.full).size;
-    console.log(`  put ${objectKey} (${size} bytes)`);
-    await client.put(objectKey, entry.full, {
-      headers: {
-        "Cache-Control": entry.name === "latest.json" ? "no-cache" : "public, max-age=31536000",
-      },
+    const mode = size >= MULTIPART_THRESHOLD_BYTES ? "multipart" : "put";
+    console.log(`  put ${objectKey} (${size} bytes, ${mode})`);
+    await uploadObject(client, objectKey, entry.full, {
+      "Cache-Control": entry.name === "latest.json" ? "no-cache" : "public, max-age=31536000",
     });
   }
 
@@ -266,19 +322,15 @@ async function main() {
   fs.writeFileSync(localRewritten, `${JSON.stringify(rewritten, null, 2)}\n`, "utf8");
 
   console.log(`上传稳定清单 oss://${bucket}/${stableKey}`);
-  await client.put(stableKey, localRewritten, {
-    headers: {
-      "Cache-Control": "no-cache",
-      "Content-Type": "application/json; charset=utf-8",
-    },
+  await uploadObject(client, stableKey, localRewritten, {
+    "Cache-Control": "no-cache",
+    "Content-Type": "application/json; charset=utf-8",
   });
 
   // 同步一份改写后的 latest.json 到版本目录，便于对照
-  await client.put(`${tagPrefix}/latest.json`, localRewritten, {
-    headers: {
-      "Cache-Control": "no-cache",
-      "Content-Type": "application/json; charset=utf-8",
-    },
+  await uploadObject(client, `${tagPrefix}/latest.json`, localRewritten, {
+    "Cache-Control": "no-cache",
+    "Content-Type": "application/json; charset=utf-8",
   });
 
   // 维护官网下载页用的版本索引（匿名 ListObjects 不可用时的替代）
@@ -291,11 +343,9 @@ async function main() {
   console.log(
     `上传版本索引 oss://${bucket}/${versionsKey}（共 ${nextIndex.versions.length} 个版本）`,
   );
-  await client.put(versionsKey, localVersions, {
-    headers: {
-      "Cache-Control": "no-cache",
-      "Content-Type": "application/json; charset=utf-8",
-    },
+  await uploadObject(client, versionsKey, localVersions, {
+    "Cache-Control": "no-cache",
+    "Content-Type": "application/json; charset=utf-8",
   });
 
   const clientEndpoint = `${publicBase}/${RELEASE_PREFIX}/latest.json`;

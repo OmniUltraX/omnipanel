@@ -68,7 +68,7 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 
 | | 第三方 `entry.ui`（`ui/main.js`） | Overlay HTML（`overlays[].entry`） |
 |---|---|---|
-| 装载 | 受限 `Function` 求值（CommonJS / `definePlugin`） | `sandbox="allow-scripts"` iframe + `srcdoc` CSP |
+| 装载 | 受限 `Function` 求值（CommonJS / `definePlugin`）；桌面壳 CSP 须含 `script-src 'unsafe-eval'` | `sandbox="allow-scripts"` iframe + `srcdoc` CSP |
 | 合同 | 必须导出 `{ activate, deactivate? }` | postMessage 白名单：`selection.get` / `invoke` / `netFetch` / `overlay.hide` 等 |
 | 失败 | 记 `unsupported_reason=ui.invalid_entry`，该插件 UI 不注册，其它插件不受影响 | 越权消息拒绝并 audit |
 | 上限 | 单文件 ≤ 512KB | 走 `plugin_read_asset` 白名单 |
