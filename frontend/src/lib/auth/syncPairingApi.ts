@@ -1,38 +1,21 @@
 /**
- * Sync 设备配对 / 信任 API（经 Tauri auth 代理到 omniserver）。
- * 若对应 IPC 尚未生成，则回退到直连 AUTH 基址（开发用）。
+ * Sync 设备配对 / 信任 API（经 IPC 后端代理到 omniserver，避免打包 WebView CORS）。
  */
 import { commands } from "../../ipc/bindings";
-import { unwrapCommand, type CommandResult } from "../../ipc/result";
-
-const AUTH_ASSET_BASE = "https://mp.99.protected.fun";
+import { unwrapCommand } from "../../ipc/result";
+import { authOmniFetch } from "./authOmniFetch";
 
 async function authFetch(
   token: string,
   path: string,
   init?: RequestInit & { appId?: string; deviceId?: string },
 ): Promise<Response> {
-  const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  headers.set("X-App-Id", init?.appId ?? "omni-client");
-  if (init?.deviceId) headers.set("X-Device-Id", init.deviceId);
-  if (init?.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  return fetch(`${AUTH_ASSET_BASE}${path}`, { ...init, headers });
+  const { appId, deviceId, ...rest } = init ?? {};
+  return authOmniFetch(token, path, { ...rest, appId, deviceId });
 }
 
 export async function trustSyncDevice(token: string, deviceId?: string): Promise<void> {
   const id = deviceId ?? (await resolveDeviceId());
-  const anyCommands = commands as Record<string, unknown>;
-  if (typeof anyCommands.authSyncDeviceTrust === "function") {
-    await unwrapCommand(
-      (anyCommands.authSyncDeviceTrust as (
-        t: string,
-      ) => Promise<CommandResult<unknown>>)(token),
-    );
-    return;
-  }
   const res = await authFetch(token, "/api/sync/device/trust", {
     method: "POST",
     deviceId: id,
@@ -46,15 +29,6 @@ export async function trustSyncDevice(token: string, deviceId?: string): Promise
 /** 服务端重置设备同步认证状态：POST /api/sync/device/reset */
 export async function resetSyncDevice(token: string, deviceId?: string): Promise<void> {
   const id = deviceId ?? (await resolveDeviceId());
-  const anyCommands = commands as Record<string, unknown>;
-  if (typeof anyCommands.authSyncDeviceReset === "function") {
-    await unwrapCommand(
-      (anyCommands.authSyncDeviceReset as (
-        t: string,
-      ) => Promise<CommandResult<unknown>>)(token),
-    );
-    return;
-  }
   const res = await authFetch(token, "/api/sync/device/reset", {
     method: "POST",
     deviceId: id,
