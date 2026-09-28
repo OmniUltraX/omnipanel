@@ -1,0 +1,22 @@
+[package]
+name = "omnipanel-plugin-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "插件宿主桥：权限闸、网络、vault 与审计，供桌面和 Web 共用"
+
+[dependencies]
+omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-plugin = { path = "../omnipanel-plugin" }
+omnipanel-plugin-js = { path = "../omnipanel-plugin-js" }
+omnipanel-plugin-wasm = { path = "../omnipanel-plugin-wasm" }
+omnipanel-store = { path = "../omnipanel-store" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt", "macros"] }

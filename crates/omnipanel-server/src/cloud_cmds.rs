@@ -1,15 +1,16 @@
-//! 云厂商 Host 命令（Web）：连接规范化 / Secret 回显仍可用。
-//! 业务调用（测连、列表、动作）依赖桌面端插件 L2；Web 暂无 QuickJS 运行时。
+//! 云厂商 Host 命令（Web）：凭据注入后走插件 L2。
 
 use omnipanel_cloud::{
     AliyunCredentials, CloudAccountSnapshot, CloudAction, CloudActionResult, CloudCertificateItem,
     CloudDomainItem, CloudEcsInstance, CloudLogPage, CloudLogQuery, CloudMetricQuery,
     CloudMetricSeries, CloudOssBucket, CloudRegion, CloudResourceDetail, CloudResourceFilter,
     CloudResourceRow, CloudSwasInstance, PLUGIN_ID_ALIYUN, PLUGIN_ID_TENCENT, default_region,
+    is_write_action,
 };
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{Connection, ConnectionKind, Vault};
+use omnipanel_store::{AuditEntry, Connection, ConnectionKind, Vault};
 use serde::Deserialize;
+use serde_json::{Value, json};
 
 use crate::state::ServerState;
 
@@ -28,6 +29,10 @@ struct CloudConfig {
     access_key_id: String,
     #[serde(default, alias = "access_key_secret")]
     access_key_secret: String,
+    #[serde(default)]
+    tenant_id: String,
+    #[serde(default)]
+    subscription_id: String,
 }
 
 fn default_provider() -> String {
@@ -65,13 +70,6 @@ pub(crate) fn cloud_secret_ref(connection_id: &str) -> String {
     format!("cloud-secret-{connection_id}")
 }
 
-fn web_cloud_unsupported() -> OmniError {
-    OmniError::new(
-        ErrorCode::Internal,
-        "Web 版暂不支持云厂商插件（需桌面端 L2 QuickJS 运行时）",
-    )
-}
-
 #[allow(dead_code)]
 /// 桌面端保存已内联同类逻辑；保留供服务端统一规范化云连接（Secret 入 Vault、config 脱敏）复用。
 pub(crate) fn normalize_cloud_connection(
@@ -87,6 +85,8 @@ pub(crate) fn normalize_cloud_connection(
         regions: Vec::new(),
         access_key_id: String::new(),
         access_key_secret: String::new(),
+        tenant_id: String::new(),
+        subscription_id: String::new(),
     });
     let id = connection.id.clone();
     if !cfg.access_key_secret.trim().is_empty() {
@@ -131,7 +131,7 @@ pub(crate) fn normalize_cloud_connection(
 fn resolve_credentials(
     connection: &Connection,
     secret_override: Option<&str>,
-) -> Result<(String, AliyunCredentials), OmniError> {
+) -> Result<(String, AliyunCredentials, CloudConfig), OmniError> {
     if connection.kind != ConnectionKind::Cloud {
         return Err(OmniError::invalid_input("不是云厂商连接"));
     }
@@ -179,7 +179,97 @@ fn resolve_credentials(
             region: effective_region(&cfg, &plugin_id, None),
             regions: normalize_regions(&cfg.regions, &cfg.region),
         },
+        cfg,
     ))
+}
+
+fn cloud_plugin_args(
+    connection_id: &str,
+    creds: &AliyunCredentials,
+    cfg: &CloudConfig,
+    extra: Value,
+) -> Value {
+    let mut map = extra.as_object().cloned().unwrap_or_default();
+    map.entry("connectionId".to_string())
+        .or_insert_with(|| json!(connection_id));
+    map.entry("accessKeyId".to_string())
+        .or_insert_with(|| json!(creds.access_key_id));
+    map.entry("accessKeySecret".to_string())
+        .or_insert_with(|| json!(creds.access_key_secret));
+    map.entry("region".to_string())
+        .or_insert_with(|| json!(creds.region));
+    map.entry("regions".to_string())
+        .or_insert_with(|| json!(creds.regions));
+    if !cfg.tenant_id.trim().is_empty() {
+        map.entry("tenantId".to_string())
+            .or_insert_with(|| json!(cfg.tenant_id.trim()));
+    }
+    if !cfg.subscription_id.trim().is_empty() {
+        map.entry("subscriptionId".to_string())
+            .or_insert_with(|| json!(cfg.subscription_id.trim()));
+    }
+    Value::Object(map)
+}
+
+async fn invoke_cloud_plugin(
+    state: &ServerState,
+    plugin_id: &str,
+    method: &str,
+    args: Value,
+) -> Result<Value, OmniError> {
+    state
+        .plugins
+        .invoke(plugin_id.to_string(), method.to_string(), args)
+        .await
+}
+
+fn l2_items<T: serde::de::DeserializeOwned>(value: Value) -> Result<Vec<T>, OmniError> {
+    if let Ok(rows) = serde_json::from_value::<Vec<T>>(value.clone()) {
+        return Ok(rows);
+    }
+    if let Some(items) = value.get("items") {
+        return serde_json::from_value(items.clone()).map_err(|e| {
+            OmniError::new(ErrorCode::Internal, "插件列表结果无法解析").with_cause(e.to_string())
+        });
+    }
+    Err(OmniError::new(ErrorCode::Internal, "插件未返回 items"))
+}
+
+fn field(row: &CloudResourceRow, key: &str) -> String {
+    row.fields.get(key).cloned().unwrap_or_default()
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn audit_cloud_action(
+    state: &ServerState,
+    conn: &Connection,
+    plugin_id: &str,
+    action: &str,
+    resource_id: &str,
+    status: &str,
+) {
+    let entry = AuditEntry {
+        ts: now_ms(),
+        action: "cloud.invoke".into(),
+        target: conn.id.clone(),
+        env_tag: conn.env_tag.clone(),
+        risk: if is_write_action(action) {
+            "high".into()
+        } else {
+            "medium".into()
+        },
+        status: status.into(),
+        detail: format!("pluginId={plugin_id} action={action} resource={resource_id}"),
+    };
+    if let Ok(store) = state.storage.try_lock() {
+        let _ = store.append_audit(&entry);
+    }
 }
 
 async fn load_connection(
@@ -221,110 +311,386 @@ pub async fn cloud_resolve_secret(
 }
 
 pub async fn cloud_test(
-    _state: &ServerState,
-    _connection: Connection,
-    _secret: Option<String>,
+    state: &ServerState,
+    connection: Connection,
+    secret: Option<String>,
 ) -> Result<String, OmniError> {
-    Err(web_cloud_unsupported())
+    let (plugin_id, creds, cfg) = resolve_credentials(&connection, secret.as_deref())?;
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "testAccount",
+        cloud_plugin_args(&connection.id, &creds, &cfg, json!({})),
+    )
+    .await?;
+    if let Some(msg) = value.as_str() {
+        return Ok(msg.to_string());
+    }
+    if let Some(msg) = value.get("message").and_then(|v| v.as_str()) {
+        return Ok(msg.to_string());
+    }
+    Ok(value.to_string())
+}
+
+async fn list_resources_l2(
+    state: &ServerState,
+    connection_id: &str,
+    capability: &str,
+    regions: Vec<String>,
+) -> Result<Vec<CloudResourceRow>, OmniError> {
+    let conn = load_connection(state, connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "listResources",
+        cloud_plugin_args(
+            connection_id,
+            &creds,
+            &cfg,
+            json!({
+                "capability": capability,
+                "filter": { "regions": regions },
+            }),
+        ),
+    )
+    .await?;
+    l2_items(value)
 }
 
 pub async fn cloud_list_oss(
-    _state: &ServerState,
-    _connection_id: String,
-    _region: Option<String>,
+    state: &ServerState,
+    connection_id: String,
+    region: Option<String>,
 ) -> Result<Vec<CloudOssBucket>, OmniError> {
-    Err(web_cloud_unsupported())
+    let regions = region
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| vec![s.to_string()])
+        .unwrap_or_default();
+    let rows = list_resources_l2(state, &connection_id, "objectStorage", regions).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudOssBucket {
+            name: row.name.clone(),
+            location: field(&row, "location"),
+            creation_date: field(&row, "creationDate"),
+            storage_class: field(&row, "storageClass"),
+            extranet_endpoint: field(&row, "endpoint"),
+            intranet_endpoint: String::new(),
+            region: row.region_id,
+        })
+        .collect())
 }
 
 pub async fn cloud_list_swas(
-    _state: &ServerState,
-    _connection_id: String,
-    _region: Option<String>,
+    state: &ServerState,
+    connection_id: String,
+    region: Option<String>,
 ) -> Result<Vec<CloudSwasInstance>, OmniError> {
-    Err(web_cloud_unsupported())
+    let regions = region
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| vec![s.to_string()])
+        .unwrap_or_default();
+    let rows = list_resources_l2(state, &connection_id, "compute.lite", regions).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudSwasInstance {
+            instance_id: row.id.clone(),
+            instance_name: row.name.clone(),
+            status: row.status.clone(),
+            region_id: row.region_id.clone(),
+            public_ip_address: field(&row, "publicIp"),
+            private_ip_address: field(&row, "privateIp"),
+            image_id: field(&row, "imageId"),
+            instance_plan: field(&row, "plan"),
+            creation_time: field(&row, "creationTime"),
+            expired_time: field(&row, "expiredTime"),
+            charge_type: field(&row, "chargeType"),
+            bandwidth: field(&row, "bandwidth"),
+            disk_size: field(&row, "diskSize"),
+        })
+        .collect())
 }
 
 pub async fn cloud_list_domains(
-    _state: &ServerState,
-    _connection_id: String,
+    state: &ServerState,
+    connection_id: String,
 ) -> Result<Vec<CloudDomainItem>, OmniError> {
-    Err(web_cloud_unsupported())
+    let rows = list_resources_l2(state, &connection_id, "domains", Vec::new()).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudDomainItem {
+            domain_name: row.name.clone(),
+            instance_id: row.id.clone(),
+            registration_date: field(&row, "registrationDate"),
+            expiration_date: field(&row, "expirationDate"),
+            domain_status: row.status.clone(),
+            domain_type: field(&row, "type"),
+        })
+        .collect())
 }
 
 pub async fn cloud_list_ecs(
-    _state: &ServerState,
-    _connection_id: String,
-    _region: Option<String>,
+    state: &ServerState,
+    connection_id: String,
+    region: Option<String>,
 ) -> Result<Vec<CloudEcsInstance>, OmniError> {
-    Err(web_cloud_unsupported())
+    let regions = region
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| vec![s.to_string()])
+        .unwrap_or_default();
+    let rows = list_resources_l2(state, &connection_id, "compute", regions).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudEcsInstance {
+            instance_id: row.id.clone(),
+            instance_name: row.name.clone(),
+            status: row.status.clone(),
+            region_id: row.region_id.clone(),
+            zone_id: field(&row, "zone"),
+            instance_type: field(&row, "instanceType"),
+            public_ip_address: field(&row, "publicIp"),
+            private_ip_address: field(&row, "privateIp"),
+            os_name: field(&row, "os"),
+            creation_time: field(&row, "creationTime"),
+            expired_time: field(&row, "expiredTime"),
+            auto_release_time: String::new(),
+            charge_type: field(&row, "chargeType"),
+            security_group_ids: field(&row, "securityGroups"),
+            cpu: field(&row, "cpu"),
+            memory: field(&row, "memory"),
+            hostname: field(&row, "hostname"),
+            bandwidth: field(&row, "bandwidth"),
+            vpc_id: field(&row, "vpcId"),
+            key_pair_name: String::new(),
+        })
+        .collect())
 }
 
 pub async fn cloud_list_regions(
-    _state: &ServerState,
-    _connection_id: String,
+    state: &ServerState,
+    connection_id: String,
 ) -> Result<Vec<CloudRegion>, OmniError> {
-    Err(web_cloud_unsupported())
+    let conn = load_connection(state, &connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let configured = normalize_regions(&cfg.regions, &cfg.region);
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "listRegions",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({ "configured": configured }),
+        ),
+    )
+    .await?;
+    l2_items(value)
 }
 
 pub async fn cloud_get_account(
-    _state: &ServerState,
-    _connection_id: String,
+    state: &ServerState,
+    connection_id: String,
 ) -> Result<CloudAccountSnapshot, OmniError> {
-    Err(web_cloud_unsupported())
+    let conn = load_connection(state, &connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "getAccount",
+        cloud_plugin_args(&connection_id, &creds, &cfg, json!({})),
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "插件账户结果无法解析").with_cause(e.to_string())
+    })
 }
 
 pub async fn cloud_list_certs(
-    _state: &ServerState,
-    _connection_id: String,
+    state: &ServerState,
+    connection_id: String,
 ) -> Result<Vec<CloudCertificateItem>, OmniError> {
-    Err(web_cloud_unsupported())
+    let rows = list_resources_l2(state, &connection_id, "certs", Vec::new()).await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| CloudCertificateItem {
+            order_id: row.id.clone(),
+            name: row.name.clone(),
+            domain: field(&row, "domain"),
+            status: row.status.clone(),
+            product_name: field(&row, "product"),
+            cert_type: field(&row, "certType"),
+            buy_date: String::new(),
+            end_date: field(&row, "endDate"),
+        })
+        .collect())
 }
 
 pub async fn cloud_list_resources(
-    _state: &ServerState,
-    _connection_id: String,
-    _capability: String,
-    _filter: Option<CloudResourceFilter>,
+    state: &ServerState,
+    connection_id: String,
+    capability: String,
+    filter: Option<CloudResourceFilter>,
 ) -> Result<Vec<CloudResourceRow>, OmniError> {
-    Err(web_cloud_unsupported())
+    let conn = load_connection(state, &connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let filter = filter.unwrap_or_default();
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "listResources",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({ "capability": capability, "filter": filter }),
+        ),
+    )
+    .await?;
+    l2_items(value)
 }
 
 pub async fn cloud_get_resource(
-    _state: &ServerState,
-    _connection_id: String,
-    _capability: String,
-    _resource_id: String,
-    _region_id: Option<String>,
+    state: &ServerState,
+    connection_id: String,
+    capability: String,
+    resource_id: String,
+    region_id: Option<String>,
 ) -> Result<CloudResourceDetail, OmniError> {
-    Err(web_cloud_unsupported())
+    let conn = load_connection(state, &connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let region = region_id.as_deref().unwrap_or("");
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "getResource",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({
+                "capability": capability,
+                "resourceId": resource_id,
+                "regionId": region,
+            }),
+        ),
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "插件详情结果无法解析").with_cause(e.to_string())
+    })
 }
 
 pub async fn cloud_invoke_action(
-    _state: &ServerState,
-    _connection_id: String,
-    _action: CloudAction,
+    state: &ServerState,
+    connection_id: String,
+    action: CloudAction,
 ) -> Result<CloudActionResult, OmniError> {
-    Err(web_cloud_unsupported())
+    let conn = load_connection(state, &connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    if is_write_action(&action.name) {
+        let target =
+            omnipanel_presence::pipe_target(&[&connection_id, &action.resource_id, &action.name]);
+        if let Err(err) = omnipanel_presence::require_grant(
+            &state.presence_tokens,
+            action.presence_token.as_deref(),
+            omnipanel_presence::ACTION_CLOUD_LIFECYCLE,
+            &target,
+        ) {
+            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "blocked");
+            return Err(err);
+        }
+    }
+    match invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "invokeAction",
+        cloud_plugin_args(&connection_id, &creds, &cfg, json!({ "action": action })),
+    )
+    .await
+    {
+        Ok(value) => {
+            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "success");
+            serde_json::from_value(value).map_err(|e| {
+                OmniError::new(ErrorCode::Internal, "插件动作结果无法解析").with_cause(e.to_string())
+            })
+        }
+        Err(err) => {
+            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "failed");
+            Err(err)
+        }
+    }
 }
 
 pub async fn cloud_get_metrics(
-    _state: &ServerState,
-    _connection_id: String,
-    _capability: String,
-    _resource_id: String,
-    _region_id: Option<String>,
-    _query: Option<CloudMetricQuery>,
+    state: &ServerState,
+    connection_id: String,
+    capability: String,
+    resource_id: String,
+    region_id: Option<String>,
+    query: Option<CloudMetricQuery>,
 ) -> Result<Vec<CloudMetricSeries>, OmniError> {
-    Err(web_cloud_unsupported())
+    let conn = load_connection(state, &connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let region = region_id.as_deref().unwrap_or("");
+    let query = query.unwrap_or_default();
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "getMetrics",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({
+                "capability": capability,
+                "resourceId": resource_id,
+                "regionId": region,
+                "query": query,
+            }),
+        ),
+    )
+    .await?;
+    l2_items(value)
 }
 
 pub async fn cloud_query_logs(
-    _state: &ServerState,
-    _connection_id: String,
-    _capability: String,
-    _resource_id: String,
-    _region_id: Option<String>,
-    _query: Option<CloudLogQuery>,
+    state: &ServerState,
+    connection_id: String,
+    capability: String,
+    resource_id: String,
+    region_id: Option<String>,
+    query: Option<CloudLogQuery>,
 ) -> Result<CloudLogPage, OmniError> {
-    Err(web_cloud_unsupported())
+    let conn = load_connection(state, &connection_id).await?;
+    let (plugin_id, creds, cfg) = resolve_credentials(&conn, None)?;
+    let region = region_id.as_deref().unwrap_or("");
+    let query = query.unwrap_or_default();
+    let value = invoke_cloud_plugin(
+        state,
+        &plugin_id,
+        "queryLogs",
+        cloud_plugin_args(
+            &connection_id,
+            &creds,
+            &cfg,
+            json!({
+                "capability": capability,
+                "resourceId": resource_id,
+                "regionId": region,
+                "query": query,
+            }),
+        ),
+    )
+    .await?;
+    serde_json::from_value(value).map_err(|e| {
+        OmniError::new(ErrorCode::Internal, "插件日志结果无法解析").with_cause(e.to_string())
+    })
 }

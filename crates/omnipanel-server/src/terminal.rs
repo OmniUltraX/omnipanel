@@ -99,6 +99,8 @@ pub struct ServerState {
     pub running_tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// 文件索引自定义存储目录（空字符串表示默认）。
     pub file_index_storage_dir: Arc<Mutex<String>>,
+    /// L2 插件运行时（QuickJS + WASM）。
+    pub plugins: crate::plugin_runtime::PluginRuntime,
 }
 
 impl Default for ServerState {
@@ -115,6 +117,16 @@ impl ServerState {
         let file_transfers = Arc::new(crate::file_transfer::FileTransferEngine::new());
         let transfer_cancel_flags = file_transfers.relay_cancel_flags.clone();
         let bus = EventBus::new();
+        let ssh_sessions = Arc::new(Mutex::new(HashMap::new()));
+        let docker_ssh_sessions = Arc::new(Mutex::new(HashMap::new()));
+        let presence_tokens = Arc::new(omnipanel_presence::TokenStore::system());
+        let plugins = crate::plugin_runtime::PluginRuntime::seed(
+            storage.clone(),
+            bus.clone(),
+            ssh_sessions.clone(),
+            docker_ssh_sessions.clone(),
+            presence_tokens.clone(),
+        );
         let worker_pool = Arc::new(crate::bg_worker_pool::BackgroundWorkerPool::new(
             crate::bg_worker_pool::default_worker_count(),
             storage.clone(),
@@ -127,8 +139,8 @@ impl ServerState {
             storage,
             db_connections,
             running_db_queries: Arc::new(Mutex::new(HashMap::new())),
-            ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
-            docker_ssh_sessions: Arc::new(Mutex::new(HashMap::new())),
+            ssh_sessions,
+            docker_ssh_sessions,
             docker_log_streams: Arc::new(Mutex::new(HashMap::new())),
             docker_stats_streams: Arc::new(Mutex::new(HashMap::new())),
             docker_exec_sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -139,7 +151,7 @@ impl ServerState {
             media_streams: Arc::new(Mutex::new(HashMap::new())),
             mcp_manager: Arc::new(Mutex::new(None)),
             mcp_external_require_approval: Arc::new(std::sync::atomic::AtomicBool::new(true)),
-            presence_tokens: Arc::new(omnipanel_presence::TokenStore::system()),
+            presence_tokens,
             os_presence_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
             ssh_tunnels: crate::store_bridge::new_ssh_tunnel_map(),
@@ -158,6 +170,7 @@ impl ServerState {
             acp: Mutex::new(crate::acp_cmds::AcpState::default()),
             running_tasks: Arc::new(Mutex::new(HashMap::new())),
             file_index_storage_dir: Arc::new(Mutex::new(String::new())),
+            plugins,
         }
     }
 

@@ -9,7 +9,7 @@
 | `net:connect` | 网络访问（L2 `host.netFetch` / 沙箱 netFetch） |
 | `fs:read` | 文件读取（**仅限插件自身安装目录**，越界即拒） |
 | `connections:write` | 写入连接（`host.connectionUpsert`；候选 pluginId 必须与当前插件一致） |
-| `ssh:exec` | SSH 探测类操作（生产主机走确认） |
+| `ssh:exec` | `host.sshExec`：只执行宿主注入的 connectionId，命令 ≤8KB、超时 ≤30s、输出 ≤256KB；生产主机走 60 秒确认 |
 | `vault:read` | 插件私密凭据：`plugin_secret_*` 与 L2 `host.vaultGet/Has/Put/Delete`，仅本插件命名空间 `plugin:{id}:{key}`，走系统钥匙串 |
 | `ai:tools` | 向 OmniMCP 登记 AI 工具 |
 | `ui:selection` | 读取宿主选区总线（终端/编辑器/DOM） |
@@ -41,7 +41,8 @@
 ```js
 // logic.js（QuickJS）
 globalThis.call = function (method, argsJson) {
-  // host.hmac(JSON.stringify({ alg, key, data, encoding }))  // sha256|sha1 → hex|base64，无权限
+  // host.hmac / host.hash / host.sign / host.encode  // 本地密码学，无权限
+  // host.sshExec(JSON.stringify({ command, timeoutMs }))  // 需 ssh:exec
   // host.netFetch({url, headers}) / host.fsRead(path)
   // host.connectionUpsert(candidateJson) / host.invoke(method, argsJson)
   // host.vaultGet/Has/Put/Delete(key) / host.stateGet() / host.stateSet(json)
@@ -49,7 +50,7 @@ globalThis.call = function (method, argsJson) {
 };
 ```
 
-- 资源护栏：内存 64MB、栈 1MB、单次调用默认 10s 中断（QuickJS）；
+- 资源护栏：内存 64MB、栈 1MB、单次调用默认 30s 中断（QuickJS）；WASM 与 JS 都随桌面和 Web 发布；
 - 宿主函数按 `methods[]` 白名单 + 权限注解逐次校验；
 - 样板：`plugins/importer-warpgate/logic.js`。
 
@@ -59,7 +60,7 @@ globalThis.call = function (method, argsJson) {
 
 - iframe `sandbox="allow-scripts"`（不透明 origin，无同源权限）；
 - CSP `default-src 'none'`（脚本/样式仅限内联）；
-- 与宿主通信仅限 postMessage 白名单：`selection.get` / `invoke` / `netFetch` / `overlay.hide`，
+- 与宿主通信仅限 postMessage 白名单：`selection.get` / `invoke` / `netFetch` / `overlay.hide` / `hmac` / `hash` / `sign` / `encode` / `vault.get` / `vault.has`（`vault.put` / `vault.delete` 拒绝并审计），
   每条消息经宿主权限闸；
 - 样板：`plugins-samples/l3-translator`。
 
@@ -71,4 +72,4 @@ globalThis.call = function (method, argsJson) {
 | 未声明 method | `UnknownMethod` |
 | prod 未确认 / 用户拒绝 | 「已拦截对生产环境目标的访问」+ audit blocked |
 | fsRead 越界 | 「fsRead 仅允许访问插件自身目录」+ audit blocked |
-| minHostApi 过高 | 安装时拒绝：「minHostApi N 高于宿主当前版本 1」 |
+| minHostApi 过高 | 安装时拒绝：「minHostApi N 高于宿主当前版本 2」 |

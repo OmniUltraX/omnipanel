@@ -1,0 +1,28 @@
+{
+  "id": "omni.sample.module-shell",
+  "version": "0.1.0",
+  "displayName": "九种模块壳样板",
+  "kind": "module",
+  "permissions": [],
+  "minHostApi": 2,
+  "entry": { "logic": "logic.js" },
+  "methods": [
+    { "name": "listItems", "permissions": [] },
+    { "name": "getItem", "permissions": [] }
+  ],
+  "contributes": {
+    "module": {
+      "capabilities": [
+        { "id": "shell-none", "label": "表", "detail": "none", "listMethod": "listItems", "columns": [{ "key": "name" }] },
+        { "id": "shell-editor", "label": "编辑器", "detail": "editor", "listMethod": "listItems", "getMethod": "getItem", "language": "text" },
+        { "id": "shell-form", "label": "表单", "detail": "form", "listMethod": "listItems", "formFields": [{ "key": "name" }] },
+        { "id": "shell-kv", "label": "键值", "detail": "kv", "listMethod": "listItems", "getMethod": "getItem" },
+        { "id": "shell-children", "label": "子表", "detail": "children", "listMethod": "listItems", "childListMethod": "listItems" },
+        { "id": "shell-logs", "label": "日志", "detail": "logs", "listMethod": "listItems" },
+        { "id": "shell-metrics", "label": "指标", "detail": "metrics", "listMethod": "listItems" },
+        { "id": "shell-facts", "label": "事实", "detail": "facts", "listMethod": "listItems" },
+        { "id": "shell-tree", "label": "树", "detail": "tree", "listMethod": "listItems", "getMethod": "getItem" }
+      ]
+    }
+  }
+}

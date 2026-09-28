@@ -644,8 +644,8 @@ async fn download_bytes(
 }
 
 /// 下载制品完整性校验：`integrity`（npm `dist.integrity`，`<alg>-<base64>`）
-/// 非空时优先校验，失败即拒绝（不回退 sha256）；否则回退 sha256 hex；两者
-/// 皆空表示无可验哈希（bundled 占位），直接放行。
+/// 非空时优先校验，失败即拒绝（不回退 sha256）；否则回退 sha256 hex。
+/// 两者皆空时拒绝安装（bundled 条目没有制品 URL，不会走到这里）。
 pub(crate) fn verify_download_bytes(
     bytes: &[u8],
     plugin_id: &str,
@@ -659,7 +659,9 @@ pub(crate) fn verify_download_bytes(
     }
     let sha256_hex = sha256_hex.trim();
     if sha256_hex.is_empty() {
-        return Ok(());
+        return Err(OmniError::invalid_input(format!(
+            "download checksum missing: {plugin_id}"
+        )));
     }
     let actual = hex::encode(Sha256::digest(bytes));
     if !actual.eq_ignore_ascii_case(sha256_hex) {
@@ -1637,8 +1639,9 @@ mod tests {
     }
 
     #[test]
-    fn no_hash_means_bundled_placeholder() {
-        verify_download_bytes(b"x", "ext.demo", "", "").expect("no hash ok");
+    fn empty_checksum_rejects_download() {
+        let err = verify_download_bytes(b"x", "ext.demo", "", "").unwrap_err();
+        assert!(err.message.contains("missing"));
     }
 
     #[test]

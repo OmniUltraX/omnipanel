@@ -148,7 +148,7 @@ pub struct AppState {
     pub plugin_invoke: Arc<InvokeGateway>,
     /// 磁盘安装插件根目录（`app_data/plugins/`）；定位失败为 None（仅内置可用）。
     pub plugin_packages_dir: Option<PathBuf>,
-    /// L2 逻辑执行器；构建未启用 `plugin-wasm` feature 时为 None。
+    /// L2 逻辑执行器（QuickJS + WASM）。定位失败时仍为 Some。
     pub plugin_logic_executor: Option<Arc<dyn omnipanel_plugin::PluginLogicExecutor>>,
     /// prod 确认等待表（request_id → 回传通道）。
     pub plugin_pending_confirms: Arc<

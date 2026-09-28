@@ -28,6 +28,7 @@ members = [
     "crates/omnipanel-cloud",
     "crates/omnipanel-cloud-aliyun",
     "crates/omnipanel-plugin",
+    "crates/omnipanel-plugin-host",
     "crates/omnipanel-plugin-pkg",
     "crates/omnipanel-plugin-wasm",
     "crates/omnipanel-plugin-js",

@@ -4570,6 +4570,38 @@ pub async fn dispatch(
         "sniffer_get_stats" => {
             InvokeResponse::err(crate::defer_cmds::deferred_error("sniffer_get_stats"))
         }
+        "plugin_invoke" => {
+            let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
+            let method = get_str(&args, "method").unwrap_or_default();
+            let invoke_args = args.get("args").cloned().unwrap_or(serde_json::Value::Null);
+            respond_omni(state.plugins.invoke(plugin_id, method, invoke_args).await)
+        }
+        "plugin_confirm_resolve" => {
+            let request_id = get_str(&args, "requestId").unwrap_or_default();
+            let allow = args.get("allow").and_then(|v| v.as_bool()).unwrap_or(false);
+            let token = get_str(&args, "presenceToken");
+            respond_omni(
+                state
+                    .plugins
+                    .confirm_resolve(&request_id, allow, token.as_deref())
+                    .await,
+            )
+        }
+        "ks_test" => {
+            let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
+            let source_id = get_str(&args, "sourceId").unwrap_or_default();
+            respond_omni(crate::ks_cmds::ks_test(state, plugin_id, source_id).await)
+        }
+        "ks_sync_now" => {
+            let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
+            let source_id = get_str(&args, "sourceId").unwrap_or_default();
+            respond_omni(crate::ks_cmds::ks_sync_now(state, plugin_id, source_id).await)
+        }
+        "ks_sync_rebuild" => {
+            let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
+            let source_id = get_str(&args, "sourceId").unwrap_or_default();
+            respond_omni(crate::ks_cmds::ks_sync_rebuild(state, plugin_id, source_id).await)
+        }
         "check_update" => InvokeResponse::err(crate::defer_cmds::deferred_error("check_update")),
         "install_update" => {
             InvokeResponse::err(crate::defer_cmds::deferred_error("install_update"))

@@ -8,7 +8,7 @@ use crate::permission::PluginPermission;
 use crate::platform::PluginPlatform;
 
 /// 宿主插件 API 版本（破坏性变更时递增）。
-pub const HOST_API_VERSION: u32 = 1;
+pub const HOST_API_VERSION: u32 = 2;
 
 /// 插件方法声明：`plugin_invoke` 网关白名单 + 权限注解（缺权即拒绝）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]

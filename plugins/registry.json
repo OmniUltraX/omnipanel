@@ -27,7 +27,7 @@
       "distribution": "download",
       "artifact": {
         "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-addon-translator-0.1.0.omni-plugin",
-        "sha256": "",
+        "sha256": "6e1a49f35286b634092c6c35c990b679cdfebf50ee4622591fdd568d13897548",
         "size": 4138
       },
       "permissions": [
@@ -44,9 +44,9 @@
         {
           "version": "0.1.1",
           "artifact": {
-            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-aliyun-0.1.0.omni-plugin",
-            "sha256": "488389dfdaf4e4b4c21051859dc8396ff1db130985544d37bee79deee40ad49f",
-            "size": 8895
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-aliyun-0.1.1.omni-plugin",
+            "sha256": "4a901c0e4529de029c15ebec88bd85398cce0b91b491641f48fc1807662689bd",
+            "size": 9267
           }
         }
       ],
@@ -206,8 +206,8 @@
           "version": "0.1.0",
           "artifact": {
             "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-qiniu-0.1.0.omni-plugin",
-            "sha256": "",
-            "size": 8234
+            "sha256": "d4322b254ed349f92067ecf3f2d8709b5e67497029f93ec7cd6c19afbfa3f12f",
+            "size": 8430
           }
         }
       ],
@@ -411,7 +411,7 @@
       "distribution": "download",
       "artifact": {
         "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-knowledge-obsidian-0.1.0.omni-plugin",
-        "sha256": "",
+        "sha256": "ea4d531384201d75c6aa5abf88119de5faf777ec8bf35560a011b07b5e1aaeb2",
         "size": 2001
       },
       "permissions": []
@@ -425,8 +425,8 @@
       "distribution": "download",
       "artifact": {
         "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-knowledge-siyuan-0.4.1.omni-plugin",
-        "sha256": "",
-        "size": 4561
+        "sha256": "c31668d1928053fb0fca19d867eb62460441ac6153f77d38daf1015f4d8c373e",
+        "size": 6202
       },
       "permissions": []
     },

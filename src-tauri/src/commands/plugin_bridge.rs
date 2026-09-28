@@ -1,26 +1,15 @@
-//! L2 宿主能力桥装配：权限闸内联、fs 目录禁锢、prod 交互确认、审计。
-//!
-//! 安全规则：
-//! - 每个能力先过清单 `permissions`（缺权即拒，稳定错误文本）；
-//! - `fs_read` 只允许读取插件自身安装目录（`packages_dir/<plugin_id>`）内的文件；
-//! - `net_fetch` 解析 URL 主机名，命中任一 env_tag=prod 连接的目标主机时
-//!   必须经 [`ProdConfirmer`] 交互确认；60s 无响应视为拒绝；
-//! - 全部动作写 audit_log（参数只存 sha256+len 摘要）。
+//! 桌面壳：prod 确认器与 SSH 回调。权限闸在 `omnipanel-plugin-host`。
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use omnipanel_error::ErrorCode;
-use omnipanel_plugin::{
-    ConfirmFuture, ConfirmRequest, InvokeGateway, PluginError, PluginHostBridge, PluginPermission,
-    PluginRegistry, ProdConfirmer,
-};
-use omnipanel_store::{AuditEntry, Storage, Vault, plugin_secret_ref};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use omnipanel_plugin::{ConfirmFuture, ConfirmRequest, ProdConfirmer};
+use omnipanel_plugin_host::{SshExec, block_on_detached};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter};
+
+pub use omnipanel_plugin_host::PluginBridge;
 
 pub const PLUGIN_CONFIRM_REQUEST_EVENT: &str = "plugin://confirm-request";
 const CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -63,7 +52,6 @@ impl ProdConfirmer for TauriProdConfirmer {
         Box::pin(async move {
             {
                 let mut guard = pending.lock().await;
-                // 同 requestId 竞争时后到者替换（幂等保护）
                 guard.insert(rid.clone(), PendingPluginConfirm { tx, grant_target });
             }
             let _ = app.emit(PLUGIN_CONFIRM_REQUEST_EVENT, &payload);
@@ -74,7 +62,7 @@ impl ProdConfirmer for TauriProdConfirmer {
     }
 }
 
-/// 仅明确同意才放行；超时、通道关闭、用户拒绝一律 false（不发网）。
+/// 仅明确同意才放行；超时、通道关闭、用户拒绝一律 false。
 async fn wait_confirm(rx: tokio::sync::oneshot::Receiver<bool>, timeout: Duration) -> bool {
     matches!(tokio::time::timeout(timeout, rx).await, Ok(Ok(true)))
 }
@@ -110,548 +98,44 @@ fn uuid_v4() -> String {
     )
 }
 
-/// L2 能力桥。所有方法同步（wasm/js 引擎在 spawn_blocking 内调用），
-/// 内部经 tokio Handle 访问异步锁。
-pub struct PluginBridge {
-    pub plugin_id: String,
-    pub registry: Arc<tokio::sync::Mutex<PluginRegistry>>,
-    pub storage: Arc<tokio::sync::Mutex<Storage>>,
-    pub gateway: Arc<InvokeGateway>,
-    /// fs 禁锢根：packages_dir/<plugin_id>
-    pub fs_root: Option<PathBuf>,
-    pub http: reqwest::Client,
-    pub confirmer: Arc<dyn ProdConfirmer>,
+/// 桌面 SSH：走连接池 exec channel。连接 id 由宿主桥决定，这里只执行。
+pub struct TauriSshExec {
+    pub pool: Arc<crate::background::SshPool>,
 }
 
-#[derive(Debug, Deserialize)]
-struct NetSpec {
-    url: String,
-    #[serde(default)]
-    headers: HashMap<String, String>,
-    /// 自签证书常见于堡垒 / 面板；仅当插件显式请求时放宽校验。
-    #[serde(default)]
-    insecure: bool,
-    /// 缺省 GET。L2 写操作（登录 / 发布配置）需要 POST/PUT/DELETE。
-    #[serde(default)]
-    method: Option<String>,
-    #[serde(default)]
-    body: Option<String>,
-}
-
-fn format_net_error(err: reqwest::Error) -> String {
-    let msg = err.to_string();
-    let lower = msg.to_lowercase();
-    if lower.contains("certificate")
-        || lower.contains("cert")
-        || lower.contains("tls")
-        || lower.contains("ssl")
-        || lower.contains("unknown issuer")
-        || lower.contains("self signed")
-        || lower.contains("self-signed")
-    {
-        return format!(
-            "TLS 证书不受信任。若目标使用自签证书，请勾选「允许自签证书」后重试。{msg}"
-        );
-    }
-    if let Some(status) = err.status() {
-        let code = status.as_u16();
-        let hint = match code {
-            401 | 403 => "认证失败或无权限",
-            404 => "接口不存在",
-            502 => "网关错误（502），目标服务可能未启动或反向代理异常",
-            503 => "服务暂时不可用（503）",
-            504 => "网关超时（504）",
-            _ => "",
-        };
-        if hint.is_empty() {
-            format!("请求失败: HTTP {code} — {msg}")
-        } else {
-            format!("请求失败: HTTP {code} — {hint}。{msg}")
-        }
-    } else {
-        format!("请求失败: {msg}")
-    }
-}
-
-fn http_client_for(_shared: &reqwest::Client, insecure: bool) -> Result<reqwest::Client, String> {
-    // L2 net_fetch 目标多为内网（Nacos / 面板 / 堡垒）。必须 no_proxy：
-    // Windows 系统代理开启时，reqwest(WinHTTP) 常不认 IE 的 `10.*` 例外，
-    // 会把请求拐进 Clash 等本地代理，对局域网 POST 返回 502；浏览器却能直连。
-    let mut builder = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
-        .connect_timeout(Duration::from_secs(8))
-        .no_proxy();
-    if insecure {
-        builder = builder.danger_accept_invalid_certs(true);
-    }
-    builder
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))
-}
-
-fn args_digest(payload: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(payload.as_bytes());
-    format!("sha256:{:x} len={}", hasher.finalize(), payload.len())
-}
-
-/// 同步桥里不能 `Handle::block_on`：当前线程若已在驱动 async（含 spawn_blocking
-/// 里再 block_on 一个 Future），Tokio 会 panic「Cannot start a runtime from within a runtime」。
-fn block_on_detached<T: Send + 'static>(
-    fut: impl std::future::Future<Output = T> + Send + 'static,
-) -> T {
-    let handle = tokio::runtime::Handle::current();
-    let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    handle.spawn(async move {
-        let _ = tx.send(fut.await);
-    });
-    rx.recv().expect("plugin bridge 异步任务已取消")
-}
-
-impl PluginBridge {
-    fn require(&self, permission: PluginPermission) -> Result<(), PluginError> {
-        let registry = Arc::clone(&self.registry);
-        let plugin_id = self.plugin_id.clone();
+impl SshExec for TauriSshExec {
+    fn exec(
+        &self,
+        connection_id: &str,
+        command: &str,
+        timeout: Duration,
+    ) -> Result<String, String> {
+        let pool = Arc::clone(&self.pool);
+        let connection_id = connection_id.to_string();
+        let command = command.to_string();
         block_on_detached(async move {
-            let guard = registry.lock().await;
-            guard.require_permission(&plugin_id, permission)
+            let session = pool
+                .ensure_session(&connection_id)
+                .await
+                .map_err(|err| err.to_string())?;
+            let output = tokio::time::timeout(timeout, session.exec_capture(&command))
+                .await
+                .map_err(|_| "sshExec 超时".to_string())?
+                .map_err(|err| err.to_string())?;
+            Ok(serde_json::json!({
+                "stdout": output.stdout,
+                "stderr": output.stderr,
+                "exitCode": output.exit_code,
+            })
+            .to_string())
         })
     }
-
-    fn audit(&self, action: &str, status: &str, detail: String) {
-        let storage = Arc::clone(&self.storage);
-        let plugin_id = self.plugin_id.clone();
-        let action = action.to_string();
-        let status = status.to_string();
-        block_on_detached(async move {
-            let store = storage.lock().await;
-            let _ = store.append_audit(&AuditEntry {
-                ts: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0),
-                action,
-                target: plugin_id,
-                env_tag: "-".into(),
-                risk: "medium".into(),
-                status,
-                detail: detail.chars().take(200).collect(),
-            });
-        });
-    }
-
-    /// URL 是否命中 prod 标记的连接目标主机。必须 async，避免在 worker 上再 `recv`。
-    async fn is_prod_target(&self, host: &str) -> Result<bool, PluginError> {
-        let store = self.storage.lock().await;
-        let host = host.to_ascii_lowercase();
-        let conns = store
-            .list_connections()
-            .map_err(|e| PluginError::Invoke(format!("读取连接失败: {e}")))?;
-        Ok(conns.iter().any(|conn| {
-            conn.env_tag.eq_ignore_ascii_case("prod")
-                && config_hosts(&conn.config)
-                    .into_iter()
-                    .any(|h| h.eq_ignore_ascii_case(&host))
-        }))
-    }
-
-    async fn prod_gate(&self, action: &str, target: &str) -> Result<(), PluginError> {
-        let Some(host) = extract_host(target) else {
-            return Ok(());
-        };
-        if !self.is_prod_target(&host).await? {
-            return Ok(());
-        }
-        let allowed = self
-            .confirmer
-            .confirm(ConfirmRequest {
-                plugin_id: self.plugin_id.clone(),
-                action: action.to_string(),
-                target: target.to_string(),
-            })
-            .await
-            .unwrap_or(false);
-        if allowed {
-            self.audit(
-                "plugin.prod-confirm",
-                "allowed",
-                format!("{action} {target}"),
-            );
-            Ok(())
-        } else {
-            self.audit("plugin.permission", "blocked", format!("{action} {target}"));
-            Err(PluginError::Invoke(format!(
-                "已拦截对生产环境目标的访问（未获用户确认）: {target}"
-            )))
-        }
-    }
-}
-
-/// 从连接 config JSON 中提取可能的主机字段（host/address）。
-fn config_hosts(config_json: &str) -> Vec<String> {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(config_json) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for key in ["host", "address"] {
-        if let Some(s) = value.get(key).and_then(|v| v.as_str()) {
-            if let Some(host) = extract_host(s).or_else(|| normalize_bare(s)) {
-                out.push(host);
-            }
-        }
-    }
-    out
-}
-
-/// 从 URL 提取主机名（支持 scheme://host[:port]/path）。
-fn extract_host(target: &str) -> Option<String> {
-    let after_scheme = target.split("://").nth(1).unwrap_or(target);
-    let host_port = after_scheme
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or(after_scheme);
-    let host = host_port.rsplit_once('@').map_or(host_port, |(_, h)| h);
-    let host = host
-        .strip_prefix('[')
-        .map_or(host, |rest| rest.split(']').next().unwrap_or(rest));
-    let host = host.split(':').next().unwrap_or(host);
-    if host.is_empty() {
-        None
-    } else {
-        Some(host.to_ascii_lowercase())
-    }
-}
-
-/// 裸主机/IP 归一化（去端口、去路径、小写）。
-fn normalize_bare(value: &str) -> Option<String> {
-    extract_host(value.trim())
-}
-
-impl PluginHostBridge for PluginBridge {
-    fn ping(&self) -> i32 {
-        1
-    }
-
-    fn net_fetch(&self, spec_json: &str) -> Result<String, String> {
-        self.require(PluginPermission::NetConnect)
-            .map_err(|e| e.to_string())?;
-        let spec: NetSpec = serde_json::from_str(spec_json).map_err(|e| {
-            format!("netFetch 参数需为 {{url, headers?, method?, body?}} JSON: {e}")
-        })?;
-
-        // prod 闸是异步的，这里用独立 runtime 桥接同步边界
-        let gate_bridge = Self {
-            plugin_id: self.plugin_id.clone(),
-            registry: Arc::clone(&self.registry),
-            storage: Arc::clone(&self.storage),
-            gateway: Arc::clone(&self.gateway),
-            fs_root: self.fs_root.clone(),
-            http: self.http.clone(),
-            confirmer: Arc::clone(&self.confirmer),
-        };
-        let gate_target = spec.url.clone();
-        block_on_detached(async move { gate_bridge.prod_gate("net.fetch", &gate_target).await })
-            .map_err(|e| e.to_string())?;
-
-        let client = http_client_for(&self.http, spec.insecure)?;
-        let method_raw = spec.method.as_deref().unwrap_or("GET").trim();
-        let method = reqwest::Method::from_bytes(method_raw.as_bytes())
-            .map_err(|_| format!("不支持的 HTTP method: {method_raw}"))?;
-        let mut request = client
-            .request(method, &spec.url)
-            .timeout(Duration::from_secs(20));
-        for (key, value) in &spec.headers {
-            request = request.header(key, value);
-        }
-        if let Some(body) = spec.body.clone() {
-            request = request.body(body);
-        }
-        let response = block_on_detached(async move { request.send().await?.error_for_status() })
-            .map_err(format_net_error)?;
-        let body = block_on_detached(async move { response.text().await })
-            .map_err(|e| format!("读取响应失败: {e}"))?;
-        self.audit("plugin.net", "success", args_digest(spec_json));
-        Ok(body)
-    }
-
-    fn fs_read(&self, path: &str) -> Result<String, String> {
-        self.require(PluginPermission::FsRead)
-            .map_err(|e| e.to_string())?;
-        let root = self.fs_root.as_ref().ok_or("插件安装目录不可用")?;
-        let requested = PathBuf::from(path);
-        let canonical_requested = dedot(&requested);
-        let canonical_root = dedot(root);
-        if !canonical_requested.starts_with(&canonical_root) {
-            self.audit("plugin.fs", "blocked", path.to_string());
-            return Err(format!("fsRead 仅允许访问插件自身目录: {path}"));
-        }
-        let text =
-            std::fs::read_to_string(&canonical_requested).map_err(|e| format!("读取失败: {e}"))?;
-        self.audit("plugin.fs", "success", args_digest(path));
-        Ok(text)
-    }
-
-    fn connection_upsert(&self, candidate_json: &str) -> Result<(), String> {
-        self.require(PluginPermission::ConnectionsWrite)
-            .map_err(|e| e.to_string())?;
-        let candidate: omnipanel_plugin::ImportCandidate =
-            serde_json::from_str(candidate_json).map_err(|e| format!("候选 JSON 非法: {e}"))?;
-        if candidate.plugin_id != self.plugin_id {
-            return Err("候选 pluginId 与当前插件不一致".into());
-        }
-        let storage = Arc::clone(&self.storage);
-        let dedupe = candidate.dedupe_key().0;
-        block_on_detached(async move {
-            let store = storage.lock().await;
-            save_candidate(&store, &candidate)
-        })
-        .map_err(|e| e.to_string())?;
-        self.audit("plugin.upsert", "success", dedupe);
-        Ok(())
-    }
-
-    fn invoke(&self, method: &str, args_json: &str) -> Result<String, String> {
-        // 与 plugin_invoke 命令同源的白名单+权限强制
-        let decl = {
-            let registry = Arc::clone(&self.registry);
-            let method = method.to_string();
-            let pid = self.plugin_id.clone();
-            block_on_detached(async move {
-                let guard = registry.lock().await;
-                guard.declared_method(&pid, &method)
-            })
-        }
-        .map_err(|e| e.to_string())?;
-        {
-            let registry = Arc::clone(&self.registry);
-            let pid = self.plugin_id.clone();
-            let perms = decl.permissions.clone();
-            block_on_detached(async move {
-                let guard = registry.lock().await;
-                for permission in perms {
-                    guard.require_permission(&pid, permission)?;
-                }
-                Ok::<(), PluginError>(())
-            })
-        }
-        .map_err(|e| e.to_string())?;
-        let args: serde_json::Value =
-            serde_json::from_str(args_json).map_err(|e| format!("args 非法 JSON: {e}"))?;
-        let gateway = Arc::clone(&self.gateway);
-        let pid = self.plugin_id.clone();
-        let method = method.to_string();
-        let result: Result<serde_json::Value, PluginError> =
-            block_on_detached(async move { gateway.invoke(&pid, &method, args).await });
-        result
-            .map(|value| value.to_string())
-            .map_err(|e: PluginError| e.to_string())
-    }
-
-    fn vault_get(&self, key: &str) -> Result<String, String> {
-        self.require(PluginPermission::VaultRead)
-            .map_err(|e| e.to_string())?;
-        let reference = plugin_secret_ref(&self.plugin_id, key).map_err(|e| e.to_string())?;
-        let secret = Vault::get(&reference).map_err(|e| e.to_string())?;
-        self.audit("plugin.secret", "success", format!("get {key}"));
-        Ok(secret)
-    }
-
-    fn vault_has(&self, key: &str) -> Result<bool, String> {
-        self.require(PluginPermission::VaultRead)
-            .map_err(|e| e.to_string())?;
-        let reference = plugin_secret_ref(&self.plugin_id, key).map_err(|e| e.to_string())?;
-        match Vault::get(&reference) {
-            Ok(_) => Ok(true),
-            Err(err) if err.code == ErrorCode::NotFound => Ok(false),
-            Err(err) => Err(err.to_string()),
-        }
-    }
-
-    fn vault_put(&self, key: &str, secret: &str) -> Result<(), String> {
-        self.require(PluginPermission::VaultRead)
-            .map_err(|e| e.to_string())?;
-        if secret.is_empty() {
-            return Err("凭据不能为空".into());
-        }
-        let reference = plugin_secret_ref(&self.plugin_id, key).map_err(|e| e.to_string())?;
-        Vault::store(&reference, secret).map_err(|e| e.to_string())?;
-        self.audit("plugin.secret", "success", format!("put {key}"));
-        Ok(())
-    }
-
-    fn vault_delete(&self, key: &str) -> Result<(), String> {
-        self.require(PluginPermission::VaultRead)
-            .map_err(|e| e.to_string())?;
-        let reference = plugin_secret_ref(&self.plugin_id, key).map_err(|e| e.to_string())?;
-        Vault::delete(&reference).map_err(|e| e.to_string())?;
-        self.audit("plugin.secret", "success", format!("delete {key}"));
-        Ok(())
-    }
-
-    fn state_get(&self) -> Result<String, String> {
-        let storage = Arc::clone(&self.storage);
-        let plugin_id = self.plugin_id.clone();
-        block_on_detached(async move {
-            let store = storage.lock().await;
-            store.plugin_state_get(&plugin_id)
-        })
-        .map_err(|e| e.to_string())
-    }
-
-    fn state_set(&self, payload: &str) -> Result<(), String> {
-        let digest = args_digest(payload);
-        let storage = Arc::clone(&self.storage);
-        let plugin_id = self.plugin_id.clone();
-        let payload = payload.to_string();
-        block_on_detached(async move {
-            let store = storage.lock().await;
-            store.plugin_state_set(&plugin_id, &payload)
-        })
-        .map_err(|e| e.to_string())?;
-        self.audit("plugin.state", "success", digest);
-        Ok(())
-    }
-}
-
-/// 简易去点号归一化（std canonicalize 在 Windows 上产出 \\?\ 前缀且要求存在，
-/// 对禁锢判断而言按词法处理足够）。
-fn dedot(path: &PathBuf) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        use std::path::Component;
-        match component {
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::CurDir => {}
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
-/// 把 ImportCandidate 写入统一连接存储（与前端 upsertCandidateConnection
-/// 同语义的最小后端版：ssh / panel / docker / database 四类）。
-fn save_candidate(
-    store: &Storage,
-    candidate: &omnipanel_plugin::ImportCandidate,
-) -> Result<(), omnipanel_error::OmniError> {
-    use omnipanel_store::{Connection, ConnectionKind};
-
-    let cfg = candidate.config.as_object().cloned().unwrap_or_default();
-    let str_field = |key: &str| {
-        cfg.get(key)
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string()
-    };
-    let num_field =
-        |key: &str, default: i64| cfg.get(key).and_then(|v| v.as_i64()).unwrap_or(default);
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-
-    let remote_kind = candidate.remote_kind.as_str();
-    let kind = match remote_kind {
-        "ssh" => ConnectionKind::Ssh,
-        "panel" => ConnectionKind::Panel,
-        "docker" => ConnectionKind::Docker,
-        "mysql" | "postgres" | "postgresql" | "clickhouse" | "qdrant" | "redis" => {
-            ConnectionKind::Database
-        }
-        "cloud" => ConnectionKind::Cloud,
-        other => {
-            return Err(omnipanel_error::OmniError::invalid_input(format!(
-                "不支持的导入类型: {other}"
-            )));
-        }
-    };
-
-    let config_value = match kind {
-        ConnectionKind::Database => serde_json::json!({
-            "host": str_field("host"),
-            "port": num_field("port", if remote_kind == "postgres" || remote_kind == "postgresql" { 5432 } else { 3306 }),
-            "user": str_field("user"),
-            "password": str_field("password"),
-            "database": str_field("database"),
-            "db_type": remote_kind,
-        }),
-        ConnectionKind::Ssh => {
-            let password = str_field("password");
-            let auth = if password.is_empty() {
-                serde_json::json!({
-                    "type": "privateKey",
-                    "keyPath": "auto",
-                    "pem": null,
-                    "keyId": null,
-                    "passphrase": null
-                })
-            } else {
-                serde_json::json!({ "type": "password", "password": password })
-            };
-            serde_json::json!({
-                "host": str_field("host"),
-                "port": num_field("port", 22),
-                "user": str_field("user"),
-                "auth": auth,
-                "externalSource": {
-                    "pluginId": candidate.plugin_id,
-                    "accountId": candidate.account_id,
-                    "remoteId": candidate.remote_id,
-                    "remoteKind": candidate.remote_kind,
-                },
-            })
-        }
-        _ => serde_json::json!({
-            "host": str_field("host"),
-            "port": num_field("port", 22),
-            "user": str_field("user"),
-            "address": str_field("address"),
-            "serviceType": if str_field("serviceType").is_empty() { candidate.plugin_id.clone() } else { str_field("serviceType") },
-            "sshConnectionId": str_field("sshConnectionId"),
-            "externalSource": {
-                "pluginId": candidate.plugin_id,
-                "accountId": candidate.account_id,
-                "remoteId": candidate.remote_id,
-                "remoteKind": candidate.remote_kind,
-            },
-        }),
-    };
-
-    let conn = Connection {
-        id: format!(
-            "conn-import-{:x}",
-            now.wrapping_mul(0x9E37) ^ (candidate.remote_id.len() as i64)
-        ),
-        kind,
-        name: candidate.name.clone(),
-        group: "插件导入".into(),
-        env_tag: "unknown".into(),
-        tags: vec![],
-        config: config_value.to_string(),
-        credential_ref: None,
-        created_at: now,
-        updated_at: now,
-    };
-    store.save_connection(&conn)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_host, normalize_bare, wait_confirm};
+    use super::wait_confirm;
     use std::time::Duration;
-
-    #[test]
-    fn extract_host_from_url() {
-        assert_eq!(
-            extract_host("https://prod.example.com:443/api"),
-            Some("prod.example.com".into())
-        );
-        assert_eq!(extract_host("10.0.0.8:3306"), Some("10.0.0.8".into()));
-        assert_eq!(normalize_bare("DB.internal"), Some("db.internal".into()));
-    }
 
     #[tokio::test]
     async fn confirm_timeout_is_deny() {
@@ -678,41 +162,5 @@ mod tests {
         let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
         drop(tx);
         assert!(!wait_confirm(rx, Duration::from_secs(1)).await);
-    }
-
-    #[test]
-    fn config_hosts_reads_host_and_address() {
-        use super::config_hosts;
-        assert_eq!(
-            config_hosts(r#"{"host":"https://db.example.com:3306","address":"10.0.0.8"}"#),
-            vec!["db.example.com".to_string(), "10.0.0.8".to_string()]
-        );
-        // 非法 JSON 与无主机字段都不产出主机，prod 闸不会误伤。
-        assert!(config_hosts("not-json").is_empty());
-        assert!(config_hosts(r#"{"port":3306}"#).is_empty());
-    }
-
-    #[test]
-    fn dedot_collapses_parent_dirs() {
-        use super::dedot;
-        use std::path::PathBuf;
-        assert_eq!(
-            dedot(&PathBuf::from("/root/plugin/../plugin/a.json")),
-            PathBuf::from("/root/plugin/a.json")
-        );
-        // 越过根后不再上溢，fsRead 禁锢交由 starts_with 拦截。
-        assert_eq!(
-            dedot(&PathBuf::from("/root/../../etc/passwd")),
-            PathBuf::from("/etc/passwd")
-        );
-    }
-
-    #[test]
-    fn args_digest_never_contains_plaintext() {
-        use super::args_digest;
-        let digest = args_digest(r#"{"token":"s3cr3t-value"}"#);
-        assert!(digest.starts_with("sha256:"));
-        assert!(!digest.contains("s3cr3t-value"));
-        assert!(digest.contains("len=24"));
     }
 }

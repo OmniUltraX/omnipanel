@@ -268,6 +268,7 @@ mod tests {
             PLUGIN_ID_CLOUD_DIGITALOCEAN,
             PLUGIN_ID_CLOUD_GCP,
             PLUGIN_ID_CLOUD_BANDWAGON,
+            "omni.cloud.qiniu",
         ] {
             assert!(
                 !first_party_manifests().iter().any(|m| m.id == id),

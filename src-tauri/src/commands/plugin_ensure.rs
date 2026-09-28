@@ -241,18 +241,18 @@ pub(crate) fn plugin_id_from_db_type(db_type: &str) -> Option<String> {
     Some(format!("omni.engine.{}", canonicalize_engine_key(&key)))
 }
 
+/// 知识源配置键是 `plugin:<plugin_id>:<source_id>`。
+/// 同步引擎的状态键是 `plugin:<namespace>`（如 `plugin:siyuan`），
+/// 命名空间不是插件 id，不能拿去装插件。
 pub(crate) fn plugin_id_from_ks_source_key(source_key: &str) -> Option<String> {
     let rest = source_key.strip_prefix("plugin:")?;
-    let plugin_id = rest
-        .split_once(':')
-        .map(|(head, _)| head)
-        .unwrap_or(rest)
-        .trim();
-    if plugin_id.is_empty() {
-        None
-    } else {
-        Some(plugin_id.to_string())
+    let (plugin_id, source_id) = rest.split_once(':')?;
+    let plugin_id = plugin_id.trim();
+    let source_id = source_id.trim();
+    if plugin_id.is_empty() || source_id.is_empty() || !plugin_id.contains('.') {
+        return None;
     }
+    Some(plugin_id.to_string())
 }
 
 fn normalize_plugin_id(raw: &str) -> Option<String> {
@@ -414,6 +414,12 @@ mod tests {
         );
         assert_eq!(plugin_id_from_ks_source_key("siyuan"), None);
         assert_eq!(plugin_id_from_ks_source_key("plugin:"), None);
+        assert_eq!(plugin_id_from_ks_source_key("plugin:siyuan"), None);
+        assert_eq!(plugin_id_from_ks_source_key("plugin:siyuan:siyuan"), None);
+        assert_eq!(
+            plugin_id_from_ks_source_key("plugin:omni.knowledge.siyuan:siyuan").as_deref(),
+            Some("omni.knowledge.siyuan")
+        );
     }
 
     #[test]

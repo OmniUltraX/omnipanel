@@ -2,7 +2,7 @@
 
 OmniPanel 插件 SDK：清单 Zod schema、Host API 类型与 L1/L2/L3 合同。
 
-- 宿主 API 版本：`HOST_API_VERSION = 1`（见 `crates/omnipanel-plugin/src/manifest.rs`）
+- 宿主 API 版本：`HOST_API_VERSION = 2`（见 `crates/omnipanel-plugin/src/manifest.rs`）。未声明或 `minHostApi <= 2` 的包仍可安装。
 - 完整开发指南：仓库 `docs/plugins/README.md`
 - 发版步骤：`docs/plugins/sdk-release.md`
 

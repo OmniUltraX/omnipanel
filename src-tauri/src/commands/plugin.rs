@@ -82,22 +82,9 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
     );
 }
 
-/// L2 执行器工厂：`plugin-wasm` feature 关闭时返回 None（L1/L3 不受影响）。
+/// L2 执行器：QuickJS 与 WASM 都硬链接。
 pub fn make_logic_executor() -> Option<Arc<dyn PluginLogicExecutor>> {
-    #[cfg(feature = "plugin-wasm")]
-    let wasm: Option<Arc<dyn PluginLogicExecutor>> =
-        Some(Arc::new(omnipanel_plugin_wasm::WasmExecutor::new()));
-    #[cfg(not(feature = "plugin-wasm"))]
-    let wasm: Option<Arc<dyn PluginLogicExecutor>> = None;
-
-    let js: Option<Arc<dyn PluginLogicExecutor>> =
-        Some(Arc::new(omnipanel_plugin_js::JsExecutor::new()));
-
-    if wasm.is_none() && js.is_none() {
-        None
-    } else {
-        Some(Arc::new(omnipanel_plugin::RouterExecutor::new(wasm, js)))
-    }
+    Some(omnipanel_plugin_host::make_logic_executor())
 }
 pub fn seed_plugin_runtime(
     storage: &Storage,
@@ -368,6 +355,9 @@ pub async fn sync_plugin_logic(state: &State<'_, AppState>) {
             confirmer: Arc::new(crate::commands::plugin_bridge::TauriProdConfirmer {
                 app: state.app_handle.clone(),
                 pending: Arc::clone(&state.plugin_pending_confirms),
+            }),
+            ssh: Arc::new(crate::commands::plugin_bridge::TauriSshExec {
+                pool: Arc::clone(&state.ssh_pool),
             }),
         });
         let package = omnipanel_plugin::LogicPackage::from_entry_bytes(&logic_rel, bytes);
@@ -856,7 +846,12 @@ pub async fn invoke_plugin_method(
                 Some(instance) => {
                     let args_json = serde_json::to_string(&args).unwrap_or_else(|_| "{}".into());
                     let method = method.clone();
+                    let injected = args
+                        .get("connectionId")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
                     tokio::task::spawn_blocking(move || {
+                        let _ssh = omnipanel_plugin_host::enter_injected_connection(injected);
                         let guard = instance.lock().unwrap();
                         let rt = tokio::runtime::Handle::current();
                         rt.block_on(guard.call(&method, &args_json))
@@ -871,7 +866,7 @@ pub async fn invoke_plugin_method(
                 }
                 None => {
                     let msg = if state.plugin_logic_executor.is_none() {
-                        "插件逻辑执行器未启用（构建未包含 plugin-js）".into()
+                        "插件逻辑执行器未启用".into()
                     } else {
                         format!("逻辑包未实例化: {plugin_id}（查看启动日志 [plugin-logic]）")
                     };
@@ -1135,6 +1130,7 @@ pub async fn plugin_sandbox_net_fetch(
             app: state.app_handle.clone(),
             pending: Arc::clone(&state.plugin_pending_confirms),
         }),
+        ssh: Arc::new(omnipanel_plugin_host::DisabledSsh),
     };
     // 同步桥放阻塞任务（经 PluginHostBridge trait 调用）
     use omnipanel_plugin::PluginHostBridge as _;

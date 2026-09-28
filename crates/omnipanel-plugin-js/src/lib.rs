@@ -245,6 +245,15 @@ impl JsInstanceInner {
                     }
                 }),
             )?;
+            host.set(
+                "sshExec",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |ctx: Ctx<'_>, spec: String| -> rquickjs::Result<String> {
+                        b.ssh_exec(&spec).map_err(|msg| throw_host(&ctx, msg))
+                    }
+                }),
+            )?;
 
             globals.set("host", host)?;
             globals.set("__omniPluginId", pid)?;
