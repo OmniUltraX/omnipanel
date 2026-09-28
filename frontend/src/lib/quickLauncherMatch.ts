@@ -85,6 +85,7 @@ export type QuickLaunchMatchRow =
       type: "everything-path";
       id: string;
       path: string;
+      isFolder: boolean;
       label: string;
       subtitle: string;
       score: number;

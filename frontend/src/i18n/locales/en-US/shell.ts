@@ -362,6 +362,7 @@ export default {
         recent: "Recent",
         closed: "Recently Closed",
         resources: "Resources",
+        files: "Local files",
       },
       commands: {
         workspace: "Open Workspace",

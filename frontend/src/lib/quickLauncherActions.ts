@@ -6,6 +6,7 @@ import {
 } from "./quickLauncher";
 import { clearWindowHiddenToTray, getTrayHiddenLabels } from "./trayHiddenWindows";
 import { focusMainWindow, goWorkspaceHome } from "./workspaceNavigation";
+import { publishFilesPendingPath } from "./filesPendingPath";
 import { MODULE_PATHS, MODULE_PREFIX, type ModuleKey } from "./paths";
 import {
   navigateToPath,
@@ -243,11 +244,7 @@ async function runOpenUrlAction(action: Extract<QuickLauncherAction, { kind: "op
 async function runOpenPathAction(action: Extract<QuickLauncherAction, { kind: "open-path" }>) {
   await wakeMainUnlessModuleWindow();
   navigateToPath(MODULE_PATHS.files);
-  try {
-    sessionStorage.setItem("omnipanel.files.pendingPath", action.path);
-  } catch {
-    /* ignore */
-  }
+  publishFilesPendingPath(action.path);
 }
 
 /** 资源类动作对应的目标模块（SOLO 独立窗）。 */

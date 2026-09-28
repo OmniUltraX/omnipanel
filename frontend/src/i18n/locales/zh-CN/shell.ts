@@ -360,6 +360,7 @@ export default {
         recent: "最近使用",
         closed: "最近关闭",
         resources: "资源",
+        files: "本机文件",
       },
       commands: {
         workspace: "打开工作区",

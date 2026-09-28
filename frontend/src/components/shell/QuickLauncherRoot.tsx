@@ -15,6 +15,7 @@ import {
   PLUGIN_ID_EVERYTHING,
   usePluginRuntimeStore,
 } from "../../stores/pluginRuntimeStore";
+import { everythingBrowsePath } from "../../lib/everythingSearch";
 import { useDebouncedEsQuery } from "./useDebouncedEsQuery";
 import {
   emitQuickLauncherAction,
@@ -271,7 +272,7 @@ function rowToAction(row: QuickLaunchMatchRow): QuickLauncherAction {
         table: row.table,
       };
     case "everything-path":
-      return { kind: "open-path", path: row.path };
+      return { kind: "open-path", path: everythingBrowsePath(row.path, row.isFolder) };
     case "system-app":
       return { kind: "launch-app", appId: row.appId, name: row.label };
     case "module-service":
@@ -959,7 +960,10 @@ export function QuickLauncherRoot() {
       clearAiAsk();
       if (row.type === "everything-path") {
         await hideQuickLauncher();
-        await emitQuickLauncherAction({ kind: "open-path", path: row.path });
+        await emitQuickLauncherAction({
+          kind: "open-path",
+          path: everythingBrowsePath(row.path, row.isFolder),
+        });
         return;
       }
       if (row.type === "system-app") {
