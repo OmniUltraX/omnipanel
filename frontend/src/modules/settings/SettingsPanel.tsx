@@ -1001,6 +1001,7 @@ export function SettingsPanel() {
   const sqlEditorLineHeight = useSettingsStore((s) => s.sqlEditorLineHeight);
   const sqlKeywordCase = useSettingsStore((s) => s.sqlKeywordCase);
   const formatSqlOnSave = useSettingsStore((s) => s.formatSqlOnSave);
+  const sqlResultPanelDefaultOpen = useSettingsStore((s) => s.sqlResultPanelDefaultOpen);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
   const filePreviewThresholdBytes = useSettingsStore((s) => s.filePreviewThresholdBytes);
   const fileIndexStorageDir = useSettingsStore((s) => s.fileIndexStorageDir);
@@ -2152,6 +2153,16 @@ export function SettingsPanel() {
                 <Toggle
                   value={formatSqlOnSave}
                   onChange={(v) => setDatabaseSettings({ formatSqlOnSave: v })}
+                />
+              </div>
+              <div className="setting-row">
+                <div className="setting-label">
+                  <h4>{t("settings.database.resultPanelDefaultOpen")}</h4>
+                  <p>{t("settings.database.resultPanelDefaultOpenDesc")}</p>
+                </div>
+                <Toggle
+                  value={sqlResultPanelDefaultOpen}
+                  onChange={(v) => setDatabaseSettings({ sqlResultPanelDefaultOpen: v })}
                 />
               </div>
             </div>

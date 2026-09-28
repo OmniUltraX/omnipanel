@@ -11156,6 +11156,11 @@
         display: inline-flex;
     }
 
+    .sql-toolbar-history.is-on {
+        color: var(--accent);
+        background: var(--accent-soft);
+    }
+
     .sql-toolbar-divider {
         width: 1px;
         height: 14px;

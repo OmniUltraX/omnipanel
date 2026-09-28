@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { Button } from "../../../components/ui/primitives/Button";
 import { Select } from "../../../components/ui/form/Select";
 import {
+  IconClock,
   IconSettings,
   IconStop,
   IconCheckCircle,
@@ -115,6 +116,8 @@ export interface SqlToolbarLeftControlsProps {
   onAutoCommitChange: (autoCommit: boolean) => void;
   onCommit: () => void;
   onRollback: () => void;
+  resultsOpen: boolean;
+  onToggleResults: () => void;
 }
 
 export function SqlToolbarLeftControls({
@@ -127,6 +130,8 @@ export function SqlToolbarLeftControls({
   onAutoCommitChange,
   onCommit,
   onRollback,
+  resultsOpen,
+  onToggleResults,
 }: SqlToolbarLeftControlsProps) {
   const { t } = useI18n();
   const settingsAnchorRef = useRef<HTMLSpanElement>(null);
@@ -137,11 +142,27 @@ export function SqlToolbarLeftControls({
   const sqlEditorFontSize = useSettingsStore((s) => s.sqlEditorFontSize);
   const sqlEditorLineHeight = useSettingsStore((s) => s.sqlEditorLineHeight);
   const formatSqlOnSave = useSettingsStore((s) => s.formatSqlOnSave);
+  const sqlResultPanelDefaultOpen = useSettingsStore((s) => s.sqlResultPanelDefaultOpen);
   const databaseQueryPageSize = useSettingsStore((s) => s.databaseQueryPageSize);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
 
   return (
     <div className="sql-toolbar-left">
+      <Button
+        variant="icon"
+        size="icon-xs"
+        className={resultsOpen ? "sql-toolbar-history is-on" : "sql-toolbar-history"}
+        title={
+          resultsOpen
+            ? t("database.sqlToolbar.hideResults")
+            : t("database.sqlToolbar.history")
+        }
+        aria-label={t("database.sqlToolbar.history")}
+        aria-pressed={resultsOpen}
+        onClick={onToggleResults}
+      >
+        <IconClock size={12} />
+      </Button>
       <span ref={settingsAnchorRef} className="sql-toolbar-left__anchor">
         <Button
           variant="icon"
@@ -291,6 +312,16 @@ export function SqlToolbarLeftControls({
           <span>{t("database.sqlToolbar.formatOnSave")}</span>
         </label>
         <div className="sql-toolbar-popover__section">{t("database.sqlToolbar.settingsExec")}</div>
+        <label className="sql-toolbar-popover__check">
+          <input
+            type="checkbox"
+            checked={sqlResultPanelDefaultOpen}
+            onChange={(e) =>
+              setDatabaseSettings({ sqlResultPanelDefaultOpen: e.target.checked })
+            }
+          />
+          <span>{t("database.sqlToolbar.resultPanelDefaultOpen")}</span>
+        </label>
         <label className="sql-toolbar-popover__field">
           <span>{t("database.sqlToolbar.resultPageSize")}</span>
           <Select

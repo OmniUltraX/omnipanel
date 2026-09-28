@@ -120,6 +120,7 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
   const [now, setNow] = useState(() => Date.now());
   const unreadIds = useSyncExternalStore(subscribeSqlExecUnread, readSqlExecUnread, readSqlExecUnread);
   const followedActiveIdRef = useRef<string | null>(null);
+  const autoOpenedRef = useRef(false);
   const wasRunningRef = useRef(false);
   const runningIdsRef = useRef<Set<string>>(new Set());
 
@@ -276,6 +277,18 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
     },
     [onActiveSessionChange, onHighlightSql, sessions, t],
   );
+
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (sessions.length > 0) {
+      autoOpenedRef.current = true;
+      return;
+    }
+    const first = items[0];
+    if (!first) return;
+    autoOpenedRef.current = true;
+    void openRecord(first);
+  }, [items, openRecord, sessions.length]);
 
   useEffect(() => {
     const active = sessions.find((item) => item.id === activeSessionId);

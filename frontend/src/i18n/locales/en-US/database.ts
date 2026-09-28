@@ -1112,6 +1112,8 @@ export default {
       lineHeight: "Line height",
       formatOnSave: "Format on save",
       resultPageSize: "Result page size",
+      resultPanelDefaultOpen: "Show results panel on open",
+      hideResults: "Hide results panel",
       history: "Run history",
       historyTitle: "History for this SQL file",
       historyClear: "Clear",

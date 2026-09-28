@@ -2123,9 +2123,11 @@ export function useTableDataGridModel(props: TableDataGridProps) {
         start: { row: ctx.rowIndex, col: ctx.colIndex },
         end: { row: ctx.rowIndex, col: ctx.colIndex },
       };
+      // 拖选过程只画预览高亮，抬起时再提交选区。
+      // 按下就 setCellRange 会把起点当成单格激活，从而拉开单元格预览。
       pendingDragRangeRef.current = anchorRange;
       wrapRef.current?.classList.add("db-data-table-wrap--cell-dragging");
-      setCellRange(anchorRange);
+      canvasBodyRef.current?.invalidate();
     },
     [transposed, rows],
   );

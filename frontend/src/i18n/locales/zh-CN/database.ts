@@ -1106,6 +1106,8 @@ export default {
       lineHeight: "行高",
       formatOnSave: "保存时格式化",
       resultPageSize: "结果最大行数（每页）",
+      resultPanelDefaultOpen: "打开时显示结果面板",
+      hideResults: "收起结果面板",
       history: "执行历史",
       historyTitle: "本文件执行历史",
       historyClear: "清空",
