@@ -36,6 +36,25 @@
       ]
     },
     {
+      "id": "omni.addon.warpgate",
+      "kind": "addon",
+      "name": "Warpgate",
+      "description": "Warpgate gateway accounts and SSH alternate routes (bastion jump).",
+      "version": "0.1.0",
+      "distribution": "download",
+      "artifact": {
+        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-addon-warpgate-0.1.0.omni-plugin",
+        "sha256": "",
+        "size": 0
+      },
+      "permissions": [
+        "net:connect",
+        "vault:read"
+      ],
+      "createdAt": "2026-09-28T00:00:00+08:00",
+      "updatedAt": "2026-09-28T00:00:00+08:00"
+    },
+    {
       "id": "omni.cloud.aliyun",
       "kind": "cloud",
       "name": "Alibaba Cloud",
@@ -382,24 +401,6 @@
         "connections:write"
       ],
       "createdAt": "2026-08-28T18:51:46+08:00",
-      "updatedAt": "2026-08-28T18:51:46+08:00"
-    },
-    {
-      "id": "omni.importer.warpgate",
-      "kind": "importer",
-      "name": "Warpgate import",
-      "description": "Import SSH and database targets from a Warpgate bastion.",
-      "versions": [
-        {
-          "version": "0.2.1"
-        }
-      ],
-      "permissions": [
-        "connections:write",
-        "net:connect",
-        "vault:read"
-      ],
-      "createdAt": "2026-08-21T19:08:54+08:00",
       "updatedAt": "2026-08-28T18:51:46+08:00"
     },
     {
