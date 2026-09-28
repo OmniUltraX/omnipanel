@@ -2,7 +2,7 @@
 
 第三方按 `plugin.json` 声明能力，Host 用固定壳渲染。**不按插件 ID 特判。** 云厂商与 Nacos 均为官方市场可下载插件（download-only）。
 
-> Nacos / 全部 `cloud-*` 源码以 submodule 挂在 `plugins/`（远端 `omni-plugin-*`）。**不随客户端 bundled**；`registry.json` 中为 `distribution: download`，经 `plugins-latest` 发布 `.omni-plugin`，用户从插件中心安装启用后才出现对应入口（Nacos → `/module/nacos`；云 → 共用 `/module/cloud` 工作台按已激活厂商过滤）。
+> Nacos / 全部 `cloud-*` / `addon-warpgate` 源码以 submodule 挂在 `plugins/`（远端 `omni-plugin-*`）。**不随客户端 bundled**；`registry.json` 中为 `distribution: download`，经 `plugins-latest` 发布 `.omni-plugin`，用户从插件中心安装启用后才出现对应入口（Nacos → `/module/nacos`；云 → 共用 `/module/cloud` 工作台按已激活厂商过滤；Warpgate → SSH 备选连接）。
 
 字段枚举与 schema 单源：`packages/plugin-sdk/src/index.ts`。
 

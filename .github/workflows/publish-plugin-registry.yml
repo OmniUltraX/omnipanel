@@ -8,6 +8,7 @@ on:
       - "plugins/*/plugin.json"
       - "plugins/module-nacos/**"
       - "plugins/cloud-*/**"
+      - "plugins/addon-warpgate/**"
       - "plugins-market/*/plugin.json"
       - "plugins-market/*/ui/**"
       - "plugins-market/*/logic.js"
