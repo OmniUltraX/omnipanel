@@ -17867,6 +17867,94 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: hidden;
     }
 
+    .server-app-detail-subwindow .subwindow-body {
+        overflow: auto;
+    }
+
+    .server-app-detail {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-4);
+        padding: var(--sp-4);
+        min-height: 0;
+    }
+
+    .server-app-detail__hero {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--sp-3);
+        min-width: 0;
+    }
+
+    .server-app-detail__icon {
+        width: 56px;
+        height: 56px;
+        border-radius: var(--r-md);
+        object-fit: cover;
+        flex-shrink: 0;
+    }
+
+    .server-app-detail__icon--placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 20px;
+        font-weight: 700;
+    }
+
+    .server-app-detail__titles {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        align-items: flex-start;
+    }
+
+    .server-app-detail__name {
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.3;
+        word-break: break-word;
+    }
+
+    .server-app-detail__type {
+        font-size: 12px;
+        color: var(--meta);
+    }
+
+    .server-app-detail__desc {
+        display: flex;
+        flex-direction: column;
+        gap: var(--sp-2);
+    }
+
+    .server-app-detail__desc-title {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--meta);
+    }
+
+    .server-app-detail__desc-body {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--fg);
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .server-app-detail__footer {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--sp-2);
+        padding-top: var(--sp-2);
+        border-top: 1px solid var(--border);
+    }
+
     .server-app-subwindow-panel .subwindow-body {
         padding: 0;
     }

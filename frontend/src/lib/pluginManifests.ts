@@ -13,7 +13,6 @@ import dbRedisJson from "../../../plugins/db-redis/plugin.json";
 import dbSqliteJson from "../../../plugins/db-sqlite/plugin.json";
 import dbSqlserverJson from "../../../plugins/db-sqlserver/plugin.json";
 import importerDockerDbJson from "../../../plugins/importer-docker-db/plugin.json";
-import importerWarpgateJson from "../../../plugins/importer-warpgate/plugin.json";
 import panel1panelJson from "../../../plugins/panel-1panel/plugin.json";
 import panelBtJson from "../../../plugins/panel-bt/plugin.json";
 import panelHestiaJson from "../../../plugins/panel-hestia/plugin.json";
@@ -36,7 +35,6 @@ export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(dbSqliteJson),
   parsePluginManifest(dbSqlserverJson),
   parsePluginManifest(importerDockerDbJson),
-  parsePluginManifest(importerWarpgateJson),
   parsePluginManifest(panel1panelJson),
   parsePluginManifest(panelBtJson),
   parsePluginManifest(panelHestiaJson),

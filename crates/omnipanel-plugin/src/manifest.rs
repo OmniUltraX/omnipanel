@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::contribution::PluginContributes;
+use crate::contribution::{validate_package_icon_path, PluginContributes};
 use crate::error::PluginError;
 use crate::kind::PluginKind;
 use crate::permission::PluginPermission;
@@ -9,6 +9,44 @@ use crate::platform::PluginPlatform;
 
 /// 宿主插件 API 版本（破坏性变更时递增）。
 pub const HOST_API_VERSION: u32 = 1;
+
+/// 插件品牌图标：单文件，或 light/dark 双文件。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(untagged)]
+pub enum PluginIconDecl {
+    Single(String),
+    Themed {
+        light: String,
+        dark: String,
+    },
+}
+
+impl PluginIconDecl {
+    pub fn validate(&self) -> Result<(), PluginError> {
+        match self {
+            Self::Single(path) => validate_package_icon_path(path, "icon"),
+            Self::Themed { light, dark } => {
+                validate_package_icon_path(light, "icon.light")?;
+                validate_package_icon_path(dark, "icon.dark")?;
+                Ok(())
+            }
+        }
+    }
+
+    /// 按主题取路径；单文件时忽略主题。
+    pub fn path_for_theme(&self, dark: bool) -> &str {
+        match self {
+            Self::Single(path) => path.as_str(),
+            Self::Themed { light, dark: dark_path } => {
+                if dark {
+                    dark_path.as_str()
+                } else {
+                    light.as_str()
+                }
+            }
+        }
+    }
+}
 
 /// 插件方法声明：`plugin_invoke` 网关白名单 + 权限注解（缺权即拒绝）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
@@ -181,6 +219,9 @@ pub struct PluginManifest {
     pub version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// 插件品牌图标（单文件或 light/dark）；缺省可回退 `ui.home.icon`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<PluginIconDecl>,
     pub kind: PluginKind,
     #[serde(default)]
     pub contributes: PluginContributes,
@@ -291,6 +332,9 @@ impl PluginManifest {
         }
         if let Some(themes) = &self.contributes.themes {
             themes.validate()?;
+        }
+        if let Some(icon) = &self.icon {
+            icon.validate()?;
         }
         if let Some(home) = &self.contributes.ui.home {
             home.validate()?;

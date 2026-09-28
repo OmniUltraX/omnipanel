@@ -32,6 +32,7 @@ import { useTerminalBackendStateStore } from "../stores/terminalBackendStateStor
 import { useTerminalTransportStore } from "../stores/terminalTransportStore";
 import { useSkillPromptStore } from "../stores/skillPromptStore";
 import { isOpenSshHostId, openSshHostAlias } from "../lib/sshConfigHosts";
+import { connectSshWithFallbacks } from "../lib/warpgateConnect";
 import { isInlineProgressChunk, renderLiveOutputText } from "../modules/terminal/terminalOutputModel";
 import { createBlockId, useBlocksStore } from "../stores/blocksStore";
 import { createTerminalOutputBatcher } from "../lib/terminalOutputBatcher";
@@ -652,15 +653,19 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
       const store = useTerminalStore.getState();
       store.setSessionTmuxSession(sessionId, null);
       store.setSessionTmuxPaneId(sessionId, null);
-      const fallback = await commands.sshConnectConnection(conn.id, cols, rows, null);
-      if (fallback.status === "ok") return fallback.data;
-      noteSshAuthFailure(conn.id, fallback.error ?? res.error);
-      throw normalizeBackendError(fallback.error ?? res.error, "接入 tmux 会话失败");
+      try {
+        return await connectSshWithFallbacks(conn.id, cols, rows, null);
+      } catch (err) {
+        noteSshAuthFailure(conn.id, err);
+        throw normalizeBackendError(err ?? res.error, "接入 tmux 会话失败");
+      }
     }
-    const res = await commands.sshConnectConnection(conn.id, cols, rows, pane.tmuxPaneId ?? null);
-    if (res.status === "ok") return res.data;
-    noteSshAuthFailure(conn.id, res.error);
-    throw normalizeBackendError(res.error, "SSH 终端创建失败");
+    try {
+      return await connectSshWithFallbacks(conn.id, cols, rows, pane.tmuxPaneId ?? null);
+    } catch (err) {
+      noteSshAuthFailure(conn.id, err);
+      throw normalizeBackendError(err, "SSH 终端创建失败");
+    }
   }
   // shellSpec 回退：旧持久化数据可能没有 shellSpec 字段（只有 shellLabel）。
   // 从 shellLabel 推断 WSL/PowerShell/Cmd，避免误启动默认 shell。

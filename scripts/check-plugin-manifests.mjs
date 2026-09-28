@@ -214,6 +214,35 @@ for (const dir of dirs) {
       }
     }
   }
+  const checkIconPath = (rel, label) => {
+    if (typeof rel !== "string" || !rel.trim()) {
+      errors.push(`${label} must be a relative svg/png path`);
+      return;
+    }
+    if (
+      rel.startsWith("/") ||
+      rel.includes("://") ||
+      rel.split(/[\\/]/).includes("..") ||
+      !/\.(svg|png)$/i.test(rel)
+    ) {
+      errors.push(`${label} must be a relative svg/png path without '..'`);
+      return;
+    }
+    const iconFile = path.join(pluginsDir, dir.name, rel);
+    if (!fs.existsSync(iconFile)) {
+      errors.push(`${label} file missing: ${rel}`);
+    }
+  };
+  if (raw.icon != null) {
+    if (typeof raw.icon === "string") {
+      checkIconPath(raw.icon, "icon");
+    } else if (typeof raw.icon === "object" && !Array.isArray(raw.icon)) {
+      checkIconPath(raw.icon.light, "icon.light");
+      checkIconPath(raw.icon.dark, "icon.dark");
+    } else {
+      errors.push("icon must be a path string or { light, dark }");
+    }
+  }
   const home = raw.contributes?.ui?.home;
   if (home != null) {
     if (typeof home !== "object" || Array.isArray(home)) {

@@ -17,8 +17,12 @@ import {
   buildSshConnection,
   connectionsToForm,
   EMPTY_SERVER_FORM,
+  parseSshConfig,
+  type SshFallbackRoute,
+  type SshPreferredRoute,
   type UnifiedServerFormData,
 } from "../../panel/serverConnection";
+import { SshFallbacksSection } from "./SshFallbacksSection";
 
 interface SshConnectionDialogProps {
   open: boolean;
@@ -66,6 +70,8 @@ export function SshConnectionDialog({
   const [configHosts, setConfigHosts] = useState<SshConfigEntry[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
   const [selectedConfigAlias, setSelectedConfigAlias] = useState("");
+  const [fallbacks, setFallbacks] = useState<SshFallbackRoute[]>([]);
+  const [preferredRoute, setPreferredRoute] = useState<SshPreferredRoute>("auto");
 
   const isEdit = !!editConnection?.id;
 
@@ -110,6 +116,9 @@ export function SshConnectionDialog({
     const base = connectionsToForm(editConnection);
     setForm(base);
     setTags(userConnectionTags(editConnection?.tags));
+    const cfg = editConnection ? parseSshConfig(editConnection) : null;
+    setFallbacks(cfg?.fallbacks ?? []);
+    setPreferredRoute(cfg?.preferredRoute ?? "auto");
     setError(null);
     setSaving(false);
     setCreateSource("manual");
@@ -197,6 +206,12 @@ export function SshConnectionDialog({
     setSaving(true);
     setError(null);
     try {
+      const validPreferred =
+        preferredRoute === "auto" ||
+        preferredRoute === "direct" ||
+        fallbacks.some((item) => item.id === preferredRoute)
+          ? preferredRoute
+          : "auto";
       const saved = await saveConn(
         buildSshConnection(
           form,
@@ -204,6 +219,7 @@ export function SshConnectionDialog({
           undefined,
           mergeConnectionTags(tags, editConnection?.tags),
           editConnection,
+          { fallbacks, preferredRoute: validPreferred },
         ),
       );
       if (!saved) throw new Error("SSH save failed");
@@ -385,6 +401,13 @@ export function SshConnectionDialog({
               </div>
             </>
           )}
+
+          <SshFallbacksSection
+            fallbacks={fallbacks}
+            preferredRoute={preferredRoute}
+            onFallbacksChange={setFallbacks}
+            onPreferredRouteChange={setPreferredRoute}
+          />
 
           <div className="form-section-title">{t("resourceTags.section")}</div>
           <GlobalTagEditor

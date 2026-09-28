@@ -1,8 +1,14 @@
+import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../../i18n";
 import { ResourceTags } from "../../../../components/ui/tags/ResourceTags";
 import { useConnectionStore } from "../../../../stores/connectionStore";
 import { useSshSidebarTreeStore } from "../../../../stores/sshSidebarTreeStore";
 import { OPENSSH_CONFIG_GROUP, sshGroupLabel } from "../../../../lib/sshGroups";
+import { Select } from "../../../../components/ui/form/Select";
+import { setSshRouteOverride } from "../../../../lib/warpgateConnect";
+import { PLUGIN_ID_WARPGATE } from "../../../../lib/warpgateGateways";
+import { usePluginRuntimeStore } from "../../../../stores/pluginRuntimeStore";
+import { parseSshConfig } from "../../panel/serverConnection";
 import { DETAIL_TABS } from "../constants";
 import type { DetailTab } from "../types";
 import type { WorkspaceResource } from "../../../../lib/resourceRegistry";
@@ -105,6 +111,33 @@ export function HostDetailToolbar({
   overviewRefresh,
 }: Props) {
   const { t } = useI18n();
+  const connection = useConnectionStore((s) =>
+    s.connections.find((c) => c.id === resource.id),
+  );
+  const warpgateReady = usePluginRuntimeStore((s) => {
+    const item = s.items.find((entry) => entry.id === PLUGIN_ID_WARPGATE);
+    return Boolean(item?.enabled && item?.activated);
+  });
+  const sshCfg = connection ? parseSshConfig(connection) : null;
+  const fallbacks = sshCfg?.fallbacks ?? [];
+  const showRoutePicker = warpgateReady && fallbacks.length > 0;
+  const [routeChoice, setRouteChoice] = useState<string>("auto");
+  useEffect(() => {
+    setRouteChoice(sshCfg?.preferredRoute ?? "auto");
+  }, [resource.id, sshCfg?.preferredRoute]);
+  const routeOptions = useMemo(() => {
+    const opts = [
+      { value: "auto", label: t("ssh.warpgate.routeAuto") },
+      { value: "direct", label: t("ssh.warpgate.routeDirect") },
+    ];
+    for (const fb of fallbacks) {
+      opts.push({
+        value: fb.id,
+        label: fb.label?.trim() || fb.targetName || fb.targetId,
+      });
+    }
+    return opts;
+  }, [fallbacks, t]);
   const folderName = useSshSidebarTreeStore((s) => {
     const folderId = s.connectionFolderId[resource.id];
     if (!folderId) return null;
@@ -116,6 +149,13 @@ export function HostDetailToolbar({
       : folderName === OPENSSH_CONFIG_GROUP
         ? sshGroupLabel(folderName, t)
         : folderName;
+
+  const openTerminalWithRoute = () => {
+    if (showRoutePicker) {
+      setSshRouteOverride(resource.id, routeChoice || "auto");
+    }
+    actions.openTerminal();
+  };
 
   const metaParts = [
     context.osInfo,
@@ -132,7 +172,7 @@ export function HostDetailToolbar({
   ].filter(Boolean);
 
   const quickActions = [
-    { id: "terminal", label: t("ssh.actions.openTerminal"), onClick: actions.openTerminal, disabled: false },
+    { id: "terminal", label: t("ssh.actions.openTerminal"), onClick: openTerminalWithRoute, disabled: false },
     { id: "sftp", label: t("ssh.actions.openSftp"), onClick: actions.openSftp, disabled: false },
     {
       id: "docker",
@@ -200,6 +240,14 @@ export function HostDetailToolbar({
           ))}
         </div>
         <div className="ssh-detail-toolbar__actions">
+          {showRoutePicker ? (
+            <Select
+              value={routeChoice}
+              onChange={setRouteChoice}
+              options={routeOptions}
+              style={{ width: 140, marginRight: 4 }}
+            />
+          ) : null}
           {quickActions.map((item) => (
             <button
               key={item.id}

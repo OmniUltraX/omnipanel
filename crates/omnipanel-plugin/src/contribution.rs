@@ -2,6 +2,26 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
 
+/// 校验包内图标相对路径（svg/png，禁止绝对路径 / URL / `..`）。
+pub fn validate_package_icon_path(icon: &str, field: &str) -> Result<(), crate::error::PluginError> {
+    let icon = icon.trim();
+    let relative_ok = !icon.is_empty()
+        && !icon.starts_with('/')
+        && !icon.starts_with('\\')
+        && !icon.contains("://")
+        && !icon.split(['/', '\\']).any(|seg| seg == "..");
+    let ext_ok = {
+        let lower = icon.to_ascii_lowercase();
+        lower.ends_with(".svg") || lower.ends_with(".png")
+    };
+    if !relative_ok || !ext_ok {
+        return Err(crate::error::PluginError::InvalidManifest(format!(
+            "{field} 仅允许包内相对路径的 svg/png: {icon}"
+        )));
+    }
+    Ok(())
+}
+
 /// 插件向 Host 声明的贡献点（公共插槽，kind 不独占）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -190,21 +210,7 @@ impl HomeContribution {
             ));
         }
         if !self.icon.is_empty() {
-            let icon = self.icon.trim();
-            let relative_ok = !icon.is_empty()
-                && !icon.starts_with('/')
-                && !icon.starts_with('\\')
-                && !icon.contains("://")
-                && !icon.split(['/', '\\']).any(|seg| seg == "..");
-            let ext_ok = {
-                let lower = icon.to_ascii_lowercase();
-                lower.ends_with(".svg") || lower.ends_with(".png")
-            };
-            if !relative_ok || !ext_ok {
-                return Err(PluginError::InvalidManifest(format!(
-                    "contributes.ui.home.icon 仅允许包内相对路径的 svg/png: {icon}"
-                )));
-            }
+            validate_package_icon_path(self.icon.trim(), "contributes.ui.home.icon")?;
         }
         Ok(())
     }

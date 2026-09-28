@@ -1,6 +1,7 @@
 {
   "id": "omni.importer.docker-db",
   "version": "0.1.0",
+  "icon": "icon.svg",
   "kind": "importer",
   "permissions": ["connections:write"],
   "contributes": {

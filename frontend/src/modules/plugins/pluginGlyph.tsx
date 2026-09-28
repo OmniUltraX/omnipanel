@@ -1,7 +1,12 @@
+import { useEffect, useState } from "react";
 import type { PluginKind } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getPluginManifest } from "../../lib/pluginManifests";
+import {
+  loadPluginManifestIcon,
+  resolvePluginIconPath,
+} from "../../lib/pluginHomeLaunch";
 import { getEngineDescriptor } from "../database/engineRegistry";
 import {
   IconDatabase,
@@ -52,7 +57,25 @@ export function PluginGlyph({
   const { t } = useI18n();
   const theme = useSettingsStore((s) => s.resolved);
   const px = SIZE_PX[size];
-  const iconUrl = getPluginMarketIcon(pluginId, kind, theme);
+  const hostFallback = getPluginMarketIcon(pluginId, kind, theme);
+  const [pluginIconUrl, setPluginIconUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPluginIconUrl(null);
+    const manifest = getPluginManifest(pluginId);
+    if (!resolvePluginIconPath(manifest, theme)) {
+      return;
+    }
+    void loadPluginManifestIcon(pluginId, theme).then((url) => {
+      if (!cancelled) setPluginIconUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pluginId, theme]);
+
+  const iconUrl = pluginIconUrl ?? hostFallback;
   const engineForm = kind === "engine" ? getPluginManifest(pluginId)?.contributes.ui?.connectionForm : null;
   const engineKey =
     engineForm && typeof engineForm === "object"

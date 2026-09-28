@@ -41,8 +41,8 @@ function withInstalledClouds(run: () => void) {
 describe("pluginManifests 单源目录", () => {
   it("解析全部第一方清单且 id 唯一", () => {
     const ids = FIRST_PARTY_PLUGIN_MANIFESTS.map((m) => m.id);
-    expect(ids).toHaveLength(15);
-    expect(new Set(ids).size).toBe(15);
+    expect(ids).toHaveLength(14);
+    expect(new Set(ids).size).toBe(14);
     expect(ids).not.toContain("omni.module.nacos");
     expect(ids).not.toContain("omni.cloud.aliyun");
   });
@@ -63,7 +63,7 @@ describe("pluginManifests 单源目录", () => {
     expect(listPluginManifests("cloud")).toHaveLength(0);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(1);
-    expect(listPluginManifests("importer")).toHaveLength(2);
+    expect(listPluginManifests("importer")).toHaveLength(1);
   });
 
   it("theme-default tokens 为相对路径", () => {
@@ -169,24 +169,6 @@ describe("pluginManifests 单源目录", () => {
       expect.arrayContaining(["getDashboard", "listWebsites", "listCronjobs", "listCertificates"]),
     );
     expect(methods).not.toEqual(expect.arrayContaining(["listApps", "installApp"]));
-  });
-
-  it("示例 importer 用清单声明向导与首页入口", () => {
-    const manifest = getPluginManifest("omni.importer.warpgate");
-    const home = manifest?.contributes.ui?.home;
-    const importer = manifest?.contributes.importers?.[0];
-    expect(home?.show).toBe(true);
-    expect(home?.open).toEqual({ kind: "importer", id: "warpgate" });
-    expect(home?.icon).toBe("icon.svg");
-    expect(importer?.id).toBe("warpgate");
-    expect(importer?.fetchMethod).toBe("fetchTargets");
-    expect(importer?.resourceKinds).toEqual(["ssh", "mysql", "postgres"]);
-    expect(importer?.fields.some((field) => field.key === "token" && field.secretKeyPrefix === "src")).toBe(
-      true,
-    );
-    expect(importer?.fields.some((field) => field.key === "insecureTls" && field.kind === "checkbox")).toBe(
-      true,
-    );
   });
 
   it("Docker 库扫描器声明 sourceKind 与 scanners，无 L2", () => {

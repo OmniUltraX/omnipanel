@@ -33,6 +33,21 @@ export interface SshAuthJson {
   passphrase?: string | null;
 }
 
+/** SSH 备选路由（当前仅 Warpgate 插件）。 */
+export type SshFallbackRoute = {
+  id: string;
+  kind: "plugin";
+  pluginId: string;
+  gatewayId: string;
+  targetId: string;
+  targetName: string;
+  label?: string;
+  order?: number;
+};
+
+/** `auto` 默认；`direct` 仅直连；其它字符串为 fallback.id */
+export type SshPreferredRoute = "auto" | "direct" | string;
+
 export interface SshConfigJson {
   host: string;
   port: number;
@@ -46,6 +61,10 @@ export interface SshConfigJson {
     kind: string;
     resourceId: string;
   };
+  /** Warpgate 等插件提供的备选连接（直连失败后自动降级 / 可手动选用） */
+  fallbacks?: SshFallbackRoute[];
+  /** 默认路由策略；未设视为 auto */
+  preferredRoute?: SshPreferredRoute;
 }
 
 export interface UnifiedServerFormData {
@@ -124,6 +143,12 @@ export function parseSshConfig(connection: Connection): SshConfigJson | null {
       auth,
       panelConnectionId: cfg.panelConnectionId,
       publicIp: cfg.publicIp,
+      cloudSource: cfg.cloudSource,
+      fallbacks: Array.isArray(cfg.fallbacks) ? cfg.fallbacks : undefined,
+      preferredRoute:
+        typeof cfg.preferredRoute === "string" && cfg.preferredRoute.trim()
+          ? cfg.preferredRoute.trim()
+          : undefined,
     };
   } catch {
     return null;
@@ -199,9 +224,13 @@ export function buildSshConnection(
   panelConnectionId?: string,
   tags?: string[],
   existingConnection?: Connection,
+  routeOpts?: {
+    fallbacks?: SshFallbackRoute[];
+    preferredRoute?: SshPreferredRoute;
+  },
 ): Connection {
   // 留空 = 后端保留 Vault 中原凭据（不再从 config 回填明文）
-  void existingConnection;
+  const prev = existingConnection ? parseSshConfig(existingConnection) : null;
   const auth =
     form.authType === "password"
       ? { type: "password" as const, password: form.password }
@@ -225,6 +254,20 @@ export function buildSshConnection(
   };
   if (panelConnectionId) {
     config.panelConnectionId = panelConnectionId;
+  }
+  if (prev?.cloudSource) {
+    config.cloudSource = prev.cloudSource;
+  }
+  if (prev?.publicIp) {
+    config.publicIp = prev.publicIp;
+  }
+  const fallbacks = routeOpts?.fallbacks ?? prev?.fallbacks;
+  if (fallbacks && fallbacks.length > 0) {
+    config.fallbacks = fallbacks;
+  }
+  const preferred = routeOpts?.preferredRoute ?? prev?.preferredRoute;
+  if (preferred && preferred !== "auto") {
+    config.preferredRoute = preferred;
   }
   return {
     id: existingId || "",

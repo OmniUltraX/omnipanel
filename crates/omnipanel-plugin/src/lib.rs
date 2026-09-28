@@ -22,7 +22,7 @@ pub use contribution::{
     AiContributes, AiToolContribution, AiToolExecKind, CloudCapabilityDecl, CloudContributes,
     CloudRegionDecl, DiscoveryContribution, HomeContribution, HomeOpenContribution,
     LauncherContribution, ModuleCapabilityDecl, ModuleContributes, ModuleProbeDecl,
-    PluginContributes, ThemeContribution, UiContributes,
+    PluginContributes, ThemeContribution, UiContributes, validate_package_icon_path,
 };
 pub use crypto::{encode_data, hash_digest, hmac_digest, sign_digest};
 pub use engine_sidecar::{
@@ -40,20 +40,20 @@ pub use first_party::{
     PLUGIN_ID_CLOUD_HUAWEI, PLUGIN_ID_CLOUD_TENCENT, PLUGIN_ID_ENGINE_CLICKHOUSE,
     PLUGIN_ID_ENGINE_MONGODB, PLUGIN_ID_ENGINE_MYSQL, PLUGIN_ID_ENGINE_POSTGRES,
     PLUGIN_ID_ENGINE_QDRANT, PLUGIN_ID_ENGINE_REDIS, PLUGIN_ID_ENGINE_SQLITE,
-    PLUGIN_ID_ENGINE_SQLSERVER, PLUGIN_ID_IMPORTER_DOCKER_DB, PLUGIN_ID_IMPORTER_WARPGATE,
+    PLUGIN_ID_ENGINE_SQLSERVER, PLUGIN_ID_IMPORTER_DOCKER_DB, PLUGIN_ID_ADDON_WARPGATE,
     PLUGIN_ID_MODULE_NACOS, PLUGIN_ID_PANEL_1PANEL, PLUGIN_ID_PANEL_BT, PLUGIN_ID_PANEL_HESTIA,
-    PLUGIN_ID_THEME_DEFAULT, addon_everything, cloud_aliyun, cloud_aws, cloud_azure,
+    PLUGIN_ID_THEME_DEFAULT, addon_everything, addon_warpgate, cloud_aliyun, cloud_aws, cloud_azure,
     cloud_bandwagon, cloud_digitalocean, cloud_gcp, cloud_huawei, cloud_tencent, engine_clickhouse,
     engine_mongodb, engine_mysql, engine_postgres, engine_qdrant, engine_redis, engine_sqlite,
     engine_sqlserver, first_party_asset_bytes, first_party_logic_bytes, first_party_manifests,
-    importer_docker_db, importer_warpgate, panel_1panel, panel_bt, panel_hestia, theme_default,
+    importer_docker_db, panel_1panel, panel_bt, panel_hestia, theme_default,
 };
 pub use installed::{InstalledPlugin, load_installed};
 pub use invoke::{InvokeFuture, InvokeGateway, InvokeHandler};
 pub use kind::PluginKind;
 pub use manifest::{
-    HOST_API_VERSION, PluginDependencyDecl, PluginEntryDecl, PluginManifest, PluginMethodDecl,
-    PluginRuntime, parse_version_req,
+    HOST_API_VERSION, PluginDependencyDecl, PluginEntryDecl, PluginIconDecl, PluginManifest,
+    PluginMethodDecl, PluginRuntime, parse_version_req,
 };
 pub use permission::PluginPermission;
 pub use platform::PluginPlatform;
