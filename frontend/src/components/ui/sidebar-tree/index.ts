@@ -1,4 +1,10 @@
-export { SidebarTreeNode, SidebarTreeRoot, SidebarTreeEmpty, type SidebarTreeNodeProps } from "./SidebarTreeNode";
+export {
+  SidebarTreeNode,
+  SidebarTreeRoot,
+  SidebarTreeBranch,
+  SidebarTreeEmpty,
+  type SidebarTreeNodeProps,
+} from "./SidebarTreeNode";
 export { buildSidebarTreeContextMenuItems } from "./buildSidebarTreeContextMenuItems";
 export type { SidebarTreeModule } from "./sidebarTreeTypes";
 export { useTreeClickDelay, type UseTreeClickDelayOptions } from "./useTreeClickDelay";

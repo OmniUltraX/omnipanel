@@ -136,7 +136,10 @@ export function ModuleTreeSidebar({
             </>
           }
         >
-          <SidebarTreeRoot>
+          <SidebarTreeRoot
+            className="server-sidebar-body"
+            stickyAncestors={!hasSidebarTreeSearch(searchQuery)}
+          >
             {visible.length === 0 ? (
               <SidebarTreeEmpty>{t("moduleHost.emptyHint")}</SidebarTreeEmpty>
             ) : (

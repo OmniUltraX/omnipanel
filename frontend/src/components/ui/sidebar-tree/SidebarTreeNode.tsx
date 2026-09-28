@@ -1,6 +1,8 @@
 import {
   memo,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type DragEventHandler,
@@ -13,6 +15,7 @@ import { type TreeRowMouseEvent } from "./useTreeClickDelay";
 import { useSidebarTreeNodeSelection } from "./SidebarTreeSelectionProvider";
 import { buildSidebarTreeContextMenuItems } from "./buildSidebarTreeContextMenuItems";
 import type { SidebarTreeModule } from "./sidebarTreeTypes";
+import { bindSidebarStickyRow, refreshSidebarStickyRoot } from "./sidebarTreeStickyLayout";
 import "./sidebar-tree.css";
 
 function defaultShouldIgnoreClick(target: EventTarget | null): boolean {
@@ -234,14 +237,25 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
 
   const hasBuiltInContextMenu = builtInContextMenuItems.length > 0 && !contextMenuDisabled;
 
+  const pinAncestor = Boolean(expanded && hasChildren);
+  const rowRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!pinAncestor) return;
+    const row = rowRef.current;
+    if (!row) return;
+    // 吸住态和真实行高都在这里登记，热更新后会重新绑。
+    return bindSidebarStickyRow(row);
+  }, [pinAncestor, depth]);
   const nodeStyle: CSSProperties = {
     paddingLeft: depth * indentStep + indentBase,
+    ["--tree-depth" as string]: String(depth),
     ...style,
   };
 
   const rootClass = [
     "sidebar-tree-node",
     "tree-node",
+    pinAncestor ? "sidebar-tree-node--sticky" : "",
     active ? "sidebar-tree-node--active tree-node--active" : "",
     resolvedSelected ? "sidebar-tree-node--selected tree-node--selected" : "",
     muted ? "sidebar-tree-node--muted" : "",
@@ -302,6 +316,7 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
   return (
     <>
       <div
+        ref={rowRef}
         className={rootClass}
         style={nodeStyle}
         draggable={draggable}
@@ -352,11 +367,44 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
 export function SidebarTreeRoot({
   className = "",
   children,
+  stickyAncestors = true,
+}: {
+  className?: string;
+  children: ReactNode;
+  /** 搜索过滤时传 false，避免命中行被吸住。 */
+  stickyAncestors?: boolean;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el || !stickyAncestors) return;
+    refreshSidebarStickyRoot(el);
+  }, [stickyAncestors]);
+  return (
+    <div
+      ref={rootRef}
+      className={[
+        "sidebar-tree-root",
+        stickyAncestors ? "sidebar-tree-sticky" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** 节点和它的子树必须包在同一盒子里，吸顶才会在这一组滚出视口时松开。 */
+export function SidebarTreeBranch({
+  className = "",
+  children,
 }: {
   className?: string;
   children: ReactNode;
 }) {
-  return <div className={`sidebar-tree-root ${className}`.trim()}>{children}</div>;
+  return <div className={`sidebar-tree-branch ${className}`.trim()}>{children}</div>;
 }
 
 export function SidebarTreeEmpty({

@@ -440,7 +440,10 @@ export function ServerPanelTreeSidebar({
         orderedKeys={orderedKeys}
         onSelectedIdsChange={handleSelectedIdsChange}
       >
-      <SidebarTreeRoot className="server-sidebar-body">
+      <SidebarTreeRoot
+        className="server-sidebar-body"
+        stickyAncestors={!hasSidebarTreeSearch(searchQuery)}
+      >
         {sortedServers.length === 0 ? (
             <SidebarTreeEmpty>{t("common.noResources")}</SidebarTreeEmpty>
         ) : (

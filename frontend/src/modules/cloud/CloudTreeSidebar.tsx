@@ -15,6 +15,7 @@ import {
 import { type VerticalSplitSidebarSectionConfig } from "@/components/ui/sidebar/VerticalSplitSidebar";
 import {
   SidebarTreeEmpty,
+  SidebarTreeBranch,
   SidebarTreeNode,
   SidebarTreeRoot,
   SidebarTreeSelectionProvider,
@@ -245,7 +246,7 @@ function CloudCapabilityBranch({
     rows == null ? (refreshing ? "…" : null) : String(regionRows.length);
 
   return (
-    <>
+    <SidebarTreeBranch>
       <SidebarTreeNode
         depth={1}
         module="cloud"
@@ -346,7 +347,7 @@ function CloudCapabilityBranch({
           )}
         </div>
       ) : null}
-    </>
+    </SidebarTreeBranch>
   );
 }
 
@@ -697,7 +698,10 @@ export function CloudTreeSidebar({
         orderedKeys={orderedKeys}
         onSelectedIdsChange={handleSelectedIdsChange}
       >
-        <SidebarTreeRoot>
+        <SidebarTreeRoot
+          className="server-sidebar-body"
+          stickyAncestors={!hasSidebarTreeSearch(searchQuery)}
+        >
           {visibleAccounts.length === 0 ? (
             <SidebarTreeEmpty>
               {hasSidebarTreeSearch(searchQuery)
@@ -833,25 +837,27 @@ export function CloudTreeSidebar({
   );
 
   return (
-    <ModuleSidebarSection
-      title={section?.title ?? t("server.cloud.sidebar.title")}
-      expanded={section?.expanded ?? true}
-      onToggle={section?.onToggle ?? (() => {})}
-      count={accounts.length}
-      actions={addAccountButton}
-      toolbar={
-        <ModuleSidebarTreeToolbar
-          onRefresh={handleRefreshAll}
-          onExpandAll={() => setAllExpanded(expandableKeys, true)}
-          onCollapseAll={() => setAllExpanded(expandableKeys, false)}
-          refreshing={refreshingAll}
-          refreshDisabled={connectionsLoading || refreshingAll || accounts.length === 0}
-          expandDisabled={expandAllDisabled}
-          collapseDisabled={collapseAllDisabled}
-        />
-      }
-    >
-      {treeBody}
-    </ModuleSidebarSection>
+    <div className="server-sidebar">
+      <ModuleSidebarSection
+        title={section?.title ?? t("server.cloud.sidebar.title")}
+        expanded={section?.expanded ?? true}
+        onToggle={section?.onToggle ?? (() => {})}
+        count={accounts.length}
+        actions={addAccountButton}
+        toolbar={
+          <ModuleSidebarTreeToolbar
+            onRefresh={handleRefreshAll}
+            onExpandAll={() => setAllExpanded(expandableKeys, true)}
+            onCollapseAll={() => setAllExpanded(expandableKeys, false)}
+            refreshing={refreshingAll}
+            refreshDisabled={connectionsLoading || refreshingAll || accounts.length === 0}
+            expandDisabled={expandAllDisabled}
+            collapseDisabled={collapseAllDisabled}
+          />
+        }
+      >
+        {treeBody}
+      </ModuleSidebarSection>
+    </div>
   );
 }

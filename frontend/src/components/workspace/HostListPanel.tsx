@@ -1213,7 +1213,10 @@ export function HostListPanel({
               openCtx(event, { kind: "blank" });
             }}
           >
-            <SidebarTreeRoot className="ssh-sidebar-tree">
+            <SidebarTreeRoot
+              className="ssh-sidebar-tree"
+              stickyAncestors={!searching}
+            >
               {empty ? (
                 <SidebarTreeEmpty>
                   {searching ? t("ssh.sidebar.searchNoResults") : t("common.noResources")}

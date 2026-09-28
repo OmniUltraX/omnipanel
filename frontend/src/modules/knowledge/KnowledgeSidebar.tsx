@@ -256,15 +256,16 @@ function renderTreeNodes(
   opts: RenderTreeRowOpts & { depth?: number },
 ): React.ReactNode[] {
   const depth = opts.depth ?? 0;
-  const rows: React.ReactNode[] = [];
-  for (const node of nodes) {
-    rows.push(renderTreeRow(node, depth, opts));
-    // 文档也可能带子项（思源子文档镜像），展开即渲染。
-    if (opts.expandedIds.includes(node.entry.id) && node.children.length > 0) {
-      rows.push(...renderTreeNodes(node.children, { ...opts, depth: depth + 1 }));
-    }
-  }
-  return rows;
+  return nodes.map((node) => {
+    const id = node.entry.id;
+    const expanded = opts.expandedIds.includes(id) && node.children.length > 0;
+    return (
+      <div key={id} className="sidebar-tree-branch">
+        {renderTreeRow(node, depth, opts)}
+        {expanded ? renderTreeNodes(node.children, { ...opts, depth: depth + 1 }) : null}
+      </div>
+    );
+  });
 }
 
 export function KnowledgeSidebar() {
@@ -1045,6 +1046,7 @@ export function KnowledgeSidebar() {
 
   const renderTree = () => {
     const virtualized = flatRows.length > KNOWLEDGE_TREE_VIRTUALIZE_THRESHOLD;
+    const stickyAncestors = !searchQuery.trim() && !virtualized;
     const rowOpts = {
       expandedIds,
       selectedId: selectedEntryId,
@@ -1063,7 +1065,7 @@ export function KnowledgeSidebar() {
     };
     return (
       <div
-        className="knowledge-tree"
+        className={`knowledge-tree${stickyAncestors ? " sidebar-tree-sticky" : ""}`}
         ref={scrollRef}
         onContextMenu={(e) => {
           if ((e.target as HTMLElement).closest(".sidebar-tree-node, .tree-node, .knowledge-tree-row")) return;

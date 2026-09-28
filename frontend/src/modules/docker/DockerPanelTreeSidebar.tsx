@@ -752,7 +752,10 @@ export function DockerPanelTreeSidebar({
             openCtx(event, { kind: "blank" });
           }}
         >
-          <SidebarTreeRoot className="server-sidebar-body docker-sidebar-tree">
+          <SidebarTreeRoot
+            className="server-sidebar-body docker-sidebar-tree"
+            stickyAncestors={!searching}
+          >
             {loading && filteredConnections.length === 0 ? (
               <SidebarTreeEmpty>{t("docker.sidebar.loading")}</SidebarTreeEmpty>
             ) : filteredConnections.length === 0 && folders.length === 0 ? (

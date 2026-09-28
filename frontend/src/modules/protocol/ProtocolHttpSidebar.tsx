@@ -1178,7 +1178,7 @@ export function ProtocolHttpSidebar() {
           />
           <div
             ref={treeRootRef}
-            className={`proto-tree-root${isPointerDragging && dropHint === null ? " proto-tree-root--drag-active" : ""}`}
+            className={`proto-tree-root sidebar-tree-sticky${isPointerDragging && dropHint === null ? " proto-tree-root--drag-active" : ""}`}
             onContextMenu={(e) => {
               sidebarHotkeysArmedRef.current = true;
               openContextMenu(e, { kind: "root" });
