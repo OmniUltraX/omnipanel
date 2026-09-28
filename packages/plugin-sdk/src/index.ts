@@ -631,6 +631,20 @@ export type PluginHost = {
     upsert: (candidate: ImportCandidate) => Promise<void>;
   };
   invoke: (method: string, args?: unknown) => Promise<unknown>;
+  /** L2 `host.sshExec`。connectionId 由宿主注入，插件参数里的 connectionId 无效。 */
+  sshExec: (spec: { command: string; timeoutMs?: number }) => Promise<string>;
+  hmac: (spec: {
+    alg: "sha256" | "sha1";
+    key: string;
+    data: string;
+    encoding?: "hex" | "base64";
+  }) => Promise<string>;
+  hash: (spec: { alg: "sha256" | "sha1"; data: string; encoding?: "hex" | "base64" }) => Promise<string>;
+  sign: (spec: { alg: "rs256"; key: string; data: string }) => Promise<string>;
+  encode: (spec: {
+    data: string;
+    encoding?: "hex" | "base64" | "base64url";
+  }) => Promise<string>;
   /** 宿主 AI 单次补全：用用户已配模型跑纯文本补全，需 `ai:tools` 权限。 */
   ai: {
     complete: (spec: {

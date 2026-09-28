@@ -20,6 +20,10 @@ describe("PluginSandboxFrame", () => {
     expect(sandboxBridgeDenyReason("netFetch", none)).toBe("缺权限 net:connect");
     expect(sandboxBridgeDenyReason("eval", none)).toBe("白名单外的方法: eval");
     expect(sandboxBridgeDenyReason("invoke", none)).toBeNull();
+    expect(sandboxBridgeDenyReason("hmac", none)).toBeNull();
+    expect(sandboxBridgeDenyReason("vault.get", none)).toBe("缺权限 vault:read");
+    expect(sandboxBridgeDenyReason("vault.put", none)).toBe("沙箱拒绝写入 vault");
+    expect(sandboxBridgeDenyReason("vault.get", new Set(["vault:read"]))).toBeNull();
     expect(sandboxBridgeDenyReason("netFetch", new Set(["net:connect"]))).toBeNull();
   });
 

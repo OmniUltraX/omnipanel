@@ -400,6 +400,8 @@ export default {
       editorKeywordCaseLower: "小写",
       formatSqlOnSave: "保存时格式化 SQL",
       formatSqlOnSaveDesc: "保存 SQL 文件或工作区标签时自动格式化语句",
+      resultPanelDefaultOpen: "打开时显示结果面板",
+      resultPanelDefaultOpenDesc: "重新打开 SQL 查询时展开底部结果与执行历史",
     },
     files: {
       label: "文件",

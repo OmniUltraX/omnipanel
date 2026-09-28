@@ -374,6 +374,8 @@ interface SettingsState {
   sqlEditorLineHeight: SqlEditorLineHeight;
   sqlKeywordCase: SqlKeywordCase;
   formatSqlOnSave: boolean;
+  /** 重新打开 SQL 查询时是否展开底部结果面板 */
+  sqlResultPanelDefaultOpen: boolean;
   filePreviewThresholdBytes: FilePreviewThresholdBytes;
   /** 文件索引存储目录，空字符串表示默认 ~/.omnipd/files/index */
   fileIndexStorageDir: string;
@@ -437,6 +439,7 @@ interface SettingsState {
     | "sqlEditorLineHeight"
     | "sqlKeywordCase"
     | "formatSqlOnSave"
+    | "sqlResultPanelDefaultOpen"
   >>) => void;
   setFileSettings: (patch: Partial<Pick<SettingsState, "filePreviewThresholdBytes" | "fileIndexStorageDir" | "fileRemoteDirectPolicy" | "fileTransferConcurrency" | "fileTransferRateLimitBps">>) => void;
   setProtocolLabSettings: (
@@ -553,6 +556,7 @@ export const useSettingsStore = create<SettingsState>()(
       sqlEditorLineHeight: DEFAULT_SQL_EDITOR_LINE_HEIGHT,
       sqlKeywordCase: DEFAULT_SQL_KEYWORD_CASE,
       formatSqlOnSave: true,
+      sqlResultPanelDefaultOpen: true,
       filePreviewThresholdBytes: DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
       fileIndexStorageDir: "",
       fileRemoteDirectPolicy: "ask",
@@ -664,6 +668,10 @@ export const useSettingsStore = create<SettingsState>()(
               : state.sqlKeywordCase,
           formatSqlOnSave:
             patch.formatSqlOnSave !== undefined ? patch.formatSqlOnSave : state.formatSqlOnSave,
+          sqlResultPanelDefaultOpen:
+            patch.sqlResultPanelDefaultOpen !== undefined
+              ? patch.sqlResultPanelDefaultOpen
+              : state.sqlResultPanelDefaultOpen,
         }));
         if (nextTableGridFontSize !== undefined) {
           applyDocumentDatabaseTableGridFontSize(nextTableGridFontSize);
@@ -781,6 +789,7 @@ export const useSettingsStore = create<SettingsState>()(
         sqlEditorLineHeight: state.sqlEditorLineHeight,
         sqlKeywordCase: state.sqlKeywordCase,
         formatSqlOnSave: state.formatSqlOnSave,
+        sqlResultPanelDefaultOpen: state.sqlResultPanelDefaultOpen,
         filePreviewThresholdBytes: state.filePreviewThresholdBytes,
         fileIndexStorageDir: state.fileIndexStorageDir,
         fileRemoteDirectPolicy: state.fileRemoteDirectPolicy,
@@ -812,6 +821,7 @@ export const useSettingsStore = create<SettingsState>()(
           sqlKeywordCase:
             normalizeSqlKeywordCase(state?.sqlKeywordCase),
           formatSqlOnSave: state?.formatSqlOnSave ?? true,
+          sqlResultPanelDefaultOpen: state?.sqlResultPanelDefaultOpen !== false,
           filePreviewThresholdBytes:
             state?.filePreviewThresholdBytes ?? DEFAULT_FILE_PREVIEW_THRESHOLD_BYTES,
           fileIndexStorageDir: state?.fileIndexStorageDir ?? "",

@@ -8,7 +8,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [本文](./README.md) | 七种 kind、Host 合同、脚手架与校验 |
+| [本文](./README.md) | 八种 kind、Host 合同、脚手架与校验 |
 | [manifest-reference.md](./manifest-reference.md) | 清单字段表 |
 | [sidecar-dbx.md](./sidecar-dbx.md) | Engine sidecar 协议 |
 | [permissions-and-levels.md](./permissions-and-levels.md) | 权限与 L1 / L2 / L3 |
@@ -82,6 +82,9 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 | `host.ping()` | — | 管道自检 |
 | `host.hmac(specJson)` | — | `{ alg: "sha256"\|"sha1", key, data, encoding: "hex"\|"base64", keyEncoding?, dataEncoding? }`；`keyEncoding`/`dataEncoding` 为 `utf8`（默认）/`hex`/`base64`，用于 TC3 派生钥 |
 | `host.hash(specJson)` | — | `{ alg: "sha256"\|"sha1", data, encoding?, dataEncoding? }`，签 TC3 / 华为 SDK-HMAC / COS / OBS |
+| `host.sign(specJson)` | — | `{ alg: "rs256", key, data }`，RSA PKCS1 SHA-256，默认 base64url |
+| `host.encode(specJson)` | — | `{ data, encoding: "hex"\|"base64"\|"base64url", dataEncoding? }` |
+| `host.sshExec(specJson)` | `ssh:exec` | `{ command, timeoutMs? }`。connectionId 只认本次调用宿主注入，命令 ≤8KB，超时 ≤30s，输出 ≤256KB；prod 走 60 秒确认 |
 | `host.netFetch(specJson)` | `net:connect` | `{ url, method?, headers?, body? }`，prod 目标要确认 |
 | `host.fsRead(path)` | `fs:read` | 仅插件自己的安装目录 |
 | `host.vaultGet/Has/Put/Delete(key)` | `vault:read` | 命名空间 `plugin:{id}:{key}` |
@@ -261,7 +264,7 @@ L2 方法（宿主注入 `connectionId`、`accessKeyId`、`accessKeySecret`、`r
 | `getMetrics` | `{ items:[{ id, label, unit, points }] }` |
 | `queryLogs` | `{ items, nextToken? }` |
 
-`omni.cloud.*` 全部走 L2（`logic.js` + `host.hmac` / `host.netFetch`）；升级后需从插件中心安装所需云厂商，已有连接的 `pluginId` 不变。服务端（Web）暂无 QuickJS 运行时，云能力仅桌面端可用。
+`omni.cloud.*` 全部走 L2（`logic.js` + `host.hmac` / `host.netFetch`）；升级后需从插件中心安装所需云厂商，已有连接的 `pluginId` 不变。桌面与 Web 共用同一套 QuickJS / WASM 运行时（宿主 API 版本 2）。单次调用超时 30 秒。
 
 ---
 

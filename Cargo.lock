@@ -5564,9 +5564,9 @@ dependencies = [
  "omnipanel-mcp",
  "omnipanel-panel",
  "omnipanel-plugin",
+ "omnipanel-plugin-host",
  "omnipanel-plugin-js",
  "omnipanel-plugin-pkg",
- "omnipanel-plugin-wasm",
  "omnipanel-presence",
  "omnipanel-protocol",
  "omnipanel-ssh",
@@ -5952,6 +5952,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-plugin-host"
+version = "0.0.5"
+dependencies = [
+ "omnipanel-error",
+ "omnipanel-plugin",
+ "omnipanel-plugin-js",
+ "omnipanel-plugin-wasm",
+ "omnipanel-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
+
+[[package]]
 name = "omnipanel-plugin-js"
 version = "0.0.5"
 dependencies = [
@@ -6078,8 +6094,12 @@ dependencies = [
  "omnipanel-error",
  "omnipanel-exec",
  "omnipanel-gateway",
+ "omnipanel-knowledge-source",
  "omnipanel-mcp",
  "omnipanel-panel",
+ "omnipanel-plugin",
+ "omnipanel-plugin-host",
+ "omnipanel-plugin-pkg",
  "omnipanel-presence",
  "omnipanel-protocol",
  "omnipanel-s3",

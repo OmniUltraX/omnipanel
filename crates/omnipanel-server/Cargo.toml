@@ -31,6 +31,10 @@ omnipanel-protocol = { path = "../omnipanel-protocol" }
 omnipanel-error = { path = "../omnipanel-error" }
 omnipanel-presence = { path = "../omnipanel-presence" }
 omnipanel-cloud = { path = "../omnipanel-cloud" }
+omnipanel-plugin = { path = "../omnipanel-plugin" }
+omnipanel-plugin-host = { path = "../omnipanel-plugin-host" }
+omnipanel-plugin-pkg = { path = "../omnipanel-plugin-pkg" }
+omnipanel-knowledge-source = { path = "../omnipanel-knowledge-source" }
 omnipanel-ssh = { path = "../omnipanel-ssh" }
 omnipanel-store = { path = "../omnipanel-store" }
 omnipanel-ai = { path = "../omnipanel-ai" }

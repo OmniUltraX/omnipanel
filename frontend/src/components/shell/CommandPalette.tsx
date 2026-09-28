@@ -4,7 +4,9 @@ import { useActionStore } from "../../stores/actionStore";
 import { goWorkspaceHome, navigateToFeature, navigateToSshManagement } from "../../lib/workspaceNavigation";
 import { MODULE_PATHS, PLUGINS_PATH } from "../../lib/paths";
 import { isModuleOpen, useAppModuleStore } from "../../stores/appModuleStore";
-import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { PLUGIN_ID_EVERYTHING, usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { everythingBrowsePath, searchEverything, type EverythingHit } from "../../lib/everythingSearch";
+import { applyQuickLauncherResourceAction } from "../../lib/quickLauncherActions";
 import { importerEntries, listActiveImporters, resolveImporterText } from "../../lib/importerCatalog";
 import { openImporter } from "../../modules/importer/ImporterWizardDialog";
 import { useI18n } from "../../i18n";
@@ -179,6 +181,10 @@ export function CommandPalette() {
   const [showRecent, setShowRecent] = useState(true);
   const [matchMode, setMatchMode] = useState<"and" | "or">("and");
   const [resourceHits, setResourceHits] = useState<SearchEverywhereHit[]>([]);
+  const [fileHits, setFileHits] = useState<EverythingHit[]>([]);
+  const everythingEnabled = usePluginRuntimeStore((s) =>
+    s.items.some((item) => item.id === PLUGIN_ID_EVERYTHING && item.enabled && item.activated),
+  );
   const inputRef = useRef<HTMLInputElement>(null);
 
   const blockedCount = useActionStore((s) => s.actions.filter((a) => a.status === "blocked").length);
@@ -255,6 +261,32 @@ export function CommandPalette() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在打开与查询变化时搜索
   }, [query, isOpen, matchMode]);
 
+  useEffect(() => {
+    if (!isOpen || !everythingEnabled) {
+      setFileHits([]);
+      return;
+    }
+    const textQuery = query.replace(/#[^\s#]+/g, " ").trim();
+    if (textQuery.length < 1) {
+      setFileHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void searchEverything(textQuery, 8)
+        .then((hits) => {
+          if (!cancelled) setFileHits(hits);
+        })
+        .catch(() => {
+          if (!cancelled) setFileHits([]);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query, isOpen, everythingEnabled]);
+
   // 搜索过滤命令（#token 不参与命令匹配）
   const commandQuery = useMemo(
     () => query.replace(/#[^\s#]+/g, " ").trim().toLowerCase(),
@@ -271,7 +303,8 @@ export function CommandPalette() {
 
   type PaletteRow =
     | { type: "command"; cmd: CommandItem }
-    | { type: "resource"; hit: SearchEverywhereHit };
+    | { type: "resource"; hit: SearchEverywhereHit }
+    | { type: "file"; hit: EverythingHit };
 
   // 分组：无搜索词时最近使用置顶；有查询时命令 + 资源
   const grouped = useMemo(() => {
@@ -292,8 +325,14 @@ export function CommandPalette() {
         hit,
       }));
     }
+    if (fileHits.length > 0) {
+      groups[t("shell.commandPalette.categories.files")] = fileHits.map((hit) => ({
+        type: "file" as const,
+        hit,
+      }));
+    }
     return groups;
-  }, [filtered, showRecent, recentCommands, query, t, resourceHits]);
+  }, [filtered, showRecent, recentCommands, query, t, resourceHits, fileHits]);
 
   // 扁平化用于上下键导航
   const flatList = useMemo(() => {
@@ -306,6 +345,7 @@ export function CommandPalette() {
     setSelectedIndex(0);
     setShowRecent(true);
     setResourceHits([]);
+    setFileHits([]);
   }, []);
 
   // 双 Shift 触发
@@ -316,6 +356,7 @@ export function CommandPalette() {
       setSelectedIndex(0);
       setShowRecent(false); // 双 Shift 专注搜索，不显示最近
       setResourceHits([]);
+      setFileHits([]);
     }
   });
 
@@ -348,7 +389,7 @@ export function CommandPalette() {
 
   useEffect(() => {
     setSelectedIndex(0);
-  }, [query, resourceHits]);
+  }, [query, resourceHits, fileHits]);
 
   const openResourceHit = useCallback(
     (hit: SearchEverywhereHit) => {
@@ -389,7 +430,15 @@ export function CommandPalette() {
   const activateRow = useCallback(
     (row: PaletteRow) => {
       if (row.type === "command") execute(row.cmd);
-      else openResourceHit(row.hit);
+      else if (row.type === "resource") openResourceHit(row.hit);
+      else {
+        applyQuickLauncherResourceAction({
+          kind: "open-path",
+          path: everythingBrowsePath(row.hit.path, row.hit.isFolder),
+        });
+        setIsOpen(false);
+        setQuery("");
+      }
     },
     [execute, openResourceHit],
   );
@@ -492,6 +541,23 @@ export function CommandPalette() {
                             {shortcut}
                           </kbd>
                         )}
+                      </button>
+                    );
+                  }
+                  if (row.type === "file") {
+                    const file = row.hit;
+                    const name = file.path.split(/[/\\]/).pop() || file.path;
+                    return (
+                      <button
+                        key={`${category}-${file.path}`}
+                        className={`w-full flex items-center justify-between px-4 py-2 text-sm transition-colors ${
+                          isSelected ? "bg-accent/10 text-accent" : "text-fg-2 hover:bg-surface-hover"
+                        }`}
+                        onClick={() => activateRow(row)}
+                        onMouseEnter={() => setSelectedIndex(currentIndex)}
+                      >
+                        <span className="truncate">{name}</span>
+                        <span className="text-[11px] text-meta shrink-0 ml-2 max-w-[240px] truncate">{file.path}</span>
                       </button>
                     );
                   }

@@ -67,6 +67,7 @@ import {
   testFileConnection,
 } from "./fileApi";
 import { ensureSftpForSsh, syncSshSftpConnections } from "./syncSshSftp";
+import { FILES_PENDING_PATH_EVENT, takeFilesPendingPath } from "../../lib/filesPendingPath";
 import { LOCAL_CONNECTION_ID } from "./utils";
 import { FilesModuleContextBridge } from "./ai/FilesModuleContextBridge";
 import {
@@ -262,6 +263,18 @@ function FilesBrowserView() {
       pendingNavigateRef.current = null;
     }
   }, [openConnection, setPanelState]);
+
+  useEffect(() => {
+    if (!sessionHydrated) return;
+    const consume = () => {
+      const path = takeFilesPendingPath();
+      if (!path) return;
+      navigateConnectionToPath(LOCAL_CONNECTION_ID, path, "preview");
+    };
+    consume();
+    window.addEventListener(FILES_PENDING_PATH_EVENT, consume);
+    return () => window.removeEventListener(FILES_PENDING_PATH_EVENT, consume);
+  }, [sessionHydrated, navigateConnectionToPath]);
 
   const handleCloseTab = useCallback((tabId: string) => {
     const connId = parseFileConnPanelId(tabId);

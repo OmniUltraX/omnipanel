@@ -95,10 +95,13 @@ function applyEnsureResult(result: {
       4000,
     );
   }
-  if (result.notFound.length > 0) {
+  // 引擎状态键 `plugin:siyuan` 会被旧后端误解析成插件 id「siyuan」。
+  // 真实插件 id 都带点（omni.knowledge.siyuan），无点的不提示。
+  const missing = result.notFound.filter((item) => item.id.includes("."));
+  if (missing.length > 0) {
     showToast(
       t("plugins.ensure.notFoundToast", {
-        names: result.notFound.map((item) => item.name || item.id).join("、"),
+        names: missing.map((item) => item.name || item.id).join("、"),
       }),
       5000,
     );

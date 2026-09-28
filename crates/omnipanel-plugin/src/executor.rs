@@ -130,6 +130,10 @@ pub trait PluginHostBridge: Send + Sync {
     fn state_set(&self, _payload: &str) -> Result<(), String> {
         Err("state.set 未装配".into())
     }
+    /// `{ command, timeoutMs? }`。连接 id 只来自宿主注入，插件参数里的 connectionId 无效。
+    fn ssh_exec(&self, _spec_json: &str) -> Result<String, String> {
+        Err("ssh.exec 未装配".into())
+    }
 }
 
 /// 按逻辑包类型路由到对应引擎的组合执行器。

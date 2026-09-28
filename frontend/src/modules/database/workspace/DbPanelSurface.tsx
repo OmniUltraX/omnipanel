@@ -150,10 +150,23 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const tabState = sqlTabState ?? createDefaultSqlTabState();
 
   const detailPosition = useSettingsStore((s) => s.databaseTableDetailPosition);
+  const sqlResultPanelDefaultOpen = useSettingsStore((s) => s.sqlResultPanelDefaultOpen);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
 
   const resultSessions = tabState.resultSessions ?? [];
   const hasResultPanel = resultSessions.length > 0;
+  const [resultsOverride, setResultsOverride] = useState<boolean | null>(null);
+  const resultsOpen = resultsOverride ?? sqlResultPanelDefaultOpen;
+  const prevResultCountRef = useRef(resultSessions.length);
+  useEffect(() => {
+    if (resultSessions.length > prevResultCountRef.current) {
+      setResultsOverride(true);
+    }
+    prevResultCountRef.current = resultSessions.length;
+  }, [resultSessions.length]);
+  const toggleResults = useCallback(() => {
+    setResultsOverride((current) => !(current ?? sqlResultPanelDefaultOpen));
+  }, [sqlResultPanelDefaultOpen]);
 
   const activeResultSession = useMemo(() => {
     const activeId = tabState.activeResultSessionId;
@@ -490,14 +503,14 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态变化时同步
   }, [effectiveDetailPosition, hasResultPanel]);
 
-  // 激活单元格时自动打开「值」预览
+  // 单击一个单元格时打开「值」预览。拖拽多选不打开。
   useLayoutEffect(() => {
-    if (!activeCell) return;
+    if (!activeCell || selectedCells.length > 1) return;
     setDetailTab("value");
     if (detailCollapsed) {
       expandDetailPanel();
     }
-  }, [activeCellKey]); // eslint-disable-line react-hooks/exhaustive-deps -- 仅单元格切换时展开
+  }, [activeCellKey, selectedCells.length]); // eslint-disable-line react-hooks/exhaustive-deps -- 仅单元格切换时展开
 
   // 失去单元格焦点 / 选区清空 → 收起预览
   useEffect(() => {
@@ -506,9 +519,10 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     collapseDetailPanel();
   }, [activeCell, selectedCells.length, detailCollapsed, collapseDetailPanel]);
 
-  // Esc：先收起预览，再清除单元格焦点
+  // Esc：与表数据一致，先收起单元格预览，再清选区。
+  // 历史结果没有 resultSessions，底栏仍然开着，不能只用 hasResultPanel 判断。
   useEffect(() => {
-    if (!isActiveTab || !hasResultPanel) return;
+    if (!isActiveTab || !resultsOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (event.defaultPrevented) return;
@@ -528,7 +542,6 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         event.preventDefault();
         event.stopImmediatePropagation();
         collapseDetailPanel();
-        clearResultSelection();
         return;
       }
 
@@ -542,7 +555,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [
     isActiveTab,
-    hasResultPanel,
+    resultsOpen,
     detailCollapsed,
     activeCell,
     selectedCells.length,
@@ -585,6 +598,8 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           onAutoCommitChange={(next) => void ws.setSqlAutoCommit(tab.id, next)}
           onCommit={() => void ws.commitSqlTransaction(tab.id)}
           onRollback={() => void ws.rollbackSqlTransaction(tab.id)}
+          resultsOpen={resultsOpen}
+          onToggleResults={toggleResults}
         />
         <div className="sql-toolbar-right">
         {schemaLoading && (
@@ -754,7 +769,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     </div>
   );
 
-  const sqlMainSplit = hasResultPanel ? (
+  const sqlMainSplit = resultsOpen ? (
     <DockLayout direction="vertical" className="db-sql-split">
       <DockPanel key={tab.id} defaultSize={55} minSize={160}>
         {editorBody}

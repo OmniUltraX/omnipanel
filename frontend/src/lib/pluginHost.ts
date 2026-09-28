@@ -375,6 +375,21 @@ export function createPluginHost(pluginId: string): PluginHost {
     },
     invoke: async (method, args) =>
       unwrapCommand(commands.pluginInvoke(pluginId, method, (args ?? null) as never)),
+    sshExec: async () => {
+      throw new Error("sshExec 仅能在 L2 logic 里调用");
+    },
+    hmac: async () => {
+      throw new Error("hmac 仅能在 L2 logic 或沙箱 host.hmac 里调用");
+    },
+    hash: async () => {
+      throw new Error("hash 仅能在 L2 logic 或沙箱 host.hash 里调用");
+    },
+    sign: async () => {
+      throw new Error("sign 仅能在 L2 logic 或沙箱 host.sign 里调用");
+    },
+    encode: async () => {
+      throw new Error("encode 仅能在 L2 logic 或沙箱 host.encode 里调用");
+    },
     ai: {
       complete: async (spec) => {
         await requirePluginPermission(pluginId, "ai:tools");

@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { commands } from "../../ipc/bindings";
-import { formatIpcError, ipcErrorCode, unwrapCommand } from "../../ipc/result";
+import { formatIpcError, ipcErrorCode } from "../../ipc/result";
+import { searchEverything } from "../../lib/everythingSearch";
 import type { QuickLaunchMatchRow } from "../../lib/quickLauncherMatch";
-import { PLUGIN_ID_EVERYTHING } from "../../stores/pluginRuntimeStore";
 import { showToast } from "../../stores/toastStore";
 
 const ES_DEBOUNCE_MS = 250;
@@ -27,29 +26,20 @@ export function useDebouncedEsQuery(
     }
     const handle = window.setTimeout(() => {
       const seq = ++seqRef.current;
-      void unwrapCommand(
-        commands.pluginInvoke(PLUGIN_ID_EVERYTHING, "search", {
-          query: filter || "*",
-          max_results: 12,
-        } as never),
-      )
-        .then((value) => {
+      void searchEverything(filter || "*", 12)
+        .then((hits) => {
           if (seq !== seqRef.current) return;
           notRunningNotifiedRef.current = false;
-          const hits = Array.isArray(value) ? value : [];
           setRows(
-            hits.map((hit, index) => {
-              const rec = hit && typeof hit === "object" ? (hit as { path?: unknown }) : {};
-              const path = typeof rec.path === "string" ? rec.path : String(hit);
-              return {
-                type: "everything-path" as const,
-                id: `es:${path}:${index}`,
-                path,
-                label: path.split(/[/\\]/).pop() || path,
-                subtitle: path,
-                score: 80,
-              };
-            }),
+            hits.map((hit, index) => ({
+              type: "everything-path" as const,
+              id: `es:${hit.path}:${index}`,
+              path: hit.path,
+              isFolder: hit.isFolder,
+              label: hit.path.split(/[/\\]/).pop() || hit.path,
+              subtitle: hit.path,
+              score: 80,
+            })),
           );
         })
         .catch((err) => {

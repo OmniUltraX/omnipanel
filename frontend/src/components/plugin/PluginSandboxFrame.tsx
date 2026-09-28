@@ -21,7 +21,15 @@ export type SandboxRequestMethod =
   | "aiComplete"
   | "overlayInitial"
   | "clipboard.write"
-  | "network.getLocalIPs";
+  | "network.getLocalIPs"
+  | "hmac"
+  | "hash"
+  | "sign"
+  | "encode"
+  | "vault.get"
+  | "vault.has"
+  | "vault.put"
+  | "vault.delete";
 
 export type SandboxRequest = {
   __omni: true;
@@ -105,7 +113,15 @@ const PRELUDE = `
     // 只写剪贴板（读剪贴永不开放，防外泄）；宿主侧写审计。
     clipboardWrite: function (text) { return this.request("clipboard.write", { text: String(text) }); },
     // 本机内网地址（UDP 技巧本地判定，不出网）；无敏感凭据，不审计。
-    networkGetLocalIps: function () { return this.request("network.getLocalIPs"); }
+    networkGetLocalIps: function () { return this.request("network.getLocalIPs"); },
+    hmac: function (spec) { return this.request("hmac", spec); },
+    hash: function (spec) { return this.request("hash", spec); },
+    sign: function (spec) { return this.request("sign", spec); },
+    encode: function (spec) { return this.request("encode", spec); },
+    vaultGet: function (key) { return this.request("vault.get", { key: key }); },
+    vaultHas: function (key) { return this.request("vault.has", { key: key }); },
+    vaultPut: function () { return this.request("vault.put"); },
+    vaultDelete: function () { return this.request("vault.delete"); }
   };
   // 沙箱 CSP 默认拒外联：页内 fetch/XHR 原生必死。透明代理到宿主 netFetch
   // （逐次过 net:connect 权限闸 + prod 确认 + 审计），缺权即以可读错误拒绝。
@@ -188,6 +204,88 @@ const PRELUDE = `
 
 export type SandboxTheme = "dark" | "light";
 
+type CryptoSpec = {
+  alg?: string;
+  key?: string;
+  data?: string;
+  encoding?: string;
+  keyEncoding?: string;
+  dataEncoding?: string;
+};
+
+function asBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return copy;
+}
+
+function bytesOf(text: string, encoding: string | undefined): Uint8Array {
+  const enc = (encoding || "utf8").toLowerCase();
+  if (enc === "hex") {
+    const clean = text.trim();
+    const out = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < out.length; i += 1) out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+    return out;
+  }
+  if (enc === "base64" || enc === "base64url") {
+    const pad = text.replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(pad);
+    return Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+  }
+  return new TextEncoder().encode(text);
+}
+
+function formatBytes(bytes: Uint8Array, encoding: string | undefined): string {
+  const enc = (encoding || "hex").toLowerCase();
+  if (enc === "base64" || enc === "base64url") {
+    let bin = "";
+    bytes.forEach((b) => {
+      bin += String.fromCharCode(b);
+    });
+    const b64 = btoa(bin);
+    return enc === "base64url" ? b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "") : b64;
+  }
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function sandboxCrypto(method: string, args: unknown): Promise<string> {
+  const spec = (typeof args === "string" ? JSON.parse(args) : args ?? {}) as CryptoSpec;
+  const data = bytesOf(String(spec.data ?? ""), spec.dataEncoding);
+  if (method === "encode") {
+    return formatBytes(data, spec.encoding);
+  }
+  const alg = (spec.alg || "sha256").toLowerCase();
+  const hashName = alg.includes("sha1") ? "SHA-1" : "SHA-256";
+  if (method === "hash") {
+    const digest = new Uint8Array(await crypto.subtle.digest(hashName, asBuffer(data)));
+    return formatBytes(digest, spec.encoding);
+  }
+  if (method === "hmac") {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      asBuffer(bytesOf(String(spec.key ?? ""), spec.keyEncoding)),
+      { name: "HMAC", hash: hashName },
+      false,
+      ["sign"],
+    );
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, asBuffer(data)));
+    return formatBytes(mac, spec.encoding);
+  }
+  const pem = String(spec.key ?? "");
+  const body = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const pkcs8 = bytesOf(body, "base64");
+  const privateKey = await crypto.subtle.importKey(
+    "pkcs8",
+    asBuffer(pkcs8),
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", privateKey, asBuffer(data)));
+  return formatBytes(sig, spec.encoding || "base64url");
+}
+
+
 /** 越权/未知方法拒绝文案；null 表示该 method 允许进入后续处理。 */
 export function sandboxBridgeDenyReason(
   method: string | undefined,
@@ -205,7 +303,17 @@ export function sandboxBridgeDenyReason(
     case "overlayInitial":
     case "clipboard.write":
     case "network.getLocalIPs":
+    case "hmac":
+    case "hash":
+    case "sign":
+    case "encode":
       return null;
+    case "vault.get":
+    case "vault.has":
+      return granted.has("vault:read") ? null : "缺权限 vault:read";
+    case "vault.put":
+    case "vault.delete":
+      return "沙箱拒绝写入 vault";
     default:
       return `白名单外的方法: ${String(method)}`;
   }
@@ -228,13 +336,50 @@ export function formatSandboxBridgeBlockLog(
 export function sandboxBridgeAuditPermission(method: string | undefined): string {
   if (method === "netFetch") return "net:connect";
   if (method === "aiComplete") return "ai:tools";
+  if (method === "vault.get" || method === "vault.has") return "vault:read";
+  if (method === "vault.put" || method === "vault.delete") return "vault:write";
   return "ui:selection";
+}
+
+const HOST_THEME_VARS = [
+  "--bg",
+  "--bg-deeper",
+  "--surface",
+  "--surface-hover",
+  "--surface-active",
+  "--fg",
+  "--fg-2",
+  "--muted",
+  "--meta",
+  "--border",
+  "--border-soft",
+  "--border-focus",
+  "--accent",
+  "--accent-hover",
+  "--accent-soft",
+  "--success",
+  "--warn",
+  "--danger",
+] as const;
+
+/** 打开 Overlay 时抄宿主当前 CSS 变量；读不到则回退静态深浅色。 */
+export function readHostThemeVars(): string {
+  if (typeof document === "undefined") return "";
+  const style = getComputedStyle(document.documentElement);
+  const decls = HOST_THEME_VARS.map((name) => {
+    const value = style.getPropertyValue(name).trim();
+    return value ? `${name}:${value}` : "";
+  }).filter(Boolean);
+  if (decls.length === 0) return "";
+  const theme = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  return `<style id="omni-host-theme">:root{${decls.join(";")}}</style><script>document.documentElement.dataset.theme=${JSON.stringify(theme)};</script>`;
 }
 
 export function buildSandboxDoc(
   pluginHtml: string,
   theme: SandboxTheme = "dark",
   compatJs = "",
+  hostThemeCss = "",
 ): string {
   // 在 <head> 或文档最前插入 CSP、主题基座与桥；无 head 标签时前置拼接。
   // light 主题多一段脚本把 data-theme 打到 <html> 上（dark 为缺省，无需设置）。
@@ -246,7 +391,7 @@ export function buildSandboxDoc(
   const compatScript = compatJs.trim()
     ? `<script>/* compat shim */\n${compatJs}\n</script>`
     : "";
-  const head = `${CSP_META}${THEME_STYLE}${PRELUDE}${compatScript}${themeScript}`;
+  const head = `${CSP_META}${THEME_STYLE}${hostThemeCss}${PRELUDE}${compatScript}${themeScript}`;
   if (/<head[\s>]/i.test(pluginHtml)) {
     return pluginHtml.replace(/<head([^>]*)>/i, `<head$1>${head}`);
   }
@@ -269,7 +414,10 @@ type Props = {
 
 export function PluginSandboxFrame({ pluginId, title, html, compatJs, theme, onInvoke, onHide }: Props) {
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const doc = useMemo(() => buildSandboxDoc(html, theme, compatJs ?? ""), [html, theme, compatJs]);
+  const doc = useMemo(
+    () => buildSandboxDoc(html, theme, compatJs ?? "", readHostThemeVars()),
+    [html, theme, compatJs],
+  );
 
   useEffect(() => {
     async function handleMessage(ev: MessageEvent) {
@@ -304,6 +452,21 @@ export function PluginSandboxFrame({ pluginId, title, html, compatJs, theme, onI
         const granted = new Set(manifest?.permissions ?? []);
         const denyReason = sandboxBridgeDenyReason(data.method, granted);
         if (denyReason) {
+          if (data.method === "vault.put" || data.method === "vault.delete") {
+            const { commands } = await import("../../ipc/bindings");
+            const { unwrapCommand } = await import("../../ipc/result");
+            await unwrapCommand(
+              commands.auditLogAppend({
+                ts: Date.now(),
+                action: "plugin.vault",
+                target: pluginId,
+                env_tag: "-",
+                risk: "medium",
+                status: "blocked",
+                detail: `${data.method} sandbox`,
+              }),
+            ).catch(() => undefined);
+          }
           await deny(sandboxBridgeAuditPermission(data.method), denyReason);
           return;
         }
@@ -329,6 +492,30 @@ export function PluginSandboxFrame({ pluginId, title, html, compatJs, theme, onI
           }
           case "network.getLocalIPs": {
             respond(await onInvoke("network.getLocalIPs", data.args));
+            break;
+          }
+          case "hmac":
+          case "hash":
+          case "sign":
+          case "encode": {
+            respond(await sandboxCrypto(data.method, data.args));
+            break;
+          }
+          case "vault.get":
+          case "vault.has": {
+            const key = String(((data.args ?? {}) as { key?: unknown }).key ?? "");
+            const { commands } = await import("../../ipc/bindings");
+            const { unwrapCommand } = await import("../../ipc/result");
+            if (data.method === "vault.has") {
+              respond(await unwrapCommand(commands.pluginSecretHas(pluginId, key)));
+            } else {
+              respond(await unwrapCommand(commands.pluginSecretGet(pluginId, key)));
+            }
+            break;
+          }
+          case "vault.put":
+          case "vault.delete": {
+            await deny("vault:write", "沙箱拒绝写入 vault");
             break;
           }
           case "overlay.hide": {

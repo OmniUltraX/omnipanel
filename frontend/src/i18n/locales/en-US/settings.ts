@@ -404,6 +404,8 @@ export default {
       editorKeywordCaseLower: "Lowercase",
       formatSqlOnSave: "Format SQL on save",
       formatSqlOnSaveDesc: "Automatically format SQL when saving a file or workspace tab",
+      resultPanelDefaultOpen: "Show results panel on open",
+      resultPanelDefaultOpenDesc: "Open the bottom results and run history when a SQL query is opened again",
     },
     files: {
       label: "Files",

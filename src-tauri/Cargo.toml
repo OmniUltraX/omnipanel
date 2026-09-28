@@ -13,8 +13,7 @@ name = "omnipanel-app"
 path = "src/main.rs"
 
 [features]
-plugin-wasm = ["dep:omnipanel-plugin-wasm"]
-# 兼容旧命令行。Tauri CLI 固定 `--no-default-features`，L2 JS 已改为硬依赖，
+# 兼容旧命令行。Tauri CLI 固定 `--no-default-features`，L2 JS/WASM 已改为硬依赖，
 # 不能再靠 default= ["plugin-js"]（`tauri dev --features dev-mcp` 会把 default 剥掉）。
 plugin-js = []
 # 仅用于排查打包问题；正式发布勿启用（macOS 使用私有 API，无法上架 App Store）。
@@ -57,7 +56,7 @@ omnipanel-mcp = { path = "../crates/omnipanel-mcp" }
 omnipanel-cloud = { path = "../crates/omnipanel-cloud" }
 omnipanel-plugin = { path = "../crates/omnipanel-plugin" }
 omnipanel-plugin-pkg = { path = "../crates/omnipanel-plugin-pkg" }
-omnipanel-plugin-wasm = { path = "../crates/omnipanel-plugin-wasm", optional = true }
+omnipanel-plugin-host = { path = "../crates/omnipanel-plugin-host" }
 omnipanel-plugin-js = { path = "../crates/omnipanel-plugin-js" }
 omnipanel-everything = { path = "../crates/omnipanel-everything" }
 omnipanel-presence = { path = "../crates/omnipanel-presence" }

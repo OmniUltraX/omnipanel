@@ -1214,7 +1214,7 @@ async fn install_via_shell_script(
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelProbeItem {
-    /// 面板类型：bt（宝塔） / 1panel
+    /// 面板类型：bt（宝塔） / 1panel / hestia
     pub kind: String,
     /// 是否已安装
     pub installed: bool,
@@ -1732,8 +1732,24 @@ EOF
     echo "@ENDPANEL:1panel"
 }
 
+probe_hestia() {
+    echo "@PANEL:hestia"
+    installed=0
+    if [ -x /usr/local/hestia/bin/v-list-sys-info ] || [ -d /usr/local/hestia ]; then
+        installed=1
+    fi
+    echo "installed:$installed"
+    echo "port:8083"
+    echo "entrance:"
+    echo "api_enabled:0"
+    echo "api_key:"
+    echo "note:使用面板里已有的 Access Key，探测不会改远端配置"
+    echo "@ENDPANEL:hestia"
+}
+
 probe_bt
 probe_1panel
+probe_hestia
 "#.to_string()
 }
 
@@ -1891,7 +1907,7 @@ pub async fn probe_panels(
     let mut panels = parse_panel_probe_output(&combined);
     // 已安装但 API 未开 / Key 不可用：自动开启并回填真正的接口密钥
     for panel in &mut panels {
-        if !panel.installed {
+        if !panel.installed || panel.kind == "hestia" {
             continue;
         }
         if panel.api_enabled && panel_api_key_usable(&panel.kind, &panel.api_key) {
@@ -1986,8 +2002,17 @@ pub async fn enable_panel_api(
     allow_all: bool,
 ) -> Result<EnablePanelApiResult, OmniError> {
     let kind = kind.trim().to_ascii_lowercase();
+    if kind == "hestia" {
+        return Ok(EnablePanelApiResult {
+            kind,
+            enabled: false,
+            api_key: String::new(),
+            message: "Hestia 使用面板里已有的 Access Key，不会改远端配置".into(),
+            restarted: false,
+        });
+    }
     if kind != "bt" && kind != "1panel" {
-        return Err(OmniError::invalid_input("kind 须为 bt 或 1panel"));
+        return Err(OmniError::invalid_input("kind 须为 bt、1panel 或 hestia"));
     }
 
     let script = build_enable_panel_api_script(&kind, allow_all);
@@ -2536,6 +2561,12 @@ note:v2.2.3
         assert_eq!(panels.len(), 2);
         assert!(panels[0].installed);
         assert_eq!(panels[0].kind, "bt");
+        let hestia = parse_panel_probe_output(
+            "@PANEL:hestia\ninstalled:1\nport:8083\napi_enabled:0\nnote:use existing key\n@ENDPANEL:hestia\n",
+        );
+        assert_eq!(hestia.len(), 1);
+        assert_eq!(hestia[0].kind, "hestia");
+        assert!(hestia[0].installed);
         assert_eq!(panels[0].port, 7777);
         assert_eq!(panels[0].entrance, "/baota");
         assert!(!panels[0].api_enabled);
