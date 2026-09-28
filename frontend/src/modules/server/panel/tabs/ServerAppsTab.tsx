@@ -26,6 +26,7 @@ import {
 import { useServerApps } from "../useServerApps";
 import { AppInstallLogDialog } from "../AppInstallLogDialog";
 import { AppInstalledParamsDialog } from "../AppInstalledParamsDialog";
+import { AppMarketDetailSubWindow } from "../AppMarketDetailSubWindow";
 import {
   openPanelAppDatabaseConnection,
   preparePanelAppDatabaseImport,
@@ -204,6 +205,7 @@ export function ServerAppsTab({ server }: Props) {
     appKey?: string;
     appType?: string;
   } | null>(null);
+  const [detailTarget, setDetailTarget] = useState<MarketCard | null>(null);
   const [managingKey, setManagingKey] = useState<string | null>(null);
   const [dbImportForm, setDbImportForm] = useState<ConnectionFormData | null>(null);
 
@@ -493,6 +495,29 @@ export function ServerAppsTab({ server }: Props) {
 
   const busyMeta = loading || refreshing || syncing;
 
+  // 详情窗打开期间列表刷新时，用最新卡片状态替换（安装中 → 已安装等）
+  const detailApp = useMemo(() => {
+    if (!detailTarget) return null;
+    const key = (detailTarget.key || "").trim();
+    if (!key) return detailTarget;
+    return cards.find((item) => item.key === key) ?? detailTarget;
+  }, [cards, detailTarget]);
+
+  const detailIconSrc = useMemo(() => {
+    if (!detailApp) return null;
+    return (
+      (detailApp.key ? iconCache[detailApp.key] : null) ||
+      resolveIconSrc(detailApp.icon, iconCache)
+    );
+  }, [detailApp, iconCache]);
+
+  const detailCanOpenParams =
+    Boolean(detailApp) &&
+    canOpenInstalledParams &&
+    detailApp!.installState === "installed" &&
+    detailApp!.installId != null &&
+    (!isBtPanelService(server.serviceType) || isPanelAppManagedByDatabase(detailApp!));
+
   return (
     <div className="server-panel-tab server-apps server-apps--embedded">
       <div className="server-apps-toolbar">
@@ -593,30 +618,19 @@ export function ServerAppsTab({ server }: Props) {
                 (!isBtPanelService(server.serviceType) || isPanelAppManagedByDatabase(app));
               const canManageInDatabase = canOpenParams && isPanelAppManagedByDatabase(app);
               const installedMeta = formatInstalledMeta(app);
-              const openParams = () => {
-                if (app.installId == null) return;
-                setParamsTarget({
-                  installId: app.installId,
-                  label: app.name || app.key || "—",
-                  appKey: app.key,
-                  appType: app.type,
-                });
-              };
+              const openDetail = () => setDetailTarget(app);
               return (
                 <div
                   key={cardKey}
-                  className={canOpenParams ? "server-app-card server-app-card--clickable" : "server-app-card"}
-                  role={canOpenParams ? "button" : undefined}
-                  tabIndex={canOpenParams ? 0 : undefined}
-                  title={canOpenParams ? t("server.appMarket.paramsOpenHint") : undefined}
-                  onClick={() => {
-                    if (canOpenParams) openParams();
-                  }}
+                  className="server-app-card server-app-card--clickable"
+                  role="button"
+                  tabIndex={0}
+                  title={t("server.appMarket.detailOpenHint")}
+                  onClick={openDetail}
                   onKeyDown={(event) => {
-                    if (!canOpenParams) return;
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      openParams();
+                      openDetail();
                     }
                   }}
                 >
@@ -775,6 +789,48 @@ export function ServerAppsTab({ server }: Props) {
         ) : null}
       </div>
 
+      <AppMarketDetailSubWindow
+        open={detailApp != null}
+        onClose={() => setDetailTarget(null)}
+        server={server}
+        app={detailApp}
+        iconSrc={detailIconSrc}
+        canInstall={canInstall}
+        canUninstall={canUninstall}
+        canOpenParams={detailCanOpenParams}
+        canManageInDatabase={detailCanOpenParams && isPanelAppManagedByDatabase(detailApp ?? {})}
+        canViewInstallLog={
+          Boolean(detailApp?.installId) &&
+          (detailApp?.installState === "installing" || detailApp?.installState === "failed")
+        }
+        busy={detailApp != null && installingKey === detailApp.key}
+        managing={detailApp != null && managingKey === detailApp.key}
+        onInstall={() => {
+          if (detailApp) void handleInstall(detailApp);
+        }}
+        onUninstall={() => {
+          if (detailApp) void handleUninstall(detailApp);
+        }}
+        onOpenParams={() => {
+          if (detailApp?.installId == null) return;
+          setParamsTarget({
+            installId: detailApp.installId,
+            label: detailApp.name || detailApp.key || "—",
+            appKey: detailApp.key,
+            appType: detailApp.type,
+          });
+        }}
+        onManageInDatabase={() => {
+          if (detailApp) void handleManageInDatabase(detailApp);
+        }}
+        onViewInstallLog={() => {
+          if (detailApp?.installId == null) return;
+          setLogTarget({
+            installId: detailApp.installId,
+            label: detailApp.name || detailApp.key || "—",
+          });
+        }}
+      />
       <AppInstallLogDialog
         open={logTarget != null}
         onOpenChange={(open) => {

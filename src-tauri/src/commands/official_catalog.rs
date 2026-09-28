@@ -624,15 +624,15 @@ mod tests {
     fn catalog_marks_installed() {
         let registry = seed_registry();
         let mut installed = HashMap::new();
-        installed.insert("omni.importer.warpgate".into(), "0.2.1".into());
+        installed.insert("omni.importer.docker-db".into(), "0.1.0".into());
         let items = to_catalog_items(&registry, &installed);
-        let warpgate = items
+        let docker_db = items
             .iter()
-            .find(|p| p.id == "omni.importer.warpgate")
-            .expect("warpgate");
-        assert!(warpgate.installed);
-        assert_eq!(warpgate.installed_version.as_deref(), Some("0.2.1"));
-        assert_eq!(warpgate.distribution, PluginDistribution::Bundled);
+            .find(|p| p.id == "omni.importer.docker-db")
+            .expect("docker-db");
+        assert!(docker_db.installed);
+        assert_eq!(docker_db.installed_version.as_deref(), Some("0.1.0"));
+        assert_eq!(docker_db.distribution, PluginDistribution::Bundled);
     }
 
     #[test]

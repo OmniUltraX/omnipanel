@@ -117,6 +117,26 @@ function isPackageIconPath(path: string): boolean {
   return /\.(svg|png)$/i.test(trimmed);
 }
 
+/** 单文件图标路径（包内 svg/png）。 */
+export const pluginIconPathSchema = z
+  .string()
+  .refine(isPackageIconPath, "icon 仅允许包内相对路径的 svg/png");
+
+/**
+ * 插件品牌图标：
+ * - 字符串：明暗共用
+ * - `{ light, dark }`：按主题分别提供
+ */
+export const pluginIconSchema = z.union([
+  pluginIconPathSchema,
+  z.object({
+    light: pluginIconPathSchema,
+    dark: pluginIconPathSchema,
+  }),
+]);
+
+export type PluginIcon = z.infer<typeof pluginIconSchema>;
+
 function isPackageJsonPath(path: string): boolean {
   const trimmed = path.trim();
   if (!trimmed || trimmed.startsWith("/") || trimmed.startsWith("\\") || trimmed.includes("://")) {
@@ -426,6 +446,12 @@ export const pluginManifestSchema = z.object({
   version: z.string().min(1),
   /** 侧栏 / 插件中心显示名；缺省回退宿主 i18n 或 id。 */
   displayName: z.string().min(1).optional(),
+  /**
+   * 插件品牌图标（包内 svg/png）。
+   * 可为单路径，或 `{ light, dark }` 适配主题。
+   * 插件中心 / 市场 / 首页优先使用；未声明时可回退 `contributes.ui.home.icon`。
+   */
+  icon: pluginIconSchema.optional(),
   kind: pluginKindSchema,
   permissions: z.array(pluginPermissionSchema).default([]),
   methods: z.array(pluginMethodSchema).optional(),

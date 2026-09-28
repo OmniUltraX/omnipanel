@@ -23,7 +23,7 @@ export default {
       sqlserver: "SQL Server",
       redis: "Redis",
       nacos: "Nacos",
-      warpgate: "Warpgate import",
+      warpgate: "Warpgate",
       dockerDb: "Docker DB scan",
       onepanel: "1Panel",
       bt: "BT Panel",

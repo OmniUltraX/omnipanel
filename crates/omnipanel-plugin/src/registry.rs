@@ -316,6 +316,7 @@ mod tests {
             id: id.into(),
             version: "0.1.0".into(),
             display_name: None,
+            icon: None,
             kind: PluginKind::Addon,
             contributes: PluginContributes {
                 launcher: Some(LauncherContribution {
@@ -426,6 +427,7 @@ mod tests {
             id: "omni.theme.default".into(),
             version: "0.1.0".into(),
             display_name: None,
+            icon: None,
             kind: PluginKind::Theme,
             contributes: PluginContributes::default(),
             permissions: vec![PluginPermission::NetConnect],

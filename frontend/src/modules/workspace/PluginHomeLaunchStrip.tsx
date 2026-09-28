@@ -3,27 +3,33 @@ import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../i18n";
 import {
   listPinnedHomePlugins,
-  loadPluginHomeIcon,
+  loadPluginIcon,
   openPluginHome,
   resolveHomeTitle,
+  resolvePluginIconPath,
   type EligibleHomePlugin,
 } from "../../lib/pluginHomeLaunch";
+import { getPluginManifest } from "../../lib/pluginManifests";
 import { errorToString } from "../../lib/errorToString";
 import { showToast } from "../../stores/toastStore";
 import { usePluginHomePinStore } from "../../stores/pluginHomePinStore";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 function HomeLaunchIcon({ entry }: { entry: EligibleHomePlugin }) {
   const [src, setSrc] = useState<string | null>(null);
+  const theme = useSettingsStore((s) => s.resolved);
+  const iconPath =
+    resolvePluginIconPath(getPluginManifest(entry.pluginId), theme) ?? entry.home.icon;
   useEffect(() => {
     let cancelled = false;
-    void loadPluginHomeIcon(entry.pluginId, entry.home.icon).then((next) => {
+    void loadPluginIcon(entry.pluginId, iconPath).then((next) => {
       if (!cancelled) setSrc(next);
     });
     return () => {
       cancelled = true;
     };
-  }, [entry.pluginId, entry.home.icon]);
+  }, [entry.pluginId, iconPath]);
 
   if (src) {
     return <img src={src} alt="" />;

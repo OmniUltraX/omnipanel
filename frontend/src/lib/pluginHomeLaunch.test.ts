@@ -7,6 +7,7 @@ import {
   listPinnedHomePlugins,
   parsePluginHomeContribution,
 } from "./pluginHomeContribution";
+import { resolvePluginIconPath } from "./pluginHomeLaunch";
 
 function item(id: string, enabled = true, activated = true): PluginListItem {
   return {
@@ -75,6 +76,48 @@ describe("pluginHomeLaunch", () => {
         },
       }),
     ).toThrow();
+    expect(() =>
+      parsePluginManifest({
+        id: "omni.test.icon",
+        version: "0.1.0",
+        kind: "addon",
+        icon: "https://example.com/a.png",
+        permissions: [],
+        contributes: {},
+      }),
+    ).toThrow();
+  });
+
+  it("resolvePluginIconPath 优先顶层 icon，再回退 home.icon，并按主题选 light/dark", () => {
+    const withTop = parsePluginManifest({
+      id: "omni.test.icon-top",
+      version: "0.1.0",
+      kind: "addon",
+      icon: "brand.png",
+      permissions: [],
+      contributes: {
+        ui: {
+          home: {
+            title: "T",
+            icon: "home.svg",
+            open: { kind: "overlay", id: "x" },
+          },
+        },
+      },
+    });
+    expect(resolvePluginIconPath(withTop, "light")).toBe("brand.png");
+    expect(resolvePluginIconPath(warpgateManifest, "dark")).toBe("icon.svg");
+
+    const themed = parsePluginManifest({
+      id: "omni.test.icon-themed",
+      version: "0.1.0",
+      kind: "addon",
+      icon: { light: "a-light.svg", dark: "a-dark.svg" },
+      permissions: [],
+      contributes: {},
+    });
+    expect(resolvePluginIconPath(themed, "light")).toBe("a-light.svg");
+    expect(resolvePluginIconPath(themed, "dark")).toBe("a-dark.svg");
   });
 
   it("用户取消钉选后不出现在启动条", () => {

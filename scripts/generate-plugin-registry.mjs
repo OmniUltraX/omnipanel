@@ -109,9 +109,9 @@ const META = {
     name: "Nacos",
     description: "Nacos console workbench (namespaces, configs, discovery). Install from the plugin market.",
   },
-  "omni.importer.warpgate": {
-    name: "Warpgate import",
-    description: "Import SSH and database targets from a Warpgate bastion.",
+  "omni.addon.warpgate": {
+    name: "Warpgate",
+    description: "Warpgate gateway accounts and SSH alternate routes (bastion jump).",
   },
   "omni.importer.docker-db": {
     name: "Docker database scan",

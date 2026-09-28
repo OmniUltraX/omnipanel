@@ -23,7 +23,7 @@ pub const PLUGIN_ID_ENGINE_SQLITE: &str = "omni.engine.sqlite";
 pub const PLUGIN_ID_ENGINE_SQLSERVER: &str = "omni.engine.sqlserver";
 /// 独立交付插件（不进 first_party_manifests）；仅作 id 常量供测试 / 文档引用。
 pub const PLUGIN_ID_MODULE_NACOS: &str = "omni.module.nacos";
-pub const PLUGIN_ID_IMPORTER_WARPGATE: &str = "omni.importer.warpgate";
+pub const PLUGIN_ID_ADDON_WARPGATE: &str = "omni.addon.warpgate";
 pub const PLUGIN_ID_IMPORTER_DOCKER_DB: &str = "omni.importer.docker-db";
 
 /// 仓库 `plugins/<dir>/plugin.json` 是第一方清单唯一事实源。
@@ -141,27 +141,20 @@ pub fn engine_sqlserver() -> PluginManifest {
     first_party_manifest!("db-sqlserver")
 }
 
-pub fn importer_warpgate() -> PluginManifest {
-    first_party_manifest!("importer-warpgate")
-}
-
 pub fn importer_docker_db() -> PluginManifest {
     first_party_manifest!("importer-docker-db")
 }
 
+/// download-only Warpgate 网关插件（仅测试读清单）。
+pub fn addon_warpgate() -> PluginManifest {
+    download_only_manifest("addon-warpgate")
+}
+
 /// 第一方 L2 逻辑包（内置插件不落盘时由宿主嵌入装载）。
-/// 全部云厂商已 download-only，不在此嵌入。
+/// 全部云厂商 / Warpgate 已 download-only，不在此嵌入。
 pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u8>> {
     let rel = logic_rel.trim().replace('\\', "/");
     match (plugin_id, rel.as_str()) {
-        (PLUGIN_ID_IMPORTER_WARPGATE, "logic.js") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/importer-warpgate/logic.js"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
         (PLUGIN_ID_PANEL_HESTIA, "logic.js") => Some(
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -185,14 +178,6 @@ pub fn first_party_asset_bytes(plugin_id: &str, rel: &str) -> Option<Vec<u8>> {
         return None;
     }
     match (plugin_id, rel.as_str()) {
-        (PLUGIN_ID_IMPORTER_WARPGATE, "icon.svg") => Some(
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../plugins/importer-warpgate/icon.svg"
-            ))
-            .as_bytes()
-            .to_vec(),
-        ),
         (PLUGIN_ID_IMPORTER_DOCKER_DB, "icon.svg") => Some(
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -217,7 +202,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
     vec![
         theme_default(),
         addon_everything(),
-        // 全部云厂商 → download-only（安装后经 Runtime 装载）
+        // 全部云厂商 / Warpgate → download-only（安装后经 Runtime 装载）
         panel_1panel(),
         panel_bt(),
         panel_hestia(),
@@ -229,7 +214,6 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         engine_redis(),
         engine_sqlite(),
         engine_sqlserver(),
-        importer_warpgate(),
         importer_docker_db(),
     ]
 }
@@ -288,14 +272,21 @@ mod tests {
         assert_eq!(engine_redis().id, PLUGIN_ID_ENGINE_REDIS);
         assert_eq!(engine_sqlite().id, PLUGIN_ID_ENGINE_SQLITE);
         assert_eq!(engine_sqlserver().id, PLUGIN_ID_ENGINE_SQLSERVER);
-        assert_eq!(importer_warpgate().id, PLUGIN_ID_IMPORTER_WARPGATE);
         assert_eq!(importer_docker_db().id, PLUGIN_ID_IMPORTER_DOCKER_DB);
-        // Nacos 已改为独立 download 插件，不在 first_party_manifests 内
+        assert_eq!(addon_warpgate().id, PLUGIN_ID_ADDON_WARPGATE);
+        assert_eq!(addon_warpgate().logic_entry(), Some("logic.js"));
+        // Nacos / Warpgate 已改为独立 download 插件，不在 first_party_manifests 内
         assert!(
             !first_party_manifests()
                 .iter()
                 .any(|m| m.id == PLUGIN_ID_MODULE_NACOS)
         );
+        assert!(
+            !first_party_manifests()
+                .iter()
+                .any(|m| m.id == PLUGIN_ID_ADDON_WARPGATE)
+        );
+        assert!(first_party_logic_bytes(PLUGIN_ID_ADDON_WARPGATE, "logic.js").is_none());
     }
 
     #[test]
@@ -541,53 +532,25 @@ mod tests {
     }
 
     #[test]
-    fn warpgate_embeds_logic_js() {
-        let bytes = first_party_logic_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "logic.js")
-            .expect("应嵌入 warpgate logic.js");
-        let src = String::from_utf8(bytes).unwrap();
-        assert!(src.contains("fetchTargets"));
-        assert!(src.contains("@warpgate/admin/api/targets"));
-        assert!(first_party_logic_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "other.js").is_none());
-    }
-
-    #[test]
-    fn warpgate_declares_home_and_embeds_icon() {
-        let manifest = importer_warpgate();
-        let home = manifest
-            .contributes
-            .ui
-            .home
-            .as_ref()
-            .expect("Warpgate 应声明 ui.home");
-        assert!(home.show);
-        assert_eq!(home.open.kind, "importer");
-        assert_eq!(home.open.id, "warpgate");
-        assert_eq!(home.icon, "icon.svg");
-        assert_eq!(home.title, "plugins.names.warpgate");
-        let importer = manifest
-            .contributes
-            .importers
-            .first()
-            .expect("示例 importer 应声明 contributes.importers");
-        assert_eq!(
-            importer.get("id").and_then(|v| v.as_str()),
-            Some("warpgate")
-        );
-        assert_eq!(
-            importer.get("fetchMethod").and_then(|v| v.as_str()),
-            Some("fetchTargets")
-        );
-        assert!(
-            importer
-                .get("fields")
-                .and_then(|v| v.as_array())
-                .is_some_and(|fields| !fields.is_empty())
-        );
+    fn warpgate_is_download_only_with_ssh_methods() {
+        let manifest = addon_warpgate();
+        assert_eq!(manifest.id, PLUGIN_ID_ADDON_WARPGATE);
+        assert_eq!(manifest.kind, crate::kind::PluginKind::Addon);
+        match &manifest.icon {
+            Some(crate::PluginIconDecl::Themed { light, dark }) => {
+                assert_eq!(light, "warpgate-light.svg");
+                assert_eq!(dark, "warpgate-dark.svg");
+            }
+            other => panic!("Warpgate 应声明 light/dark 图标, got {other:?}"),
+        }
+        let methods: Vec<_> = manifest.methods.iter().map(|m| m.name.as_str()).collect();
+        assert!(methods.contains(&"listSshTargets"));
+        assert!(methods.contains(&"resolveSshViaGateway"));
+        assert!(methods.contains(&"testGateway"));
         manifest.validate().expect("Warpgate 清单应通过校验");
-        let icon = first_party_asset_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "icon.svg")
-            .expect("应嵌入 warpgate icon.svg");
-        assert!(String::from_utf8(icon).unwrap().contains("<svg"));
-        assert!(first_party_asset_bytes(PLUGIN_ID_IMPORTER_WARPGATE, "../icon.svg").is_none());
+        let src = read_download_only_logic("addon-warpgate");
+        assert!(src.contains("@warpgate/admin/api/targets"));
+        assert!(src.contains("resolveSshViaGateway"));
     }
 
     #[test]

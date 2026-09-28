@@ -19,6 +19,7 @@ export const DOWNLOAD_ONLY_PLUGIN_DIRS = new Set([
   "cloud-gcp",
   "cloud-bandwagon",
   "cloud-qiniu",
+  "addon-warpgate",
 ]);
 
 

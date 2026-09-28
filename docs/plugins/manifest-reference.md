@@ -11,6 +11,7 @@
 | `id` | string | ✅ | 反向域名式唯一标识，如 `omni.engine.clickhouse`。安装包 id 与内置冲突时拒绝安装 |
 | `version` | string | ✅ | SemVer；覆盖升级用 |
 | `displayName` | string | — | 侧栏 / 插件中心显示名；缺省回退宿主 i18n 或 id |
+| `icon` | string \| `{ light, dark }` | — | 插件品牌图标（包内 `.svg` / `.png`，禁止 URL / `..`）。字符串为明暗共用；对象则按主题分别取 `light` / `dark`。插件中心与首页优先使用；未声明时可回退 `ui.home.icon` |
 | `kind` | enum | ✅ | 八选一：`engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon` / `knowledge`（知识源适配器，见下） |
 | `permissions` | string[] | — | 声明所需权限；缺权调用即失败（见 [permissions-and-levels](./permissions-and-levels.md)） |
 | `methods` | object[] | — | L2 网关白名单：`{ name, permissions[] }`；未声明的 method 一律 `UnknownMethod` |

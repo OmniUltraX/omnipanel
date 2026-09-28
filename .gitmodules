@@ -28,3 +28,6 @@
 [submodule "plugins/cloud-qiniu"]
 	path = plugins/cloud-qiniu
 	url = git@github.com:OmniUltraX/omni-plugin-cloud-qiniu.git
+[submodule "plugins/addon-warpgate"]
+	path = plugins/addon-warpgate
+	url = git@github.com:OmniUltraX/omni-plugin-addon-warpgate.git
