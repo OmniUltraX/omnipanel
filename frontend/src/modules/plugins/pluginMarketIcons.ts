@@ -8,6 +8,8 @@ import type { PluginKind } from "../../ipc/bindings";
 import obsidianIcon from "../../assets/icons/obsidian.svg";
 import awsLightIcon from "../../assets/icons/aws-light.svg";
 import awsDarkIcon from "../../assets/icons/aws-dark.svg";
+import warpgateLightIcon from "../../assets/icons/warpgate-light.svg";
+import warpgateDarkIcon from "../../assets/icons/warpgate-dark.svg";
 import { getEngineIcon } from "../database/connection/engineIcons";
 import { getPluginManifest } from "../../lib/pluginManifests";
 import {
@@ -25,6 +27,8 @@ const PLUGIN_ID_ICONS: Record<string, string | { light: string; dark: string }> 
   "omni.importer.docker-db": getBrandIcon("docker"),
   // AWS：SVGL 提供明暗双色，市场里随主题切换
   "omni.cloud.aws": { light: awsLightIcon, dark: awsDarkIcon },
+  // Warpgate：未安装时读不到包内 icon，市场靠宿主侧明暗双图
+  "omni.addon.warpgate": { light: warpgateLightIcon, dark: warpgateDarkIcon },
 };
 
 function engineKeyOf(pluginId: string, kind: PluginKind): string | null {

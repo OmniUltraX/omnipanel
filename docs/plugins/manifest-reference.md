@@ -43,6 +43,7 @@
 | `knowledgeSources[]` | knowledge | 只读数据源适配器：`{ id（全局唯一）, title?, hint?, formats?[], listMethod, listDocumentsMethod, getMethod, searchMethod?, fields[…] }`。插件只管列目录/取文档/解析 Markdown（L2 methods，必须配 `entry.logic`），落库、命名空间隔离、增量、调度由宿主管线负责。样板：`plugins-samples/knowledge-starter` |
 | `themes.tokens` | theme | 公开 token 合同；**theme 禁止 JS**，permissions 必须为空 |
 | `ai.tools[]` | 任意 | `{ name, description, execKind, moduleKey, crossModule, externalExposed, inputSchema }` |
+| `configuration` | 任意 | 插件设置（插件中心「设置」SubWindow）。`{ title?, properties?: { [key]: { type, default?, description?, enum?, format?, order?, secret? } }, fields?: importerField[], panel? }`。`properties` / `fields` / `panel` 至少其一；`secret`/`format:password` 写 vault，其余写 plugin state |
 
 ## 校验规则速查（CI 强制）
 
