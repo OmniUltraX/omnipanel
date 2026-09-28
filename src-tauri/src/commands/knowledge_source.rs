@@ -174,7 +174,6 @@ fn find_source_methods(
         }
         let resolved = ResolvedSource {
             namespace,
-            title: str_field(source, "title"),
             list_method: str_field(source, "listMethod"),
             list_documents_method: str_field(source, "listDocumentsMethod"),
             get_method: str_field(source, "getMethod"),
@@ -243,7 +242,6 @@ fn find_source_methods(
 /// 解析后的源声明（构造适配器用）。
 struct ResolvedSource {
     namespace: String,
-    title: String,
     list_method: String,
     list_documents_method: String,
     get_method: String,

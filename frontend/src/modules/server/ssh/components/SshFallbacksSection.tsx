@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Select } from "../../../../components/ui/form/Select";
-import { TextInput } from "../../../../components/ui/form/TextInput";
 import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 import { useI18n } from "../../../../i18n";
 import { formatIpcError } from "../../../../ipc/result";
+import { testWarpgateFallbackRoute } from "../../../../lib/warpgateConnect";
 import type { SshFallbackRoute, SshPreferredRoute } from "../../panel/serverConnection";
 import {
   listWarpgateSshTargets,
@@ -12,6 +12,7 @@ import {
   type WarpgateGateway,
   type WarpgateSshTarget,
 } from "../../../../lib/warpgateGateways";
+import { showToast } from "../../../../stores/toastStore";
 import { usePluginRuntimeStore } from "../../../../stores/pluginRuntimeStore";
 import { WarpgateGatewaysDialog } from "./WarpgateGatewaysDialog";
 
@@ -40,7 +41,7 @@ export function SshFallbacksSection({
   const [gateways, setGateways] = useState<WarpgateGateway[]>([]);
   const [targetsByGw, setTargetsByGw] = useState<Record<string, WarpgateSshTarget[]>>({});
   const [loadingTargets, setLoadingTargets] = useState<string | null>(null);
-  const [manualTarget, setManualTarget] = useState<Record<string, string>>({});
+  const [testingId, setTestingId] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,19 +61,58 @@ export function SshFallbacksSection({
     void refreshGateways();
   }, [refreshGateways]);
 
-  const loadTargets = async (gatewayId: string) => {
-    const gw = gateways.find((g) => g.id === gatewayId);
-    if (!gw) return;
-    setLoadingTargets(gatewayId);
+  const loadTargets = useCallback(
+    async (gatewayId: string) => {
+      const gw = gateways.find((g) => g.id === gatewayId);
+      if (!gw) return;
+      setLoadingTargets(gatewayId);
+      setError(null);
+      try {
+        const list = await listWarpgateSshTargets(gw);
+        setTargetsByGw((prev) => ({ ...prev, [gatewayId]: list }));
+      } catch (err) {
+        setError(formatIpcError(err));
+        setTargetsByGw((prev) => ({ ...prev, [gatewayId]: [] }));
+      } finally {
+        setLoadingTargets(null);
+      }
+    },
+    [gateways],
+  );
+
+  // 已选网关（含回显/新增默认项）自动拉 Target，无需手动点「拉取列表」
+  useEffect(() => {
+    if (!ready || gateways.length === 0) return;
+    const ids = [
+      ...new Set(fallbacks.map((fb) => fb.gatewayId.trim()).filter(Boolean)),
+    ];
+    for (const id of ids) {
+      if (Object.prototype.hasOwnProperty.call(targetsByGw, id)) continue;
+      if (loadingTargets === id) continue;
+      if (!gateways.some((g) => g.id === id)) continue;
+      void loadTargets(id);
+    }
+  }, [ready, gateways, fallbacks, targetsByGw, loadingTargets, loadTargets]);
+
+  const handleTestRoute = async (fb: SshFallbackRoute) => {
+    if (!fb.gatewayId.trim() || !fb.targetId.trim()) {
+      setError(t("ssh.warpgate.testRouteNeedTarget"));
+      return;
+    }
+    setTestingId(fb.id);
     setError(null);
     try {
-      const list = await listWarpgateSshTargets(gw);
-      setTargetsByGw((prev) => ({ ...prev, [gatewayId]: list }));
+      const result = await testWarpgateFallbackRoute(fb);
+      showToast(
+        t("ssh.warpgate.testRouteOk", {
+          user: result.user,
+          host: `${result.host}:${result.port}`,
+        }),
+      );
     } catch (err) {
       setError(formatIpcError(err));
-      setTargetsByGw((prev) => ({ ...prev, [gatewayId]: [] }));
     } finally {
-      setLoadingTargets(null);
+      setTestingId(null);
     }
   };
 
@@ -103,7 +143,11 @@ export function SshFallbacksSection({
     <>
       <div className="form-section-title">{t("ssh.warpgate.fallbacksSection")}</div>
       <p className="form-hint">{t("ssh.warpgate.fallbacksHint")}</p>
-      {error ? <p className="form-hint" style={{ color: "var(--danger, #c44)" }}>{error}</p> : null}
+      {error ? (
+        <p className="form-hint" style={{ color: "var(--danger, #c44)" }}>
+          {error}
+        </p>
+      ) : null}
 
       <div className="form-field">
         <label className="form-label">{t("ssh.warpgate.preferredRoute")}</label>
@@ -118,13 +162,14 @@ export function SshFallbacksSection({
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <WorkbenchActionButton
           onClick={() => {
+            const gatewayId = gateways[0]?.id ?? "";
             onFallbacksChange([
               ...fallbacks,
               {
                 id: newFallbackId(),
                 kind: "plugin",
                 pluginId: PLUGIN_ID_WARPGATE,
-                gatewayId: gateways[0]?.id ?? "",
+                gatewayId,
                 targetId: "",
                 targetName: "",
                 order: fallbacks.length,
@@ -140,17 +185,20 @@ export function SshFallbacksSection({
       </div>
 
       {fallbacks.map((fb, index) => {
+        const loading = loadingTargets === fb.gatewayId;
         const targets = targetsByGw[fb.gatewayId] ?? [];
-        const targetOptions = [
-          { value: "", label: t("ssh.warpgate.selectTarget") },
-          ...targets.map((item) => ({
-            value: item.id,
-            label: item.name || item.id,
-          })),
-          ...(fb.targetId && !targets.some((item) => item.id === fb.targetId)
-            ? [{ value: fb.targetId, label: fb.targetName || fb.targetId }]
-            : []),
-        ];
+        const targetOptions = loading
+          ? [{ value: "", label: t("ssh.warpgate.loadingTargets") }]
+          : [
+              { value: "", label: t("ssh.warpgate.selectTarget") },
+              ...targets.map((item) => ({
+                value: item.id,
+                label: item.name || item.id,
+              })),
+              ...(fb.targetId && !targets.some((item) => item.id === fb.targetId)
+                ? [{ value: fb.targetId, label: fb.targetName || fb.targetId }]
+                : []),
+            ];
         return (
           <div
             key={fb.id}
@@ -164,19 +212,19 @@ export function SshFallbacksSection({
               gap: 8,
             }}
           >
-            <div className="form-row">
+            <div className="form-row" style={{ alignItems: "flex-end" }}>
               <div className="form-field" style={{ flex: 1 }}>
                 <label className="form-label">{t("ssh.warpgate.gateway")}</label>
                 <Select
                   value={fb.gatewayId}
                   onChange={(value) => {
-                    const next = fallbacks.map((item) =>
-                      item.id === fb.id
-                        ? { ...item, gatewayId: value, targetId: "", targetName: "" }
-                        : item,
+                    onFallbacksChange(
+                      fallbacks.map((item) =>
+                        item.id === fb.id
+                          ? { ...item, gatewayId: value, targetId: "", targetName: "", label: "" }
+                          : item,
+                      ),
                     );
-                    onFallbacksChange(next);
-                    if (value) void loadTargets(value);
                   }}
                   options={[
                     { value: "", label: t("ssh.warpgate.selectGateway") },
@@ -188,7 +236,7 @@ export function SshFallbacksSection({
               <div className="form-field" style={{ flex: 1 }}>
                 <label className="form-label">{t("ssh.warpgate.target")}</label>
                 <Select
-                  value={fb.targetId}
+                  value={loading ? "" : fb.targetId}
                   onChange={(value) => {
                     const hit = targets.find((item) => item.id === value);
                     onFallbacksChange(
@@ -197,7 +245,7 @@ export function SshFallbacksSection({
                           ? {
                               ...item,
                               targetId: value,
-                              targetName: hit?.name || item.targetName,
+                              targetName: hit?.name || "",
                               label: hit?.name || item.label,
                             }
                           : item,
@@ -205,46 +253,21 @@ export function SshFallbacksSection({
                     );
                   }}
                   options={targetOptions}
-                  disabled={!fb.gatewayId}
+                  disabled={!fb.gatewayId || loading}
                   style={{ width: "100%" }}
                 />
               </div>
-            </div>
-            <div className="form-row" style={{ alignItems: "flex-end" }}>
-              <div className="form-field" style={{ flex: 1 }}>
-                <label className="form-label">{t("ssh.warpgate.manualTarget")}</label>
-                <TextInput
-                  value={manualTarget[fb.id] ?? fb.targetName}
-                  onChange={(value) => setManualTarget((prev) => ({ ...prev, [fb.id]: value }))}
-                  placeholder={t("ssh.warpgate.manualTargetPlaceholder")}
-                  onBlur={() => {
-                    const name = (manualTarget[fb.id] ?? fb.targetName).trim();
-                    if (!name) return;
-                    onFallbacksChange(
-                      fallbacks.map((item) =>
-                        item.id === fb.id
-                          ? {
-                              ...item,
-                              targetId: item.targetId || name,
-                              targetName: name,
-                              label: item.label || name,
-                            }
-                          : item,
-                      ),
-                    );
-                  }}
-                />
-              </div>
               <WorkbenchActionButton
-                disabled={!fb.gatewayId || loadingTargets === fb.gatewayId}
-                onClick={() => void loadTargets(fb.gatewayId)}
+                disabled={
+                  !fb.gatewayId || !fb.targetId || testingId === fb.id || Boolean(testingId)
+                }
+                onClick={() => void handleTestRoute(fb)}
               >
-                {loadingTargets === fb.gatewayId
-                  ? t("ssh.warpgate.loadingTargets")
-                  : t("ssh.warpgate.refreshTargets")}
+                {testingId === fb.id ? t("ssh.warpgate.testing") : t("ssh.warpgate.test")}
               </WorkbenchActionButton>
               <WorkbenchActionButton
                 danger
+                disabled={Boolean(testingId)}
                 onClick={() => onFallbacksChange(fallbacks.filter((_, i) => i !== index))}
               >
                 {t("common.delete")}
@@ -257,7 +280,11 @@ export function SshFallbacksSection({
       <WarpgateGatewaysDialog
         open={manageOpen}
         onClose={() => setManageOpen(false)}
-        onChanged={() => void refreshGateways()}
+        onChanged={() => {
+          // 组件态清空后由 effect 再读本地缓存；被改过的网关已在 upsert/delete 时失效
+          setTargetsByGw({});
+          void refreshGateways();
+        }}
       />
     </>
   );

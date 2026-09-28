@@ -99,7 +99,9 @@ pub struct DejavuIndex {
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct DejavuFile {
+    /// 仓库内文件 id（JSON 字段保留；组装路径走 `path`）。
     #[serde(default)]
+    #[allow(dead_code)]
     id: String,
     #[serde(default)]
     path: String,

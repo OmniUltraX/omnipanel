@@ -15,9 +15,29 @@ export type WarpgateGateway = {
   updatedAt: number;
 };
 
+export type WarpgateSshTarget = {
+  id: string;
+  name: string;
+  kind: string;
+  bastionHost: string;
+  bastionPort: number;
+  loginUser?: string;
+};
+
+type TargetCacheEntry = {
+  targets: WarpgateSshTarget[];
+  fetchedAt: number;
+};
+
 type WarpgatePluginState = {
   gateways: WarpgateGateway[];
+  /** 按网关缓存的 SSH Target 列表，避免每次打开表单都打 API */
+  targetCache?: Record<string, TargetCacheEntry>;
+  [key: string]: unknown;
 };
+
+/** 进程内缓存，减少反复读 pluginState */
+const memoryTargetCache = new Map<string, WarpgateSshTarget[]>();
 
 export function newWarpgateGatewayId(): string {
   return `wg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -47,21 +67,58 @@ function normalizeGateway(raw: unknown): WarpgateGateway | null {
   };
 }
 
-export async function loadWarpgateGateways(): Promise<WarpgateGateway[]> {
-  const raw = await unwrapCommand(commands.pluginStateGet(PLUGIN_ID_WARPGATE));
+function normalizeTarget(raw: unknown): WarpgateSshTarget | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const item = raw as Record<string, unknown>;
+  if (typeof item.id !== "string" || !item.id.trim()) return null;
+  return {
+    id: item.id,
+    name: typeof item.name === "string" ? item.name : item.id,
+    kind: typeof item.kind === "string" ? item.kind : "ssh",
+    bastionHost: typeof item.bastionHost === "string" ? item.bastionHost : "",
+    bastionPort: typeof item.bastionPort === "number" ? item.bastionPort : 2222,
+    loginUser: typeof item.loginUser === "string" ? item.loginUser : undefined,
+  };
+}
+
+async function loadPluginState(): Promise<WarpgatePluginState> {
   try {
-    const parsed = JSON.parse(raw) as { gateways?: unknown[] };
-    return Array.isArray(parsed.gateways)
-      ? parsed.gateways.map(normalizeGateway).filter((g): g is WarpgateGateway => g !== null)
-      : [];
+    const raw = await unwrapCommand(commands.pluginStateGet(PLUGIN_ID_WARPGATE));
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { gateways: [] };
+    }
+    return parsed as WarpgatePluginState;
   } catch {
-    return [];
+    return { gateways: [] };
   }
 }
 
-async function saveGateways(gateways: WarpgateGateway[]): Promise<void> {
-  const state: WarpgatePluginState = { gateways };
+async function savePluginState(state: WarpgatePluginState): Promise<void> {
   await unwrapCommand(commands.pluginStateSet(PLUGIN_ID_WARPGATE, JSON.stringify(state)));
+}
+
+function readTargetCacheFromState(
+  state: WarpgatePluginState,
+  gatewayId: string,
+): WarpgateSshTarget[] | null {
+  const entry = state.targetCache?.[gatewayId];
+  if (!entry || !Array.isArray(entry.targets)) return null;
+  return entry.targets
+    .map(normalizeTarget)
+    .filter((item): item is WarpgateSshTarget => item !== null);
+}
+
+export async function loadWarpgateGateways(): Promise<WarpgateGateway[]> {
+  const state = await loadPluginState();
+  return Array.isArray(state.gateways)
+    ? state.gateways.map(normalizeGateway).filter((g): g is WarpgateGateway => g !== null)
+    : [];
+}
+
+async function saveGateways(gateways: WarpgateGateway[]): Promise<void> {
+  const state = await loadPluginState();
+  await savePluginState({ ...state, gateways });
 }
 
 export async function upsertWarpgateGateway(input: {
@@ -101,6 +158,8 @@ export async function upsertWarpgateGateway(input: {
   };
   const gateways = existing ? list.map((g) => (g.id === id ? next : g)) : [...list, next];
   await saveGateways(gateways);
+  // 凭据/地址可能变化，清掉该网关 Target 缓存
+  await invalidateWarpgateTargetCache(id);
   return next;
 }
 
@@ -116,6 +175,7 @@ export async function deleteWarpgateGateway(id: string): Promise<void> {
     );
   }
   await saveGateways(list.filter((g) => g.id !== id));
+  await invalidateWarpgateTargetCache(id);
 }
 
 export async function readWarpgateSecret(
@@ -129,15 +189,6 @@ export async function readWarpgateSecret(
     return "";
   }
 }
-
-export type WarpgateSshTarget = {
-  id: string;
-  name: string;
-  kind: string;
-  bastionHost: string;
-  bastionPort: number;
-  loginUser?: string;
-};
 
 export async function invokeWarpgateMethod<T>(
   method: string,
@@ -161,14 +212,67 @@ export async function invokeWarpgateMethod<T>(
   )) as T;
 }
 
+async function persistTargetCache(
+  gatewayId: string,
+  targets: WarpgateSshTarget[],
+): Promise<void> {
+  memoryTargetCache.set(gatewayId, targets);
+  const state = await loadPluginState();
+  const targetCache = { ...(state.targetCache ?? {}) };
+  targetCache[gatewayId] = { targets, fetchedAt: Date.now() };
+  await savePluginState({ ...state, targetCache });
+}
+
+/** 清除指定网关（或全部）的 Target 本地缓存。 */
+export async function invalidateWarpgateTargetCache(gatewayId?: string): Promise<void> {
+  if (gatewayId) {
+    memoryTargetCache.delete(gatewayId);
+  } else {
+    memoryTargetCache.clear();
+  }
+  const state = await loadPluginState();
+  if (!state.targetCache) return;
+  if (!gatewayId) {
+    const { targetCache: _removed, ...rest } = state;
+    await savePluginState({ ...rest, gateways: state.gateways ?? [] });
+    return;
+  }
+  const targetCache = { ...state.targetCache };
+  delete targetCache[gatewayId];
+  await savePluginState({ ...state, targetCache });
+}
+
+/**
+ * 列出网关下 SSH Target。
+ * 默认读本地缓存（pluginState + 内存）；`force: true` 时强制打 API 并回写缓存。
+ */
 export async function listWarpgateSshTargets(
   gateway: WarpgateGateway,
+  opts?: { force?: boolean },
 ): Promise<WarpgateSshTarget[]> {
+  const force = Boolean(opts?.force);
+  if (!force) {
+    const mem = memoryTargetCache.get(gateway.id);
+    if (mem) return mem;
+    const state = await loadPluginState();
+    const cached = readTargetCacheFromState(state, gateway.id);
+    if (cached) {
+      memoryTargetCache.set(gateway.id, cached);
+      return cached;
+    }
+  }
+
   const payload = await invokeWarpgateMethod<{ targets?: WarpgateSshTarget[] }>(
     "listSshTargets",
     gateway,
   );
-  return Array.isArray(payload.targets) ? payload.targets : [];
+  const targets = Array.isArray(payload.targets)
+    ? payload.targets
+        .map(normalizeTarget)
+        .filter((item): item is WarpgateSshTarget => item !== null)
+    : [];
+  await persistTargetCache(gateway.id, targets);
+  return targets;
 }
 
 export type ResolvedWarpgateSsh = {

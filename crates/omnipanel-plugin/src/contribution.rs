@@ -51,6 +51,10 @@ pub struct PluginContributes {
     pub cloud: Option<CloudContributes>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub module: Option<ModuleContributes>,
+    /// 插件设置表单（VS Code 风格 configuration / Omni fields / 内置 panel）。
+    /// 结构由 SDK Zod 校验；此处用 Value 透传以免双端结构漂移。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<Value>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]

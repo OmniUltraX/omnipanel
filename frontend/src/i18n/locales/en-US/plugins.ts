@@ -163,6 +163,16 @@ export default {
     uninstall: "Uninstall",
     openOverlay: "Open panel",
     homePin: "Show on Home",
+    settings: {
+      action: "Settings",
+      title: "Plugin settings",
+      titleNamed: "{name} · {section}",
+      titleNamedSimple: "{name} settings",
+      empty: "This plugin does not declare any settings.",
+      fieldsSection: "Options",
+      saved: "Saved",
+      unknownPanel: "Unknown settings panel: {id}",
+    },
     confirm: {
       title: "Production access confirmation",
       message: "Plugin {{plugin}} requests to {{action}} production target {{target}}. Allow?",

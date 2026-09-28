@@ -235,6 +235,49 @@ export type ImporterField = z.infer<typeof importerFieldSchema>;
 export type ImporterContribution = z.infer<typeof importerContributionSchema>;
 
 /**
+ * 插件设置项（VS Code `contributes.configuration.properties` 风格）。
+ * `secret` / `format: password` 写入 vault，其余写入 plugin state。
+ */
+export const pluginConfigurationPropertySchema = z.object({
+  type: z.enum(["string", "number", "boolean"]),
+  default: z.unknown().optional(),
+  description: z.string().optional(),
+  enum: z.array(z.union([z.string(), z.number(), z.boolean()])).optional(),
+  format: z.enum(["password"]).optional(),
+  order: z.number().optional(),
+  /** true 时值写入 vault（key = `config:${propertyKey}`），不进 plugin state JSON */
+  secret: z.boolean().optional(),
+});
+
+/**
+ * 插件设置贡献：宿主按声明渲染通用配置表单（插件中心「设置」SubWindow）。
+ * - `properties`：VS Code 风格字典
+ * - `fields`：与 importer 同源的字段数组（更贴近现有表单控件）
+ * - `panel`：宿主内置面板 id（如 `warpgate.gateways`），可与上两者并存
+ */
+export const pluginConfigurationSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    properties: z.record(z.string().min(1), pluginConfigurationPropertySchema).optional(),
+    fields: z.array(importerFieldSchema).optional(),
+    panel: z.string().min(1).optional(),
+  })
+  .superRefine((val, ctx) => {
+    const hasProps = val.properties != null && Object.keys(val.properties).length > 0;
+    const hasFields = Array.isArray(val.fields) && val.fields.length > 0;
+    const hasPanel = Boolean(val.panel?.trim());
+    if (!hasProps && !hasFields && !hasPanel) {
+      ctx.addIssue({
+        code: "custom",
+        message: "configuration 须声明 properties、fields 或 panel 至少其一",
+      });
+    }
+  });
+
+export type PluginConfigurationProperty = z.infer<typeof pluginConfigurationPropertySchema>;
+export type PluginConfigurationContribution = z.infer<typeof pluginConfigurationSchema>;
+
+/**
  * 知识源贡献（kind=knowledge）：只读数据源适配器。
  * 插件只管列目录、取文档、解析成 Markdown（L2 methods，经 plugin_invoke 调用）；
  * 落库、命名空间隔离、增量状态、调度一律由宿主管线负责，插件不直接写知识库。
@@ -525,6 +568,11 @@ export const pluginManifestSchema = z.object({
         })
         .nullish(),
       module: moduleContributesSchema.nullish(),
+      /**
+       * 插件设置（类似 VS Code contributes.configuration）。
+       * 插件中心已安装列表「设置」据此渲染 SubWindow 表单。
+       */
+      configuration: pluginConfigurationSchema.nullish(),
     })
     .default({}),
 })

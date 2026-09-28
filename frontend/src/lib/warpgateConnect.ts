@@ -58,12 +58,21 @@ async function connectDirect(
   throw res.error ?? new Error("SSH 直连失败");
 }
 
-async function connectViaFallback(
-  fallback: SshFallbackRoute,
-  cols: number,
-  rows: number,
-  paneId: number | null,
-): Promise<string> {
+type ResolvedFallbackConfig = {
+  config: SshConfig_Deserialize;
+  host: string;
+  port: number;
+  user: string;
+  targetName?: string;
+};
+
+async function resolveFallbackConfig(fallback: SshFallbackRoute): Promise<ResolvedFallbackConfig> {
+  if (!fallback.gatewayId?.trim()) {
+    throw new Error("请先选择网关");
+  }
+  if (!fallback.targetId?.trim() && !fallback.targetName?.trim()) {
+    throw new Error("请先选择 Target");
+  }
   if (!isWarpgatePluginReady()) {
     throw new Error("Warpgate 插件未启用");
   }
@@ -80,15 +89,54 @@ async function connectViaFallback(
   if (!password) {
     throw new Error("Warpgate 网关未配置登录密码，无法经堡垒连接");
   }
+  const port = resolved.port || 2222;
   const config = {
     host: resolved.host,
-    port: resolved.port || 2222,
+    port,
     user: resolved.user,
     auth: { type: "password" as const, password },
   } as unknown as SshConfig_Deserialize;
+  return {
+    config,
+    host: resolved.host,
+    port,
+    user: resolved.user,
+    targetName: resolved.targetName,
+  };
+}
+
+async function connectViaFallback(
+  fallback: SshFallbackRoute,
+  cols: number,
+  rows: number,
+  paneId: number | null,
+): Promise<string> {
+  const { config } = await resolveFallbackConfig(fallback);
   const res = await commands.sshConnect(config, cols, rows, paneId);
   if (res.status === "ok") return res.data;
   throw res.error ?? new Error("经 Warpgate 备选连接失败");
+}
+
+/** 探测备选路由：解析 + 短暂 SSH 握手后立即断开。 */
+export async function testWarpgateFallbackRoute(
+  fallback: SshFallbackRoute,
+): Promise<{ host: string; port: number; user: string; targetName?: string }> {
+  const resolved = await resolveFallbackConfig(fallback);
+  const res = await commands.sshConnect(resolved.config, 80, 24, null);
+  if (res.status !== "ok") {
+    throw res.error ?? new Error("经 Warpgate 备选连接失败");
+  }
+  try {
+    await commands.sshDisconnect(res.data);
+  } catch {
+    // 探测会话收尾失败不影响结果
+  }
+  return {
+    host: resolved.host,
+    port: resolved.port,
+    user: resolved.user,
+    targetName: resolved.targetName,
+  };
 }
 
 /**

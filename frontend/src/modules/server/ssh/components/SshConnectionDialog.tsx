@@ -365,39 +365,41 @@ export function SshConnectionDialog({
             </div>
           ) : (
             <>
-              <div className="form-field">
-                <label className="form-label">{t("ssh.dialog.keyPath")}</label>
-                <Select
-                  value={form.keyId || form.keyPath || "auto"}
-                  onChange={(value) => {
-                    if (value === "auto") {
+              <div className="form-row">
+                <div className="form-field" style={{ flex: 1 }}>
+                  <label className="form-label">{t("ssh.dialog.keyPath")}</label>
+                  <Select
+                    value={form.keyId || form.keyPath || "auto"}
+                    onChange={(value) => {
+                      if (value === "auto") {
+                        update("keyId", "");
+                        update("keyPath", "auto");
+                        return;
+                      }
+                      const matched = keys.find((key) => key.id === value);
+                      if (matched) {
+                        update("keyId", matched.id);
+                        update("keyPath", "auto");
+                        return;
+                      }
                       update("keyId", "");
-                      update("keyPath", "auto");
-                      return;
-                    }
-                    const matched = keys.find((key) => key.id === value);
-                    if (matched) {
-                      update("keyId", matched.id);
-                      update("keyPath", "auto");
-                      return;
-                    }
-                    update("keyId", "");
-                    update("keyPath", value);
-                  }}
-                  options={keyOptions}
-                  searchable
-                  placeholder={t("ssh.dialog.keySelectPlaceholder")}
-                  style={{ width: "100%" }}
-                />
-              </div>
-              <div className="form-field">
-                <label className="form-label">{t("ssh.dialog.passphrase")}</label>
-                <PasswordInput
-                  copyable
-                  value={form.passphrase}
-                  onChange={(value) => update("passphrase", value)}
-                  placeholder={t("ssh.dialog.passphrasePlaceholder")}
-                />
+                      update("keyPath", value);
+                    }}
+                    options={keyOptions}
+                    searchable
+                    placeholder={t("ssh.dialog.keySelectPlaceholder")}
+                    style={{ width: "100%" }}
+                  />
+                </div>
+                <div className="form-field" style={{ flex: 1 }}>
+                  <label className="form-label">{t("ssh.dialog.passphrase")}</label>
+                  <PasswordInput
+                    copyable
+                    value={form.passphrase}
+                    onChange={(value) => update("passphrase", value)}
+                    placeholder={t("ssh.dialog.passphrasePlaceholder")}
+                  />
+                </div>
               </div>
             </>
           )}

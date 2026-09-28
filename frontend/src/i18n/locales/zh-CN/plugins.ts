@@ -163,6 +163,16 @@ export default {
     uninstall: "卸载",
     openOverlay: "打开面板",
     homePin: "首页显示",
+    settings: {
+      action: "设置",
+      title: "插件设置",
+      titleNamed: "{name} · {section}",
+      titleNamedSimple: "{name} 设置",
+      empty: "该插件未声明可配置项。",
+      fieldsSection: "其他选项",
+      saved: "已保存",
+      unknownPanel: "未知设置面板：{id}",
+    },
     confirm: {
       title: "生产环境访问确认",
       message: "插件 {{plugin}} 请求{{action}}生产目标 {{target}}，是否放行？",

@@ -19,8 +19,13 @@ describe("getPluginMarketIcon", () => {
     expect(getPluginMarketIcon("omni.importer.docker-db", "importer", "light")).toBeTruthy();
   });
 
-  it("为 Obsidian（SVGL）返回图标；未知插件返回 null", () => {
+  it("为 Obsidian（SVGL）与 Warpgate 返回图标；未知插件返回 null", () => {
     expect(getPluginMarketIcon("omni.knowledge.obsidian", "knowledge", "light")).toBeTruthy();
+    const wgLight = getPluginMarketIcon("omni.addon.warpgate", "addon", "light");
+    const wgDark = getPluginMarketIcon("omni.addon.warpgate", "addon", "dark");
+    expect(wgLight).toBeTruthy();
+    expect(wgDark).toBeTruthy();
+    expect(wgLight).not.toBe(wgDark);
     expect(getPluginMarketIcon("omni.module.nacos", "module", "light")).toBeNull();
     expect(getPluginMarketIcon("omni.theme.default", "theme", "light")).toBeNull();
   });

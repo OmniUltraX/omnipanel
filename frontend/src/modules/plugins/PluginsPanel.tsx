@@ -26,6 +26,7 @@ import { PluginInstallConfirmDialog } from "./PluginInstallConfirmDialog";
 import { PluginSourcesDialog } from "./PluginSourcesDialog";
 import { PluginsMarketPane } from "./PluginsMarketPane";
 import { PluginsSidebar } from "./PluginsSidebar";
+import { PluginSettingsSubWindow } from "./PluginSettingsSubWindow";
 import { usePluginCenter } from "./usePluginCenter";
 
 const StudioPanel = lazy(() =>
@@ -67,6 +68,7 @@ export function PluginsPanel() {
   const center = usePluginCenter();
   const hostRef = useRef<HTMLDivElement>(null);
   const [detailHeight, setDetailHeight] = useState(readDetailHeight);
+  const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
   const selected = Boolean(center.selectedInstalled || center.selectedMarket);
 
@@ -222,7 +224,10 @@ export function PluginsPanel() {
               kindFilter={center.kindFilter}
               installed={center.filteredInstalled}
               selectedId={center.selectedId}
+              busyId={center.busyId}
               onSelect={center.setSelectedId}
+              onOpenSettings={setSettingsPluginId}
+              onUninstall={(item) => void center.uninstall(item)}
               originOf={center.originOf}
               dbxIds={center.dbxIds}
               devIds={center.devIds}
@@ -331,6 +336,11 @@ export function PluginsPanel() {
         onSetEnabled={(id, enabled) => void center.setSourceEnabled(id, enabled)}
         onTest={(id) => void center.testSource(id)}
         onConfirmKey={(id, key) => void center.confirmSourceKey(id, key)}
+      />
+      <PluginSettingsSubWindow
+        open={settingsPluginId != null}
+        pluginId={settingsPluginId}
+        onClose={() => setSettingsPluginId(null)}
       />
     </div>
   );
