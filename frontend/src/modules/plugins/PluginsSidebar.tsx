@@ -1,5 +1,5 @@
 import type { PluginListItem } from "../../ipc/bindings";
-import { IconSettings, IconTrash } from "../../components/ui/Icons";
+import { IconDownload, IconSettings, IconTrash } from "../../components/ui/Icons";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
 import { useI18n } from "../../i18n";
 import { pluginDisplayName } from "./pluginDisplayName";
@@ -12,9 +12,13 @@ type Props = {
   installed: PluginListItem[];
   selectedId: string | null;
   busyId: string | null;
+  /** 有可用更新的插件 id（来自市场目录）。 */
+  updateIds: ReadonlySet<string>;
+  updatingId: string | null;
   onSelect: (id: string) => void;
   onOpenSettings: (id: string) => void;
   onUninstall: (item: PluginListItem) => void;
+  onUpdate: (id: string) => void;
   originOf: (item: PluginListItem) => PluginOrigin;
   dbxIds: ReadonlySet<string>;
   devIds: ReadonlySet<string>;
@@ -27,9 +31,12 @@ export function PluginsSidebar({
   installed,
   selectedId,
   busyId,
+  updateIds,
+  updatingId,
   onSelect,
   onOpenSettings,
   onUninstall,
+  onUpdate,
   originOf,
   dbxIds,
   devIds,
@@ -38,6 +45,26 @@ export function PluginsSidebar({
 }: Props) {
   const { t } = useI18n();
   const groups = kindFilter === "all" ? groupInstalledByKind(installed) : null;
+  const rowProps = (item: PluginListItem) => ({
+    item,
+    selected: selectedId === item.id,
+    busy: busyId === item.id || updatingId === item.id,
+    needsUpdate: updateIds.has(item.id),
+    fromDbx: isDbxCatalog(item.id, dbxIds),
+    originLabel: originMetaLabel(originOf(item), t, {
+      dbx: isDbxCatalog(item.id, dbxIds),
+    }),
+    devBadge: devIds.has(item.id) ? t("plugins.center.devBadge") : null,
+    disabledLabel: t("settings.plugins.disabled"),
+    onSelect,
+    onOpenSettings,
+    onUninstall,
+    onUpdate,
+    tName: pluginDisplayName(item.id, t),
+    settingsLabel: t("plugins.settings.action"),
+    uninstallLabel: t("plugins.uninstall"),
+    updateLabel: t("plugins.catalog.update"),
+  });
 
   return (
     <aside className="plugin-center-col plugin-center-col--installed">
@@ -60,47 +87,11 @@ export function PluginsSidebar({
                   {t(`plugins.center.kinds.${group.kind}`)}
                 </h3>
                 {group.items.map((item) => (
-                  <InstalledRow
-                    key={item.id}
-                    item={item}
-                    selected={selectedId === item.id}
-                    busy={busyId === item.id}
-                    fromDbx={isDbxCatalog(item.id, dbxIds)}
-                    originLabel={originMetaLabel(originOf(item), t, {
-                      dbx: isDbxCatalog(item.id, dbxIds),
-                    })}
-                    devBadge={devIds.has(item.id) ? t("plugins.center.devBadge") : null}
-                    disabledLabel={t("settings.plugins.disabled")}
-                    onSelect={onSelect}
-                    onOpenSettings={onOpenSettings}
-                    onUninstall={onUninstall}
-                    tName={pluginDisplayName(item.id, t)}
-                    settingsLabel={t("plugins.settings.action")}
-                    uninstallLabel={t("plugins.uninstall")}
-                  />
+                  <InstalledRow key={item.id} {...rowProps(item)} />
                 ))}
               </section>
             ))
-          : installed.map((item) => (
-              <InstalledRow
-                key={item.id}
-                item={item}
-                selected={selectedId === item.id}
-                busy={busyId === item.id}
-                fromDbx={isDbxCatalog(item.id, dbxIds)}
-                originLabel={originMetaLabel(originOf(item), t, {
-                  dbx: isDbxCatalog(item.id, dbxIds),
-                })}
-                devBadge={devIds.has(item.id) ? t("plugins.center.devBadge") : null}
-                disabledLabel={t("settings.plugins.disabled")}
-                onSelect={onSelect}
-                onOpenSettings={onOpenSettings}
-                onUninstall={onUninstall}
-                tName={pluginDisplayName(item.id, t)}
-                settingsLabel={t("plugins.settings.action")}
-                uninstallLabel={t("plugins.uninstall")}
-              />
-            ))}
+          : installed.map((item) => <InstalledRow key={item.id} {...rowProps(item)} />)}
         {installed.length === 0 ? (
           <p className="plugin-center-empty">{t("plugins.center.emptyInstalled")}</p>
         ) : null}
@@ -113,6 +104,7 @@ function InstalledRow({
   item,
   selected,
   busy,
+  needsUpdate,
   fromDbx,
   originLabel,
   devBadge,
@@ -120,13 +112,16 @@ function InstalledRow({
   onSelect,
   onOpenSettings,
   onUninstall,
+  onUpdate,
   tName,
   settingsLabel,
   uninstallLabel,
+  updateLabel,
 }: {
   item: PluginListItem;
   selected: boolean;
   busy: boolean;
+  needsUpdate: boolean;
   fromDbx: boolean;
   originLabel: string;
   devBadge: string | null;
@@ -134,9 +129,11 @@ function InstalledRow({
   onSelect: (id: string) => void;
   onOpenSettings: (id: string) => void;
   onUninstall: (item: PluginListItem) => void;
+  onUpdate: (id: string) => void;
   tName: string;
   settingsLabel: string;
   uninstallLabel: string;
+  updateLabel: string;
 }) {
   const canUninstall = item.source === "installed";
 
@@ -159,6 +156,18 @@ function InstalledRow({
         </span>
       </button>
       <div className="plugin-center-row__actions">
+        {needsUpdate ? (
+          <WorkbenchActionButton
+            icon={true}
+            className="plugin-center-row__update-btn"
+            disabled={busy}
+            title={updateLabel}
+            aria-label={updateLabel}
+            onClick={() => onUpdate(item.id)}
+          >
+            <IconDownload size={14} />
+          </WorkbenchActionButton>
+        ) : null}
         <WorkbenchActionButton
           icon={true}
           disabled={busy}

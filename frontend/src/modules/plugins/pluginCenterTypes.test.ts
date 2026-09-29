@@ -8,6 +8,7 @@ import {
   sanitizeExternalId,
   shouldConfirmInstallPlan,
   sortMarketItems,
+  updatesFromMarketplace,
 } from "./pluginCenterTypes";
 
 function item(partial: Partial<MarketItem> & Pick<MarketItem, "id" | "name">): MarketItem {
@@ -89,6 +90,65 @@ describe("formatPluginCount", () => {
     expect(formatPluginCount(12)).toBe("12");
     expect(formatPluginCount(1500)).toBe("1.5k");
     expect(formatPluginCount(12_000)).toBe("12k");
+  });
+});
+
+describe("updatesFromMarketplace", () => {
+  it("keeps only installed rows with updateAvailable", () => {
+    const rows = updatesFromMarketplace([
+      {
+        id: "omni.cloud.qiniu",
+        kind: "cloud",
+        name: "Qiniu",
+        description: "",
+        version: "0.2.0",
+        changelog: "cdn",
+        installed: true,
+        installedVersion: "0.1.0",
+        updateAvailable: true,
+        sourceId: "official",
+        downloadSize: 1,
+        distribution: "download",
+        permissions: [],
+      },
+      {
+        id: "omni.cloud.aliyun",
+        kind: "cloud",
+        name: "Aliyun",
+        description: "",
+        version: "0.1.1",
+        installed: true,
+        installedVersion: "0.1.1",
+        updateAvailable: false,
+        sourceId: "official",
+        downloadSize: 1,
+        distribution: "download",
+        permissions: [],
+      },
+      {
+        id: "omni.module.nacos",
+        kind: "module",
+        name: "Nacos",
+        description: "",
+        version: "0.2.0",
+        installed: false,
+        installedVersion: null,
+        updateAvailable: false,
+        sourceId: "official",
+        downloadSize: 1,
+        distribution: "download",
+        permissions: [],
+      },
+    ]);
+    expect(rows).toEqual([
+      {
+        id: "omni.cloud.qiniu",
+        installedVersion: "0.1.0",
+        latestVersion: "0.2.0",
+        changelog: "cdn",
+        sourceId: "official",
+      },
+    ]);
   });
 });
 

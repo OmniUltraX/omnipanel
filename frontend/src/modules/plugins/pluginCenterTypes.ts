@@ -220,6 +220,34 @@ export function marketplaceToMarketItem(item: MarketplaceItem, name: string): Ma
   };
 }
 
+/** 从市场目录条目抽出可更新列表（与行上「更新」按钮同源，避免横幅漏提示）。 */
+export function updatesFromMarketplace(
+  items: MarketplaceItem[],
+): Array<{
+  id: string;
+  installedVersion: string;
+  latestVersion: string;
+  changelog: string | null;
+  sourceId: string;
+}> {
+  return items
+    .filter(
+      (plugin) =>
+        plugin.updateAvailable &&
+        plugin.installed &&
+        typeof plugin.installedVersion === "string" &&
+        plugin.installedVersion.trim() !== "",
+    )
+    .map((plugin) => ({
+      id: plugin.id,
+      installedVersion: plugin.installedVersion!.trim(),
+      latestVersion: plugin.version,
+      changelog: plugin.changelog ?? null,
+      sourceId: plugin.sourceId,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
 export function shouldConfirmInstallPlan(plan: ResolvePlan, targetId: string): boolean {
   return plan.warnings.length > 0 || plan.items.some((step) => step.id !== targetId);
 }

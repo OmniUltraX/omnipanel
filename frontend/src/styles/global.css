@@ -29728,6 +29728,7 @@ body.quick-launcher-body {
 }
 
 .plugin-center-row--split {
+  position: relative;
   flex-direction: row;
   align-items: center;
   padding: 2px 6px 2px 0;
@@ -29811,6 +29812,11 @@ body.quick-launcher-body {
   align-items: center;
   gap: 4px;
   padding-right: 4px;
+}
+
+.plugin-center-row__update-btn.workbench-panel-header-action-btn {
+  color: var(--danger, #dc2626);
+  border-color: color-mix(in srgb, var(--danger, #dc2626) 35%, var(--border));
 }
 
 .plugin-settings-subwindow .subwindow-body {
@@ -29983,16 +29989,59 @@ body.quick-launcher-body {
 }
 
 .plugin-center-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   background: var(--surface);
+  /* 不用 overflow:hidden：双按钮（更新+卸载）在窄卡上会被裁掉一截 */
+  overflow: visible;
+  isolation: isolate;
 }
 
 .plugin-center-card.is-active {
   border-color: var(--accent);
+}
+
+.plugin-center-card__corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  max-width: 46%;
+  padding: 2px 7px;
+  border-radius: 0 var(--r-sm) 0 4px;
+  background: var(--danger, #dc2626);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.plugin-center-card__name-row,
+.plugin-center-row__name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  min-width: 0;
+  padding-right: 4px;
+}
+
+.plugin-center-card__versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 .plugin-center-card__hit {
@@ -30037,7 +30086,32 @@ body.quick-launcher-body {
 .plugin-center-card__action {
   display: flex;
   justify-content: flex-end;
-  padding: 0 12px 12px;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 6px 10px 10px;
+  /* 与圆角卡片对齐，避免底边按钮视觉上被边框切掉 */
+  margin-top: auto;
+}
+
+.plugin-center-card__actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  max-width: 100%;
+}
+
+/* 市场卡片操作：常态可见描边；窄卡可换行，禁止被父级裁切 */
+.plugin-center-card__action .plugin-center-card__btn.workbench-panel-header-action-btn,
+.plugin-center-row--split .plugin-center-card__btn.workbench-panel-header-action-btn {
+  color: var(--text, var(--fg, inherit));
+  background: var(--surface);
+  border-color: var(--border);
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 
 .plugin-center-pager {

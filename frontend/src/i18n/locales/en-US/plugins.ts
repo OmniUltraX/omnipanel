@@ -341,6 +341,8 @@ export default {
       marketCount: "Marketplace ({count})",
       refresh: "Refresh marketplace",
       get: "Get",
+      currentVersion: "Current version",
+      latestVersion: "Latest version",
       viewList: "List",
       viewGrid: "Grid",
       pagePrev: "Previous page",

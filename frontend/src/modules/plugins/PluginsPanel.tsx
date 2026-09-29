@@ -71,6 +71,10 @@ export function PluginsPanel() {
   const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
   const selected = Boolean(center.selectedInstalled || center.selectedMarket);
+  const updateIds = useMemo(
+    () => new Set(center.marketItems.filter((m) => m.needsUpdate).map((m) => m.id)),
+    [center.marketItems],
+  );
 
   const selectedId = center.selectedId;
   const setSelectedId = center.setSelectedId;
@@ -225,9 +229,16 @@ export function PluginsPanel() {
               installed={center.filteredInstalled}
               selectedId={center.selectedId}
               busyId={center.busyId}
+              updateIds={updateIds}
+              updatingId={center.installingMarketId}
               onSelect={center.setSelectedId}
               onOpenSettings={setSettingsPluginId}
               onUninstall={(item) => void center.uninstall(item)}
+              onUpdate={(id) => {
+                const market = center.marketItems.find((m) => m.id === id);
+                if (market) void center.installMarket(market);
+                else void center.updatePlugins([id]);
+              }}
               originOf={center.originOf}
               dbxIds={center.dbxIds}
               devIds={center.devIds}
@@ -245,9 +256,9 @@ export function PluginsPanel() {
               onSelect={center.setSelectedId}
               installingMarketId={center.installingMarketId}
               catalogRefreshing={center.catalogRefreshing}
-              updates={center.updates}
               onInstallMarket={(item) => void center.installMarket(item)}
-              onOpenOverlay={(id) => void center.openOverlay(id)}
+              onUninstall={(item) => void center.uninstall(item)}
+              busyId={center.busyId}
               onRefreshMarket={() => void center.reloadMarket(true)}
               npmSearching={center.npmSearching}
               npmActive={center.npmSearch != null}
@@ -257,8 +268,6 @@ export function PluginsPanel() {
               extCategory={center.extCategory}
               onExtCategory={center.setExtCategory}
               onOpenSources={() => center.setSourcesOpen(true)}
-              onUpdateAll={() => void center.updatePlugins(null)}
-              onUpdateOne={(id) => void center.updatePlugins([id])}
             />
           </div>
           {selected ? (

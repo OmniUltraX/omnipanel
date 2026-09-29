@@ -27,6 +27,8 @@ pub(crate) const OFFICIAL_REGISTRY_URL: &str =
     "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/plugin-registry.json";
 const FETCH_TIMEOUT_SECS: u64 = 30;
 const DOWNLOAD_TIMEOUT_SECS: u64 = 180;
+/// 官方目录本地 cache 最长复用时间；超时后即使 force=false 也会重新拉取，避免发版后长期看不到更新。
+const REGISTRY_CACHE_MAX_AGE_SECS: u64 = 120;
 
 fn token_ref(source_id: &str) -> String {
     format!("registry:{source_id}:token")
@@ -213,14 +215,42 @@ fn load_source_cfgs(
     Ok(out)
 }
 
+fn cache_age_secs(plugins_root: Option<&std::path::Path>, source_id: &str) -> Option<u64> {
+    let path = cache_path(plugins_root, source_id)?;
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok()?;
+    Some(modified.elapsed().ok()?.as_secs())
+}
+
+fn cache_is_fresh(plugins_root: Option<&std::path::Path>, source_id: &str) -> bool {
+    cache_age_secs(plugins_root, source_id)
+        .map(|age| age < REGISTRY_CACHE_MAX_AGE_SECS)
+        .unwrap_or(false)
+}
+
+fn registry_fetch_url(base: &str) -> String {
+    // GitHub Releases CDN 常缓存 JSON；拉取时带时间戳避免发版后仍命中旧目录。
+    let bust = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if base.contains('?') {
+        format!("{base}&_={bust}")
+    } else {
+        format!("{base}?_={bust}")
+    }
+}
+
 async fn fetch_source(
     client: &reqwest::Client,
     cfg: &SourceCfg,
     plugins_root: Option<&std::path::Path>,
 ) -> Result<(RegistryFile, Option<String>), OmniError> {
     let mut req = client
-        .get(cfg.url.clone())
+        .get(registry_fetch_url(&cfg.url))
         .header("User-Agent", "OmniPanel-marketplace")
+        .header("Cache-Control", "no-cache")
+        .header("Pragma", "no-cache")
         .timeout(std::time::Duration::from_secs(FETCH_TIMEOUT_SECS));
     if let Some(token) = cfg.token.as_deref().filter(|t| !t.trim().is_empty()) {
         req = req.bearer_auth(token.trim());
@@ -785,7 +815,8 @@ async fn merged_view(
             continue;
         }
         let cached = read_source_cache(plugins_root.as_deref(), &cfg.id);
-        if !refresh {
+        // force=false 且 cache 仍新鲜时才跳过网络；过期则静默重拉，保证发版后能提示更新。
+        if !refresh && cache_is_fresh(plugins_root.as_deref(), &cfg.id) {
             if let Some(file) = cached {
                 files.push((cfg.id.clone(), file));
                 continue;
@@ -1243,14 +1274,16 @@ pub async fn plugin_install_version(
 #[specta::specta]
 pub async fn plugin_check_updates(
     state: State<'_, AppState>,
+    force: bool,
 ) -> Result<Vec<PluginUpdateInfo>, OmniError> {
-    plugin_check_updates_inner(&state).await
+    plugin_check_updates_inner(&state, force).await
 }
 
 async fn plugin_check_updates_inner(
     state: &State<'_, AppState>,
+    refresh: bool,
 ) -> Result<Vec<PluginUpdateInfo>, OmniError> {
-    let (merged, _errors) = merged_view(state, false).await?;
+    let (merged, _errors) = merged_view(state, refresh).await?;
     let registry = state.plugin_registry.lock().await;
     let (_raw, installed) = installed_map(&registry);
     let mut out = Vec::new();
@@ -1283,7 +1316,8 @@ pub async fn plugin_update_all(
     state: State<'_, AppState>,
     ids: Option<Vec<String>>,
 ) -> Result<Vec<UpdateResultItem>, OmniError> {
-    let updates = plugin_check_updates_inner(&state).await?;
+    // 更新前强制刷新目录，避免沿用过期 cache 漏掉刚发版的版本。
+    let updates = plugin_check_updates_inner(&state, true).await?;
     let wanted: Vec<PluginUpdateInfo> = match ids {
         Some(list) => {
             let set: std::collections::HashSet<String> = list.into_iter().collect();
@@ -1391,6 +1425,15 @@ mod tests {
             signature: None,
             publisher_key: None,
         }
+    }
+
+    #[test]
+    fn registry_fetch_url_appends_cache_buster() {
+        let with_q = registry_fetch_url("https://example.com/r.json?x=1");
+        assert!(with_q.contains("?x=1&_="), "{with_q}");
+        let plain = registry_fetch_url("https://example.com/r.json");
+        assert!(plain.contains("?_="), "{plain}");
+        assert!(!plain.contains("?_=&"), "{plain}");
     }
 
     #[test]

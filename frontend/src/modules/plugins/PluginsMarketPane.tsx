@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../i18n";
-import { getPluginManifest } from "../../lib/pluginManifests";
-import type { PluginListItem, PluginUpdateInfo } from "../../ipc/bindings";
+import type { PluginListItem } from "../../ipc/bindings";
 import { IconChevronLeft, IconChevronRight, IconGrid, IconList } from "../../components/ui/icons/Icons";
 import { Select } from "../../components/ui/form/Select";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
@@ -105,13 +104,11 @@ type Props = {
   onSelect: (id: string) => void;
   installingMarketId: string | null;
   catalogRefreshing: boolean;
-  updates: PluginUpdateInfo[];
   onInstallMarket: (item: MarketItem) => void;
-  onOpenOverlay: (id: string) => void;
+  onUninstall: (item: PluginListItem) => void;
+  busyId: string | null;
   onRefreshMarket: () => void;
   onOpenSources: () => void;
-  onUpdateAll: () => void;
-  onUpdateOne: (id: string) => void;
   npmSearching: boolean;
   npmActive: boolean;
   onSearchNpm: () => void;
@@ -120,6 +117,14 @@ type Props = {
   extCategory: ExternalCategory | "all";
   onExtCategory: (category: ExternalCategory | "all") => void;
 };
+
+function marketVersionParts(item: MarketItem): { current: string; latest: string | null } {
+  const latest = item.version.trim();
+  const installed = item.installedVersion?.trim() || "";
+  const current = installed || latest;
+  const showLatest = Boolean(item.needsUpdate && latest && installed && installed !== latest);
+  return { current, latest: showLatest ? latest : null };
+}
 
 export function PluginsMarketPane({
   kindFilter,
@@ -132,13 +137,11 @@ export function PluginsMarketPane({
   onSelect,
   installingMarketId,
   catalogRefreshing,
-  updates,
   onInstallMarket,
-  onOpenOverlay,
+  onUninstall,
+  busyId,
   onRefreshMarket,
   onOpenSources,
-  onUpdateAll,
-  onUpdateOne,
   npmSearching,
   npmActive,
   onSearchNpm,
@@ -153,7 +156,6 @@ export function PluginsMarketPane({
   const [pageSize, setPageSize] = useState(readPageSize);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<StoredSort>(readMarketSort);
-  const [openLogs, setOpenLogs] = useState<Record<string, boolean>>({});
   const installedById = useMemo(
     () => new Map(installed.map((item) => [item.id, item])),
     [installed],
@@ -303,57 +305,6 @@ export function PluginsMarketPane({
           )
         ) : null}
       </div>
-      {updates.length > 0 ? (
-        <div className="plugin-center-updates">
-          <div className="plugin-center-col__head">
-            <h2>{t("plugins.center.updates", { count: updates.length })}</h2>
-            <WorkbenchActionButton
-              disabled={Boolean(installingMarketId)}
-              onClick={onUpdateAll}
-            >
-              {installingMarketId === "__all__"
-                ? t("plugins.catalog.installing")
-                : t("plugins.center.updateAll")}
-            </WorkbenchActionButton>
-          </div>
-          <ul className="plugin-center-updates__list">
-            {updates.map((item) => (
-              <li key={item.id} className="plugin-center-updates__item">
-                <div className="plugin-center-updates__row">
-                  <span className="font-mono text-xs">{item.id}</span>
-                  <span className="text-xs text-muted">
-                    {item.installedVersion} → {item.latestVersion}
-                  </span>
-                  <WorkbenchActionButton
-                    disabled={Boolean(installingMarketId)}
-                    onClick={() => onUpdateOne(item.id)}
-                  >
-                    {installingMarketId === item.id
-                      ? t("plugins.catalog.installing")
-                      : t("plugins.catalog.update")}
-                  </WorkbenchActionButton>
-                </div>
-                {item.changelog ? (
-                  <button
-                    type="button"
-                    className="plugin-center-updates__log-toggle"
-                    onClick={() =>
-                      setOpenLogs((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
-                    }
-                  >
-                    {t("plugins.center.changelog")}
-                  </button>
-                ) : (
-                  <p className="text-xs text-muted">{t("plugins.center.noChangelog")}</p>
-                )}
-                {item.changelog && openLogs[item.id] ? (
-                  <pre className="plugin-center-updates__log">{item.changelog}</pre>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <div
         ref={listRef}
         className={view === "grid" ? "plugin-center-grid" : "plugin-center-list"}
@@ -366,10 +317,11 @@ export function PluginsMarketPane({
               installed={installedById.get(item.id) ?? null}
               selected={selectedId === item.id}
               installing={installingMarketId === item.id}
+              uninstalling={busyId === item.id}
               locale={locale}
               onSelect={onSelect}
               onInstall={onInstallMarket}
-              onOpen={onOpenOverlay}
+              onUninstall={onUninstall}
             />
           ) : (
             <MarketRow
@@ -378,10 +330,11 @@ export function PluginsMarketPane({
               installed={installedById.get(item.id) ?? null}
               selected={selectedId === item.id}
               installing={installingMarketId === item.id}
+              uninstalling={busyId === item.id}
               locale={locale}
               onSelect={onSelect}
               onInstall={onInstallMarket}
-              onOpen={onOpenOverlay}
+              onUninstall={onUninstall}
             />
           ),
         )}
@@ -460,15 +413,6 @@ export function PluginsMarketPane({
   );
 }
 
-function canOpenOverlay(item: PluginListItem | null): boolean {
-  return Boolean(
-    item &&
-      item.enabled &&
-      item.activated &&
-      (getPluginManifest(item.id)?.contributes.overlays?.length ?? 0) > 0,
-  );
-}
-
 function marketMetaBits(
   item: MarketItem,
   t: (key: string, params?: Record<string, string | number>) => string,
@@ -485,67 +429,129 @@ function marketMetaBits(
   return bits;
 }
 
+/** 标题旁只显示当前版本；新版本仅出现在右上角标。 */
+function MarketVersionLine({ item }: { item: MarketItem }) {
+  const { t } = useI18n();
+  const { current } = marketVersionParts(item);
+  if (!current) return null;
+  return (
+    <span className="plugin-center-card__versions">
+      <span className="plugin-center-card__version" title={t("plugins.center.currentVersion")}>
+        v{current}
+      </span>
+    </span>
+  );
+}
+
+/** 右下角：未安装→安装；已装有更新→更新+卸载；已装无更新→卸载；内置不可卸→文案。 */
 function MarketAction({
   item,
   installed,
   installing,
+  uninstalling,
   onInstall,
-  onOpen,
+  onUninstall,
 }: {
   item: MarketItem;
   installed: PluginListItem | null;
   installing: boolean;
+  uninstalling: boolean;
   onInstall: (item: MarketItem) => void;
-  onOpen: (id: string) => void;
+  onUninstall: (item: PluginListItem) => void;
 }) {
   const { t } = useI18n();
   const bundled = item.distribution === "bundled" || installed?.source === "builtin";
-  // 外部来源（Rubick npm 包）：tarball 非标准包，不走版本直装，只走转换安装
   const isExternal = item.externalNpm != null && item.externalNpm.trim() !== "";
-  const canDownload = isExternal
-    ? !item.installed
-    : !bundled && (!item.installed || item.needsUpdate);
-  const openable = canOpenOverlay(installed);
+  // 市场标记已装即可卸；无 PluginListItem 时用目录 id 拼最小项，避免按钮整行消失
+  const uninstallTarget: PluginListItem | null =
+    installed ??
+    (item.installed
+      ? {
+          id: item.id,
+          version: item.installedVersion ?? item.version,
+          kind: item.kind,
+          enabled: true,
+          activated: true,
+          source: "installed",
+          unsupportedReason: null,
+        }
+      : null);
+  const canUninstall = Boolean(uninstallTarget) && !bundled;
 
-  if (canDownload) {
+  if (!item.installed) {
     return (
-      <button
-        type="button"
-        className="btn btn-sm btn-primary"
-        disabled={installing}
-        onClick={(event) => {
-          event.stopPropagation();
-          onInstall(item);
-        }}
-      >
-        {installing
-          ? t("plugins.catalog.installing")
-          : isExternal
-            ? t("plugins.center.convertInstall")
-            : item.needsUpdate
-              ? t("plugins.catalog.update")
-              : t("plugins.center.get")}
-      </button>
+      <div className="plugin-center-card__actions">
+        <WorkbenchActionButton
+          className="plugin-center-card__btn"
+          disabled={installing}
+          onClick={(event) => {
+            event.stopPropagation();
+            onInstall(item);
+          }}
+        >
+          {installing
+            ? t("plugins.catalog.installing")
+            : isExternal
+              ? t("plugins.center.convertInstall")
+              : t("plugins.catalog.install")}
+        </WorkbenchActionButton>
+      </div>
     );
   }
-  if (openable && installed) {
+
+  if (bundled && !item.needsUpdate) {
+    return <span className="plugin-center-row__status">{t("plugins.center.bundled")}</span>;
+  }
+
+  if (item.needsUpdate) {
     return (
-      <button
-        type="button"
-        className="btn btn-sm btn-secondary"
-        onClick={(event) => {
-          event.stopPropagation();
-          void onOpen(installed.id);
-        }}
-      >
-        {t("plugins.openOverlay")}
-      </button>
+      <div className="plugin-center-card__actions">
+        <WorkbenchActionButton
+          className="plugin-center-card__btn"
+          disabled={installing || uninstalling}
+          onClick={(event) => {
+            event.stopPropagation();
+            onInstall(item);
+          }}
+        >
+          {installing ? t("plugins.catalog.installing") : t("plugins.catalog.update")}
+        </WorkbenchActionButton>
+        {canUninstall && uninstallTarget ? (
+          <WorkbenchActionButton
+            className="plugin-center-card__btn"
+            danger
+            disabled={installing || uninstalling}
+            onClick={(event) => {
+              event.stopPropagation();
+              onUninstall(uninstallTarget);
+            }}
+          >
+            {t("plugins.uninstall")}
+          </WorkbenchActionButton>
+        ) : null}
+      </div>
     );
   }
-  if (item.installed || bundled) {
-    return <span className="plugin-center-row__status">{t("plugins.catalog.installed")}</span>;
+
+  if (canUninstall && uninstallTarget) {
+    return (
+      <div className="plugin-center-card__actions">
+        <WorkbenchActionButton
+          className="plugin-center-card__btn"
+          danger
+          disabled={uninstalling}
+          onClick={(event) => {
+            event.stopPropagation();
+            onUninstall(uninstallTarget);
+          }}
+        >
+          {t("plugins.uninstall")}
+        </WorkbenchActionButton>
+      </div>
+    );
   }
-  return null;
+
+  return <span className="plugin-center-row__status">{t("plugins.catalog.installed")}</span>;
 }
 
 function MarketRow({
@@ -553,31 +559,39 @@ function MarketRow({
   installed,
   selected,
   installing,
+  uninstalling,
   locale,
   onSelect,
   onInstall,
-  onOpen,
+  onUninstall,
 }: {
   item: MarketItem;
   installed: PluginListItem | null;
   selected: boolean;
   installing: boolean;
+  uninstalling: boolean;
   locale: string;
   onSelect: (id: string) => void;
   onInstall: (item: MarketItem) => void;
-  onOpen: (id: string) => void;
+  onUninstall: (item: PluginListItem) => void;
 }) {
   const { t } = useI18n();
   const meta = marketMetaBits(item, t, locale);
-  if (item.installed) {
-    meta.push(item.needsUpdate ? t("plugins.catalog.update") : t("plugins.catalog.installed"));
-  }
+  const versions = marketVersionParts(item);
   return (
     <div className={`plugin-center-row plugin-center-row--split${selected ? " is-active" : ""}`}>
+      {item.needsUpdate && versions.latest ? (
+        <span className="plugin-center-card__corner" title={t("plugins.center.latestVersion")}>
+          v{versions.latest}
+        </span>
+      ) : null}
       <button type="button" className="plugin-center-row__hit plugin-center-row__hit--icon" onClick={() => onSelect(item.id)}>
         <PluginGlyph pluginId={item.id} kind={item.kind} name={item.name} size="sm" fromDbx={Boolean(item.dbxKey)} />
         <span className="plugin-center-row__body">
-          <span className="plugin-center-row__name">{item.name}</span>
+          <span className="plugin-center-row__name-row">
+            <span className="plugin-center-row__name">{item.name}</span>
+            <MarketVersionLine item={item} />
+          </span>
           <span className="plugin-center-row__meta">{meta.join(" · ")}</span>
         </span>
       </button>
@@ -585,8 +599,9 @@ function MarketRow({
         item={item}
         installed={installed}
         installing={installing}
+        uninstalling={uninstalling}
         onInstall={onInstall}
-        onOpen={onOpen}
+        onUninstall={onUninstall}
       />
     </div>
   );
@@ -597,21 +612,24 @@ function MarketCard({
   installed,
   selected,
   installing,
+  uninstalling,
   locale,
   onSelect,
   onInstall,
-  onOpen,
+  onUninstall,
 }: {
   item: MarketItem;
   installed: PluginListItem | null;
   selected: boolean;
   installing: boolean;
+  uninstalling: boolean;
   locale: string;
   onSelect: (id: string) => void;
   onInstall: (item: MarketItem) => void;
-  onOpen: (id: string) => void;
+  onUninstall: (item: PluginListItem) => void;
 }) {
   const { t } = useI18n();
+  const versions = marketVersionParts(item);
   const desc =
     item.description.trim() ||
     (item.dbxKey
@@ -619,11 +637,19 @@ function MarketCard({
       : `${t(`plugins.center.kinds.${item.kind}`)} · v${item.version}`);
   return (
     <div className={`plugin-center-card${selected ? " is-active" : ""}`}>
+      {item.needsUpdate && versions.latest ? (
+        <span className="plugin-center-card__corner" title={t("plugins.center.latestVersion")}>
+          v{versions.latest}
+        </span>
+      ) : null}
       <button type="button" className="plugin-center-card__hit" onClick={() => onSelect(item.id)}>
         <span className="plugin-center-card__top">
           <PluginGlyph pluginId={item.id} kind={item.kind} name={item.name} size="md" fromDbx={Boolean(item.dbxKey)} />
           <span className="plugin-center-card__titles">
-            <span className="plugin-center-card__name">{item.name}</span>
+            <span className="plugin-center-card__name-row">
+              <span className="plugin-center-card__name">{item.name}</span>
+              <MarketVersionLine item={item} />
+            </span>
             <span className="plugin-center-card__meta">{marketMetaBits(item, t, locale).join(" · ")}</span>
           </span>
         </span>
@@ -634,8 +660,9 @@ function MarketCard({
           item={item}
           installed={installed}
           installing={installing}
+          uninstalling={uninstalling}
           onInstall={onInstall}
-          onOpen={onOpen}
+          onUninstall={onUninstall}
         />
       </div>
     </div>

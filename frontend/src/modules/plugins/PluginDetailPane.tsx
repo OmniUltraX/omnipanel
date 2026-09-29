@@ -73,8 +73,7 @@ export function PluginDetailPane({
   const fromDbx = Boolean(market?.dbxKey);
   const canDownload =
     Boolean(market) &&
-    !bundled &&
-    (!market?.installed || Boolean(market?.needsUpdate));
+    (Boolean(market?.needsUpdate) || (!bundled && !market?.installed));
   const installing = installingMarketId === id;
   const unsupported = installed?.unsupportedReason
     ? UNSUPPORTED_REASON_KEYS[installed.unsupportedReason]

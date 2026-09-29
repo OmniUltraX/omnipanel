@@ -341,6 +341,8 @@ export default {
       marketCount: "市场 ({count})",
       refresh: "刷新市场",
       get: "获取",
+      currentVersion: "当前版本",
+      latestVersion: "最新版本",
       viewList: "列表",
       viewGrid: "网格",
       pagePrev: "上一页",

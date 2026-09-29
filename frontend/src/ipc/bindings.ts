@@ -1199,7 +1199,7 @@ export const commands = {
 	pluginMarketCatalog: (force: boolean) => typedError<MarketplaceItem_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_market_catalog", { force })),
 	pluginResolvePlan: (id: string, versionReq: string | null) => typedError<ResolvePlan, OmniError_Serialize>(__TAURI_INVOKE("plugin_resolve_plan", { id, versionReq })),
 	pluginInstallVersion: (id: string, version: string | null, approveDeps: boolean) => typedError<PluginListItem_Serialize, OmniError_Serialize>(__TAURI_INVOKE("plugin_install_version", { id, version, approveDeps })),
-	pluginCheckUpdates: () => typedError<PluginUpdateInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_check_updates")),
+	pluginCheckUpdates: (force: boolean) => typedError<PluginUpdateInfo_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_check_updates", { force })),
 	pluginUpdateAll: (ids: string[] | null) => typedError<UpdateResultItem_Serialize[], OmniError_Serialize>(__TAURI_INVOKE("plugin_update_all", { ids })),
 	/**  列出当前平台可安装的 DBX SQL / CQL / Cypher agent（不含第一方引擎 / DuckDB worker / 队列）。 */
 	pluginDbxCatalog: () => typedError<DbxCatalogDriver[], OmniError_Serialize>(__TAURI_INVOKE("plugin_dbx_catalog")),

@@ -21,6 +21,7 @@ import {
   pluginMatchesQuery,
   sanitizeExternalId,
   shouldConfirmInstallPlan,
+  updatesFromMarketplace,
   withLocalStats,
   type ExternalCategory,
   type KindFilter,
@@ -92,12 +93,13 @@ export function usePluginCenter() {
 
   const reloadOfficial = useCallback(async (force = false) => {
     try {
-      const [list, nextUpdates, nextSources] = await Promise.all([
-        unwrapCommand(commands.pluginMarketCatalog(force), { quiet: true }),
-        unwrapCommand(commands.pluginCheckUpdates(), { quiet: true }),
+      // 先拉目录（force 时写 cache），再查更新——二者并行会读到旧 cache，发版后横幅空白。
+      const list = await unwrapCommand(commands.pluginMarketCatalog(force), { quiet: true });
+      setMarketCatalog(list);
+      const [nextUpdates, nextSources] = await Promise.all([
+        unwrapCommand(commands.pluginCheckUpdates(force), { quiet: true }),
         unwrapCommand(commands.pluginRegistrySourcesList()),
       ]);
-      setMarketCatalog(list);
       setUpdates(nextUpdates);
       setSources(nextSources);
     } catch (err) {
@@ -138,7 +140,26 @@ export function usePluginCenter() {
     };
   }, [reloadInstalled]);
 
-  const visibleUpdates = useMemo(() => updates.filter((u) => !devIds.has(u.id)), [updates, devIds]);
+  const visibleUpdates = useMemo(() => {
+    // 横幅以目录 updateAvailable 为准（与行按钮同源）；checkUpdates 仅补充 changelog。
+    const byId = new Map<string, PluginUpdateInfo>();
+    for (const row of updatesFromMarketplace(marketCatalog)) {
+      if (devIds.has(row.id)) continue;
+      byId.set(row.id, row);
+    }
+    for (const row of updates) {
+      if (devIds.has(row.id)) continue;
+      const prev = byId.get(row.id);
+      if (!prev) {
+        byId.set(row.id, row);
+        continue;
+      }
+      if (!prev.changelog && row.changelog) {
+        byId.set(row.id, { ...prev, changelog: row.changelog });
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }, [marketCatalog, updates, devIds]);
 
   // Rubick 源开关：种子合并、自动拉全量、npm 按钮一律跟随（默认关）
   const rubickEnabled = useMemo(
@@ -578,7 +599,7 @@ export function usePluginCenter() {
           : null,
       );
       await reloadInstalled();
-      await reloadMarket();
+      await reloadMarket(true);
     } catch (err) {
       setError(String(err));
     } finally {
