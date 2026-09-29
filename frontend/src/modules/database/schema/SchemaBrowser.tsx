@@ -275,7 +275,7 @@ export function SchemaBrowser({
             )}
           </nav>
           <div
-            className={`schema-tree${useTreeVirtualization ? " schema-tree--virtual" : ""}${stickyAncestors ? " schema-tree--sticky-ancestors" : ""}`}
+            className={`schema-tree${useTreeVirtualization ? " schema-tree--virtual" : ""}${stickyAncestors ? " schema-tree--sticky-ancestors sidebar-tree-sticky" : ""}`}
             ref={schemaTreeRef}
             tabIndex={-1}
             onKeyDown={handleTreeKeyDown}
@@ -366,7 +366,7 @@ export function SchemaBrowser({
               return (
                 <div
                   key={row.key}
-                  className={`schema-tree-native-row${pin ? " schema-tree-native-row--sticky" : ""}`}
+                  className={`schema-tree-native-row${pin ? " schema-tree-native-row--sticky sidebar-tree-sticky-row" : ""}`}
                   style={{
                     height: estimateSchemaFlatRowSize(row),
                     ...(pin ? { ["--tree-depth" as string]: row.depth } : {}),

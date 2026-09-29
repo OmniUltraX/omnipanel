@@ -73,11 +73,13 @@
         flex-shrink: 0;
     }
 
-    /* 与 .ssh-sidebar-tree-wrap 一致：在 vsplit body(overflow:hidden) 内可纵向滚动 */
+    /* 高度交给树根本身滚动，吸顶才能贴在这个滚动口上 */
     .docker-sidebar-tree-wrap {
         flex: 1;
         min-height: 0;
-        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 
     .docker-tree-drop-target {

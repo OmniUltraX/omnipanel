@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useI18n } from "../../../i18n";
 import { WorkbenchActionButton } from "../../../components/ui/primitives/WorkbenchActionButton";
 import { getShortcutKeys, matchesShortcut } from "../../../stores/shortcutsStore";
@@ -199,9 +199,6 @@ function FolderTree({
           const node = item.node;
           const expanded = expandedIds.has(node.id);
           const isDropTarget = dropTargetId === node.id && canDropOnFolder(node.id);
-          const nodeStyle: CSSProperties = {
-            ["--tree-depth" as string]: depth,
-          };
           return (
             <div key={node.id}>
               <SidebarTreeNode
@@ -213,8 +210,7 @@ function FolderTree({
                 treeKey={node.id}
                 expanded={expanded}
                 hasChildren
-                className={`sql-file-tree-node sql-file-tree-node--folder${expanded ? " sql-file-tree-node--sticky" : ""}${draggingId === node.id ? " sql-file-tree-node--dragging" : ""}${isDropTarget ? " sql-file-tree-node--drop-target" : ""}`}
-                style={nodeStyle}
+                className={`sql-file-tree-node sql-file-tree-node--folder${draggingId === node.id ? " sql-file-tree-node--dragging" : ""}${isDropTarget ? " sql-file-tree-node--drop-target" : ""}`}
                 dataAttrs={{
                   "data-sql-file-node-id": node.id,
                   "data-sql-file-node-type": "folder",
@@ -806,7 +802,7 @@ export function SqlQueryFilePanel({
         <QueryTreeActiveSync activeId={activeFileId ?? activeTreeChartFileId ?? null} />
         <div
           ref={treeRootRef}
-          className={`sql-query-file-tree${stickyAncestors ? " sql-query-file-tree--sticky-ancestors" : ""}${dropTargetId === "__root__" ? " sql-query-file-tree--root-drop" : ""}`}
+          className={`sql-query-file-tree${stickyAncestors ? " sidebar-tree-sticky" : ""}${dropTargetId === "__root__" ? " sql-query-file-tree--root-drop" : ""}`}
           tabIndex={-1}
           onKeyDown={handleTreeKeyDown}
           onContextMenu={openTreeBackgroundMenu}

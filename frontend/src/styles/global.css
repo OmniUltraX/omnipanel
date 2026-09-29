@@ -23559,8 +23559,8 @@ button.omni-btn-tool[aria-pressed="true"] {
     margin-right: 0;
 }
 
-/* SQL 查询文件树 sticky 祖先行：只保留底部内边距 */
-.vsplit-sidebar .sql-query-file-tree--sticky-ancestors {
+/* SQL 查询文件树吸顶：只留底部内边距，避免祖先行被上内边距顶开 */
+.vsplit-sidebar .sql-query-file-tree.sidebar-tree-sticky {
     padding: 0 0 var(--vsplit-sidebar-content-padding);
 }
 

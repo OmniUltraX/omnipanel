@@ -4,6 +4,59 @@
     gap: 2px;
 }
 
+/* 展开且有子节点的行吸在滚动区顶部。滚动容器（或它内部）带 .sidebar-tree-sticky；
+   搜索时去掉该类。行的父盒子必须包住自己的子树，吸顶才会在该组滚出时松开。 */
+.sidebar-tree-sticky {
+    --sidebar-tree-row-height: var(--schema-tree-row-height, 24px);
+}
+
+.sidebar-tree-sticky .sidebar-tree-node--sticky,
+.sidebar-tree-sticky .sidebar-tree-sticky-row {
+    position: sticky;
+    /* 父级压在子级上面。子级滚出时从父级底下滑走，不会把父级的字盖掉。 */
+    z-index: calc(40 - var(--tree-depth, 0));
+    content-visibility: visible;
+}
+
+.sidebar-tree-sticky .sidebar-tree-sticky-row {
+    top: calc(var(--tree-depth, 0) * var(--sidebar-tree-row-height, 28px));
+    overflow: visible;
+    background-color: var(--bg);
+    background-image: none;
+    box-shadow: 0 1px 0 var(--border);
+}
+
+.sidebar-tree-sticky .sidebar-tree-node--sticky {
+    /* 行高不固定。内联 top 由 sidebarTreeStickyLayout 按真实行高写入。 */
+    top: 0;
+}
+
+/* 只有真正吸住时才铺实底和底边。停在列表里的展开行保持普通树行。 */
+.sidebar-tree-sticky .sidebar-tree-node--sticky.is-stuck {
+    margin-right: 0;
+    border-radius: 0;
+    background-color: var(--bg);
+    background-image: none;
+    box-shadow: 0 1px 0 var(--border);
+}
+
+.sidebar-tree-sticky .sidebar-tree-node--sticky.is-stuck:hover {
+    background-color: var(--surface-hover);
+    background-image: none;
+}
+
+.sidebar-tree-sticky .sidebar-tree-node--sticky.is-stuck.sidebar-tree-node--active,
+.sidebar-tree-sticky .sidebar-tree-node--sticky.is-stuck.sidebar-tree-node--selected,
+.sidebar-tree-sticky .sidebar-tree-sticky-row .sidebar-tree-node--active,
+.sidebar-tree-sticky .sidebar-tree-sticky-row .sidebar-tree-node--selected {
+    background-color: var(--bg);
+    background-image: linear-gradient(var(--accent-soft), var(--accent-soft));
+}
+
+.sidebar-tree-branch {
+    min-width: 0;
+}
+
 /* ── 树行（与 database schema-tree .tree-node 对齐） ── */
 .sidebar-tree-node,
 .tree-node.sidebar-tree-node {
