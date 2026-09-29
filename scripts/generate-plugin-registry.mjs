@@ -59,7 +59,8 @@ const META = {
   },
   "omni.cloud.qiniu": {
     name: "Qiniu Cloud",
-    description: "Manage Qiniu Kodo object storage buckets and open them in the Files module via S3-compatible endpoints.",
+    description:
+      "Manage Qiniu Kodo buckets, bound domains, CDN domains, and SSL certificates (read-only); open buckets in Files via S3-compatible endpoints.",
   },
   "omni.panel.1panel": {
     name: "1Panel",

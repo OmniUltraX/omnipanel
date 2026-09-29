@@ -40,19 +40,20 @@
       "kind": "addon",
       "name": "Warpgate",
       "description": "Warpgate gateway accounts and SSH alternate routes (bastion jump).",
-      "version": "0.1.0",
-      "distribution": "download",
-      "artifact": {
-        "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-addon-warpgate-0.1.0.omni-plugin",
-        "sha256": "",
-        "size": 0
-      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-addon-warpgate-0.1.0.omni-plugin",
+            "sha256": "",
+            "size": 8234
+          }
+        }
+      ],
       "permissions": [
         "net:connect",
         "vault:read"
-      ],
-      "createdAt": "2026-09-28T00:00:00+08:00",
-      "updatedAt": "2026-09-28T00:00:00+08:00"
+      ]
     },
     {
       "id": "omni.cloud.aliyun",
@@ -219,10 +220,10 @@
       "id": "omni.cloud.qiniu",
       "kind": "cloud",
       "name": "Qiniu Cloud",
-      "description": "Manage Qiniu Kodo object storage buckets and open them in the Files module via S3-compatible endpoints.",
+      "description": "Manage Qiniu Kodo buckets, bound domains, CDN domains, and SSL certificates (read-only); open buckets in Files via S3-compatible endpoints.",
       "versions": [
         {
-          "version": "0.1.0",
+          "version": "0.2.0",
           "artifact": {
             "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-qiniu-0.1.0.omni-plugin",
             "sha256": "d4322b254ed349f92067ecf3f2d8709b5e67497029f93ec7cd6c19afbfa3f12f",
@@ -401,7 +402,7 @@
         "connections:write"
       ],
       "createdAt": "2026-08-28T18:51:46+08:00",
-      "updatedAt": "2026-08-28T18:51:46+08:00"
+      "updatedAt": "2026-09-28T14:23:40+08:00"
     },
     {
       "id": "omni.knowledge.obsidian",
