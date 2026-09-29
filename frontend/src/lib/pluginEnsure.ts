@@ -122,9 +122,7 @@ async function fallbackInstallFromConnections(): Promise<void> {
     const connections = await unwrapCommand(commands.connList(), { quiet: true });
     const ids = [
       ...new Set(
-        (Array.isArray(connections) ? connections : [])
-          .map(pluginIdFromConnection)
-          .filter((id): id is string => Boolean(id)),
+        (Array.isArray(connections) ? connections : []).flatMap(pluginIdsFromConnection),
       ),
     ];
     await installOfficialIfStillMissing(ids);
@@ -174,6 +172,28 @@ async function installOfficialIfStillMissing(ids: string[]): Promise<void> {
       5000,
     );
   }
+}
+
+/** 与后端 `collect_plugin_ids_from_connection` 对齐：含 SSH fallbacks[].pluginId。 */
+export function pluginIdsFromConnection(connection: Connection): string[] {
+  const ids = new Set<string>();
+  const primary = pluginIdFromConnection(connection);
+  if (primary) ids.add(primary);
+
+  let cfg: Record<string, unknown> = {};
+  try {
+    cfg = JSON.parse(connection.config || "{}") as Record<string, unknown>;
+  } catch {
+    return [...ids];
+  }
+  const fallbacks = Array.isArray(cfg.fallbacks) ? cfg.fallbacks : [];
+  for (const raw of fallbacks) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const pluginId = String((raw as Record<string, unknown>).pluginId ?? "").trim();
+    const resolved = resolveLegacyPluginId(pluginId);
+    if (resolved) ids.add(resolved);
+  }
+  return [...ids];
 }
 
 /** 与后端 `plugin_id_from_connection` 对齐：cloud 认 pluginId 或 provider。 */

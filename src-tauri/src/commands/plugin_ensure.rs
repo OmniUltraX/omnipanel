@@ -197,9 +197,7 @@ async fn collect_required_plugin_ids(state: &AppState) -> Result<Vec<String>, Om
 
 fn collect_from_storage(storage: &Storage, ids: &mut BTreeSet<String>) -> Result<(), OmniError> {
     for conn in storage.list_connections()? {
-        if let Some(id) = plugin_id_from_connection(conn.kind, &conn.config) {
-            ids.insert(id);
-        }
+        collect_plugin_ids_from_connection(conn.kind, &conn.config, ids);
     }
     for key in storage.ks_config_list_source_keys()? {
         if let Some(id) = plugin_id_from_ks_source_key(&key) {
@@ -207,6 +205,35 @@ fn collect_from_storage(storage: &Storage, ids: &mut BTreeSet<String>) -> Result
         }
     }
     Ok(())
+}
+
+/// 从连接配置收集所需插件（含 SSH `fallbacks[].pluginId` 等嵌套引用）。
+pub(crate) fn collect_plugin_ids_from_connection(
+    kind: ConnectionKind,
+    config: &str,
+    ids: &mut BTreeSet<String>,
+) {
+    if let Some(id) = plugin_id_from_connection(kind, config) {
+        ids.insert(id);
+    }
+    collect_fallback_plugin_ids(config, ids);
+}
+
+fn collect_fallback_plugin_ids(config: &str, ids: &mut BTreeSet<String>) {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(config) else {
+        return;
+    };
+    let Some(arr) = value.get("fallbacks").and_then(|v| v.as_array()) else {
+        return;
+    };
+    for item in arr {
+        let Some(raw) = item.get("pluginId").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if let Some(id) = normalize_plugin_id(raw) {
+            ids.insert(id);
+        }
+    }
 }
 
 pub(crate) fn plugin_id_from_connection(kind: ConnectionKind, config: &str) -> Option<String> {
@@ -327,6 +354,7 @@ fn looks_official_download(id: &str) -> bool {
         || id.starts_with("omni.module.")
         || id.starts_with("omni.panel.")
         || id.starts_with("omni.knowledge.")
+        || id.starts_with("omni.addon.")
 }
 
 fn is_catalog_miss(message: &str) -> bool {
@@ -372,6 +400,26 @@ mod tests {
         assert_eq!(
             plugin_id_from_connection(ConnectionKind::Ssh, r#"{"pluginId":"omni.module.nacos"}"#),
             None
+        );
+    }
+
+    #[test]
+    fn ssh_fallbacks_collect_addon_plugin_ids() {
+        let mut ids = BTreeSet::new();
+        collect_plugin_ids_from_connection(
+            ConnectionKind::Ssh,
+            r#"{
+              "host":"1.2.3.4",
+              "fallbacks":[
+                {"id":"fb1","kind":"plugin","pluginId":"omni.addon.warpgate","gatewayId":"g1","targetId":"t1","targetName":"web"},
+                {"id":"fb2","kind":"plugin","pluginId":"OMNI.ADDON.WARPGATE","gatewayId":"g1","targetId":"t2","targetName":"db"}
+              ]
+            }"#,
+            &mut ids,
+        );
+        assert_eq!(
+            ids.into_iter().collect::<Vec<_>>(),
+            vec!["omni.addon.warpgate".to_string()]
         );
     }
 
