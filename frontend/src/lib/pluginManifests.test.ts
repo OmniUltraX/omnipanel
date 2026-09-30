@@ -5,6 +5,7 @@ import cloudAwsJson from "../../../plugins/cloud-aws/plugin.json";
 import cloudAzureJson from "../../../plugins/cloud-azure/plugin.json";
 import cloudBandwagonJson from "../../../plugins/cloud-bandwagon/plugin.json";
 import cloudQiniuJson from "../../../plugins/cloud-qiniu/plugin.json";
+import cloudJdcloudJson from "../../../plugins/cloud-jdcloud/plugin.json";
 import cloudDigitaloceanJson from "../../../plugins/cloud-digitalocean/plugin.json";
 import cloudGcpJson from "../../../plugins/cloud-gcp/plugin.json";
 import cloudHuaweiJson from "../../../plugins/cloud-huawei/plugin.json";
@@ -30,6 +31,7 @@ function withInstalledClouds(run: () => void) {
     parsePluginManifest(cloudGcpJson),
     parsePluginManifest(cloudBandwagonJson),
     parsePluginManifest(cloudQiniuJson),
+    parsePluginManifest(cloudJdcloudJson),
   ]);
   try {
     run();
@@ -271,6 +273,7 @@ describe("pluginManifests 单源目录", () => {
     "omni.cloud.gcp",
     "omni.cloud.bandwagon",
     "omni.cloud.qiniu",
+    "omni.cloud.jdcloud",
   ] as const) {
     it(`${id} 为 L2 云插件`, () => {
       withInstalledClouds(() => {
@@ -373,6 +376,8 @@ describe("pluginManifests 单源目录", () => {
     expect(resolveLegacyPluginId("bwh")).toBe("omni.cloud.bandwagon");
     expect(resolveLegacyPluginId("qiniu")).toBe("omni.cloud.qiniu");
     expect(resolveLegacyPluginId("kodo")).toBe("omni.cloud.qiniu");
+    expect(resolveLegacyPluginId("jdcloud")).toBe("omni.cloud.jdcloud");
+    expect(resolveLegacyPluginId("jd")).toBe("omni.cloud.jdcloud");
     expect(resolveLegacyPluginId("unknown-provider")).toBeNull();
     expect(resolveLegacyPluginId("")).toBeNull();
   });

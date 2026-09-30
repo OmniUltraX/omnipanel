@@ -217,6 +217,27 @@
       "updatedAt": "2026-09-17T15:03:56+08:00"
     },
     {
+      "id": "omni.cloud.jdcloud",
+      "kind": "cloud",
+      "name": "JD Cloud",
+      "description": "Manage JD Cloud virtual machines (compute, read-only) and open instances in SSH; lifecycle actions reserved for a later release.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-jdcloud-0.1.0.omni-plugin",
+            "sha256": "5cf2830db5dfe74c3fd9a2e06e4c0b83ca10a55ff418676a42de52faf17a0595",
+            "size": 6795
+          }
+        }
+      ],
+      "permissions": [
+        "connections:write",
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
       "id": "omni.cloud.qiniu",
       "kind": "cloud",
       "name": "Qiniu Cloud",

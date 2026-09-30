@@ -14,6 +14,7 @@ export default {
       gcp: "Google Cloud",
       bandwagon: "搬瓦工",
       qiniu: "七牛云",
+      jdcloud: "京东云",
       qdrant: "Qdrant",
       clickhouse: "ClickHouse",
       mongodb: "MongoDB",

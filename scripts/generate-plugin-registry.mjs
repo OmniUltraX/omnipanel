@@ -62,6 +62,11 @@ const META = {
     description:
       "Manage Qiniu Kodo buckets, bound domains, CDN domains, and SSL certificates (read-only); open buckets in Files via S3-compatible endpoints.",
   },
+  "omni.cloud.jdcloud": {
+    name: "JD Cloud",
+    description:
+      "Manage JD Cloud virtual machines (compute, read-only) and open instances in SSH; lifecycle actions reserved for a later release.",
+  },
   "omni.panel.1panel": {
     name: "1Panel",
     description: "Connect to 1Panel hosts for sites, apps, and certificates.",

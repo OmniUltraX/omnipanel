@@ -21,6 +21,7 @@ export const PLUGIN_ID_DIGITALOCEAN = "omni.cloud.digitalocean";
 export const PLUGIN_ID_GCP = "omni.cloud.gcp";
 export const PLUGIN_ID_BANDWAGON = "omni.cloud.bandwagon";
 export const PLUGIN_ID_QINIU = "omni.cloud.qiniu";
+export const PLUGIN_ID_JDCLOUD = "omni.cloud.jdcloud";
 
 export const EMPTY_CLOUD_FORM: CloudFormData = {
   name: "",
@@ -80,6 +81,11 @@ export function isQiniuCloud(pluginId: string | null | undefined): boolean {
   return id === PLUGIN_ID_QINIU || id === "qiniu" || id === "kodo";
 }
 
+export function isJdcloudCloud(pluginId: string | null | undefined): boolean {
+  const id = (pluginId ?? "").trim();
+  return id === PLUGIN_ID_JDCLOUD || id === "jdcloud" || id === "jd" || id === "jcloud";
+}
+
 export function cloudBrandKind(
   pluginId: string | null | undefined,
 ):
@@ -92,6 +98,7 @@ export function cloudBrandKind(
   | "gcp"
   | "bandwagon"
   | "qiniu"
+  | "jdcloud"
   | "server" {
   if (isTencentCloud(pluginId)) return "tencent";
   if (isHuaweiCloud(pluginId)) return "huawei";
@@ -102,6 +109,7 @@ export function cloudBrandKind(
   if (isGcpCloud(pluginId)) return "gcp";
   if (isBandwagonCloud(pluginId)) return "bandwagon";
   if (isQiniuCloud(pluginId)) return "qiniu";
+  if (isJdcloudCloud(pluginId)) return "jdcloud";
   return "server";
 }
 
@@ -279,6 +287,9 @@ export function cloudAccountConsoleUrl(pluginId: string): string | null {
   if (isQiniuCloud(id)) {
     return "https://portal.qiniu.com/";
   }
+  if (isJdcloudCloud(id)) {
+    return "https://console.jdcloud.com/";
+  }
   return null;
 }
 
@@ -326,7 +337,9 @@ export function buildCloudConnection(
                     ? "bandwagon"
                     : isQiniuCloud(pluginId)
                       ? "qiniu"
-                      : pluginId,
+                      : isJdcloudCloud(pluginId)
+                        ? "jdcloud"
+                        : pluginId,
     regions,
     region: regions[0],
     accessKeyId: form.accessKeyId.trim(),

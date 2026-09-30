@@ -13,6 +13,7 @@ const PLUGIN_NAME_KEYS: Record<string, string> = {
   "omni.cloud.gcp": "plugins.names.gcp",
   "omni.cloud.bandwagon": "plugins.names.bandwagon",
   "omni.cloud.qiniu": "plugins.names.qiniu",
+  "omni.cloud.jdcloud": "plugins.names.jdcloud",
   "omni.engine.qdrant": "plugins.names.qdrant",
   "omni.engine.clickhouse": "plugins.names.clickhouse",
   "omni.engine.mongodb": "plugins.names.mongodb",

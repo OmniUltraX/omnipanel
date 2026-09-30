@@ -31,3 +31,6 @@
 [submodule "plugins/addon-warpgate"]
 	path = plugins/addon-warpgate
 	url = git@github.com:OmniUltraX/omni-plugin-addon-warpgate.git
+[submodule "plugins/cloud-jdcloud"]
+	path = plugins/cloud-jdcloud
+	url = git@github.com:OmniUltraX/omni-plugin-cloud-jdcloud.git

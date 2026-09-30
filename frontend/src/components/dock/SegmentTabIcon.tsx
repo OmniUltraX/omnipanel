@@ -15,6 +15,7 @@ export type SegmentTabIconKind =
   | "gcp"
   | "bandwagon"
   | "qiniu"
+  | "jdcloud"
   | "monitor"
   | "processes"
   | "apps"
@@ -40,6 +41,7 @@ const SEGMENT_TAB_ICON_KINDS = new Set<string>([
   "gcp",
   "bandwagon",
   "qiniu",
+  "jdcloud",
   "monitor",
   "processes",
   "apps",
@@ -66,7 +68,8 @@ function isBrandSegmentIcon(icon: SegmentTabIconKind): icon is SegmentBrandIconK
     icon === "digitalocean" ||
     icon === "gcp" ||
     icon === "bandwagon" ||
-    icon === "qiniu"
+    icon === "qiniu" ||
+    icon === "jdcloud"
   );
 }
 

@@ -14,6 +14,7 @@ export default {
       gcp: "Google Cloud",
       bandwagon: "BandwagonHost",
       qiniu: "Qiniu Cloud",
+      jdcloud: "JD Cloud",
       qdrant: "Qdrant",
       clickhouse: "ClickHouse",
       mongodb: "MongoDB",

@@ -9,6 +9,7 @@ import digitalOceanIcon from "../../assets/icons/DigitalOcean.svg";
 import gcpIcon from "../../assets/icons/Gcp.svg";
 import bandwagonIcon from "../../assets/icons/Bandwagon.svg";
 import qiniuIcon from "../../assets/icons/Qiniu.svg";
+import jdcloudIcon from "../../assets/icons/Jdcloud.svg";
 import hestiaIcon from "../../assets/icons/Hestia.svg";
 import dockerIcon from "../../assets/icons/docker.svg";
 
@@ -26,6 +27,7 @@ export type BrandIconKind =
   | "gcp"
   | "bandwagon"
   | "qiniu"
+  | "jdcloud"
   | "docker";
 
 /** 面板侧栏 / Dock 用的品牌子集（不含 docker）。 */
@@ -44,6 +46,7 @@ const BRAND_ICONS: Record<BrandIconKind, string> = {
   gcp: gcpIcon,
   bandwagon: bandwagonIcon,
   qiniu: qiniuIcon,
+  jdcloud: jdcloudIcon,
   docker: dockerIcon,
 };
 
