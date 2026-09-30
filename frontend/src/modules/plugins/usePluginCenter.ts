@@ -222,13 +222,23 @@ export function usePluginCenter() {
   );
 
   const marketItems = useMemo(() => {
+    const dbxLabelById = new Map(
+      catalog
+        .map((driver) => [driver.pluginId, driver.label.trim()] as const)
+        .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
+    );
     const fromRegistry = marketCatalog.map((plugin) =>
-      marketplaceToMarketItem(plugin, pluginDisplayName(plugin.id, t, plugin.name)),
+      marketplaceToMarketItem(
+        plugin,
+        pluginDisplayName(plugin.id, t, dbxLabelById.get(plugin.id) ?? plugin.name),
+      ),
     );
     const seen = new Set(fromRegistry.map((item) => item.id));
     const dbxItems = catalog
       .filter((driver) => !seen.has(driver.pluginId))
-      .map((driver) => dbxToMarketItem(driver, pluginDisplayName(driver.pluginId, t, driver.label)));
+      .map((driver) =>
+        dbxToMarketItem(driver, pluginDisplayName(driver.pluginId, t, driver.label)),
+      );
     for (const item of dbxItems) seen.add(item.id);
     // npm 搜索结果：来源 rubick，id 与后端 sanitize 对齐用于已安装判定
     const npmItems = (npmSearch?.items ?? []).filter((item) => {
@@ -236,12 +246,31 @@ export function usePluginCenter() {
       seen.add(item.id);
       return true;
     });
-    return [...fromRegistry, ...dbxItems, ...npmItems].map((item) =>
-      withLocalStats(item, {
+    return [...fromRegistry, ...dbxItems, ...npmItems].map((item) => {
+      const withStats = withLocalStats(item, {
         installs: statsById[item.id]?.installs ?? 0,
-      }),
-    );
+      });
+      const dbxLabel = dbxLabelById.get(item.id);
+      if (!dbxLabel) return withStats;
+      return {
+        ...withStats,
+        name: pluginDisplayName(item.id, t, dbxLabel),
+      };
+    });
   }, [marketCatalog, catalog, npmSearch, t, statsById]);
+
+  const displayNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of marketItems) {
+      const name = item.name.trim();
+      if (name) map.set(item.id, name);
+    }
+    for (const driver of catalog) {
+      const name = pluginDisplayName(driver.pluginId, t, driver.label);
+      if (name.trim()) map.set(driver.pluginId, name.trim());
+    }
+    return map;
+  }, [marketItems, catalog, t]);
 
   const query = search.trim().toLowerCase();
   const matchesKind = useCallback(
@@ -685,6 +714,7 @@ export function usePluginCenter() {
     filteredInstalled,
     filteredMarket,
     marketItems,
+    displayNameById,
     error,
     busyId,
     installing,

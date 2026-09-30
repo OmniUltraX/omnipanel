@@ -14,6 +14,10 @@ type Props = {
   busyId: string | null;
   /** 有可用更新的插件 id（来自市场目录）。 */
   updateIds: ReadonlySet<string>;
+  /** 可更新插件的市场最新版本号。 */
+  latestById: ReadonlyMap<string, string>;
+  /** 已解析的展示名（市场/DBX label/i18n）。 */
+  nameById: ReadonlyMap<string, string>;
   updatingId: string | null;
   onSelect: (id: string) => void;
   onOpenSettings: (id: string) => void;
@@ -32,6 +36,8 @@ export function PluginsSidebar({
   selectedId,
   busyId,
   updateIds,
+  latestById,
+  nameById,
   updatingId,
   onSelect,
   onOpenSettings,
@@ -50,6 +56,7 @@ export function PluginsSidebar({
     selected: selectedId === item.id,
     busy: busyId === item.id || updatingId === item.id,
     needsUpdate: updateIds.has(item.id),
+    latestVersion: latestById.get(item.id) ?? null,
     fromDbx: isDbxCatalog(item.id, dbxIds),
     originLabel: originMetaLabel(originOf(item), t, {
       dbx: isDbxCatalog(item.id, dbxIds),
@@ -60,10 +67,12 @@ export function PluginsSidebar({
     onOpenSettings,
     onUninstall,
     onUpdate,
-    tName: pluginDisplayName(item.id, t),
+    tName: pluginDisplayName(item.id, t, nameById.get(item.id)),
     settingsLabel: t("plugins.settings.action"),
     uninstallLabel: t("plugins.uninstall"),
     updateLabel: t("plugins.catalog.update"),
+    currentVersionLabel: t("plugins.center.currentVersion"),
+    latestVersionLabel: t("plugins.center.latestVersion"),
   });
 
   return (
@@ -105,6 +114,7 @@ function InstalledRow({
   selected,
   busy,
   needsUpdate,
+  latestVersion,
   fromDbx,
   originLabel,
   devBadge,
@@ -117,11 +127,14 @@ function InstalledRow({
   settingsLabel,
   uninstallLabel,
   updateLabel,
+  currentVersionLabel,
+  latestVersionLabel,
 }: {
   item: PluginListItem;
   selected: boolean;
   busy: boolean;
   needsUpdate: boolean;
+  latestVersion: string | null;
   fromDbx: boolean;
   originLabel: string;
   devBadge: string | null;
@@ -134,8 +147,15 @@ function InstalledRow({
   settingsLabel: string;
   uninstallLabel: string;
   updateLabel: string;
+  currentVersionLabel: string;
+  latestVersionLabel: string;
 }) {
   const canUninstall = item.source === "installed";
+  const currentVersion = item.version.trim();
+  const showLatest =
+    needsUpdate &&
+    Boolean(latestVersion) &&
+    latestVersion !== currentVersion;
 
   return (
     <div
@@ -148,7 +168,22 @@ function InstalledRow({
       >
         <PluginGlyph pluginId={item.id} kind={item.kind} name={tName} size="sm" fromDbx={fromDbx} />
         <span className="plugin-center-row__body">
-          <span className="plugin-center-row__name">{tName}</span>
+          <span className="plugin-center-row__name-row">
+            <span className="plugin-center-row__name">{tName}</span>
+            {currentVersion ? (
+              <span className="plugin-center-card__versions">
+                <span title={currentVersionLabel}>v{currentVersion}</span>
+                {showLatest ? (
+                  <>
+                    <span aria-hidden="true">→</span>
+                    <span className="plugin-center-row__latest" title={latestVersionLabel}>
+                      v{latestVersion}
+                    </span>
+                  </>
+                ) : null}
+              </span>
+            ) : null}
+          </span>
           <span className="plugin-center-row__meta">
             {devBadge ? `${devBadge} · ${originLabel}` : originLabel}
             {item.enabled ? "" : ` · ${disabledLabel}`}

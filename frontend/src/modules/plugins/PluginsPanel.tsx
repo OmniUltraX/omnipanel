@@ -71,10 +71,17 @@ export function PluginsPanel() {
   const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
   const selected = Boolean(center.selectedInstalled || center.selectedMarket);
-  const updateIds = useMemo(
-    () => new Set(center.marketItems.filter((m) => m.needsUpdate).map((m) => m.id)),
-    [center.marketItems],
-  );
+  const { updateIds, latestById } = useMemo(() => {
+    const ids = new Set<string>();
+    const latest = new Map<string, string>();
+    for (const item of center.marketItems) {
+      if (!item.needsUpdate) continue;
+      ids.add(item.id);
+      const version = item.version.trim();
+      if (version) latest.set(item.id, version);
+    }
+    return { updateIds: ids, latestById: latest };
+  }, [center.marketItems]);
 
   const selectedId = center.selectedId;
   const setSelectedId = center.setSelectedId;
@@ -230,6 +237,8 @@ export function PluginsPanel() {
               selectedId={center.selectedId}
               busyId={center.busyId}
               updateIds={updateIds}
+              latestById={latestById}
+              nameById={center.displayNameById}
               updatingId={center.installingMarketId}
               onSelect={center.setSelectedId}
               onOpenSettings={setSettingsPluginId}

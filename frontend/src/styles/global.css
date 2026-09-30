@@ -29815,8 +29815,13 @@ body.quick-launcher-body {
 }
 
 .plugin-center-row__update-btn.workbench-panel-header-action-btn {
-  color: var(--danger, #dc2626);
-  border-color: color-mix(in srgb, var(--danger, #dc2626) 35%, var(--border));
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.plugin-center-row__latest {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .plugin-settings-subwindow .subwindow-body {
@@ -30008,12 +30013,13 @@ body.quick-launcher-body {
 .plugin-center-card__corner {
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
+  right: auto;
   z-index: 2;
   max-width: 46%;
   padding: 2px 7px;
-  border-radius: 0 var(--r-sm) 0 4px;
-  background: var(--danger, #dc2626);
+  border-radius: var(--r-sm) 0 4px 0;
+  background: var(--accent);
   color: #fff;
   font-size: 10px;
   font-weight: 600;

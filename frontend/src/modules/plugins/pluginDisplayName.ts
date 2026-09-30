@@ -21,6 +21,14 @@ const PLUGIN_NAME_KEYS: Record<string, string> = {
   "omni.engine.sqlite": "plugins.names.sqlite",
   "omni.engine.sqlserver": "plugins.names.sqlserver",
   "omni.engine.redis": "plugins.names.redis",
+  "omni.engine.kingbase": "plugins.names.kingbase",
+  "omni.engine.vastbase": "plugins.names.vastbase",
+  "omni.engine.uxdb": "plugins.names.uxdb",
+  "omni.engine.oceanbase": "plugins.names.oceanbase",
+  "omni.engine.oceanbase-oracle": "plugins.names.oceanbase",
+  "omni.engine.dameng": "plugins.names.dameng",
+  "omni.engine.oracle": "plugins.names.oracle",
+  "omni.engine.hive": "plugins.names.hive",
   "omni.module.nacos": "plugins.names.nacos",
   "omni.addon.warpgate": "plugins.names.warpgate",
   "omni.importer.docker-db": "plugins.names.dockerDb",
@@ -31,6 +39,21 @@ const PLUGIN_NAME_KEYS: Record<string, string> = {
   "omni.addon.translator": "plugins.names.translator",
 };
 
+/** 无翻译时把 `omni.engine.kingbase` 收成可读短名，避免整段 id 上屏。 */
+function humanizePluginId(id: string): string | null {
+  const match = id.trim().match(/^omni\.[a-z]+\.(.+)$/i);
+  if (!match?.[1]) return null;
+  return titleCaseSegments(match[1]);
+}
+
+function titleCaseSegments(value: string): string {
+  return value
+    .split(/[-_.\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function pluginDisplayName(
   id: string,
   t: (key: string) => string,
@@ -40,6 +63,6 @@ export function pluginDisplayName(
   if (declared) return declared;
   const key = PLUGIN_NAME_KEYS[id];
   if (key) return t(key);
-  if (fallback?.trim()) return fallback;
-  return id;
+  if (fallback?.trim() && fallback.trim() !== id) return fallback.trim();
+  return humanizePluginId(id) ?? id;
 }
