@@ -14,7 +14,6 @@ import { parseResourceTag } from "../../lib/resourceTags";
 import { type WorkspaceResource } from "../../lib/resourceRegistry";
 import { CONNECTION_TAG_KINDS } from "../../modules/tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../../modules/tags/useModuleTagFilter";
-import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { IconDownload } from "../ui/icons/Icons";
 import type { HostDockOpenMode } from "../../modules/server/ssh/workspaceTabs";
 import { OPENSSH_CONFIG_GROUP, sshGroupLabel } from "../../lib/sshGroups";
@@ -43,6 +42,9 @@ import { useShareUiStore } from "../../stores/shareUiStore";
 import { buildSshConnectionSharePayload } from "../../modules/share/resourceShare";
 import { SshConnectionDialog } from "../../modules/server/ssh/components/SshConnectionDialog";
 import { SshConfigImportDialog } from "../../modules/server/ssh/components/SshConfigImportDialog";
+import { WarpgateSshImportDialog } from "../../modules/server/ssh/components/WarpgateSshImportDialog";
+import { PLUGIN_ID_WARPGATE } from "../../lib/warpgateGateways";
+import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import {
   findPanelsForSsh,
   getLinkedConnectionIds,
@@ -370,7 +372,11 @@ export function HostListPanel({
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showWarpgateImportDialog, setShowWarpgateImportDialog] = useState(false);
   const [importTargetFolderId, setImportTargetFolderId] = useState<string | null>(null);
+  const warpgateReady = usePluginRuntimeStore((s) =>
+    s.items.some((item) => item.id === PLUGIN_ID_WARPGATE && item.enabled && item.activated),
+  );
   const [editConnection, setEditConnection] = useState<Connection | undefined>(undefined);
   const [presetFolderId, setPresetFolderId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -565,6 +571,38 @@ export function HostListPanel({
     setImportTargetFolderId(folderId);
     setShowImportDialog(true);
   }, []);
+
+  const openWarpgateImportDialog = useCallback((folderId: string | null = null) => {
+    setImportTargetFolderId(folderId);
+    setShowWarpgateImportDialog(true);
+  }, []);
+
+  const placeImportedHosts = useCallback(
+    (savedIds: string[]) => {
+      const targetFolderId = importTargetFolderIdRef.current;
+      if (!targetFolderId || savedIds.length === 0) {
+        for (const id of savedIds) {
+          useSshSidebarTreeStore.getState().ensureConnectionListed(id);
+        }
+        return;
+      }
+      for (const id of savedIds) {
+        moveNode({
+          nodeKey: sshSidebarConnectionNodeKey(id),
+          targetParentId: targetFolderId,
+        });
+      }
+      ensureExpanded(`ssh-folder:${targetFolderId}`);
+    },
+    [ensureExpanded, moveNode],
+  );
+
+  const handleWarpgateImported = useCallback(
+    async (result: { savedIds: string[] }) => {
+      placeImportedHosts(result.savedIds);
+    },
+    [placeImportedHosts],
+  );
 
   const handleCreateFolder = useCallback(
     (parentId: string | null) => {
@@ -911,10 +949,27 @@ export function HostListPanel({
           onClick: () => handleNewHostInFolder(ctxTarget.folder.id),
         },
         {
-          id: "import-config-here",
-          label: t("ssh.context.importConfigHere"),
+          id: "import-here",
+          label: t("ssh.sidebar.importMenu"),
           icon: contextMenuIcons.import,
-          onClick: () => openImportDialog(ctxTarget.folder.id),
+          children: [
+            {
+              id: "import-config-here",
+              label: t("ssh.context.importConfigHere"),
+              icon: contextMenuIcons.import,
+              onClick: () => openImportDialog(ctxTarget.folder.id),
+            },
+            ...(warpgateReady
+              ? [
+                  {
+                    id: "import-warpgate-here",
+                    label: t("ssh.warpgate.importMenuItem"),
+                    icon: contextMenuIcons.import,
+                    onClick: () => openWarpgateImportDialog(ctxTarget.folder.id),
+                  },
+                ]
+              : []),
+          ],
         },
         {
           id: "new-folder",
@@ -1143,19 +1198,36 @@ export function HostListPanel({
             },
           ]}
         />
-        <WorkbenchActionButton
-          icon
-          title={t("ssh.sidebar.syncConfig")}
-          aria-label={t("ssh.sidebar.syncConfig")}
+        <IconDropdownButton
+          title={t("ssh.sidebar.importMenu")}
+          size="icon-xs"
           disabled={syncing}
-          onClick={() => openImportDialog(null)}
-        >
-          {syncing ? (
-            <IconDownload size={12} className="icon-spin" />
-          ) : (
-            <SidebarImportIcon />
-          )}
-        </WorkbenchActionButton>
+          icon={
+            syncing ? (
+              <IconDownload size={12} className="icon-spin" />
+            ) : (
+              <SidebarImportIcon />
+            )
+          }
+          items={[
+            {
+              id: "import-local",
+              label: t("ssh.context.importConfigHere"),
+              subtitle: t("ssh.sidebar.importLocalHint"),
+              onSelect: () => openImportDialog(null),
+            },
+            ...(warpgateReady
+              ? [
+                  {
+                    id: "import-warpgate",
+                    label: t("ssh.warpgate.importMenuItem"),
+                    subtitle: t("ssh.warpgate.importMenuHint"),
+                    onSelect: () => openWarpgateImportDialog(null),
+                  },
+                ]
+              : []),
+          ]}
+        />
         <ModuleSidebarTreeToolbar
           onExpandAll={() => setAllExpanded(folderTreeKeys, true)}
           onCollapseAll={() => setAllExpanded(folderTreeKeys, false)}
@@ -1171,9 +1243,11 @@ export function HostListPanel({
       handleAdd,
       handleCreateFolder,
       openImportDialog,
+      openWarpgateImportDialog,
       setAllExpanded,
       syncing,
       t,
+      warpgateReady,
     ],
   );
 
@@ -1272,6 +1346,14 @@ export function HostListPanel({
           setImportTargetFolderId(null);
         }}
         onConfirm={performSyncConfig}
+      />
+      <WarpgateSshImportDialog
+        open={showWarpgateImportDialog}
+        onClose={() => {
+          setShowWarpgateImportDialog(false);
+          setImportTargetFolderId(null);
+        }}
+        onImported={handleWarpgateImported}
       />
     </div>
   );
