@@ -78,6 +78,7 @@ pub mod system;
 pub mod system_apps;
 pub mod tag;
 pub mod task;
+pub mod team_resource_copy;
 pub mod team_share_inbox;
 pub mod team_sync;
 pub mod teams;

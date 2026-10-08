@@ -89,6 +89,21 @@ pub enum SshAuth {
     },
 }
 
+tokio::task_local! {
+    static SSH_DIAL_OVERRIDE: (String, u16);
+}
+
+/// 本任务内把 SSH TCP 拨到跳板监听，逻辑主机名仍留在 `SshConfig.host`。
+pub async fn with_ssh_dial<F: std::future::Future>(host: String, port: u16, fut: F) -> F::Output {
+    SSH_DIAL_OVERRIDE.scope((host, port), fut).await
+}
+
+fn dial_endpoint(config: &SshConfig) -> (String, u16) {
+    SSH_DIAL_OVERRIDE
+        .try_with(|dial| dial.clone())
+        .unwrap_or_else(|_| (config.host.clone(), config.port))
+}
+
 /// SSH 连接配置。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -733,12 +748,12 @@ impl SshSession {
             ..Default::default()
         });
 
-        let mut session =
-            client::connect(client_config, (config.host.as_str(), config.port), Client)
-                .await
-                .map_err(|e| {
-                    OmniError::new(ErrorCode::Connection, "SSH 连接失败").with_cause(e.to_string())
-                })?;
+        let (dial_host, dial_port) = dial_endpoint(&config);
+        let mut session = client::connect(client_config, (dial_host.as_str(), dial_port), Client)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Connection, "SSH 连接失败").with_cause(e.to_string())
+            })?;
 
         match &config.auth {
             SshAuth::Password { password } => {
@@ -841,12 +856,12 @@ impl SshSession {
             ..Default::default()
         });
 
-        let mut session =
-            client::connect(client_config, (config.host.as_str(), config.port), Client)
-                .await
-                .map_err(|e| {
-                    OmniError::new(ErrorCode::Connection, "SSH 连接失败").with_cause(e.to_string())
-                })?;
+        let (dial_host, dial_port) = dial_endpoint(&config);
+        let mut session = client::connect(client_config, (dial_host.as_str(), dial_port), Client)
+            .await
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Connection, "SSH 连接失败").with_cause(e.to_string())
+            })?;
 
         match &config.auth {
             SshAuth::Password { password } => {

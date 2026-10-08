@@ -7,6 +7,8 @@ export default {
       startSuccess: "Docker 已启动",
       manualStartHint: "当前环境不支持应用内一键启动，请手动启动 Docker Desktop 或本机 Docker 服务。",
     },
+    shareToTeam: "分享到当前团队",
+    shareToTeamHint: "打开后，当前团队的其他成员在你在线时可以使用这台机器的 Docker。",
     toolbar: {
       hint: "容器、日志、Compose 与服务器上下文统一管理。",
     },

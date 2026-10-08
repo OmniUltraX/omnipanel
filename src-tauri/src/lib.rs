@@ -2,8 +2,10 @@ mod agent;
 mod agent_paths;
 mod background;
 mod commands;
+mod docker_team_share;
 mod log_store;
 mod media_stream;
+mod mesh_relay;
 mod output_buffer;
 mod ssh_tmux;
 mod state;
@@ -221,6 +223,9 @@ fn export_ipc_bindings() {
         commands::docker::docker_probe_connection,
         commands::docker::docker_reset_ssh_session,
         commands::docker::docker_get_local_engine_status,
+        docker_team_share::docker_local_team_share_get,
+        docker_team_share::docker_local_team_share_set,
+        docker_team_share::docker_query_shared_engines,
         commands::docker::docker_start_local_engine,
         commands::docker::docker_get_overview,
         commands::docker::docker_read_daemon_config,
@@ -680,7 +685,9 @@ fn export_ipc_bindings() {
         commands::teams::team_mesh_auth_key,
         commands::mesh::mesh_start,
         commands::mesh::mesh_stop,
+        commands::mesh::mesh_stop_team,
         commands::mesh::mesh_status,
+        commands::mesh::mesh_list,
         commands::mesh::mesh_peer_ips,
         commands::mesh::mesh_request_sync_key,
         commands::team_sync::team_share_push,
@@ -688,6 +695,7 @@ fn export_ipc_bindings() {
         commands::team_sync::team_sync_fetch_share,
         commands::team_sync::team_sync_push_modules,
         commands::team_sync::team_sync_pull_modules,
+        commands::team_resource_copy::team_copy_resource_to_team,
         commands::team_sync::team_sync_peek_modules,
         commands::team_sync::team_sync_delete_resources,
         commands::team_share_inbox::team_share_inbox_start,
@@ -1261,6 +1269,9 @@ fn build_and_run_tauri() {
             commands::docker::docker_probe_connection,
             commands::docker::docker_reset_ssh_session,
             commands::docker::docker_get_local_engine_status,
+            docker_team_share::docker_local_team_share_get,
+            docker_team_share::docker_local_team_share_set,
+            docker_team_share::docker_query_shared_engines,
             commands::docker::docker_start_local_engine,
             commands::docker::docker_get_overview,
             commands::docker::docker_read_daemon_config,
@@ -1734,7 +1745,9 @@ fn build_and_run_tauri() {
             commands::teams::team_mesh_auth_key,
             commands::mesh::mesh_start,
             commands::mesh::mesh_stop,
+            commands::mesh::mesh_stop_team,
             commands::mesh::mesh_status,
+            commands::mesh::mesh_list,
             commands::mesh::mesh_peer_ips,
             commands::mesh::mesh_request_sync_key,
             commands::team_sync::team_share_push,
@@ -1742,6 +1755,7 @@ fn build_and_run_tauri() {
             commands::team_sync::team_sync_fetch_share,
             commands::team_sync::team_sync_push_modules,
             commands::team_sync::team_sync_pull_modules,
+            commands::team_resource_copy::team_copy_resource_to_team,
             commands::team_sync::team_sync_peek_modules,
             commands::team_sync::team_sync_delete_resources,
             commands::team_share_inbox::team_share_inbox_start,

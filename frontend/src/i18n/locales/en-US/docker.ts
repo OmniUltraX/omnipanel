@@ -8,6 +8,8 @@ export default {
       manualStartHint:
         "In-app start is not supported here. Please start Docker Desktop or the local Docker service manually.",
     },
+    shareToTeam: "Share with current team",
+    shareToTeamHint: "While this is on and this device is online, other members of the current team can use this machine's Docker.",
     toolbar: {
       hint: "Containers, logs, Compose and server context in one place.",
     },

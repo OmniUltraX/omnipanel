@@ -28,7 +28,6 @@ mod plugin_settings;
 mod plugin_sources;
 mod resource_profile;
 mod schema_cache;
-mod sql_exec_log;
 mod schema_filters;
 mod schema_tree_expanded;
 mod secrets_crypto;
@@ -36,6 +35,7 @@ mod siyuan_sync;
 mod skill;
 mod skill_db;
 mod skill_seed;
+mod sql_exec_log;
 mod ssh_keys;
 mod ssh_vault;
 mod storage;
@@ -150,15 +150,15 @@ pub use skill_db::{
     SkillApplication, SkillDbRecord, SkillKnowledgeLink, SkillVectorHit, SkillVectorStatus,
 };
 pub use skill_seed::{ensure_agent_defaults, ensure_default_skills};
-pub use ssh_keys::{SshKeyRecord, gen_ssh_key_id, ssh_key_passphrase_ref, ssh_key_private_ref};
-pub use ssh_vault::{
-    ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
-    inject_ssh_vault_into_config, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
-};
 pub use sql_exec_log::{
     SqlExecAppend, SqlExecListFilter, SqlExecRecord, SqlExecResultPage, append_sql_execution,
     clear_sql_executions, delete_sql_execution, get_sql_execution_result, list_sql_executions,
     rebind_sql_execution_file, set_sql_execution_pinned,
+};
+pub use ssh_keys::{SshKeyRecord, gen_ssh_key_id, ssh_key_passphrase_ref, ssh_key_private_ref};
+pub use ssh_vault::{
+    ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
+    inject_ssh_vault_into_config, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
 };
 pub use storage::{AuditEntry, Storage};
 pub use sync_crypto::{
@@ -184,9 +184,10 @@ pub use sync_team_key::{
     store_sync_team_key, sync_team_key_fingerprint,
 };
 pub use tag::{
-    CREATOR_TAG_KEY, ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode, TagSource,
-    TaggableKind, TaggedResourceSummary, ensure_creator_tag, migrate_device_tags_to_creator,
-    normalize_tag_path, normalize_tag_segment,
+    CREATOR_TAG_KEY, ORIGIN_TAG_KEY, ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode,
+    TagSource, TaggableKind, TaggedResourceSummary, creator_device_name, ensure_creator_tag,
+    ensure_origin_for_creator, ensure_origin_tag, migrate_device_tags_to_creator,
+    normalize_tag_path, normalize_tag_segment, origin_device_id,
 };
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use task_events::{TaskEventFilter, TaskEventRecord};

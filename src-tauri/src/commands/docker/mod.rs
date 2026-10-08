@@ -139,6 +139,13 @@ pub(crate) async fn resolve_target(
     if connection_id == LOCAL_CONNECTION_ID {
         return Ok(DockerTarget::Local);
     }
+    if let Some((team_id, device_id)) =
+        crate::docker_team_share::parse_mesh_docker_connection_id(connection_id)
+    {
+        let port = crate::docker_team_share::local_docker_port(team_id, &device_id).await?;
+        let docker = LocalDockerAdapter::connect_remote_http("127.0.0.1", port)?.into_docker();
+        return Ok(DockerTarget::Remote(docker));
+    }
 
     let conn = {
         let storage = state.storage.lock().await;

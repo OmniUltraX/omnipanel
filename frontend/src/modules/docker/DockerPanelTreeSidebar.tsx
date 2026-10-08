@@ -623,7 +623,9 @@ export function DockerPanelTreeSidebar({
             <span className="server-tree-server-label">
               <span className="server-tree-server-name">{connection.name}</span>
               <span className="sidebar-tag-chip badge badge-muted docker-tree-source-tag">
-                {dockerSourceLabel(connection.source)}
+                {connection.connectionId.startsWith("docker-mesh:")
+                  ? "团队共享"
+                  : dockerSourceLabel(connection.source)}
               </span>
             </span>
           }

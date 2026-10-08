@@ -104,6 +104,59 @@ impl TagMatchMode {
 /// 资源创建设备标签的 key（`creator: <设备名>`）。
 pub const CREATOR_TAG_KEY: &str = "creator";
 
+/// 资源创建设备 id（`origin: <deviceId>`）。跳板只认这个，不认会改名的设备名。
+pub const ORIGIN_TAG_KEY: &str = "origin";
+
+fn tag_value(tags: &[String], key: &str) -> Option<String> {
+    let prefix = format!("{key}:");
+    tags.iter().find_map(|raw| {
+        let text = raw.trim();
+        if text.len() <= prefix.len() || !text[..prefix.len()].eq_ignore_ascii_case(&prefix) {
+            return None;
+        }
+        let value = text[prefix.len()..].trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    })
+}
+
+/// 读取 `origin:` 标签里的设备 id。
+pub fn origin_device_id(tags: &[String]) -> Option<String> {
+    tag_value(tags, ORIGIN_TAG_KEY)
+}
+
+/// 读取 `creator:` 标签里的设备名。
+pub fn creator_device_name(tags: &[String]) -> Option<String> {
+    tag_value(tags, CREATOR_TAG_KEY)
+}
+
+/// 新建资源时写入创建设备 id。已有 `origin:` 时不覆盖。
+pub fn ensure_origin_tag(tags: &mut Vec<String>, device_id: &str) {
+    let id = device_id.trim();
+    if id.is_empty() || origin_device_id(tags).is_some() {
+        return;
+    }
+    tags.push(format!("{ORIGIN_TAG_KEY}:{id}"));
+}
+
+/// 创建设备名就是本机时，补上 `origin:`，便于其他成员跳板。
+pub fn ensure_origin_for_creator(tags: &mut Vec<String>, device_id: &str, device_name: &str) {
+    let device_name = device_name.trim();
+    if device_name.is_empty() {
+        return;
+    }
+    let Some(creator) = creator_device_name(tags) else {
+        return;
+    };
+    if !creator.eq_ignore_ascii_case(device_name) {
+        return;
+    }
+    ensure_origin_tag(tags, device_id);
+}
+
 /// 资源创建时打上创建设备标签（`creator: <设备名>`）。
 ///
 /// 仅在 tags 尚无任何 `creator:` 标签时写入，不覆盖既有来源标记；

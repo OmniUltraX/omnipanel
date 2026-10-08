@@ -14,7 +14,7 @@ import {
   SyncKeyRelayError,
   type RequestTeamSyncKeyOptions,
 } from "./syncKeyRelayApi";
-import { meshHostname, startTeamMesh, waitForMeshReady } from "./teamMesh";
+import { meshHostname, startTeamMeshFor, waitForMeshReady } from "./teamMesh";
 
 export class TeamSyncKeyRequiredError extends Error {
   constructor(message = "需要团队同步密钥") {
@@ -71,8 +71,8 @@ async function tryMeshTeamSyncKey(teamId: number, timeoutMs: number): Promise<bo
   const token = useAuthStore.getState().token?.trim();
   if (!token) return false;
   try {
-    await startTeamMesh();
-    await waitForMeshReady(Math.min(timeoutMs, 20_000));
+    await startTeamMeshFor(teamId);
+    await waitForMeshReady(Math.min(timeoutMs, 20_000), teamId);
     const deviceId = await resolveDeviceId();
     if (!deviceId) return false;
     const peers = await listOnlineSyncPeers(token, teamId);

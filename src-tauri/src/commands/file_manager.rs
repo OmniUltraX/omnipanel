@@ -455,7 +455,15 @@ pub(crate) async fn sftp_session_for(
         }
     }
     let ssh_cfg = ssh_config_from_file_conn(state, conn, cfg).await?;
-    let session = SshSession::connect_no_shell(ssh_cfg).await?;
+    let host = ssh_cfg.host.clone();
+    let port = ssh_cfg.port;
+    let session = crate::mesh_relay::ssh_connect_rewritten(
+        &host,
+        port,
+        &conn.tags,
+        SshSession::connect_no_shell(ssh_cfg),
+    )
+    .await??;
     let arc = Arc::new(session);
     state
         .file_sftp_sessions

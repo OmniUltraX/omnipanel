@@ -479,6 +479,20 @@ fn filter_tombstoned_resources(bundle: &mut ClientSyncModulesBundle) {
 pub(crate) fn finalize_modules_bundle_for_upload(bundle: &mut ClientSyncModulesBundle) {
     filter_tombstoned_resources(bundle);
     normalize_modules_bundle_layouts(bundle);
+    stamp_origin_on_bundle(bundle);
+}
+
+fn stamp_origin_on_bundle(bundle: &mut ClientSyncModulesBundle) {
+    let Ok(device_id) = crate::commands::auth::current_device_id() else {
+        return;
+    };
+    let name = crate::commands::auth::current_device_name();
+    for item in &mut bundle.connections {
+        omnipanel_store::ensure_origin_for_creator(&mut item.connection.tags, &device_id, &name);
+    }
+    for item in &mut bundle.database_connections {
+        omnipanel_store::ensure_origin_for_creator(&mut item.connection.tags, &device_id, &name);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

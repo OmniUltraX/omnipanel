@@ -225,6 +225,7 @@ struct ConnSpec {
     resource_id: String,
     name: String,
     config: SshConfig,
+    tags: Vec<String>,
 }
 
 struct PoolEntry {
@@ -232,6 +233,7 @@ struct PoolEntry {
     error: Option<String>,
     host_name: String,
     config: SshConfig,
+    tags: Vec<String>,
 }
 
 /// 认证 / 权限等改密码之前不会自己好的错误：拦住后续自动建连。
@@ -402,6 +404,7 @@ impl SshPool {
                         },
                         public_ip: None,
                     },
+                    tags: Vec::new(),
                 },
             );
         }
@@ -457,6 +460,7 @@ impl SshPool {
                         error: None,
                         host_name: spec.name.clone(),
                         config: spec.config.clone(),
+                        tags: spec.tags.clone(),
                     },
                 );
             }
@@ -486,6 +490,7 @@ impl SshPool {
                             resource_id: conn.id.clone(),
                             name: conn.name.clone(),
                             config,
+                            tags: conn.tags.clone(),
                         });
                     }
                     Err(e) => {
@@ -590,21 +595,29 @@ impl SshPool {
 
     /// 启动时探测所有已配置主机的 SSH 端口。
     async fn probe_all_hosts(&self, app_handle: &tauri::AppHandle) {
-        let targets: Vec<(String, String, SshConfig)> = {
+        let targets: Vec<(String, String, SshConfig, Vec<String>)> = {
             let pool = self.entries.lock().await;
             pool.iter()
                 .filter(|(_, e)| !e.config.host.trim().is_empty())
-                .map(|(id, e)| (id.clone(), e.host_name.clone(), e.config.clone()))
+                .map(|(id, e)| {
+                    (
+                        id.clone(),
+                        e.host_name.clone(),
+                        e.config.clone(),
+                        e.tags.clone(),
+                    )
+                })
                 .collect()
         };
 
-        for (resource_id, name, config) in targets {
+        for (resource_id, name, config, tags) in targets {
             Self::probe_and_update_entry(
                 &self.entries,
                 app_handle,
                 &resource_id,
                 &name,
                 &config,
+                &tags,
                 &self.log,
             )
             .await;
@@ -698,15 +711,23 @@ impl SshPool {
         )
     }
 
+    async fn probe_endpoint(host: &str, port: u16, tags: &[String]) -> bool {
+        match crate::mesh_relay::rewrite_dial(host, port, tags).await {
+            Ok((dial_host, dial_port)) => Self::probe_ssh_port(&dial_host, dial_port).await,
+            Err(_) => false,
+        }
+    }
+
     async fn probe_and_update_entry(
         entries: &Arc<Mutex<HashMap<String, PoolEntry>>>,
         app_handle: &tauri::AppHandle,
         resource_id: &str,
         name: &str,
         config: &SshConfig,
+        tags: &[String],
         log: &LogStore,
     ) {
-        let open = Self::probe_ssh_port(&config.host, config.port).await;
+        let open = Self::probe_endpoint(&config.host, config.port, tags).await;
         let (status, error): (&str, Option<String>) = if open {
             info!("SSH 池：{} 端口 {} 开放", name, config.port);
             log.log(
@@ -732,6 +753,7 @@ impl SshPool {
                 error: error.clone(),
                 host_name: name.to_string(),
                 config: config.clone(),
+                tags: tags.to_vec(),
             },
         );
         drop(pool);
@@ -744,7 +766,7 @@ impl SshPool {
         app_handle: &tauri::AppHandle,
         log: &LogStore,
     ) {
-        let targets: Vec<(String, SshConfig)> = {
+        let targets: Vec<(String, SshConfig, Vec<String>)> = {
             let pool = entries.lock().await;
             let count = pool.len();
             log.log(
@@ -758,7 +780,7 @@ impl SshPool {
                     !e.config.host.trim().is_empty()
                         && matches!(e.status.as_str(), "connected" | "error" | "disconnected")
                 })
-                .map(|(id, e)| (id.clone(), e.config.clone()))
+                .map(|(id, e)| (id.clone(), e.config.clone(), e.tags.clone()))
                 .collect()
         };
 
@@ -766,11 +788,11 @@ impl SshPool {
             return;
         }
 
-        let probes = join_all(targets.into_iter().map(|(resource_id, config)| {
+        let probes = join_all(targets.into_iter().map(|(resource_id, config, tags)| {
             let host = config.host.clone();
             let port = config.port;
             async move {
-                let open = Self::probe_ssh_port(&host, port).await;
+                let open = Self::probe_endpoint(&host, port, &tags).await;
                 (resource_id, open)
             }
         }))
@@ -817,7 +839,7 @@ impl SshPool {
         let name = &entry.host_name;
         log.log("ssh-pool", "info", &format!("重新探测 {name} 端口…"))
             .await;
-        let open = Self::probe_ssh_port(&entry.config.host, entry.config.port).await;
+        let open = Self::probe_endpoint(&entry.config.host, entry.config.port, &entry.tags).await;
         if open {
             entry.status = "connected".into();
             entry.error = None;
@@ -907,7 +929,24 @@ impl SshPool {
             .log("ssh-pool", "info", &format!("正在建立 SSH 会话: {name}…"))
             .await;
 
-        let session = match SshSession::connect_no_shell(config.clone()).await {
+        let tags = {
+            let entries = self.entries.lock().await;
+            entries
+                .get(resource_id)
+                .map(|entry| entry.tags.clone())
+                .unwrap_or_default()
+        };
+        let host = config.host.clone();
+        let port = config.port;
+        let session = match crate::mesh_relay::ssh_connect_rewritten(
+            &host,
+            port,
+            &tags,
+            SshSession::connect_no_shell(config.clone()),
+        )
+        .await
+        .and_then(|inner| inner)
+        {
             Ok(session) => {
                 self.connect_holds.lock().await.remove(resource_id);
                 Arc::new(session)
@@ -1400,6 +1439,7 @@ impl SshPool {
                     error: None,
                     host_name: spec.name.clone(),
                     config: spec.config.clone(),
+                    tags: spec.tags.clone(),
                 },
             );
         }

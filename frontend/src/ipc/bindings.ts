@@ -391,6 +391,9 @@ export const commands = {
 	dockerResetSshSession: (connectionId: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_reset_ssh_session", { connectionId })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerGetLocalEngineStatus: () => typedError<DockerLocalEngineStatus, OmniError_Serialize>(__TAURI_INVOKE("docker_get_local_engine_status")),
+	dockerLocalTeamShareGet: (teamId: number) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("docker_local_team_share_get", { teamId })),
+	dockerLocalTeamShareSet: (teamId: number, enabled: boolean, ownerName: string | null) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_local_team_share_set", { teamId, enabled, ownerName })),
+	dockerQuerySharedEngines: (teamId: number, peers: Array<{ deviceId: string; deviceName: string }>) => typedError<DockerConnectionInfo[], OmniError_Serialize>(__TAURI_INVOKE("docker_query_shared_engines", { teamId, peers })),
 	/**  卷详情（`docker volume inspect`）。 */
 	dockerStartLocalEngine: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("docker_start_local_engine")),
 	/**  卷详情（`docker volume inspect`）。 */
@@ -1408,7 +1411,11 @@ export const commands = {
 	teamMeshAuthKey: (token: string, teamId: number) => typedError<TeamMeshAuth, OmniError_Serialize>(__TAURI_INVOKE("team_mesh_auth_key", { token, teamId })),
 	meshStart: (teamId: number, authKey: string, controlServerUrl: string, hostname: string) => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_start", { teamId, authKey, controlServerUrl, hostname })),
 	meshStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("mesh_stop")),
-	meshStatus: () => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_status")),
+	/**  退出某支团队时只拆这张网。 */
+	meshStopTeam: (teamId: number) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("mesh_stop_team", { teamId })),
+	meshStatus: (teamId: number | null) => typedError<MeshStatus, OmniError_Serialize>(__TAURI_INVOKE("mesh_status", { teamId })),
+	/**  当前进程里已在线的团队 mesh。 */
+	meshList: () => typedError<MeshStatus[], OmniError_Serialize>(__TAURI_INVOKE("mesh_list")),
 	/**  查询一批设备的 Tailscale 内网 IP（同团队 mesh；本机取 self_node，对端按 hostname 查）。 */
 	meshPeerIps: (teamId: number, deviceIds: string[]) => typedError<MeshPeerIp[], OmniError_Serialize>(__TAURI_INVOKE("mesh_peer_ips", { teamId, deviceIds })),
 	/**  向对端 hostname 请求封装后的团队同步密钥。 */
@@ -1423,6 +1430,7 @@ export const commands = {
 	teamSyncPushModules: (request: TeamSyncPushModulesRequest) => typedError<TeamSyncPushModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_push_modules", { request })),
 	/**  从团队 OSS 拉取模块快照（`modules/latest.json`）。 */
 	teamSyncPullModules: (token: string, teamId: number) => typedError<TeamSyncPullModulesResult, OmniError_Serialize>(__TAURI_INVOKE("team_sync_pull_modules", { token, teamId })),
+	teamCopyResourceToTeam: (request: { token: string; targetTeamId: number; kind: string; resourceId: string; snapshotJson: string | null }) => typedError<{ resourceId: string }, OmniError_Serialize>(__TAURI_INVOKE("team_copy_resource_to_team", { request })),
 	/**  预览本机模块数据与团队 OSS 快照的对比（树形结构 + 已同步标记）。 */
 	teamSyncPeekModules: (request: TeamSyncPeekModulesRequest) => typedError<TeamSyncPeekResult_Serialize, OmniError_Serialize>(__TAURI_INVOKE("team_sync_peek_modules", { request })),
 	/**  从团队云端快照删除指定资源（仅改云端；本机与成员设备在下次同步拉取时移除对应数据）。 */

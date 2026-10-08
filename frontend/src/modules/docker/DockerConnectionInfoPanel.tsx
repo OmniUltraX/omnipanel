@@ -20,6 +20,8 @@ import { DockerHostTerminalPanel } from "./DockerHostTerminalPanel";
 import { restartDockerDaemon } from "./dockerDaemonConfigApi";
 import { markDockerConnectionOffline } from "./dockerConnectionOffline";
 import { isLocalDockerSource, normalizeDockerSource } from "./dockerConnectionSource";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
+import { useUserProfileStore } from "../../stores/userProfileStore";
 import { makeDockerTreeKey } from "./dockerResourceLabels";
 import { useDockerLiveConnection, useDockerSidebarLinkage } from "./DockerSidebarLinkageContext";
 
@@ -116,6 +118,9 @@ export function DockerConnectionInfoPanel({
   const [startingLocal, setStartingLocal] = useState(false);
   const [statusRefreshing, setStatusRefreshing] = useState(false);
   const [localEngineStatus, setLocalEngineStatus] = useState<DockerLocalEngineStatus | null>(null);
+  const [teamShareOn, setTeamShareOn] = useState(false);
+  const [teamShareBusy, setTeamShareBusy] = useState(false);
+  const nickname = useUserProfileStore((s) => s.nickname);
   const [probe, setProbe] = useState<DockerProbe | null>(null);
   const canRestart = canManageDockerDaemon(connection);
   const navAppliedRef = useRef<string | null>(null);
@@ -163,7 +168,47 @@ export function DockerConnectionInfoPanel({
     setProbe(null);
     setLocalEngineStatus(null);
     setStartingLocal(false);
+    setTeamShareOn(false);
   }, [connection.connectionId]);
+
+  useEffect(() => {
+    if (!isLocalDockerSource(connection.source)) return;
+    const teamId = getCurrentSyncTeamId();
+    if (!teamId || teamId <= 0) return;
+    let cancelled = false;
+    void unwrapCommand(commands.dockerLocalTeamShareGet(teamId), { quiet: true })
+      .then((enabled) => {
+        if (!cancelled) setTeamShareOn(enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamShareOn(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connection.connectionId, connection.source]);
+
+  const handleToggleTeamShare = useCallback(() => {
+    if (teamShareBusy || !isLocalDockerSource(connection.source)) return;
+    const teamId = getCurrentSyncTeamId();
+    if (!teamId || teamId <= 0) {
+      showToast(t("share.emptyTeams"));
+      return;
+    }
+    const next = !teamShareOn;
+    setTeamShareBusy(true);
+    void unwrapCommand(
+      commands.dockerLocalTeamShareSet(teamId, next, nickname.trim() || null),
+    )
+      .then(() => {
+        setTeamShareOn(next);
+        showToast(next ? t("docker.shareToTeam") : t("docker.shareToTeamHint"));
+      })
+      .catch((e) => {
+        showToast(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => setTeamShareBusy(false));
+  }, [connection.source, nickname, t, teamShareBusy, teamShareOn]);
 
   useEffect(() => {
     if (subTab === "terminal") {
@@ -313,6 +358,15 @@ export function DockerConnectionInfoPanel({
           ) : null}
         </div>
         <div className="docker-connection-info-header__actions">
+          {isLocalDockerSource(connection.source) ? (
+            <WorkbenchActionButton
+              disabled={teamShareBusy}
+              title={t("docker.shareToTeamHint")}
+              onClick={handleToggleTeamShare}
+            >
+              {teamShareOn ? `${t("docker.shareToTeam")} · 开` : t("docker.shareToTeam")}
+            </WorkbenchActionButton>
+          ) : null}
           <Button
             type="button"
             variant="icon"

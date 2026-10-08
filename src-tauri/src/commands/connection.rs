@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    Connection, ConnectionKind, DbConnectionConfig, Vault, ensure_creator_tag,
+    Connection, ConnectionKind, DbConnectionConfig, Vault, ensure_creator_tag, ensure_origin_tag,
     get_cached_addresses, inject_ssh_vault_into_config, load_host_resolve_cache,
     save_host_resolve_cache, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref, upsert_cache_entry,
 };
@@ -345,6 +345,9 @@ pub async fn conn_save(
             &mut connection.tags,
             &crate::commands::auth::current_device_name(),
         );
+        if let Ok(device_id) = crate::commands::auth::current_device_id() {
+            ensure_origin_tag(&mut connection.tags, &device_id);
+        }
     }
     storage.save_connection(&connection)?;
     drop(storage);

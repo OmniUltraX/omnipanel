@@ -14,10 +14,10 @@ use omnipanel_error::OmniError;
 pub use omnipanel_store::{
     DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
     SchemaCacheIndex, SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser,
-    SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, ensure_creator_tag, load_schema_cache,
-    load_schema_filters, load_schema_tree_expanded, patch_schema_cache_connection,
-    prune_connection_cache, prune_connection_expanded, prune_connection_filters, save_schema_cache,
-    save_schema_filters, save_schema_tree_expanded,
+    SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, ensure_creator_tag, ensure_origin_tag,
+    load_schema_cache, load_schema_filters, load_schema_tree_expanded,
+    patch_schema_cache_connection, prune_connection_cache, prune_connection_expanded,
+    prune_connection_filters, save_schema_cache, save_schema_filters, save_schema_tree_expanded,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
@@ -142,6 +142,25 @@ pub(crate) fn to_params(c: &DbConnectionConfig) -> DbParams {
     }
 }
 
+/// 拨号前改写内网地址。指纹和 sidecar 身份仍用原来的 host。
+pub(crate) async fn relay_params(c: &DbConnectionConfig) -> Result<DbParams, String> {
+    let mut params = to_params(c);
+    let (host, port) = crate::mesh_relay::rewrite_dial(&params.host, params.port, &c.tags)
+        .await
+        .map_err(|e| e.user_message())?;
+    params.host = host;
+    params.port = port;
+    Ok(params)
+}
+
+async fn relay_connection(c: DbConnectionConfig) -> Result<DbConnectionConfig, String> {
+    let params = relay_params(&c).await?;
+    let mut c = c;
+    c.host = params.host;
+    c.port = params.port;
+    Ok(c)
+}
+
 async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String> {
     let key = connection.id.clone();
     let fingerprint = mysql_pool_fingerprint(connection);
@@ -180,7 +199,7 @@ async fn mysql_pool(connection: &DbConnectionConfig) -> Result<MySqlPool, String
     }
 
     // 共享池不绑定具体 database，避免与 fingerprint（不含 database）语义不一致
-    let mut params = to_params(connection);
+    let mut params = relay_params(connection).await?;
     params.database.clear();
     let opts = mysql_connect_options(&params);
     let pool = MySqlPoolOptions::new()
@@ -244,7 +263,7 @@ async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
         }
     }
 
-    let p = to_params(connection);
+    let p = relay_params(connection).await?;
     let opts = postgres_connect_options(&p);
     let pool = PgPoolOptions::new()
         .max_connections(4)
@@ -272,12 +291,12 @@ async fn pg_pool(connection: &DbConnectionConfig) -> Result<PgPool, String> {
     Ok(pool)
 }
 
-fn with_schema(c: &DbConnectionConfig, schema: Option<String>) -> DbParams {
-    let mut params = to_params(c);
+async fn with_schema(c: &DbConnectionConfig, schema: Option<String>) -> Result<DbParams, String> {
+    let mut params = relay_params(c).await?;
     if let Some(s) = schema.filter(|name| !name.trim().is_empty()) {
         params.database = s;
     }
-    params
+    Ok(params)
 }
 
 async fn evict_sidecar_agent(connection: &DbConnectionConfig) {
@@ -333,6 +352,9 @@ pub async fn db_save_connection(
             &mut connection.tags,
             &crate::commands::auth::current_device_name(),
         );
+        if let Ok(device_id) = crate::commands::auth::current_device_id() {
+            ensure_origin_tag(&mut connection.tags, &device_id);
+        }
     }
     state
         .db_connections
@@ -436,7 +458,7 @@ pub async fn db_test_connection(mut connection: DbConnectionConfig) -> Result<St
             .map_err(|e| format!("Query failed: {e}"))?;
         return Ok(row.0);
     }
-    let mut params = to_params(&connection);
+    let mut params = relay_params(&connection).await?;
     if matches!(db_type.as_str(), "mongodb" | "mongo") && params.database.trim().is_empty() {
         params.database = "admin".to_string();
     }
@@ -450,6 +472,7 @@ pub async fn db_test_connection(mut connection: DbConnectionConfig) -> Result<St
 #[tauri::command]
 #[specta::specta]
 pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<String>, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_list_databases(connection).await
 }
 
@@ -460,6 +483,7 @@ pub async fn db_list_databases(connection: DbConnectionConfig) -> Result<Vec<Str
 pub async fn db_list_databases_with_stats(
     connection: DbConnectionConfig,
 ) -> Result<Vec<DbDatabaseMeta>, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_list_databases_with_stats(connection).await
 }
 
@@ -468,12 +492,14 @@ pub async fn db_list_databases_with_stats(
 pub async fn db_list_character_sets(
     connection: DbConnectionConfig,
 ) -> Result<Vec<DbCharsetMeta>, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_list_character_sets(connection).await
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn db_create_database(args: CreateDatabaseArgs) -> Result<String, String> {
+pub async fn db_create_database(mut args: CreateDatabaseArgs) -> Result<String, String> {
+    args.connection = relay_connection(args.connection).await?;
     omnipanel_db::db_create_database(args).await
 }
 
@@ -483,6 +509,7 @@ pub async fn db_introspect_schema(
     connection: DbConnectionConfig,
     schema: Option<String>,
 ) -> Result<DbIntrospectResult, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_introspect_schema(connection, schema).await
 }
 
@@ -491,6 +518,7 @@ pub async fn db_introspect_schema(
 pub async fn db_list_connection_users(
     connection: DbConnectionConfig,
 ) -> Result<Vec<DbUserMeta>, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_list_connection_users(connection).await
 }
 
@@ -501,6 +529,7 @@ pub async fn db_introspect_table(
     schema: Option<String>,
     table: String,
 ) -> Result<DbTableSchema, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_introspect_table(connection, schema, table).await
 }
 
@@ -511,6 +540,7 @@ pub async fn db_table_ddl(
     schema: Option<String>,
     table: String,
 ) -> Result<String, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_table_ddl(connection, schema, table).await
 }
 
@@ -521,6 +551,7 @@ pub async fn db_get_table_details(
     schema: Option<String>,
     table: String,
 ) -> Result<DbTableDetails, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_get_table_details(connection, schema, table).await
 }
 
@@ -531,6 +562,7 @@ pub async fn db_list_table_details(
     connection: DbConnectionConfig,
     schema: Option<String>,
 ) -> Result<Vec<DbNamedTableDetails>, String> {
+    let connection = relay_connection(connection).await?;
     omnipanel_db::db_list_table_details(connection, schema).await
 }
 
@@ -540,7 +572,7 @@ pub async fn db_list_tables(
     connection: DbConnectionConfig,
     schema: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let params = with_schema(&connection, schema);
+    let params = with_schema(&connection, schema).await?;
     if params.database.trim().is_empty() {
         return Err("未指定数据库".to_string());
     }
@@ -558,7 +590,7 @@ pub async fn db_preview_table(
     order_by: Option<String>,
     where_clause: Option<String>,
 ) -> Result<TableInfo, String> {
-    let driver = omnipanel_db::connect(&to_params(&connection))
+    let driver = omnipanel_db::connect(&relay_params(&connection).await?)
         .await
         .map_err(err_msg)?;
     let result = driver
@@ -582,7 +614,7 @@ pub async fn db_count_table(
     table: String,
     where_clause: Option<String>,
 ) -> Result<f64, String> {
-    let params = with_schema(&connection, schema);
+    let params = with_schema(&connection, schema).await?;
     if params.database.trim().is_empty() {
         return Err("未指定数据库".to_string());
     }
@@ -602,7 +634,7 @@ pub async fn db_count_tables(
     schema: Option<String>,
     tables: Vec<String>,
 ) -> Result<Vec<TableRowCount>, String> {
-    let params = with_schema(&connection, schema);
+    let params = with_schema(&connection, schema).await?;
     if params.database.trim().is_empty() {
         return Err("未指定数据库".to_string());
     }
@@ -664,7 +696,7 @@ pub async fn db_execute_query(
         ),
         _ => sql,
     };
-    let params = to_params(&connection);
+    let params = relay_params(&connection).await?;
     let handle = tokio::spawn(async move {
         let driver = omnipanel_db::connect(&params).await.map_err(err_msg)?;
         driver.execute(&wrapped).await.map_err(err_msg)
@@ -751,7 +783,7 @@ pub async fn db_execute_query_in_session(
         ),
         _ => sql,
     };
-    let params = to_params(&connection);
+    let params = relay_params(&connection).await?;
 
     let session_handle = {
         let mut sessions = state.db_query_sessions.lock().await;
@@ -901,7 +933,7 @@ pub async fn db_redis_config_get_entries(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CONFIG GET".to_string());
     }
-    omnipanel_db::redis_config_get(&to_params(&connection), &pattern)
+    omnipanel_db::redis_config_get(&relay_params(&connection).await?, &pattern)
         .await
         .map_err(err_msg)
 }
@@ -913,7 +945,7 @@ pub async fn db_redis_config_get(connection: DbConnectionConfig) -> Result<DbQue
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CONFIG GET".to_string());
     }
-    omnipanel_db::redis_config_get_all(&to_params(&connection))
+    omnipanel_db::redis_config_get_all(&relay_params(&connection).await?)
         .await
         .map_err(err_msg)
         .map(to_db_query_result)
@@ -926,7 +958,7 @@ pub async fn db_redis_client_list(connection: DbConnectionConfig) -> Result<DbQu
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CLIENT LIST".to_string());
     }
-    omnipanel_db::redis_client_list(&to_params(&connection))
+    omnipanel_db::redis_client_list(&relay_params(&connection).await?)
         .await
         .map_err(err_msg)
         .map(to_db_query_result)
@@ -952,7 +984,7 @@ pub async fn db_redis_client_kill(
         &target,
     )
     .map_err(|e| e.to_string())?;
-    omnipanel_db::redis_client_kill_addr(&to_params(&connection), &addr)
+    omnipanel_db::redis_client_kill_addr(&relay_params(&connection).await?, &addr)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -968,7 +1000,7 @@ pub async fn db_redis_search_keys(
         return Err("仅 Redis 连接支持键搜索".to_string());
     }
     omnipanel_db::redis_search_keys(
-        &to_params(&args.connection),
+        &relay_params(&args.connection).await?,
         &args.pattern,
         &args.types,
         args.limit as usize,
@@ -986,7 +1018,7 @@ pub async fn db_redis_dbsize(connection: DbConnectionConfig) -> Result<f64, Stri
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 DBSIZE".to_string());
     }
-    omnipanel_db::redis_dbsize(&to_params(&connection))
+    omnipanel_db::redis_dbsize(&relay_params(&connection).await?)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1002,7 +1034,7 @@ pub async fn db_redis_key_detail(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 key 详情".to_string());
     }
-    omnipanel_db::redis_key_detail(&to_params(&connection), &key)
+    omnipanel_db::redis_key_detail(&relay_params(&connection).await?, &key)
         .await
         .map_err(err_msg)
 }
@@ -1020,7 +1052,7 @@ pub async fn db_redis_set_key(
         return Err("仅 Redis 连接支持新建 key".to_string());
     }
     omnipanel_db::redis_set_key(
-        &to_params(&connection),
+        &relay_params(&connection).await?,
         &key,
         &value,
         key_type.as_deref().unwrap_or("string"),
@@ -1039,7 +1071,7 @@ pub async fn db_redis_delete_key(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持删除 key".to_string());
     }
-    omnipanel_db::redis_delete_key(&to_params(&connection), &key)
+    omnipanel_db::redis_delete_key(&relay_params(&connection).await?, &key)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1055,9 +1087,12 @@ pub async fn db_redis_slowlog(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持慢日志".to_string());
     }
-    omnipanel_db::redis_slowlog(&to_params(&connection), count.unwrap_or(64) as usize)
-        .await
-        .map_err(err_msg)
+    omnipanel_db::redis_slowlog(
+        &relay_params(&connection).await?,
+        count.unwrap_or(64) as usize,
+    )
+    .await
+    .map_err(err_msg)
 }
 
 /// Redis `INFO`。
@@ -1070,7 +1105,7 @@ pub async fn db_redis_info(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 INFO".to_string());
     }
-    omnipanel_db::redis_info(&to_params(&connection), section.as_deref())
+    omnipanel_db::redis_info(&relay_params(&connection).await?, section.as_deref())
         .await
         .map_err(err_msg)
 }
@@ -1084,7 +1119,7 @@ pub async fn db_redis_memory_stats(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 MEMORY STATS".to_string());
     }
-    omnipanel_db::redis_memory_stats(&to_params(&connection))
+    omnipanel_db::redis_memory_stats(&relay_params(&connection).await?)
         .await
         .map_err(err_msg)
 }
@@ -1096,7 +1131,7 @@ pub async fn db_redis_memory_doctor(connection: DbConnectionConfig) -> Result<St
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 MEMORY DOCTOR".to_string());
     }
-    omnipanel_db::redis_memory_doctor(&to_params(&connection))
+    omnipanel_db::redis_memory_doctor(&relay_params(&connection).await?)
         .await
         .map_err(err_msg)
 }
@@ -1108,7 +1143,7 @@ pub async fn db_redis_memory_purge(connection: DbConnectionConfig) -> Result<f64
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 MEMORY PURGE".to_string());
     }
-    omnipanel_db::redis_memory_purge(&to_params(&connection))
+    omnipanel_db::redis_memory_purge(&relay_params(&connection).await?)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1125,7 +1160,7 @@ pub async fn db_redis_config_set(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CONFIG SET".to_string());
     }
-    omnipanel_db::redis_config_set(&to_params(&connection), &parameter, &value)
+    omnipanel_db::redis_config_set(&relay_params(&connection).await?, &parameter, &value)
         .await
         .map_err(err_msg)
 }
@@ -1137,7 +1172,7 @@ pub async fn db_redis_config_rewrite(connection: DbConnectionConfig) -> Result<(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 CONFIG REWRITE".to_string());
     }
-    omnipanel_db::redis_config_rewrite(&to_params(&connection))
+    omnipanel_db::redis_config_rewrite(&relay_params(&connection).await?)
         .await
         .map_err(err_msg)
 }
@@ -1162,7 +1197,7 @@ pub async fn db_redis_flush_db(
         &target,
     )
     .map_err(|e| e.to_string())?;
-    omnipanel_db::redis_flush_db(&to_params(&connection), r#async.unwrap_or(true))
+    omnipanel_db::redis_flush_db(&relay_params(&connection).await?, r#async.unwrap_or(true))
         .await
         .map_err(err_msg)
 }
@@ -1187,7 +1222,7 @@ pub async fn db_redis_flush_all(
         &target,
     )
     .map_err(|e| e.to_string())?;
-    omnipanel_db::redis_flush_all(&to_params(&connection), r#async.unwrap_or(true))
+    omnipanel_db::redis_flush_all(&relay_params(&connection).await?, r#async.unwrap_or(true))
         .await
         .map_err(err_msg)
 }
@@ -1207,7 +1242,7 @@ pub async fn db_redis_stream_range(
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
     omnipanel_db::redis_stream_range(
-        &to_params(&connection),
+        &relay_params(&connection).await?,
         &key,
         start.as_deref(),
         end.as_deref(),
@@ -1228,7 +1263,7 @@ pub async fn db_redis_stream_groups(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
-    omnipanel_db::redis_stream_groups(&to_params(&connection), &key)
+    omnipanel_db::redis_stream_groups(&relay_params(&connection).await?, &key)
         .await
         .map_err(err_msg)
 }
@@ -1244,7 +1279,7 @@ pub async fn db_redis_stream_consumers(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
-    omnipanel_db::redis_stream_consumers(&to_params(&connection), &key, &group)
+    omnipanel_db::redis_stream_consumers(&relay_params(&connection).await?, &key, &group)
         .await
         .map_err(err_msg)
 }
@@ -1264,7 +1299,7 @@ pub async fn db_redis_stream_pending(
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
     omnipanel_db::redis_stream_pending(
-        &to_params(&connection),
+        &relay_params(&connection).await?,
         &key,
         &group,
         start.as_deref(),
@@ -1286,7 +1321,7 @@ pub async fn db_redis_stream_monitor(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
-    omnipanel_db::redis_stream_monitor(&to_params(&connection), &key, group.as_deref())
+    omnipanel_db::redis_stream_monitor(&relay_params(&connection).await?, &key, group.as_deref())
         .await
         .map_err(err_msg)
 }
@@ -1303,7 +1338,7 @@ pub async fn db_redis_stream_ack(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
-    omnipanel_db::redis_stream_ack(&to_params(&connection), &key, &group, &ids)
+    omnipanel_db::redis_stream_ack(&relay_params(&connection).await?, &key, &group, &ids)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1325,7 +1360,7 @@ pub async fn db_redis_stream_claim(
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
     omnipanel_db::redis_stream_claim(
-        &to_params(&connection),
+        &relay_params(&connection).await?,
         &key,
         &group,
         &consumer,
@@ -1352,7 +1387,7 @@ pub async fn db_redis_stream_group_create(
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
     omnipanel_db::redis_stream_group_create(
-        &to_params(&connection),
+        &relay_params(&connection).await?,
         &key,
         &group,
         &id,
@@ -1373,7 +1408,7 @@ pub async fn db_redis_stream_group_destroy(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
-    omnipanel_db::redis_stream_group_destroy(&to_params(&connection), &key, &group)
+    omnipanel_db::redis_stream_group_destroy(&relay_params(&connection).await?, &key, &group)
         .await
         .map_err(err_msg)
 }
@@ -1391,7 +1426,7 @@ pub async fn db_redis_stream_trim(
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
     omnipanel_db::redis_stream_trim(
-        &to_params(&connection),
+        &relay_params(&connection).await?,
         &key,
         maxlen as u64,
         approximate.unwrap_or(true),
@@ -1415,7 +1450,7 @@ pub async fn db_redis_stream_cleanup_inactive_consumers(
         return Err("仅 Redis 连接支持 Stream".to_string());
     }
     redis_stream_cleanup_inactive_consumers(
-        &to_params(&connection),
+        &relay_params(&connection).await?,
         &key,
         &group,
         idle_threshold_ms as u64,
@@ -1434,7 +1469,7 @@ pub async fn db_redis_acl_list(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 ACL".to_string());
     }
-    omnipanel_db::redis_acl_list(&to_params(&connection))
+    omnipanel_db::redis_acl_list(&relay_params(&connection).await?)
         .await
         .map_err(err_msg)
 }
@@ -1449,7 +1484,7 @@ pub async fn db_redis_acl_getuser(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 ACL".to_string());
     }
-    omnipanel_db::redis_acl_getuser(&to_params(&connection), &username)
+    omnipanel_db::redis_acl_getuser(&relay_params(&connection).await?, &username)
         .await
         .map_err(err_msg)
 }
@@ -1465,7 +1500,7 @@ pub async fn db_redis_acl_setuser(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 ACL".to_string());
     }
-    omnipanel_db::redis_acl_setuser(&to_params(&connection), &username, &rule)
+    omnipanel_db::redis_acl_setuser(&relay_params(&connection).await?, &username, &rule)
         .await
         .map_err(err_msg)
 }
@@ -1480,7 +1515,7 @@ pub async fn db_redis_acl_deluser(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持 ACL".to_string());
     }
-    omnipanel_db::redis_acl_deluser(&to_params(&connection), &username)
+    omnipanel_db::redis_acl_deluser(&relay_params(&connection).await?, &username)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1498,7 +1533,7 @@ pub async fn db_redis_hash_set_field(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_hash_set_field(&to_params(&connection), &key, &field, &value)
+    omnipanel_db::redis_hash_set_field(&relay_params(&connection).await?, &key, &field, &value)
         .await
         .map_err(err_msg)
 }
@@ -1514,7 +1549,7 @@ pub async fn db_redis_hash_del_fields(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_hash_del_fields(&to_params(&connection), &key, &fields)
+    omnipanel_db::redis_hash_del_fields(&relay_params(&connection).await?, &key, &fields)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1532,7 +1567,7 @@ pub async fn db_redis_list_push(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_list_push(&to_params(&connection), &key, &side, &values)
+    omnipanel_db::redis_list_push(&relay_params(&connection).await?, &key, &side, &values)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1550,10 +1585,15 @@ pub async fn db_redis_list_remove(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_list_remove(&to_params(&connection), &key, count as i64, &value)
-        .await
-        .map(|n| n as f64)
-        .map_err(err_msg)
+    omnipanel_db::redis_list_remove(
+        &relay_params(&connection).await?,
+        &key,
+        count as i64,
+        &value,
+    )
+    .await
+    .map(|n| n as f64)
+    .map_err(err_msg)
 }
 
 /// Redis `SADD`。
@@ -1567,7 +1607,7 @@ pub async fn db_redis_set_add(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_set_add(&to_params(&connection), &key, &members)
+    omnipanel_db::redis_set_add(&relay_params(&connection).await?, &key, &members)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1584,7 +1624,7 @@ pub async fn db_redis_set_remove(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_set_remove(&to_params(&connection), &key, &members)
+    omnipanel_db::redis_set_remove(&relay_params(&connection).await?, &key, &members)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1602,7 +1642,7 @@ pub async fn db_redis_zset_add(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_zset_add(&to_params(&connection), &key, &member, score)
+    omnipanel_db::redis_zset_add(&relay_params(&connection).await?, &key, &member, score)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1619,7 +1659,7 @@ pub async fn db_redis_zset_remove(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_zset_remove(&to_params(&connection), &key, &members)
+    omnipanel_db::redis_zset_remove(&relay_params(&connection).await?, &key, &members)
         .await
         .map(|n| n as f64)
         .map_err(err_msg)
@@ -1636,7 +1676,7 @@ pub async fn db_redis_expire_key(
     if connection.db_type.to_lowercase() != "redis" {
         return Err("仅 Redis 连接支持".to_string());
     }
-    omnipanel_db::redis_expire_key(&to_params(&connection), &key, seconds as i64)
+    omnipanel_db::redis_expire_key(&relay_params(&connection).await?, &key, seconds as i64)
         .await
         .map_err(err_msg)
 }
@@ -1662,7 +1702,7 @@ pub async fn db_qdrant_delete_points(args: QdrantDeletePointsArgs) -> Result<f64
         return Err("未指定 collection".to_string());
     }
     omnipanel_db::qdrant_delete_points(
-        &to_params(&args.connection),
+        &relay_params(&args.connection).await?,
         args.collection.trim(),
         &args.point_ids,
     )
