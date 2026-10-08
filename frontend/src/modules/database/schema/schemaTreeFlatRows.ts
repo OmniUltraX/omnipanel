@@ -64,7 +64,8 @@ export const SCHEMA_TREE_LOAD_MORE_ROW_HEIGHT = 28;
  * 小树原生更跟手；大树靠虚拟列表控 DOM。
  * 露白靠滚动容器约束 + overscan 处理，滚动中始终渲染完整行以保持样式一致。
  */
-export const SCHEMA_TREE_VIRTUALIZE_THRESHOLD = 200;
+/** 超过此行数启用虚拟列表；偏低以尽早避开大树全量 DOM reconcile。 */
+export const SCHEMA_TREE_VIRTUALIZE_THRESHOLD = 80;
 
 export type SchemaNodeMetaClick = "database-filter" | "table-filter";
 

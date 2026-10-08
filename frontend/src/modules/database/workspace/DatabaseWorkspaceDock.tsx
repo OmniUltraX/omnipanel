@@ -1,18 +1,34 @@
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, useMemo, type ReactNode } from "react";
 import { useDbWorkspaceActiveTab } from "../../../contexts/DbWorkspaceContext";
 import { useDbDockLayoutStore } from "../../../stores/dbDockLayoutStore";
 import { useDbWorkspaceActiveTabStore } from "../../../stores/dbWorkspaceActiveTabStore";
-import { ModuleSegmentDock, type DockableTab } from "../../../components/dock";
+import { useDbWorkspaceTabStore } from "../../../stores/dbWorkspaceTabStore";
+import { useDbSidebarLinkageStore } from "../../../stores/dbSidebarLinkageStore";
+import {
+  DEFAULT_STICKY_VISIT_MAX,
+  ModuleSegmentDock,
+  type DockableTab,
+} from "../../../components/dock";
 import { WorkspaceEmptyPage } from "../../../components/ui/workspace/WorkspaceEmptyPage";
 import { useI18n } from "../../../i18n";
+import type { DbConnectionConfig } from "../api";
+import { collectOpenTabNodeIds } from "../schema/resolveDbSidebarLinkage";
+import {
+  buildDatabasePanelContentKeysByTab,
+  buildSqlTabPanelKeySeed,
+  selectTablePreviewTabIdKey,
+} from "./databasePanelTabKeys";
+import type { DbWorkspaceTab } from "./workspaceTabs";
 
 export interface DatabaseWorkspaceDockProps {
   workspaceInitialized: boolean;
   dockTabs: DockableTab[];
+  /** 完整工作区 Tab（含 kind），供 content key / 侧栏「已打开」标记；勿用 dockTabs 替代 */
+  workspaceTabs: DbWorkspaceTab[];
+  connections: DbConnectionConfig[];
   onCloseTab: (tabId: string) => void;
   renderDockPanel: (tabId: string) => ReactNode;
   softRefreshKey?: string;
-  panelContentKeysByTab?: Record<string, string>;
   onTabContextMenu: (event: React.MouseEvent, tabId: string, index: number) => void;
   onTabDoubleClick?: (tabId: string) => void;
   onPanelTransferredOut?: (panelId: string, targetScope: string) => void;
@@ -31,10 +47,11 @@ export interface DatabaseWorkspaceDockProps {
 export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
   workspaceInitialized,
   dockTabs,
+  workspaceTabs,
+  connections,
   onCloseTab,
   renderDockPanel,
   softRefreshKey,
-  panelContentKeysByTab,
   onTabContextMenu,
   onTabDoubleClick,
   onPanelTransferredOut,
@@ -53,6 +70,35 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
   const dockLayout = useDbDockLayoutStore((s) => s.savedLayout);
   const setDockLayout = useDbDockLayoutStore((s) => s.setSavedLayout);
 
+  // content key / openTab 标记放在 Dock：SQL 切库、表预览增删时不要拖垮 DatabasePanel model
+  const sqlTabPanelKeySeed = useDbWorkspaceTabStore((state) =>
+    buildSqlTabPanelKeySeed(workspaceTabs, state),
+  );
+  const tablePreviewTabIdKey = useMemo(
+    () => selectTablePreviewTabIdKey(useDbWorkspaceTabStore.getState(), workspaceTabs),
+    [workspaceTabs],
+  );
+
+  const panelContentKeysByTab = useMemo(() => {
+    const tabState = useDbWorkspaceTabStore.getState();
+    return buildDatabasePanelContentKeysByTab({
+      workspaceTabs,
+      sqlTabStates: tabState.sqlTabStates,
+      tablePreviews: tabState.tablePreviews,
+      tableDesignerStates: {},
+      connections,
+    });
+  }, [workspaceTabs, connections, sqlTabPanelKeySeed, tablePreviewTabIdKey]);
+
+  useEffect(() => {
+    const tabState = useDbWorkspaceTabStore.getState();
+    const ids = collectOpenTabNodeIds(workspaceTabs, {
+      sqlTabStates: tabState.sqlTabStates,
+      tablePreviews: tabState.tablePreviews,
+    });
+    useDbSidebarLinkageStore.getState().setOpenTabNodeIds(ids);
+  }, [workspaceTabs, sqlTabPanelKeySeed, tablePreviewTabIdKey]);
+
   if (!workspaceInitialized) {
     return null;
   }
@@ -67,6 +113,7 @@ export const DatabaseWorkspaceDock = memo(function DatabaseWorkspaceDock({
       windowControl={windowControl}
       // 懒创建 + 访问后粘住（未访问不挂 Monaco；已访问切回不闪）
       stickyVisit
+      stickyVisitMax={DEFAULT_STICKY_VISIT_MAX}
       contentSuspended={contentSuspended}
       // 侧栏连接树联动：下一帧通知（先让乐观 Tab 高亮画出来）
       deferActiveTabNotify={false}

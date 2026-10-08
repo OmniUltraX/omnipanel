@@ -148,14 +148,12 @@ import {
   type TablePreviewState,
 } from "../workspace/dbWorkspaceState";
 import {
-  buildDatabasePanelContentKeysByTab,
   buildSqlTabPanelKeySeed,
   selectTablePreviewTabIdKey,
 } from "../workspace/databasePanelTabKeys";
 import { DbPanelSurface } from "../workspace/DbPanelSurface";
 import { DbTablePreviewSurface } from "../workspace/DbTablePreviewSurface";
 import { DbDockTabActive, DbDockTabVisible } from "../workspace/DbDockTabActive";
-import { collectOpenTabNodeIds } from "../schema/resolveDbSidebarLinkage";
 import { useDbSidebarLinkageStore } from "../../../stores/dbSidebarLinkageStore";
 import { buildSelectAllFromTableSql } from "../grid/tablePreviewFilter";
 import { resolveSqlQueryBindingContext } from "../sql/resolveSqlQueryBindingContext";
@@ -3101,25 +3099,8 @@ export function useDatabasePanelModel() {
       activeTableKey });
   }, [sidebarLinkageConnId, activeDatabaseKey, activeTableKey]);
 
-  // 同步所有已打开 Tab 对应的树节点 id 集合到 store，用于连接树标记"已打开 Tab"的节点。
-  // workspaceTabs 变化（增删 Tab）或 sqlTabPanelKeySeed 变化（SQL tab 切库/切表）时重算。
-  useEffect(() => {
-    const tabState = useDbWorkspaceTabStore.getState();
-    const ids = collectOpenTabNodeIds(workspaceTabs, {
-      sqlTabStates: tabState.sqlTabStates,
-      tablePreviews: tabState.tablePreviews });
-    useDbSidebarLinkageStore.getState().setOpenTabNodeIds(ids);
-  }, [workspaceTabs, sqlTabPanelKeySeed, tablePreviewTabIdKey]);
-
-  const panelContentKeysByTab = useMemo(() => {
-    const tabState = useDbWorkspaceTabStore.getState();
-    return buildDatabasePanelContentKeysByTab({
-      workspaceTabs,
-      sqlTabStates: tabState.sqlTabStates,
-      tablePreviews: tabState.tablePreviews,
-      tableDesignerStates,
-      connections });
-  }, [workspaceTabs, tableDesignerStates, connections, sqlTabPanelKeySeed, tablePreviewTabIdKey]);
+  // openTabNodeIds / panelContentKeysByTab 已下沉到 DatabaseWorkspaceDock，
+  // 避免 SQL 切库与表预览增删时整页 DatabasePanel 跟着重算。
 
   const schemaContextValue = useMemo(
     () => ({
@@ -3203,7 +3184,6 @@ export function useDatabasePanelModel() {
     moduleSoftRefreshKey,
     openSqlFile,
     openTreeChartFile,
-    panelContentKeysByTab,
     performMoveTabToWorkspace,
     recentClosedActionItems,
     refreshConnDatabases,

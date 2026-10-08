@@ -379,17 +379,28 @@ export const TableDataGridCanvasBody = forwardRef<
     };
     wrap.addEventListener("wheel", onWheel, { passive: false });
 
+    // 视口 / 主题变化合并到短窗口，避免侧栏拖完解冻、分栏、窗口缩放时结构重绘风暴
+    let structureDebounceTimer: number | null = null;
+    const scheduleStructureDirty = (opts?: { clearTheme?: boolean; clearMeasure?: boolean }) => {
+      if (opts?.clearTheme) themeRef.current = null;
+      if (opts?.clearMeasure) measuredCacheRef.current = null;
+      if (structureDebounceTimer != null) {
+        window.clearTimeout(structureDebounceTimer);
+      }
+      structureDebounceTimer = window.setTimeout(() => {
+        structureDebounceTimer = null;
+        markStructureDirtyAndPaint();
+      }, 64);
+    };
+
     const ro = new ResizeObserver(() => {
-      themeRef.current = null;
-      measuredCacheRef.current = null; // 视口变化可能影响列宽，失效测量 cache
-      markStructureDirtyAndPaint();
+      scheduleStructureDirty({ clearTheme: true, clearMeasure: true });
     });
     ro.observe(wrap);
 
     const mo = new MutationObserver(() => {
       invalidateCanvasGridThemeCache();
-      themeRef.current = null;
-      markStructureDirtyAndPaint();
+      scheduleStructureDirty({ clearTheme: true });
     });
     mo.observe(document.documentElement, {
       attributes: true,
@@ -404,6 +415,10 @@ export const TableDataGridCanvasBody = forwardRef<
       wrap.removeEventListener("wheel", onWheel);
       ro.disconnect();
       mo.disconnect();
+      if (structureDebounceTimer != null) {
+        window.clearTimeout(structureDebounceTimer);
+        structureDebounceTimer = null;
+      }
       if (scrollIdleTimerRef.current != null) {
         window.clearTimeout(scrollIdleTimerRef.current);
         scrollIdleTimerRef.current = null;

@@ -18,6 +18,10 @@ export {
   shouldMountDockTabContent,
   markDockTabVisited,
   createInitialDockTabVisited,
+  createInitialDockTabVisitedOrder,
+  markDockTabVisitedMru,
+  trimDockTabVisitedMru,
+  DEFAULT_STICKY_VISIT_MAX,
 } from "./dockTabVisit";
 export type { DockPanelRefreshProps } from "./dockPanelRefresh";
 export type { SerializedDockview } from "dockview-core";

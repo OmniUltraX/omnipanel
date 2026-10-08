@@ -70,7 +70,6 @@ export function DatabasePanel() {
     moduleSoftRefreshKey,
     openSqlFile,
     openTreeChartFile,
-    panelContentKeysByTab,
     performMoveTabToWorkspace,
     recentClosedActionItems,
     refreshConnDatabases,
@@ -181,6 +180,8 @@ export function DatabasePanel() {
           <DatabaseWorkspaceDock
             workspaceInitialized={workspaceInitialized}
             dockTabs={dockTabs}
+            workspaceTabs={workspaceTabs}
+            connections={connections}
             moduleTitle={t("routes.database")}
             enabled={moduleLive}
             contentSuspended={!moduleLive}
@@ -188,7 +189,6 @@ export function DatabasePanel() {
             onCloseTab={handleCloseDockTab}
             renderDockPanel={renderDockPanel}
             softRefreshKey={moduleSoftRefreshKey}
-            panelContentKeysByTab={panelContentKeysByTab}
             onTabContextMenu={handleDockTabContextMenu}
             onTabDoubleClick={handleDockTabDoubleClick}
             onPanelTransferredOut={handlePanelTransferredToWorkspace}

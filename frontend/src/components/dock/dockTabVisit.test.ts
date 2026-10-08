@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   createInitialDockTabVisited,
+  createInitialDockTabVisitedOrder,
   markDockTabVisited,
+  markDockTabVisitedMru,
   shouldMountDockTabContent,
+  trimDockTabVisitedMru,
 } from "./dockTabVisit";
 
 describe("shouldMountDockTabContent", () => {
@@ -73,12 +76,37 @@ describe("markDockTabVisited / createInitialDockTabVisited", () => {
   it("初始含激活 id", () => {
     expect([...createInitialDockTabVisited("a")]).toEqual(["a"]);
     expect(createInitialDockTabVisited(null).size).toBe(0);
+    expect(createInitialDockTabVisitedOrder("a")).toEqual(["a"]);
   });
 
-  it("幂等追加", () => {
+  it("幂等追加（Set）", () => {
     const once = markDockTabVisited(new Set(["a"]), "b");
     expect(once.has("a") && once.has("b")).toBe(true);
     const twice = markDockTabVisited(once, "b");
     expect(twice).toBe(once);
+  });
+});
+
+describe("markDockTabVisitedMru / trimDockTabVisitedMru", () => {
+  it("再次访问移到 MRU 末尾", () => {
+    expect(markDockTabVisitedMru(["a", "b", "c"], "a")).toEqual(["b", "c", "a"]);
+    expect(markDockTabVisitedMru(["a", "b"], "b")).toEqual(["a", "b"]);
+  });
+
+  it("LRU 裁剪保留最近与 protect", () => {
+    const order = ["a", "b", "c", "d", "e", "f"];
+    expect(trimDockTabVisitedMru(order, { max: 3 })).toEqual(["d", "e", "f"]);
+    expect(
+      trimDockTabVisitedMru(order, { max: 3, protect: new Set(["a", "f"]) }),
+    ).toEqual(["a", "e", "f"]);
+  });
+
+  it("protect 可超过 max", () => {
+    expect(
+      trimDockTabVisitedMru(["a", "b", "c"], {
+        max: 2,
+        protect: new Set(["a", "b", "c"]),
+      }),
+    ).toEqual(["a", "b", "c"]);
   });
 });

@@ -43,6 +43,8 @@ interface DockWorkspaceProps {
   leftPanelRef?: React.Ref<PanelImperativeHandle | null>;
   /** 左侧分隔条附加 class（如终端侧栏顶栏对齐） */
   leftHandleClassName?: string;
+  /** 用户按下左侧分隔条时触发（用于拖拽期间冻结主区宽度，避免右侧重排） */
+  onLeftHandlePointerDown?: () => void;
   rightPreset?: DockRailPreset;
   rightSizePx?: number;
   rightMinPx?: number;
@@ -85,6 +87,7 @@ export function DockWorkspace({
   onLeftLayoutChanged,
   leftPanelRef,
   leftHandleClassName,
+  onLeftHandlePointerDown,
   rightPreset = "default",
   rightSizePx,
   rightMinPx,
@@ -190,7 +193,10 @@ export function DockWorkspace({
             >
               <div className="dock-rail-shell">{left}</div>
             </DockPanel>
-            <DockHandle className={leftHandleClassName} />
+            <DockHandle
+              className={leftHandleClassName}
+              onPointerDown={onLeftHandlePointerDown}
+            />
           </>
         )}
         <DockPanel className="dock-panel-main" groupResizeBehavior="preserve-relative-size">

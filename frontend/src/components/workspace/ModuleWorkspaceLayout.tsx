@@ -14,6 +14,28 @@ import { useModuleVisibility } from "../../lib/moduleVisibility";
 import { ModuleLeftColumn } from "./ModuleLeftColumn";
 import "./moduleWorkspaceLayout.css";
 
+/** 拖拽左侧分隔条时冻结主区像素宽度，避免表格 / 编辑器跟视口宽度逐帧重排。 */
+function freezeMainPanelWidth(el: HTMLElement) {
+  const width = Math.round(el.getBoundingClientRect().width);
+  if (width <= 0) return;
+  el.style.alignSelf = "flex-start";
+  el.style.width = `${width}px`;
+  el.style.minWidth = `${width}px`;
+  el.style.maxWidth = `${width}px`;
+  el.style.height = "100%";
+  el.dataset.mainWidthFrozen = "1";
+}
+
+function unfreezeMainPanelWidth(el: HTMLElement) {
+  if (el.dataset.mainWidthFrozen !== "1") return;
+  delete el.dataset.mainWidthFrozen;
+  el.style.alignSelf = "";
+  el.style.width = "";
+  el.style.minWidth = "";
+  el.style.maxWidth = "";
+  el.style.height = "";
+}
+
 export interface ModuleWorkspaceLayoutProps {
   className?: string;
   /** 左栏顶栏标题（与模式图标两端对齐） */
@@ -63,6 +85,8 @@ export function ModuleWorkspaceLayout({
   const internalLeftPanelRef = useRef<PanelImperativeHandle | null>(null);
   const leftPanelRef = externalLeftPanelRef ?? internalLeftPanelRef;
   const lastSidebarToggleNonceRef = useRef(moduleSidebarToggleNonce);
+  const mainPanelRef = useRef<HTMLDivElement | null>(null);
+  const leftHandlePointerUpCleanupRef = useRef<(() => void) | null>(null);
 
   const hasSidebarHeader = Boolean(
     leftColumnTitle || leftIconRail || leftHeaderActions || tagModuleKey,
@@ -83,6 +107,47 @@ export function ModuleWorkspaceLayout({
     propSizePx: propLeftSizePx,
     onCollapsedChange: onSidebarCollapsedChange,
   });
+
+  const releaseMainWidthFreeze = useCallback(() => {
+    leftHandlePointerUpCleanupRef.current?.();
+    leftHandlePointerUpCleanupRef.current = null;
+    const el = mainPanelRef.current;
+    if (el) unfreezeMainPanelWidth(el);
+  }, []);
+
+  const handleLeftHandlePointerDown = useCallback(() => {
+    const el = mainPanelRef.current;
+    if (!el) return;
+    freezeMainPanelWidth(el);
+
+    leftHandlePointerUpCleanupRef.current?.();
+    const onPointerEnd = () => {
+      leftHandlePointerUpCleanupRef.current = null;
+      window.removeEventListener("pointerup", onPointerEnd, true);
+      window.removeEventListener("pointercancel", onPointerEnd, true);
+      // 优先等 onLayoutChanged 解冻；若只是点击未拖动则这里兜底
+      window.setTimeout(() => {
+        const node = mainPanelRef.current;
+        if (node) unfreezeMainPanelWidth(node);
+      }, 0);
+    };
+    leftHandlePointerUpCleanupRef.current = () => {
+      window.removeEventListener("pointerup", onPointerEnd, true);
+      window.removeEventListener("pointercancel", onPointerEnd, true);
+    };
+    window.addEventListener("pointerup", onPointerEnd, true);
+    window.addEventListener("pointercancel", onPointerEnd, true);
+  }, []);
+
+  const handleLeftLayoutChangedAndUnfreeze = useCallback(() => {
+    releaseMainWidthFreeze();
+    handleLeftLayoutChanged();
+  }, [handleLeftLayoutChanged, releaseMainWidthFreeze]);
+
+  useEffect(() => () => {
+    leftHandlePointerUpCleanupRef.current?.();
+    leftHandlePointerUpCleanupRef.current = null;
+  }, []);
 
   const toggleSidebarFromShell = useCallback(() => {
     const handle = leftPanelRef.current;
@@ -132,7 +197,7 @@ export function ModuleWorkspaceLayout({
     .join(" ");
 
   const main = (
-    <div className="module-workspace-layout__main">
+    <div className="module-workspace-layout__main" ref={mainPanelRef}>
       <div className="module-workspace-layout__body">{children}</div>
       {footer ? <div className="module-workspace-layout__footer">{footer}</div> : null}
     </div>
@@ -151,7 +216,8 @@ export function ModuleWorkspaceLayout({
       leftPanelRef={leftPanelRef}
       leftHandleClassName={resolvedHandleClassName}
       onLeftResize={handleLeftResize}
-      onLeftLayoutChanged={handleLeftLayoutChanged}
+      onLeftLayoutChanged={handleLeftLayoutChangedAndUnfreeze}
+      onLeftHandlePointerDown={handleLeftHandlePointerDown}
       left={
         <ModuleLeftColumn
           title={leftColumnTitle}

@@ -238,6 +238,10 @@ export function useSchemaBrowserModel({
   // urgent render 用旧 deferredConnections（memo 命中，不重算 flatRows），transition 再算。
   // 模块切换时 connections 引用稳定，useDeferredValue 无额外开销。
   const deferredConnections = useDeferredValue(connections);
+  // 展开/折叠与刷新徽标同样延后，避免每次箭头点击同步卡住整树 rebuild。
+  const deferredExpandedNodeIds = useDeferredValue(expandedNodeIds);
+  const deferredRefreshingConnectionIds = useDeferredValue(refreshingConnectionIds);
+  const deferredRefreshingNodeIds = useDeferredValue(refreshingNodeIds);
   // 仅在「尚无任何连接配置可展示」且仍在拉取列表时显示 loading
   const loading = useExternalConnections
     ? !connectionsReady && connectionConfigs.length === 0 && !cacheHydrated
@@ -1266,12 +1270,12 @@ export function useSchemaBrowserModel({
       buildSchemaFlatRows({
         t,
         connections: search.trim() ? connections : deferredConnections,
-        expandedNodeIds,
+        expandedNodeIds: search.trim() ? expandedNodeIds : deferredExpandedNodeIds,
         childVisibleLimits,
         databaseFilters,
         tableFilters,
-        refreshingConnectionIds,
-        refreshingNodeIds,
+        refreshingConnectionIds: deferredRefreshingConnectionIds,
+        refreshingNodeIds: deferredRefreshingNodeIds,
         resolvedTheme,
         searchQuery: search,
         layoutFolders,
@@ -1285,11 +1289,12 @@ export function useSchemaBrowserModel({
       connections,
       deferredConnections,
       expandedNodeIds,
+      deferredExpandedNodeIds,
       childVisibleLimits,
       databaseFilters,
       tableFilters,
-      refreshingConnectionIds,
-      refreshingNodeIds,
+      deferredRefreshingConnectionIds,
+      deferredRefreshingNodeIds,
       resolvedTheme,
       search,
       layoutFolders,

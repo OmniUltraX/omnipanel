@@ -19,9 +19,10 @@ import type { DockHeaderIconKind } from "./DockHeaderIcon";
 import type { TopbarTabDef } from "../../stores/topbarStore";
 import { ModuleDockTitle } from "./ModuleDockTitle";
 import {
-  createInitialDockTabVisited,
-  markDockTabVisited,
+  createInitialDockTabVisitedOrder,
+  markDockTabVisitedMru,
   shouldMountDockTabContent,
+  trimDockTabVisitedMru,
 } from "./dockTabVisit";
 
 export interface ModuleSegmentTab {
@@ -102,6 +103,12 @@ export interface ModuleSegmentDockProps extends DockPanelRefreshProps {
    * 开启后 defaultRenderer 使用 always（仅宿主）；曾 live 后挂起仍保活已访问 Tab。
    */
   stickyVisit?: boolean;
+  /**
+   * stickyVisit 时最多保活的已访问 Tab 数（含当前激活与分屏可见）。
+   * 超出按 LRU 卸载内容，降低多表 / 多 SQL 常驻 Canvas·编辑器成本。
+   * 未设置或 ≤0 表示不限制。
+   */
+  stickyVisitMax?: number;
 }
 
 const EMPTY_LAYOUT = null;
@@ -141,14 +148,18 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
   onGroupsActiveTabIdsChange,
   contentSuspended = false,
   stickyVisit = false,
+  stickyVisitMax,
 }: ModuleSegmentDockProps) {
   const layoutRef = useRef(EMPTY_LAYOUT);
   const noopClose = useCallback(() => {}, []);
   const noopLayoutChange = useCallback(() => {}, []);
 
-  const [visitedTabIds, setVisitedTabIds] = useState(() =>
-    createInitialDockTabVisited(activeTabId),
+  const [visitedOrder, setVisitedOrder] = useState(() =>
+    createInitialDockTabVisitedOrder(activeTabId),
   );
+  const [groupActiveTabIds, setGroupActiveTabIds] = useState<string[]>([]);
+
+  const visitedTabIds = useMemo(() => new Set(visitedOrder), [visitedOrder]);
 
   // 曾进入过 live：之后切走只挂起重活，已访问 Tab 保活，避免 remount 闪烁。
   // 预热阶段从未 live：仍不挂内容，靠 soft gate 在首次 live 时 bump。
@@ -159,10 +170,50 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
 
   const keepVisitedWhileSuspended = hasBeenLive;
 
+  const tabIdSet = useMemo(() => new Set(tabs.map((tab) => tab.id)), [tabs]);
+
   useEffect(() => {
     if (contentSuspended) return;
-    setVisitedTabIds((prev) => markDockTabVisited(prev, activeTabId));
-  }, [activeTabId, contentSuspended]);
+    setVisitedOrder((prev) => {
+      let next = markDockTabVisitedMru(prev, activeTabId);
+      // 关闭的 Tab 立即移出保活集
+      if (next.some((id) => !tabIdSet.has(id))) {
+        next = next.filter((id) => tabIdSet.has(id));
+      }
+      if (stickyVisit && stickyVisitMax != null && stickyVisitMax > 0) {
+        const protect = new Set<string>();
+        if (activeTabId) protect.add(activeTabId);
+        for (const id of groupActiveTabIds) {
+          if (id) protect.add(id);
+        }
+        next = trimDockTabVisitedMru(next, { max: stickyVisitMax, protect });
+      }
+      if (next.length === prev.length && next.every((id, i) => id === prev[i])) {
+        return prev;
+      }
+      return next;
+    });
+  }, [
+    activeTabId,
+    contentSuspended,
+    groupActiveTabIds,
+    stickyVisit,
+    stickyVisitMax,
+    tabIdSet,
+  ]);
+
+  const handleGroupsActiveTabIdsChange = useCallback(
+    (ids: string[]) => {
+      setGroupActiveTabIds((prev) => {
+        if (prev.length === ids.length && prev.every((id, i) => id === ids[i])) {
+          return prev;
+        }
+        return ids;
+      });
+      onGroupsActiveTabIdsChange?.(ids);
+    },
+    [onGroupsActiveTabIdsChange],
+  );
 
   // 仅「预热挂起 → 首次 live」时 bump soft；日常切走切回不再全量 soft reconcile。
   const composedSoftRefreshKey = useMemo(() => {
@@ -268,7 +319,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
       defaultRenderer={resolvedRenderer}
       deferActiveTabNotify={deferActiveTabNotify}
       onActiveTabPreview={onActiveTabPreview}
-      onGroupsActiveTabIdsChange={onGroupsActiveTabIdsChange}
+      onGroupsActiveTabIdsChange={handleGroupsActiveTabIdsChange}
     />
   );
 });

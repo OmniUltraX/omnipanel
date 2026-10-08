@@ -211,6 +211,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* 侧栏拖宽时主区内容可能保持冻结宽度，超出部分裁切视口而非挤压重排 */
+  overflow: hidden;
 }
 
 .dock-workspace.module-workspace-layout .dock-panel-main > .module-root-dock,
