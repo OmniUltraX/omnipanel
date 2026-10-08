@@ -45,7 +45,9 @@ export function TerminalCommandBarControls({
         .map((opt) => ({
           value: opt.value,
           label: opt.group === "cli" ? `[CLI] ${opt.label}` : opt.label,
-          title: opt.subtitle ?? opt.label,
+          subtitle: opt.subtitle,
+          meta: opt.meta,
+          title: [opt.label, opt.meta, opt.subtitle].filter(Boolean).join(" · "),
         })),
     [backendOptions],
   );
