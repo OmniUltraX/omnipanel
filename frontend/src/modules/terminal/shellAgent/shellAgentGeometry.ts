@@ -677,14 +677,14 @@ function freezeOutgoingDecoration(opts: {
   } = opts;
   rememberArchivedDisplayTools(sessionId, kind, liveHtml);
   if (!frozenHtml && kind === "thinking") {
-    try {
-      const host = decoration.element ? getPortalHost(decoration.element) : null;
-      if (host) host.innerHTML = "";
-      else if (decoration.element) decoration.element.innerHTML = "";
-      decoration.dispose();
-    } catch {
-      // ignore
-    }
+    // 禁止 innerHTML / 立刻 dispose：React portal 还挂在 host 上，同步清 DOM 会在卸载时 removeChild 崩溃
+    whenDecorationPortalIdle(decoration, () => {
+      try {
+        decoration.dispose();
+      } catch {
+        // ignore
+      }
+    });
     return;
   }
   let archivedDeco = decoration;
@@ -695,11 +695,14 @@ function freezeOutgoingDecoration(opts: {
     if (slim) {
       archivedDeco = slim;
       archivedRows = freezeRows;
-      try {
-        decoration.dispose();
-      } catch {
-        // ignore
-      }
+      // 旧 decoration 里还有 React portal，等它卸完再拆，避免 removeChild
+      whenDecorationPortalIdle(decoration, () => {
+        try {
+          decoration.dispose();
+        } catch {
+          // ignore
+        }
+      });
     }
   }
   if (marker) {

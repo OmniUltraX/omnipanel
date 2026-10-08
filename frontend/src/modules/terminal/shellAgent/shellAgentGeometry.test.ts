@@ -386,7 +386,7 @@ describe("shellAgentGeometry", () => {
     expect(term.decorations.some((d) => !d.disposed)).toBe(true);
   });
 
-  it("archiveActiveInlineCard：无思考正文不冻空的思考完成卡", () => {
+  it("archiveActiveInlineCard：无思考正文不冻空的思考完成卡", async () => {
     const term = createFakeTerm();
     registerXterm(SID, term as unknown as Terminal);
     beginShellAgentCard(SID, {
@@ -399,6 +399,13 @@ describe("shellAgentGeometry", () => {
     archiveActiveInlineCard(SID);
 
     expect(getShellAgentGeometry(SID)?.mode).toBe("idle");
+    await new Promise<void>((resolve) => {
+      queueMicrotask(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+    });
     expect(term.decorations[0].disposed).toBe(true);
   });
 
