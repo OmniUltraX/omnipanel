@@ -63,6 +63,7 @@ import { ModulesSettingsSection } from "../../components/settings/ModulesSetting
 import { PluginsSettingsSection } from "../../components/settings/PluginsSettingsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
 import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
+import { AiProvidersSection } from "../../components/settings/AgentSourcesSection";
 import { LocalModelsSection } from "../../components/settings/LocalModelsSection";
 import {
   AgentConfigSection,
@@ -92,6 +93,7 @@ type Section =
   | "appearance"
   | "keybindings"
   | "ai"
+  | "aiProviders"
   | "aiServices"
   | "security"
   | "accounts"
@@ -215,6 +217,17 @@ const NAV_GROUPS: NavGroup[] = [
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 2a4 4 0 014 4v1a4 4 0 01-8 0V6a4 4 0 014-4z" />
             <path d="M12 17v4M8 21h8" />
+          </svg>
+        ),
+      },
+      {
+        id: "aiProviders",
+        label: "AI 提供者",
+        icon: (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 7V3M15 7V3" />
+            <path d="M7 7h10v5a5 5 0 01-10 0V7z" />
+            <path d="M12 17v4" />
           </svg>
         ),
       },
@@ -1651,6 +1664,8 @@ export function SettingsPanel() {
 
         {/* AI (Models / Scenarios / Other) */}
         {activeSection === "ai" && <AiSection />}
+
+        {activeSection === "aiProviders" && <AiProvidersSection />}
 
         {activeAgentId ? <AgentConfigSection agentId={activeAgentId} /> : null}
 

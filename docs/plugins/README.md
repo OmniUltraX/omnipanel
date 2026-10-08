@@ -8,7 +8,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [本文](./README.md) | 八种 kind、Host 合同、脚手架与校验 |
+| [本文](./README.md) | 九种 kind、Host 合同、脚手架与校验 |
 | [manifest-reference.md](./manifest-reference.md) | 清单字段表 |
 | [sidecar-dbx.md](./sidecar-dbx.md) | Engine sidecar 协议 |
 | [permissions-and-levels.md](./permissions-and-levels.md) | 权限与 L1 / L2 / L3 |
@@ -26,6 +26,8 @@ node scripts/create-plugin.mjs <name> panel           # 服务器面板
 node scripts/create-plugin.mjs <name> importer        # 导入向导
 node scripts/create-plugin.mjs <name> addon           # 启动条 / Overlay
 node scripts/create-plugin.mjs <name> theme           # 主题
+node scripts/create-plugin.mjs <name> knowledge       # 知识源
+node scripts/create-plugin.mjs <name> agent           # Agent 来源
 node scripts/create-plugin.mjs <name> js-logic        # L2-JS + 动态前端（第三方最小闭环）
 node scripts/create-plugin.mjs <name> l3-overlay      # L3 沙箱 Overlay（选区→Overlay→net）
 node scripts/create-plugin.mjs <name> wasm-stub       # WASM 回显模板（logic.wat，需 wat2wasm 构建出 logic.wasm）
@@ -36,7 +38,7 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omn
 
 ---
 
-## 八种身份（`kind`）
+## 九种身份（`kind`）
 
 | kind | 进哪套 Host | 你要声明什么 |
 |---|---|---|
@@ -48,6 +50,9 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omn
 | `theme` | 主题 | `themes.tokens`，禁止 JS |
 | `addon` | Overlay / 菜单 / 启动条 | `overlays` / `menus` / `launcher` |
 | `knowledge` | 知识源管线（宿主侧） | `knowledgeSources[]` + L2（`listMethod` / `getMethod` / 可选 `searchMethod`）；插件只读，落库由宿主负责 |
+| `agent` | Agent 来源（宿主编排） | `agentSources[]`（`statusMethod` / `catalogMethod` / `completeMethod`）；插件提供登录态、目录和补全，对话、工具与审批留在宿主 |
+
+枚举以 `crates/omnipanel-plugin/src/kind.rs` 为准。新 kind 只接受平台级、会有多家来源的能力，不为某一个产品单开。`knowledge` 就是这条规则的例子：思源、Obsidian、Logseq、Notion 共用一条管线。又一家笔记源登记进 `knowledge`，不要再加 kind。单一产品先问落在哪条已有贡献点上。
 
 顶层必填：`id`（反向域名，如 `omni.module.consul`）、`version`、`kind`。建议写 `displayName`。
 
@@ -109,7 +114,7 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 | 写操作走 `dangerAction` + `consume_grant` | 插件自签确认令牌 |
 | Engine sidecar：`entry.driver` + `engineKey` 进启动表 | 第三方写 inproc Rust（Rust 只以 sidecar 进程进来） |
 
-八种 kind 同一条交付标准：出现在对的入口、凭据回源后仍能调、至少一读一写（theme 只读；addon 启动条算 L1；knowledge 只读数据源，落库由宿主负责）、调用栈不进第一方面板客户端。
+九种 kind 同一条交付标准：出现在对的入口、凭据回源后仍能调、至少一读一写（theme 只读；addon 启动条算 L1；knowledge 只读数据源，落库由宿主负责；agent 只提供登录态、目录和补全，编排留在宿主）、调用栈不进第一方面板客户端。
 
 ```js
 var sig = host.hmac(JSON.stringify({

@@ -8021,6 +8021,10 @@ button.omni-btn-tool[aria-pressed="true"] {
         background-position: 10px center;
     }
 
+    .input-field__control--standalone.input-search {
+        padding-left: 32px;
+    }
+
     .scoped-search-host {
         position: relative;
         min-width: 0;
@@ -8497,8 +8501,21 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--meta);
     }
 
+    .omni-select-option-meta {
+        flex-shrink: 0;
+        min-width: 3.6em;
+        text-align: right;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        color: var(--meta);
+    }
+
     .omni-select-option.is-selected .omni-select-option-sub {
         color: color-mix(in oklch, var(--accent) 70%, var(--meta));
+    }
+
+    .omni-select-option.is-selected .omni-select-option-meta {
+        color: color-mix(in oklch, var(--accent) 75%, var(--meta));
     }
 
     .omni-select-option-check {
@@ -20259,6 +20276,65 @@ button.omni-btn-tool[aria-pressed="true"] {
         font-size: 11px;
         color: var(--meta);
         min-width: 0;
+    }
+
+    .ai-provider-facts {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--meta);
+        min-width: 0;
+    }
+
+    .ai-provider-packages-open {
+        border: none;
+        background: transparent;
+        padding: 0;
+        font: inherit;
+        font-size: 11px;
+        color: var(--accent);
+        cursor: pointer;
+    }
+
+    .ai-provider-packages-open:hover {
+        text-decoration: underline;
+    }
+
+    .ai-provider-package-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 420px;
+        overflow: auto;
+    }
+
+    .ai-provider-package-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 6px 8px;
+        border-radius: 4px;
+        background: color-mix(in oklch, var(--surface) 80%, var(--border));
+        font-size: 12px;
+    }
+
+    .ai-provider-package-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .ai-provider-package-remain {
+        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
+        color: var(--meta);
     }
 
     .ai-model-row-baseurl {

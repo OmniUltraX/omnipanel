@@ -3,6 +3,7 @@ import {
   resolveModelSelection,
   type AiModelProvider,
 } from "../../stores/aiModelsStore";
+import { useAgentSourcesStore } from "../../stores/agentSourcesStore";
 
 export interface HttpProviderSnapshot {
   providerId: string;
@@ -91,6 +92,24 @@ export function resolveHttpBackendFromSelection(
   };
 }
 
+function resolveAgentHttpBackend(selectionId: string): ResolvedHttpBackend | null {
+  const parsed = parseModelSelectionId(selectionId);
+  if (!parsed) return null;
+  const source = useAgentSourcesStore
+    .getState()
+    .sources.find((item) => item.signedIn && item.id === parsed.providerId);
+  if (!source || !source.models.some((model) => model.id === parsed.modelName)) return null;
+  return {
+    backendId: buildHttpBackendId(parsed.providerId, parsed.modelName),
+    httpProvider: {
+      providerId: parsed.providerId,
+      apiStandard: "openai",
+      baseUrl: "https://copilot.tencent.com",
+      apiKey: "",
+    },
+  };
+}
+
 export function resolveBackendFromSelection(
   providers: AiModelProvider[],
   selectionId: string | null | undefined,
@@ -114,6 +133,8 @@ export function resolveBackendFromSelection(
     };
   }
   const http = resolveHttpBackendFromSelection(providers, selectionId);
-  if (!http) return null;
-  return { kind: "http", ...http };
+  if (http) return { kind: "http", ...http };
+  const agent = resolveAgentHttpBackend(selectionId);
+  if (agent) return { kind: "http", ...agent };
+  return null;
 }

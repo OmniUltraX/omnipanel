@@ -5514,18 +5514,29 @@ dependencies = [
 name = "omnipanel-ai"
 version = "0.0.5"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
+ "bytes",
  "chrono",
+ "flate2",
  "futures",
+ "h2",
+ "http 1.4.1",
  "omnipanel-store",
  "reqwest 0.12.28",
+ "rusqlite",
  "serde",
  "serde_json",
+ "sha1 0.10.6",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls 0.26.4",
  "tokio-stream",
  "tracing",
+ "webpki-roots 1.0.7",
 ]
 
 [[package]]
@@ -7431,6 +7442,7 @@ dependencies = [
  "cookie_store",
  "futures-core",
  "futures-util",
+ "h2",
  "http 1.4.1",
  "http-body 1.0.1",
  "http-body-util",

@@ -9,6 +9,7 @@ import {
 } from "../stores/aiModelsStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { isStructuredBackendId } from "./ai/inferenceBackend";
+import { isAgentSourceSelection } from "../stores/agentSourcesStore";
 
 /** 解析场景配置的模型；无效时回退到第一个可用模型。 */
 export function resolveScenarioModelSelectionId(
@@ -17,7 +18,7 @@ export function resolveScenarioModelSelectionId(
 ): string | null {
   const trimmed = configuredId?.trim();
   if (trimmed) {
-    if (isStructuredBackendId(trimmed)) {
+    if (isStructuredBackendId(trimmed) || isAgentSourceSelection(trimmed)) {
       return trimmed;
     }
     if (resolveModelSelection(providers, trimmed)) {

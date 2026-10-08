@@ -1,0 +1,25 @@
+{
+  "id": "omni.agent.workbuddy",
+  "version": "0.1.0",
+  "displayName": "WorkBuddy",
+  "kind": "agent",
+  "platforms": ["windows"],
+  "permissions": [],
+  "methods": [
+    { "name": "status", "permissions": [] },
+    { "name": "catalog", "permissions": [] },
+    { "name": "complete", "permissions": [] }
+  ],
+  "contributes": {
+    "agentSources": [
+      {
+        "id": "workbuddy",
+        "title": "WorkBuddy",
+        "hint": "读取本机 WorkBuddy 桌面登录，模型进入对话选择器。对话、工具与审批留在 OmniPanel。",
+        "statusMethod": "status",
+        "catalogMethod": "catalog",
+        "completeMethod": "complete"
+      }
+    ]
+  }
+}

@@ -35,7 +35,8 @@ export function AiConversationModelSelect() {
           value: opt.value,
           label: opt.group === "cli" ? `[CLI] ${opt.label}` : opt.label,
           subtitle: opt.subtitle,
-          title: opt.subtitle ?? opt.label,
+          meta: opt.meta,
+          title: [opt.label, opt.meta, opt.subtitle].filter(Boolean).join(" · "),
         })),
     [backendOptions],
   );

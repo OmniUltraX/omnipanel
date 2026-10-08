@@ -10,6 +10,7 @@ import { initDbSqlFilesStore } from "./stores/dbSqlFileStore";
 import { initDbTreeChartFilesStore } from "./stores/dbTreeChartFileStore";
 import { initAcpServicesStore } from "./stores/acpServicesStore";
 import { initCliProvidersStore } from "./stores/cliProvidersStore";
+import { initAgentSourcesStore } from "./stores/agentSourcesStore";
 import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initBackgroundTasks } from "./stores/backgroundTaskStore";
@@ -174,6 +175,7 @@ export function Bootstrap() {
           initDbTreeChartFilesStore(),
           initAcpServicesStore(),
           initCliProvidersStore(),
+          initAgentSourcesStore(),
           import("./modules/database/schema/initDbSchemaUiStores").then((m) =>
             m.initDbSchemaUiStores(),
           ),

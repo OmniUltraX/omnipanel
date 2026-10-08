@@ -17,6 +17,8 @@ export interface SelectOption {
   value: string;
   label: string;
   subtitle?: string;
+  /** 贴在副标题左侧的短标记，例如模型消耗比例 `0.79x`。 */
+  meta?: string;
   title?: string;
   disabled?: boolean;
   labelStyle?: CSSProperties;
@@ -119,7 +121,7 @@ export function Select({
       next = options;
     } else {
       const ranked = rankByFuzzy(enabled, query, (opt) =>
-        `${opt.label} ${opt.subtitle ?? ""} ${opt.value}`,
+        `${opt.label} ${opt.meta ?? ""} ${opt.subtitle ?? ""} ${opt.value}`,
       );
       const rankedSet = new Set(ranked.map((opt) => opt.value));
       const disabledOpts = options.filter((opt) => opt.disabled);
@@ -478,7 +480,7 @@ export function Select({
                     !opt.disabled && selectableIndex === highlightIndex;
                   const optionTitle =
                     opt.title ??
-                    [opt.label, opt.subtitle].filter(Boolean).join(" · ");
+                    [opt.label, opt.meta, opt.subtitle].filter(Boolean).join(" · ");
                   return (
                     <button
                       key={`${opt.value}::${opt.label}`}
@@ -506,6 +508,9 @@ export function Select({
                       <span className="omni-select-option-label" style={opt.labelStyle}>
                         {opt.label}
                       </span>
+                      {opt.meta ? (
+                        <span className="omni-select-option-meta">{opt.meta}</span>
+                      ) : null}
                       {opt.subtitle ? (
                         <span className="omni-select-option-sub">{opt.subtitle}</span>
                       ) : null}

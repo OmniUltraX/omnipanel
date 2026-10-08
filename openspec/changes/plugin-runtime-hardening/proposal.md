@@ -19,7 +19,7 @@
 - **不收编 InvokeGateway**：everything search 从 `plugin_invoke` 特判分支迁入网关白名单是纯重构，不改变行为，本期不动。
 - **不让启动器前缀接插件贡献点动态注册**：`es` 前缀仍静态登记，仅修体验。
 - **不做插件市场、签名、热加载**（延续 plugin-host-sdk 非目标）。
-- **不改七种 kind、权限枚举、清单 schema 本身**。
+- **不在本变更里改 kind 枚举、权限枚举、清单 schema 本身**。kind 以 `crates/omnipanel-plugin/src/kind.rs` 为准。
 
 ## 背景与动机
 

@@ -16,7 +16,7 @@
 
 **Non-Goals:**
 
-- 第八种 kind、LSP、Git、iframe 应用框架。
+- 本变更不新增 kind；不做 LSP、Git、iframe 应用框架。身份枚举此后已包含平台级 `knowledge`，以 `kind.rs` 为准。
 - 重写 1Panel / 宝塔 / 阿里云 / 腾讯云。
 - Warpgate WASM、launcher 硬编码尾巴（另账）。
 

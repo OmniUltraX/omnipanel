@@ -14,7 +14,7 @@
 - **不**把主工作台做成 L3 iframe / 嵌官方 Console（CSP 拒外联；L3 只保留给未来「怪页面」Overlay，不是模板主路径）。
 - **不**为 Nacos 新增 Rust crate 作为唯一实现（第三方装不了 `.dll`；方言与 OpenAPI 必须能放进 `logic.js`）。
 - **不**让插件 React 进主 WebView（与 Vault/SSH 同进程红线）。
-- **不**新增第 8 种 kind；不做在线商店；不做 Nacos 0.x / 3.x 必达、灰度编排、用户鉴权管理。
+- **不**为 Nacos 新增 kind（使用已有 `module`）；不做在线商店；不做 Nacos 0.x / 3.x 必达、灰度编排、用户鉴权管理。
 - **不**把 Terminal / SSH / Vault / specta 主命令表插件化。
 
 ## 背景与动机

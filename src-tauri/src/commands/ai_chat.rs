@@ -588,14 +588,20 @@ pub async fn ai_chat_stream(
         return Err(format!("不支持的 backend: {}", internal.backend_id));
     }
 
-    let snapshot = internal
-        .http_provider
-        .as_ref()
-        .ok_or_else(|| "缺少 http_provider，无法发起 HTTP 推理".to_string())?;
     let (_provider_id, model_id) = InternalOrchestrator::resolve_http_model(&internal.backend_id)?;
-    ensure_http_provider_registered(&state, snapshot, &model_id).await?;
-
-    let provider = build_http_provider(&state, snapshot, &model_id).await?;
+    let provider = if let Some(provider) =
+        crate::commands::agent_source::open_agent_provider(&state, &parsed.provider_id, &model_id)
+            .await?
+    {
+        provider
+    } else {
+        let snapshot = internal
+            .http_provider
+            .as_ref()
+            .ok_or_else(|| "缺少 http_provider，无法发起 HTTP 推理".to_string())?;
+        ensure_http_provider_registered(&state, snapshot, &model_id).await?;
+        build_http_provider(&state, snapshot, &model_id).await?
+    };
 
     let (tools, _) = match &internal.tools_mode {
         InternalToolsMode::DirectInject {

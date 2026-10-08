@@ -390,6 +390,7 @@ export function usePluginCenter() {
       theme: 0,
       addon: 0,
       knowledge: 0,
+      agent: 0,
     };
     const seen = new Set<string>();
     const add = (id: string, name: string, kind: PluginListItem["kind"]) => {

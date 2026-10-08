@@ -80,6 +80,77 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
             })
         }),
     );
+    register_agent_source_handlers(
+        gateway,
+        omnipanel_plugin::PLUGIN_ID_AGENT_WORKBUDDY,
+        "workbuddy",
+        "WorkBuddy",
+    );
+    register_agent_source_handlers(
+        gateway,
+        omnipanel_plugin::PLUGIN_ID_AGENT_CURSOR,
+        "cursor",
+        "Cursor",
+    );
+}
+
+fn register_agent_source_handlers(
+    gateway: &mut InvokeGateway,
+    plugin_id: &'static str,
+    source_id: &'static str,
+    title: &'static str,
+) {
+    gateway.register(
+        plugin_id,
+        "status",
+        Arc::new(move |_| {
+            Box::pin(async move {
+                let card = tokio::task::spawn_blocking(|| {
+                    omnipanel_ai::agent_source_registry()
+                        .get(source_id)
+                        .map(|source| source.card())
+                })
+                .await
+                .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))?
+                .ok_or_else(|| {
+                    omnipanel_plugin::PluginError::Invoke(format!("{title} 来源未注册"))
+                })?;
+                serde_json::to_value(card)
+                    .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))
+            })
+        }),
+    );
+    gateway.register(
+        plugin_id,
+        "catalog",
+        Arc::new(move |_| {
+            Box::pin(async move {
+                let models = tokio::task::spawn_blocking(|| {
+                    omnipanel_ai::agent_source_registry()
+                        .get(source_id)
+                        .map(|source| source.card().models)
+                })
+                .await
+                .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))?
+                .ok_or_else(|| {
+                    omnipanel_plugin::PluginError::Invoke(format!("{title} 来源未注册"))
+                })?;
+                serde_json::to_value(models)
+                    .map_err(|e| omnipanel_plugin::PluginError::Invoke(e.to_string()))
+            })
+        }),
+    );
+    gateway.register(
+        plugin_id,
+        "complete",
+        Arc::new(move |_| {
+            Box::pin(async move {
+                Err(omnipanel_plugin::PluginError::Invoke(format!(
+                    "{title} 补全由宿主编排调用，不经过 plugin_invoke"
+                )))
+            })
+        }),
+    );
 }
 
 /// L2 执行器：QuickJS 与 WASM 都硬链接。

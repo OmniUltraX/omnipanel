@@ -17,6 +17,8 @@ import {
 } from "../../stores/aiModelsStore";
 
 import { useCliProvidersStore } from "../../stores/cliProvidersStore";
+import { isAgentModelEnabled, useAgentSourcesStore } from "../../stores/agentSourcesStore";
+import { buildModelSelectionId } from "../../stores/aiModelsStore";
 
 
 
@@ -27,6 +29,8 @@ export interface BackendSelectOption {
   label: string;
 
   subtitle?: string;
+
+  meta?: string;
 
   group: "http" | "cli" | "acp";
 
@@ -138,6 +142,10 @@ export function useBackendSelectOptions(providers: AiModelProvider[]) {
 
   const cliModelCache = useCliProvidersStore((s) => s.modelCache);
 
+  const agentSources = useAgentSourcesStore((s) => s.sources);
+
+  const agentPrefs = useAgentSourcesStore((s) => s.prefs);
+
   const [extraBackends, setExtraBackends] = useState<BackendInfo[]>([]);
 
 
@@ -160,13 +168,33 @@ export function useBackendSelectOptions(providers: AiModelProvider[]) {
 
 
 
-  return useMemo(
+  return useMemo(() => {
 
-    () => buildBackendSelectOptions(providers, extraBackends),
+    const agentOptions: BackendSelectOption[] = agentSources.flatMap((source) => {
 
-    [providers, extraBackends],
+      if (!source.signedIn) return [];
 
-  );
+      return source.models.filter((model) => isAgentModelEnabled(source.id, model.id)).map((model) => ({
+
+        value: buildModelSelectionId(source.id, model.id),
+
+        label: model.name,
+
+        subtitle: source.title,
+
+        meta: model.credits ?? undefined,
+
+        group: "http" as const,
+
+        installed: true,
+
+      }));
+
+    });
+
+    return [...buildBackendSelectOptions(providers, extraBackends), ...agentOptions];
+
+  }, [providers, extraBackends, agentSources, agentPrefs]);
 
 }
 

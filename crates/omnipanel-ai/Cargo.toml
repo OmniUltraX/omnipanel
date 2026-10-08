@@ -11,6 +11,19 @@ tracing.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 reqwest.workspace = true
+aes-gcm = "0.10"
+base64 = "0.22"
+sha2 = "0.10"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha1 = "0.10"
+flate2 = "1"
+# AgentService/Run 必须是未结束的 HTTP/2 双向流。reqwest 会在响应头到达时
+# 半关闭请求体，Cursor 因此回 internal: No exec result。
+h2 = "0.4"
+http = "1"
+bytes = "1"
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12", "ring"] }
+webpki-roots = "1"
 
 omnipanel-store = { path = "../omnipanel-store" }
 

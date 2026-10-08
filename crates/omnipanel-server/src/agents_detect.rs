@@ -1,4 +1,7 @@
-//! 本地 CLI Agent 探测（与桌面端 `commands::agents` 同逻辑，无 Tauri 依赖）。
+//! 已弃用：本地 CLI Agent 探测（Cursor / OpenCode / Qwen / Omniagent）。
+//! 整轮交给外部进程的路径不再扩展。插件 kind `agent` 是另一条线
+//! （登录态、目录、补全，编排留在宿主），不要复用本枚举的名字。
+//! 探测结果仍供尚未拆掉的 CLI 提供者使用。
 
 use std::collections::HashSet;
 #[cfg(windows)]

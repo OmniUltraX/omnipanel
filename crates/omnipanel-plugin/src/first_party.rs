@@ -1,6 +1,8 @@
 use crate::manifest::PluginManifest;
 
 pub const PLUGIN_ID_THEME_DEFAULT: &str = "omni.theme.default";
+pub const PLUGIN_ID_AGENT_WORKBUDDY: &str = "omni.agent.workbuddy";
+pub const PLUGIN_ID_AGENT_CURSOR: &str = "omni.agent.cursor";
 pub const PLUGIN_ID_ADDON_EVERYTHING: &str = "omni.addon.everything";
 pub const PLUGIN_ID_CLOUD_ALIYUN: &str = "omni.cloud.aliyun";
 pub const PLUGIN_ID_CLOUD_TENCENT: &str = "omni.cloud.tencent";
@@ -41,6 +43,14 @@ macro_rules! first_party_manifest {
 
 pub fn theme_default() -> PluginManifest {
     first_party_manifest!("theme-default")
+}
+
+pub fn agent_workbuddy() -> PluginManifest {
+    first_party_manifest!("agent-workbuddy")
+}
+
+pub fn agent_cursor() -> PluginManifest {
+    first_party_manifest!("agent-cursor")
 }
 
 pub fn addon_everything() -> PluginManifest {
@@ -202,6 +212,8 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
     vec![
         theme_default(),
         addon_everything(),
+        agent_workbuddy(),
+        agent_cursor(),
         // 全部云厂商 / Warpgate → download-only（安装后经 Runtime 装载）
         panel_1panel(),
         panel_bt(),
@@ -225,6 +237,10 @@ mod tests {
     #[test]
     fn plugin_id_constants_match_json() {
         assert_eq!(theme_default().id, PLUGIN_ID_THEME_DEFAULT);
+        assert_eq!(agent_workbuddy().id, PLUGIN_ID_AGENT_WORKBUDDY);
+        assert_eq!(agent_workbuddy().kind, crate::kind::PluginKind::Agent);
+        assert_eq!(agent_cursor().id, PLUGIN_ID_AGENT_CURSOR);
+        assert_eq!(agent_cursor().kind, crate::kind::PluginKind::Agent);
         assert_eq!(addon_everything().id, PLUGIN_ID_ADDON_EVERYTHING);
         assert_eq!(cloud_aliyun().id, PLUGIN_ID_CLOUD_ALIYUN);
         assert_eq!(cloud_aliyun().logic_entry(), Some("logic.js"));

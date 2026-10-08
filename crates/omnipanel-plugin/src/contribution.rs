@@ -3,7 +3,10 @@ use serde_json::Value;
 use specta::Type;
 
 /// 校验包内图标相对路径（svg/png，禁止绝对路径 / URL / `..`）。
-pub fn validate_package_icon_path(icon: &str, field: &str) -> Result<(), crate::error::PluginError> {
+pub fn validate_package_icon_path(
+    icon: &str,
+    field: &str,
+) -> Result<(), crate::error::PluginError> {
     let icon = icon.trim();
     let relative_ok = !icon.is_empty()
         && !icon.starts_with('/')
@@ -41,6 +44,9 @@ pub struct PluginContributes {
     /// 知识源适配器（kind=knowledge）：只读数据源，落库由宿主管线负责。
     #[serde(default)]
     pub knowledge_sources: Vec<Value>,
+    /// Agent 来源（kind=agent）：登录态、目录与补全。对话与工具留在宿主。
+    #[serde(default)]
+    pub agent_sources: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub themes: Option<ThemeContribution>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

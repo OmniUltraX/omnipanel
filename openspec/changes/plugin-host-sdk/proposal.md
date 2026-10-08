@@ -1,11 +1,11 @@
 ## Why
 
-OmniPanel 的能力面正在按「加一种库、一家云、一个面板、一个怪工具」线性膨胀，但扩展方式仍是改封闭 enum 和巨型 `match`。再堆下去，Database / Server / 快捷启动会先被特判撑爆，而 Warpgate、Nacos、翻译、CDN 这类合理需求又进不了内核。现在需要一套 **Host + 七种插件身份 + 第一方 SDK**，让扩展走注册表，而不是改主程序。
+OmniPanel 的能力面正在按「加一种库、一家云、一个面板、一个怪工具」线性膨胀，但扩展方式仍是改封闭 enum 和巨型 `match`。再堆下去，Database / Server / 快捷启动会先被特判撑爆，而 Warpgate、Nacos、翻译、CDN 这类合理需求又进不了内核。现在需要一套 **Host + 插件身份 + 第一方 SDK**，让扩展走注册表，而不是改主程序。身份枚举以 `crates/omnipanel-plugin/src/kind.rs` 为准。
 
 ## 目标
 
 - 建立 **Plugin Runtime**：清单、权限、生命周期；第一方插件进仓库 `plugins/`，与宿主同一套 API。
-- 锁定 **七种 kind**（不再随功能加第八种）：`engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon`。
+- 插件身份走注册表。本变更落地时为 `engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon`。其后已增加平台级 `knowledge`（多家知识源共用一条管线）。新 kind 只接受这种平台级开口，不为单一产品加身份。现行枚举见 `kind.rs`。
 - 把现有机床收成 **Host**：领域工作台（库/面板/云/模块壳/文件/协议）+ 横切总线（连接台、发现、菜单/选区/Overlay、快捷启动、主题、OmniMCP、工作区）。
 - 云从 Server 拆成 **独立侧栏** `/module/cloud`；阿里云作为第一方 `cloud` 插件。
 - 连接模型打开引擎 id，新增 `kind=service` + 开放 `externalSource` 血缘，标签/分组/环境复用现有 Connection。
@@ -45,7 +45,7 @@ PRD §4.4 将插件系统放在 Phase 5 可选；§3.6 已写「插件化协议�
 
 ## What Changes
 
-- **Plugin Runtime**：`PluginManifest`、七种 kind、权限闸、activate/deactivate；设置里启用/禁用。
+- **Plugin Runtime**：`PluginManifest`、kind 枚举、权限闸、activate/deactivate；设置里启用/禁用。
 - **贡献点注册表**：侧栏、连接表单、能力 Tab、导入预览、发现 probe、命令、菜单 `when`、Overlay、启动器前缀、主题包、OmniMCP tools、工作区组件。
 - **连接模型**：`db_type` / 引擎 key 改为开放字符串；`ConnectionKind` **增加** `service`（模块插件实例）；`cloudSource` 升级为开放 `externalSource { pluginId, accountId, remoteId, remoteKind }`。
 - **Cloud 独立模块**：从 Server 拆出侧栏入口；Tab 按厂商 `capabilities` 渲染；OSS「加入文件」、ECS/SWAS「加入 SSH」走血缘。
@@ -61,7 +61,7 @@ PRD §4.4 将插件系统放在 Phase 5 可选；§3.6 已写「插件化协议�
 
 ### New Capabilities
 
-- `plugin-runtime`: 清单、七种 kind、权限、生命周期、第一方装载与模块开关。
+- `plugin-runtime`: 清单、kind 枚举、权限、生命周期、第一方装载与模块开关。
 - `plugin-hosts`: Host 分类（工作台 vs 总线）、贡献点合同、Host API 边界与禁止项。
 - `plugin-connectors`: 引擎/面板/云/导入器；开放引擎 id；`service` 连接；`externalSource`；云独立侧栏。
 - `plugin-surfaces`: 模块壳、addon（菜单/命令/Overlay/启动器 provider）、主题包与 token 合同。

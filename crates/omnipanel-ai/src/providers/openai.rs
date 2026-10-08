@@ -475,7 +475,7 @@ fn push_plain_text_completion(
 
 /// 解析单行流式负载（已去除首尾空白），把产生的事件追加到 `events`。
 /// 支持标准 OpenAI SSE（`data: {...}`）以及无 `data:` 前缀的整段 JSON。
-fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
+pub(crate) fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
     if line.is_empty() {
         return;
     }

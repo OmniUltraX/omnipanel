@@ -1,4 +1,7 @@
-/** 与 Rust `AgentKind` 对齐的受支持 Agent 类型。 */
+/**
+ * 已弃用的 CLI Agent 类型，与 Rust `AgentKind` 对齐。
+ * 插件 kind `agent` 是另一条线，不要往这个联合类型上加新上游。
+ */
 export type AgentKind = "omniagent" | "cursor" | "opencode" | "qwen";
 
 export const SUPPORTED_AGENT_KINDS: AgentKind[] = ["omniagent", "cursor", "opencode", "qwen"];

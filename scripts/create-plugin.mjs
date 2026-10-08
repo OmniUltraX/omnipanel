@@ -2,7 +2,7 @@
 /**
  * create-plugin — 第三方插件脚手架。
  *
- * 用法：node scripts/create-plugin.mjs <plugin-name> [engine|engine-sidecar|theme|module|cloud|panel|importer|addon]
+ * 用法：node scripts/create-plugin.mjs <plugin-name> [engine|engine-sidecar|theme|module|cloud|panel|importer|addon|knowledge|model]
  *
  * 产出 plugins-custom/<plugin-name>/：
  *   - plugin.json   清单
@@ -34,6 +34,7 @@ const KINDS = [
   "importer",
   "addon",
   "knowledge",
+  "agent",
   "js-logic",
   "l3-overlay",
   "wasm-stub",
@@ -316,6 +317,31 @@ if (kind === "wasm-stub") {
     permissions: [],
     contributes: {
       launcher: { prefix: name },
+    },
+  };
+} else if (kind === "agent") {
+  manifest = {
+    id,
+    version: "0.1.0",
+    displayName: name,
+    kind: "agent",
+    permissions: ["net:connect"],
+    entry: { logic: "logic.js" },
+    methods: [
+      { name: "status", permissions: [] },
+      { name: "catalog", permissions: ["net:connect"] },
+      { name: "complete", permissions: ["net:connect"] },
+    ],
+    contributes: {
+      agentSources: [
+        {
+          id: name,
+          title: name,
+          statusMethod: "status",
+          catalogMethod: "catalog",
+          completeMethod: "complete",
+        },
+      ],
     },
   };
 } else if (kind === "knowledge") {
@@ -620,6 +646,32 @@ function fetchTargets(args) {
   };
 }
 var HANDLERS = { fetchTargets: fetchTargets };
+function call(method, argsJson) {
+  var handler = HANDLERS[String(method || "")];
+  if (!handler) throw new Error("UnknownMethod: " + method);
+  var result = handler(asObj(argsJson));
+  return typeof result === "string" ? result : JSON.stringify(result);
+}
+globalThis.call = call;
+`,
+  );
+}
+
+if (kind === "agent") {
+  writeFileSync(
+    path.join(dir, "logic.js"),
+    `function asObj(v) {
+  if (v && typeof v === "object") return v;
+  try { return JSON.parse(String(v || "{}")); } catch (e) { return {}; }
+}
+function status() {
+  return { signedIn: false, catalogSource: "none" };
+}
+function catalog() { return []; }
+function complete() {
+  throw new Error("Agent 未登录");
+}
+var HANDLERS = { status: status, catalog: catalog, complete: complete };
 function call(method, argsJson) {
   var handler = HANDLERS[String(method || "")];
   if (!handler) throw new Error("UnknownMethod: " + method);

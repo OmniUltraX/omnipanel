@@ -13,6 +13,10 @@ pub use orchestrator::{
     InternalToolsMode, ToolExecutor,
 };
 pub use provider::{AiProvider, AiProviderRegistry, RenamedProvider};
+pub use providers::agent_source::{
+    AgentSourceCard, AgentSourceCreditPackage, AgentSourceCredits, AgentSourceModel,
+    AgentSourceRegistry, agent_source_registry,
+};
 pub use providers::model_list::{
     FetchModelsError, RemoteModelInfo, fetch_provider_models, parse_models_payload,
 };

@@ -1,5 +1,6 @@
 pub mod acp;
 pub mod agent_prompt;
+pub mod agent_source;
 pub mod agents;
 #[allow(dead_code)]
 pub mod ai;

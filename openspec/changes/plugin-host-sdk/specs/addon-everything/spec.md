@@ -2,7 +2,7 @@
 
 ### Requirement: Everything 为 addon 而非新 kind
 
-系统 SHALL 将本机 Everything 搜索实现为 `kind: addon` 的第一方插件（id 建议 `omni.addon.everything`）。系统 MUST NOT 为此新增侧栏模块或第 8 种插件 kind。
+系统 SHALL 将本机 Everything 搜索实现为 `kind: addon` 的第一方插件（id 建议 `omni.addon.everything`）。系统 MUST NOT 为此新增侧栏模块或新的插件 kind。
 
 #### Scenario: 无侧栏入口
 

@@ -1553,6 +1553,8 @@ export const commands = {
 	aiChatCancel: (conversationId: string) => typedError<null, string>(__TAURI_INVOKE("ai_chat_cancel", { conversationId })),
 	aiChatToolResult: (conversationId: string, toolCallId: string, result: string, approved: boolean) => typedError<null, string>(__TAURI_INVOKE("ai_chat_tool_result", { conversationId, toolCallId, result, approved })),
 	aiListBackends: () => typedError<BackendInfo[], string>(__TAURI_INVOKE("ai_list_backends")),
+	agentSourceList: () => typedError<AgentSourceCard[], string>(__TAURI_INVOKE("agent_source_list")),
+	agentSourceRefresh: (id: string) => typedError<AgentSourceCard, string>(__TAURI_INVOKE("agent_source_refresh", { id })),
 	aiListSessions: (source: string | null) => typedError<AiSessionRecord[], string>(__TAURI_INVOKE("ai_list_sessions", { source })),
 	aiListSessionTraces: (sessionId: string) => typedError<AiTraceRecord[], string>(__TAURI_INVOKE("ai_list_session_traces", { sessionId })),
 	/**  读取最近的内置工具审计记录（任务中心 History tab 使用）。 */
@@ -2056,6 +2058,40 @@ export type BackendInfo = {
 	label: string,
 	kind: string,
 	installed: boolean,
+};
+
+export type AgentSourceModel = {
+	id: string,
+	name: string,
+	credits: string | null,
+	badges: string[],
+};
+
+export type AgentSourceCreditPackage = {
+	name: string,
+	remain: number,
+	size: number,
+	unlimited: boolean,
+};
+
+export type AgentSourceCredits = {
+	total: number,
+	unlimited: boolean,
+	packages: AgentSourceCreditPackage[],
+	cycleResetTime: string | null,
+	error: string | null,
+};
+
+export type AgentSourceCard = {
+	id: string,
+	title: string,
+	signedIn: boolean,
+	account: string | null,
+	tokenExpiresAtMs: number | null,
+	catalogSource: string,
+	error: string | null,
+	models: AgentSourceModel[],
+	credits: AgentSourceCredits | null,
 };
 
 export type BackgroundTaskInfo = BackgroundTaskInfo_Serialize | BackgroundTaskInfo_Deserialize;
@@ -4907,7 +4943,7 @@ export type PluginEnsureResult = {
  *  插件身份。新增 kind 只接受平台级能力（多租户），不为单一产品开口子。
  *  `knowledge`（知识源适配器：思源/Obsidian/Logseq/Notion 只读镜像）即此类。
  */
-export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon" | "knowledge";
+export type PluginKind = "engine" | "panel" | "importer" | "cloud" | "module" | "theme" | "addon" | "knowledge" | "agent";
 
 /**  前端 / IPC 列表项。 */
 export type PluginListItem = PluginListItem_Serialize | PluginListItem_Deserialize;

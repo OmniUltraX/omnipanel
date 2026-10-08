@@ -19,7 +19,7 @@
 
 ## 非目标（Non-goals）
 
-- 不做第八种 `PluginKind`，不做 LSP / Git / 通用 IDE。
+- 本变更不新增 `PluginKind`，不做 LSP / Git / 通用 IDE。身份枚举此后已包含平台级 `knowledge`，以 `crates/omnipanel-plugin/src/kind.rs` 为准。
 - 不把 `plugins` 塞进 `ModuleKey`；工作台现场继续独立 snapshot。
 - 不把阿里云 / 腾讯云 / 1Panel / 宝塔实现迁出原生 crate。
 - 不把第三方 UI 升级成完整 iframe 应用或任意动态 `import()`。

@@ -1,6 +1,6 @@
 ## Context
 
-`plugin-host-sdk`（已实施）建立了：Rust `PluginRegistry` + 清单 Zod/Rust 双端 schema、`plugin_settings` 持久化、`plugin://changed` 事件、七种 kind、8 项权限枚举、CI 清单校验。但审计结论（见 proposal.md 表格）是「声明式骨架真、插件代码无、消费靠特判」。本变更不推翻既有合同——清单字段、kind、权限枚举全部沿用——只补齐「泛化消费」与「可装载/可执行」两层。
+`plugin-host-sdk`（已实施）建立了：Rust `PluginRegistry` + 清单 Zod/Rust 双端 schema、`plugin_settings` 持久化、`plugin://changed` 事件、kind 枚举（现为八种，含 `knowledge`）、8 项权限枚举、CI 清单校验。但审计结论（见 proposal.md 表格）是「声明式骨架真、插件代码无、消费靠特判」。本变更不推翻既有合同——清单字段、kind、权限枚举全部沿用——只补齐「泛化消费」与「可装载/可执行」两层。
 
 关键约束：
 
