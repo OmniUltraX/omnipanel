@@ -136,10 +136,7 @@ fn remember_meta(cache_id: &str, meta: &RowDiffCacheMeta) {
         }
     };
     if let Ok(mut guard) = mem_cache().lock() {
-        guard.insert(
-            cache_id.to_string(),
-            MemCacheEntry { meta: store },
-        );
+        guard.insert(cache_id.to_string(), MemCacheEntry { meta: store });
     }
 }
 
@@ -196,8 +193,7 @@ impl RowDiffCacheWriter {
     pub fn create(cache_id: &str, table: &str, preview_limit: usize) -> Result<Self, String> {
         let (meta_path, ndjson_path) = cache_paths(cache_id)?;
         if let Some(parent) = meta_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("创建差异缓存目录失败: {e}"))?;
+            fs::create_dir_all(parent).map_err(|e| format!("创建差异缓存目录失败: {e}"))?;
         }
         let file = File::create(&ndjson_path)
             .map_err(|e| format!("创建差异 NDJSON 失败 ({}): {e}", ndjson_path.display()))?;
@@ -242,7 +238,8 @@ impl RowDiffCacheWriter {
             diffs: Vec::new(),
         };
         let tmp = self.meta_path.with_extension("json.tmp");
-        let json = serde_json::to_string(&meta).map_err(|e| format!("序列化差异元数据失败: {e}"))?;
+        let json =
+            serde_json::to_string(&meta).map_err(|e| format!("序列化差异元数据失败: {e}"))?;
         fs::write(&tmp, json).map_err(|e| format!("写入差异元数据失败: {e}"))?;
         fs::rename(&tmp, &self.meta_path).map_err(|e| format!("替换差异元数据失败: {e}"))?;
 
@@ -300,8 +297,8 @@ where
         if line.trim().is_empty() {
             continue;
         }
-        let diff: TableRowDiffPayload = serde_json::from_str(&line)
-            .map_err(|e| format!("解析差异 NDJSON 行失败: {e}"))?;
+        let diff: TableRowDiffPayload =
+            serde_json::from_str(&line).map_err(|e| format!("解析差异 NDJSON 行失败: {e}"))?;
         if !visit(diff)? {
             break;
         }
@@ -338,12 +335,8 @@ pub fn row_diff_page(
     let meta = load_meta(cache_id)?;
     let limit = limit.max(1).min(500);
     let offset = offset as usize;
-    let filter_kinds: Option<HashSet<String>> = kinds.map(|items| {
-        items
-            .into_iter()
-            .filter(|k| !k.trim().is_empty())
-            .collect()
-    });
+    let filter_kinds: Option<HashSet<String>> =
+        kinds.map(|items| items.into_iter().filter(|k| !k.trim().is_empty()).collect());
 
     let mut matched = 0usize;
     let mut page: Vec<TableRowDiffPayload> = Vec::new();

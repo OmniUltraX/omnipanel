@@ -1002,7 +1002,10 @@ pub async fn db_sql_exec_delete(state: &ServerState, id: String) -> Result<(), O
     omnipanel_store::delete_sql_execution(&storage, &id)
 }
 
-pub async fn db_sql_exec_clear(state: &ServerState, connection_id: String) -> Result<u32, OmniError> {
+pub async fn db_sql_exec_clear(
+    state: &ServerState,
+    connection_id: String,
+) -> Result<u32, OmniError> {
     let storage = state.storage.lock().await;
     omnipanel_store::clear_sql_executions(&storage, &connection_id)
 }

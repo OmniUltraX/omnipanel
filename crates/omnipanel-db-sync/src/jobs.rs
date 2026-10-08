@@ -191,8 +191,7 @@ async fn compare_table_rows(
     let row_completed = Arc::new(AtomicU32::new(0));
 
     let cache_id = next_row_diff_cache_id(source, target, table_name, ignored_fields);
-    let mut writer = match RowDiffCacheWriter::create(&cache_id, table_name, MAX_DIFF_DETAIL_ROWS)
-    {
+    let mut writer = match RowDiffCacheWriter::create(&cache_id, table_name, MAX_DIFF_DETAIL_ROWS) {
         Ok(w) => w,
         Err(e) => {
             return TableRowCompareEvent {
@@ -354,8 +353,8 @@ impl RowSpillStore {
     fn open() -> Result<Self, String> {
         let dir = tempfile::tempdir().map_err(|e| format!("创建行比较临时目录失败: {e}"))?;
         let path = dir.path().join("row-spill.db");
-        let conn = rusqlite::Connection::open(&path)
-            .map_err(|e| format!("打开行比较临时库失败: {e}"))?;
+        let conn =
+            rusqlite::Connection::open(&path).map_err(|e| format!("打开行比较临时库失败: {e}"))?;
         conn.execute_batch(
             "PRAGMA journal_mode = OFF;
              PRAGMA synchronous = OFF;
@@ -398,8 +397,8 @@ impl RowSpillStore {
                 )
                 .map_err(|e| format!("准备 spill 写入失败: {e}"))?;
             for (key, display_key, row) in rows {
-                let payload = serde_json::to_vec(&row)
-                    .map_err(|e| format!("序列化 spill 行失败: {e}"))?;
+                let payload =
+                    serde_json::to_vec(&row).map_err(|e| format!("序列化 spill 行失败: {e}"))?;
                 stmt.execute(rusqlite::params![key, display_key, payload])
                     .map_err(|e| format!("写入 spill 行失败: {e}"))?;
             }
@@ -428,8 +427,8 @@ impl RowSpillStore {
         conn.execute("DELETE FROM source_rows WHERE row_key = ?1", [key])
             .map_err(|e| format!("删除 spill 行失败: {e}"))?;
         drop(conn);
-        let map: HashMap<String, serde_json::Value> = serde_json::from_slice(&payload)
-            .map_err(|e| format!("反序列化 spill 行失败: {e}"))?;
+        let map: HashMap<String, serde_json::Value> =
+            serde_json::from_slice(&payload).map_err(|e| format!("反序列化 spill 行失败: {e}"))?;
         Ok(Some((display_key, map)))
     }
 
@@ -442,14 +441,10 @@ impl RowSpillStore {
             let batch = {
                 let conn = self.lock_conn()?;
                 let mut stmt = conn
-                    .prepare(
-                        "SELECT row_key, display_key, payload FROM source_rows LIMIT ?1",
-                    )
+                    .prepare("SELECT row_key, display_key, payload FROM source_rows LIMIT ?1")
                     .map_err(|e| format!("扫描 spill 残留失败: {e}"))?;
                 let fetched: Vec<(String, String, Vec<u8>)> = stmt
-                    .query_map([BATCH], |r| {
-                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                    })
+                    .query_map([BATCH], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
                     .map_err(|e| format!("迭代 spill 残留失败: {e}"))?
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| format!("读取 spill 残留失败: {e}"))?;
@@ -461,9 +456,8 @@ impl RowSpillStore {
                 for (key, display, payload) in fetched {
                     conn.execute("DELETE FROM source_rows WHERE row_key = ?1", [&key])
                         .map_err(|e| format!("删除 spill 残留失败: {e}"))?;
-                    let map: HashMap<String, serde_json::Value> =
-                        serde_json::from_slice(&payload)
-                            .map_err(|e| format!("反序列化 spill 残留失败: {e}"))?;
+                    let map: HashMap<String, serde_json::Value> = serde_json::from_slice(&payload)
+                        .map_err(|e| format!("反序列化 spill 残留失败: {e}"))?;
                     out.push((key, display, map));
                 }
                 out
@@ -1939,8 +1933,7 @@ fn append_diff_sql(
         }
         "changed" if modes.merge => {
             if let Some(row) = &diff.source_row {
-                if let Some(sql) =
-                    build_update_statement(db_type, table, columns, pk_columns, row)?
+                if let Some(sql) = build_update_statement(db_type, table, columns, pk_columns, row)?
                 {
                     statements.push(format_sql_statement(&sql));
                     stats.updated += 1;
@@ -1949,8 +1942,7 @@ fn append_diff_sql(
         }
         "targetOnly" if modes.delete => {
             if let Some(row) = &diff.target_row {
-                if let Some(sql) =
-                    build_delete_statement(db_type, table, columns, pk_columns, row)?
+                if let Some(sql) = build_delete_statement(db_type, table, columns, pk_columns, row)?
                 {
                     statements.push(format_sql_statement(&sql));
                     stats.deleted += 1;
@@ -2001,10 +1993,7 @@ fn collect_table_sync_sql_from_diff_cache(
     Ok((statements, stats))
 }
 
-fn diff_cache_needs_sql_enrich(
-    cache_id: &str,
-    columns: &[DbColumnMeta],
-) -> Result<bool, String> {
+fn diff_cache_needs_sql_enrich(cache_id: &str, columns: &[DbColumnMeta]) -> Result<bool, String> {
     let mut needs = false;
     for_each_row_diff(cache_id, |diff| {
         if matches!(diff.kind.as_str(), "sourceOnly" | "changed")
@@ -2079,13 +2068,12 @@ pub async fn generate_data_sync_sql_script(
             .collect();
 
         let (mut stmts, stats) = if let Some(cache_id) = exec_spec.diff_cache_id.as_deref() {
-            let needs_enrich = diff_cache_needs_sql_enrich(cache_id, &exec_spec.columns).map_err(
-                |err| {
+            let needs_enrich =
+                diff_cache_needs_sql_enrich(cache_id, &exec_spec.columns).map_err(|err| {
                     format!(
                         "无法读取表 {table} 的行差异缓存，请先在目标侧完成「分析」后再试：{err}"
                     )
-                },
-            )?;
+                })?;
             if needs_enrich {
                 // 旧缓存 / 缺列场景：回退整表装载并补全（新比较路径通常不走这里）
                 let mut diffs = load_row_diff_cache_all(cache_id).map_err(|err| {

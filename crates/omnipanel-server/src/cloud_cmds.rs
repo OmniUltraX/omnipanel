@@ -604,7 +604,14 @@ pub async fn cloud_invoke_action(
             omnipanel_presence::ACTION_CLOUD_LIFECYCLE,
             &target,
         ) {
-            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "blocked");
+            audit_cloud_action(
+                state,
+                &conn,
+                &plugin_id,
+                &action.name,
+                &action.resource_id,
+                "blocked",
+            );
             return Err(err);
         }
     }
@@ -617,13 +624,28 @@ pub async fn cloud_invoke_action(
     .await
     {
         Ok(value) => {
-            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "success");
+            audit_cloud_action(
+                state,
+                &conn,
+                &plugin_id,
+                &action.name,
+                &action.resource_id,
+                "success",
+            );
             serde_json::from_value(value).map_err(|e| {
-                OmniError::new(ErrorCode::Internal, "插件动作结果无法解析").with_cause(e.to_string())
+                OmniError::new(ErrorCode::Internal, "插件动作结果无法解析")
+                    .with_cause(e.to_string())
             })
         }
         Err(err) => {
-            audit_cloud_action(state, &conn, &plugin_id, &action.name, &action.resource_id, "failed");
+            audit_cloud_action(
+                state,
+                &conn,
+                &plugin_id,
+                &action.name,
+                &action.resource_id,
+                "failed",
+            );
             Err(err)
         }
     }

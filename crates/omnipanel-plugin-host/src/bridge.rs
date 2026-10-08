@@ -21,7 +21,7 @@ use omnipanel_store::{AuditEntry, Storage, Vault, plugin_secret_ref};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::ssh::{injected_connection, SshExec};
+use crate::ssh::{SshExec, injected_connection};
 
 /// L2 能力桥。所有方法同步（wasm/js 引擎在 spawn_blocking 内调用），
 /// 内部经 tokio Handle 访问异步锁。
@@ -471,11 +471,9 @@ impl PluginHostBridge for PluginBridge {
             block_on_detached(async move { gate_bridge.prod_gate("ssh.exec", &target).await })
                 .map_err(|e| e.to_string())?;
         }
-        let output = self.ssh.exec(
-            &connection_id,
-            command,
-            Duration::from_millis(timeout_ms),
-        )?;
+        let output = self
+            .ssh
+            .exec(&connection_id, command, Duration::from_millis(timeout_ms))?;
         if output.len() > 256 * 1024 {
             self.audit("plugin.ssh-exec", "blocked", args_digest(command));
             return Err("sshExec 输出超过 256KB".into());
