@@ -19,6 +19,7 @@ import { AiDockView } from "./components/ai/AiDockView";
 import { AiDockviewResizeHandle } from "./components/ai/AiDockviewResizeHandle";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { ApprovalDialog } from "./components/ai/ApprovalDialog";
+import { AiBackgroundTerminalHost } from "./modules/terminal/AiBackgroundTerminalHost";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { ModuleVisibilityProvider } from "./lib/moduleVisibility";
 import { MODULE_PATHS, moduleKeyFromPath, type ModuleKey } from "./lib/paths";
@@ -332,6 +333,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
           </div>
           {!aiDockview ? <AiDrawer /> : null}
           <ApprovalDialog />
+          <AiBackgroundTerminalHost />
           <SettingsWindow />
           <SubWindowMinimizedStack />
           <WindowResize />

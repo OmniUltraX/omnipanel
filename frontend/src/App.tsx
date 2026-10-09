@@ -18,6 +18,7 @@ import { ImporterWizardDialog } from "./modules/importer/ImporterWizardDialog";
 import { TeamShareDialogConnected } from "./components/share/TeamShareDialog";
 import { AppDialogHost } from "./components/ui/overlay/AppDialogHost";
 import { PluginEnsureHost } from "./modules/plugins/PluginEnsureHost";
+import { AiBackgroundTerminalHost } from "./modules/terminal/AiBackgroundTerminalHost";
 import { PluginOverlayHost } from "./components/ui/overlay/PluginOverlayHost";
 import { SelectionFloatLayer } from "./components/plugin/SelectionFloatLayer";
 import { CloseBehaviorDialogHost } from "./components/ui/overlay/CloseBehaviorDialogHost";
@@ -570,6 +571,7 @@ function AppShell() {
       {/* 全局应用内 confirm/alert；禁止改回 Tauri 原生 dialog */}
       <AppDialogHost />
       <PluginEnsureHost />
+      <AiBackgroundTerminalHost />
       <PluginOverlayHost />
       <SelectionFloatLayer />
       <CloseBehaviorDialogHost />

@@ -1,5 +1,3 @@
-mod agent;
-mod agent_paths;
 mod background;
 mod commands;
 mod docker_team_share;
@@ -620,8 +618,6 @@ fn export_ipc_bindings() {
         commands::ai_models::ai_models_save,
         commands::ai_models::ai_models_resolve_api_key,
         commands::ai_models::ai_models_fetch_list,
-        commands::opencode::detect_opencode_install,
-        commands::agents::detect_all_agents,
         commands::db_sql_files::db_sql_files_load,
         commands::db_sql_files::db_sql_files_save,
         commands::db_tree_chart_files::db_tree_chart_files_load,
@@ -744,21 +740,6 @@ fn export_ipc_bindings() {
         // Providers
         commands::providers::registry::provider_registry_load,
         commands::providers::registry::provider_registry_save,
-        commands::providers::registry::cli_provider_list_cmd,
-        commands::providers::registry::cli_provider_upsert_cmd,
-        commands::providers::registry::cli_provider_remove_cmd,
-        commands::providers::registry::cli_provider_patch_cmd,
-        commands::providers::registry::provider_list_models_cmd,
-        // ACP agent
-        commands::acp::acp_connect,
-        commands::acp::acp_connect_default,
-        commands::acp::acp_disconnect,
-        commands::acp::acp_get_status,
-        commands::acp::acp_prompt,
-        commands::acp::acp_cancel,
-        commands::acp::acp_respond_permission,
-        commands::acp::acp_save_agent_config,
-        commands::acp::acp_get_default_command,
         // Internal AI orchestrator (cancel/tool_result only in specta; stream uses Channel)
         commands::ai_chat::ai_chat_cancel,
         commands::ai_chat::ai_chat_tool_result,
@@ -1006,16 +987,6 @@ fn build_and_run_tauri() {
             commands::ai_chat::ai_services_probe,
             // 桌面端流式 HTTP 代理（chatModel / 快捷启动页内 AI 走此命令，Channel 不进 specta）
             commands::ai::ai_http_stream_post,
-            // ACP agent
-            commands::acp::acp_connect,
-            commands::acp::acp_connect_default,
-            commands::acp::acp_disconnect,
-            commands::acp::acp_get_status,
-            commands::acp::acp_prompt,
-            commands::acp::acp_cancel,
-            commands::acp::acp_respond_permission,
-            commands::acp::acp_save_agent_config,
-            commands::acp::acp_get_default_command,
             // Protocol Lab — Serial
             commands::protocol::serial_scan_ports,
             commands::protocol::serial_open,
@@ -1680,8 +1651,6 @@ fn build_and_run_tauri() {
             commands::ai_models::ai_models_save,
             commands::ai_models::ai_models_resolve_api_key,
             commands::ai_models::ai_models_fetch_list,
-            commands::opencode::detect_opencode_install,
-            commands::agents::detect_all_agents,
             commands::db_sql_files::db_sql_files_load,
             commands::db_sql_files::db_sql_files_save,
             commands::db_tree_chart_files::db_tree_chart_files_load,
@@ -1804,21 +1773,6 @@ fn build_and_run_tauri() {
             // Providers
             commands::providers::registry::provider_registry_load,
             commands::providers::registry::provider_registry_save,
-            commands::providers::registry::cli_provider_list_cmd,
-            commands::providers::registry::cli_provider_upsert_cmd,
-            commands::providers::registry::cli_provider_remove_cmd,
-            commands::providers::registry::cli_provider_patch_cmd,
-            commands::providers::registry::provider_list_models_cmd,
-            // ACP agent
-            commands::acp::acp_connect,
-            commands::acp::acp_connect_default,
-            commands::acp::acp_disconnect,
-            commands::acp::acp_get_status,
-            commands::acp::acp_prompt,
-            commands::acp::acp_cancel,
-            commands::acp::acp_respond_permission,
-            commands::acp::acp_save_agent_config,
-            commands::acp::acp_get_default_command,
             // Third party accounts
             commands::third_party_account::third_party_account_list,
             commands::third_party_account::third_party_account_upsert,

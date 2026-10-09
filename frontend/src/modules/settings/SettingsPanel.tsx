@@ -62,7 +62,6 @@ import { SyncTeamKeySection } from "../../components/settings/SyncTeamKeySection
 import { ModulesSettingsSection } from "../../components/settings/ModulesSettingsSection";
 import { PluginsSettingsSection } from "../../components/settings/PluginsSettingsSection";
 import { AiScenarioSection } from "../../components/settings/AiScenarioSection";
-import { AgentsSection as AgentSectionContent } from "../../components/settings/AgentsSection";
 import { AiProvidersSection } from "../../components/settings/AgentSourcesSection";
 import { LocalModelsSection } from "../../components/settings/LocalModelsSection";
 import {
@@ -884,8 +883,6 @@ function AiSection() {
       <ModelsSection />
       <div className="settings-section-divider" />
       <LocalModelsSection />
-      <div className="settings-section-divider" />
-      <AgentSectionContent />
       <div className="settings-section-divider" />
       <AiScenarioSection />
       <div className="settings-section-divider" />

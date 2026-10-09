@@ -22,6 +22,12 @@ function formatExpiry(ms: number | null): string {
   return new Date(ms).toLocaleString();
 }
 
+function tokenPriceTitle(credits: string): string {
+  const price = credits.match(/^\$(.+)\/\$(.+)$/);
+  if (!price) return credits;
+  return `每百万 token 输入 $${price[1]} / 输出 $${price[2]}`;
+}
+
 function formatCredit(value: number): string {
   if (!Number.isFinite(value)) return "—";
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -403,7 +409,10 @@ function AgentSourceModelGrid({
                         </span>
                       ))}
                       {model.credits ? (
-                        <span className="ai-provider-model-source-tag ai-provider-model-source-tag--api">
+                        <span
+                          className="ai-provider-model-source-tag ai-provider-model-source-tag--api"
+                          title={tokenPriceTitle(model.credits)}
+                        >
                           {model.credits}
                         </span>
                       ) : null}

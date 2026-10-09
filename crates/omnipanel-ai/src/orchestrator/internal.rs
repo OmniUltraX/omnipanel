@@ -6,7 +6,7 @@ use futures::StreamExt;
 use crate::ir::{StopReason, StreamEvent, ToolStatus};
 use crate::prompts::tool_routing_policy;
 use crate::provider::AiProvider;
-use crate::routing::{BackendKind, parse_backend_id};
+use crate::routing::parse_backend_id;
 use crate::types::{ChatMessage, ChatRequest, FunctionCall, Role, ToolCall, ToolDef};
 
 use super::tools::ToolExecutor;
@@ -43,6 +43,7 @@ impl InternalOrchestrator {
         let has_ask_user = tools
             .as_ref()
             .is_some_and(|defs| defs.iter().any(|d| d.function.name == "omni_ask_user"));
+        let mut succeeded_calls: Vec<(String, String)> = Vec::new();
 
         loop {
             if cancel.load(Ordering::Relaxed) {
@@ -91,12 +92,19 @@ impl InternalOrchestrator {
                             arguments,
                         } => {
                             if !name.is_empty() {
+                                // 同名调用已经成功过时，先别把卡片推给前端。
+                                // 参数要等流结束才完整；提前推送会让直通终端在 Done 时强制执行。
+                                let withhold = succeeded_calls
+                                    .iter()
+                                    .any(|(done_name, _)| done_name == name);
                                 accumulated_tool_calls.push((
                                     id.clone(),
                                     name.clone(),
                                     arguments.clone(),
                                 ));
-                                on_event(evt);
+                                if !withhold {
+                                    on_event(evt);
+                                }
                             } else if !arguments.is_empty() {
                                 if let Some(last) = accumulated_tool_calls.last_mut() {
                                     last.2.push_str(arguments);
@@ -113,16 +121,31 @@ impl InternalOrchestrator {
                         _ => on_event(evt),
                     },
                     Err(e) => {
+                        // 错误已经写进流。再把 Result 返回给命令层，前端会再画一遍。
                         on_event(StreamEvent::Error {
                             message: e.to_string(),
                         });
-                        return Err(e.to_string());
+                        return Ok(());
                     }
                 }
             }
 
             if !accumulated_tool_calls.is_empty() {
                 let executor = tool_executor.ok_or_else(|| "缺少 ToolExecutor".to_string())?;
+                let all_repeat = accumulated_tool_calls
+                    .iter()
+                    .all(|(_, name, args)| call_already_succeeded(&succeeded_calls, name, args));
+                if all_repeat {
+                    // 模型在已经看到输出后仍原样调用。不再执行，直接结束本轮。
+                    if let Some(done_evt) = pending_done {
+                        on_event(done_evt);
+                    } else {
+                        on_event(StreamEvent::Done {
+                            stop_reason: StopReason::EndTurn,
+                        });
+                    }
+                    return Ok(());
+                }
 
                 let tool_calls: Vec<ToolCall> = accumulated_tool_calls
                     .iter()
@@ -149,6 +172,21 @@ impl InternalOrchestrator {
                     .any(|tc| tc.function.name == "omni_ask_user");
 
                 for tc in &tool_calls {
+                    if call_already_succeeded(
+                        &succeeded_calls,
+                        &tc.function.name,
+                        &tc.function.arguments,
+                    ) {
+                        messages.push(ChatMessage {
+                            role: Role::Tool,
+                            content: "该调用刚刚已经成功，输出见上方同名结果。不要再调用同一参数，直接回答用户。"
+                                .to_string(),
+                            tool_call_id: Some(tc.id.clone()),
+                            tool_calls: None,
+                            name: Some(tc.function.name.clone()),
+                        });
+                        continue;
+                    }
                     // 重新广播完整 arguments：流式分片可能被后端累积而未逐片转发，
                     // 前端据此拿到完整命令用于内联审批 dock。
                     on_event(StreamEvent::ToolCall {
@@ -176,6 +214,11 @@ impl InternalOrchestrator {
                         result: Some(result.clone()),
                     });
 
+                    if success {
+                        succeeded_calls
+                            .push((tc.function.name.clone(), tc.function.arguments.clone()));
+                    }
+
                     messages.push(ChatMessage {
                         role: Role::Tool,
                         content: result,
@@ -185,16 +228,11 @@ impl InternalOrchestrator {
                     });
                 }
 
-                // HTTP 工具续轮：与 ACP client_tools 续写对齐——有 omni_ask_user 时禁止正文列选项。
-                if has_ask_user && !called_ask_user {
+                // 续轮必须明确：结果已经在上下文里，禁止把同一条成功命令再跑一遍。
+                if !called_ask_user {
                     messages.push(ChatMessage {
                         role: Role::User,
-                        content: "[System — 工具已执行完毕]\n\
-                             上方工具输出里已有真实结果。若已足够回答用户，用自然语言直接给出结论；\
-                             若仍需继续调查/执行，再次调用工具；\
-                             若需要用户选择下一步/主机/范围等，必须调用 omni_ask_user，\
-                             禁止用正文纯文本列选项（A/B/C 或 1/2/3）提问。"
-                            .to_string(),
+                        content: tool_round_followup(has_ask_user),
                         tool_call_id: None,
                         tool_calls: None,
                         name: None,
@@ -218,13 +256,46 @@ impl InternalOrchestrator {
 
     pub fn resolve_http_model(backend_id: &str) -> Result<(String, String), String> {
         let parsed = parse_backend_id(backend_id)?;
-        if parsed.kind != BackendKind::Http {
-            return Err(format!(
-                "backend_id 不是 HTTP 类型: {backend_id}（Phase 1 接入 ACP）"
-            ));
-        }
         Ok((parsed.provider_id, parsed.model_id))
     }
+}
+
+fn call_already_succeeded(done: &[(String, String)], name: &str, arguments: &str) -> bool {
+    done.iter()
+        .any(|(done_name, done_args)| same_tool_call(done_name, done_args, name, arguments))
+}
+
+fn same_tool_call(name_a: &str, args_a: &str, name_b: &str, args_b: &str) -> bool {
+    if name_a != name_b {
+        return false;
+    }
+    if args_a.trim() == args_b.trim() {
+        return true;
+    }
+    match (
+        serde_json::from_str::<serde_json::Value>(args_a),
+        serde_json::from_str::<serde_json::Value>(args_b),
+    ) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn tool_round_followup(has_ask_user: bool) -> String {
+    let mut text = "\
+[System — 工具已执行完毕]\n\
+上方工具输出里已有真实结果。若已足够回答用户，用一两句自然语言直接给出结论，不要再调用工具。\
+禁止把工具名、JSON 或「[工具 …]」内部记录写给用户。\
+禁止重复刚才已经成功、参数相同的调用。\
+只有结果不够、且需要不同命令或不同参数时才继续调用。"
+        .to_string();
+    if has_ask_user {
+        text.push_str(
+            "若需要用户选择下一步/主机/范围等，必须调用 omni_ask_user，\
+             禁止用正文纯文本列选项（A/B/C 或 1/2/3）提问。",
+        );
+    }
+    text
 }
 
 fn build_messages(
@@ -407,5 +478,180 @@ mod tests {
                 .content
                 .contains("never pass to omni_terminal_exec")
         );
+    }
+
+    #[test]
+    fn same_tool_call_ignores_json_whitespace() {
+        assert!(same_tool_call(
+            "omni_terminal_exec",
+            r#"{"command":"Get-Date"}"#,
+            "omni_terminal_exec",
+            "{\n  \"command\": \"Get-Date\"\n}",
+        ));
+        assert!(!same_tool_call(
+            "omni_terminal_exec",
+            r#"{"command":"Get-Date"}"#,
+            "omni_terminal_exec",
+            r#"{"command":"date"}"#,
+        ));
+    }
+
+    struct ScriptedProvider {
+        scripts: std::sync::Mutex<Vec<Vec<StreamEvent>>>,
+        seen: std::sync::Mutex<Vec<Vec<ChatMessage>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::provider::AiProvider for ScriptedProvider {
+        fn name(&self) -> &str {
+            "scripted"
+        }
+
+        fn models(&self) -> Vec<crate::types::ModelInfo> {
+            Vec::new()
+        }
+
+        async fn chat(&self, _request: ChatRequest) -> anyhow::Result<crate::types::ChatResponse> {
+            anyhow::bail!("unused")
+        }
+
+        async fn chat_stream(
+            &self,
+            request: ChatRequest,
+        ) -> anyhow::Result<
+            std::pin::Pin<Box<dyn futures::Stream<Item = anyhow::Result<StreamEvent>> + Send>>,
+        > {
+            self.seen.lock().expect("seen").push(request.messages);
+            let events = self
+                .scripts
+                .lock()
+                .expect("scripts")
+                .pop()
+                .expect("脚本轮次不够，工具循环没有停");
+            Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
+        }
+    }
+
+    struct CountingExec {
+        hits: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl ToolExecutor for CountingExec {
+        async fn execute(&self, _id: &str, _name: &str, _arguments: &str) -> (String, bool) {
+            self.hits.fetch_add(1, Ordering::SeqCst);
+            ("2026-10-08 17:45:06".into(), true)
+        }
+    }
+
+    fn date_call(id: &str) -> StreamEvent {
+        StreamEvent::ToolCall {
+            id: id.into(),
+            name: "omni_terminal_exec".into(),
+            arguments: r#"{"command":"Get-Date -Format 'yyyy-MM-dd HH:mm:ss (dddd)'"}"#.into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_identical_terminal_command_runs_once() {
+        let provider = ScriptedProvider {
+            scripts: std::sync::Mutex::new(vec![
+                vec![
+                    date_call("call-2"),
+                    StreamEvent::Done {
+                        stop_reason: StopReason::EndTurn,
+                    },
+                ],
+                vec![
+                    date_call("call-1"),
+                    StreamEvent::Done {
+                        stop_reason: StopReason::EndTurn,
+                    },
+                ],
+            ]),
+            seen: std::sync::Mutex::new(Vec::new()),
+        };
+        let exec = CountingExec {
+            hits: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let events = std::sync::Mutex::new(Vec::new());
+        let request = InternalChatRequest {
+            conversation_id: "c".into(),
+            user_text: "现在的时间".into(),
+            backend_id: "http:cursor::composer".into(),
+            context: empty_ctx(),
+            history: None,
+            tools_mode: crate::orchestrator::types::InternalToolsMode::None,
+            http_provider: None,
+            system_append: None,
+            pure_text: false,
+            reasoning_effort: None,
+            agent_id: Some("terminal".into()),
+        };
+        let tools = vec![
+            ToolDef {
+                tool_type: "function".into(),
+                function: crate::types::FunctionDef {
+                    name: "omni_terminal_exec".into(),
+                    description: "当前终端".into(),
+                    parameters: serde_json::json!({"type": "object"}),
+                },
+            },
+            ToolDef {
+                tool_type: "function".into(),
+                function: crate::types::FunctionDef {
+                    name: "omni_ask_user".into(),
+                    description: "询问用户".into(),
+                    parameters: serde_json::json!({"type": "object"}),
+                },
+            },
+        ];
+
+        InternalOrchestrator::run_turn(
+            &provider,
+            "composer",
+            &request,
+            Some(tools),
+            Some(&exec),
+            |event| events.lock().expect("events").push(event),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await
+        .expect("run");
+
+        assert_eq!(exec.hits.load(Ordering::SeqCst), 1);
+        let seen = provider.seen.lock().expect("seen");
+        assert_eq!(seen.len(), 2);
+        let follow = &seen[1];
+        assert!(
+            follow
+                .iter()
+                .any(|message| message.role == Role::Tool && message.content.contains("2026-10-08"))
+        );
+        assert!(
+            follow
+                .iter()
+                .any(|message| message.content.contains("禁止重复刚才已经成功"))
+        );
+        let events = events.lock().expect("events");
+        let pending = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    StreamEvent::ToolCallUpdate {
+                        status: ToolStatus::Pending,
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(pending, 1);
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Done {
+                stop_reason: StopReason::EndTurn
+            }
+        )));
     }
 }

@@ -1,4 +1,4 @@
-﻿import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { commands } from "../../../../ipc/bindings";
 import { resolveSshExecToken } from "../../../../lib/sshPresence";
 
@@ -6,6 +6,12 @@ import type { BuiltinToolRegistration } from "../../../../lib/ai/context";
 import { optionalString, requireString } from "../../../../lib/ai/mcpToolArgs";
 import { redactSecretsInText } from "../../../../lib/ai/redactSecrets";
 import { runWithToolGate } from "../../../../lib/ai/toolGate";
+import { isFollowAiActionsEnabled } from "../../../../lib/ai/uiFollow/uiFollowStore";
+import { executeTerminalCommandCore } from "../../../terminal/ai/mcpTools";
+import {
+  annotateTerminalSession,
+  ensureAiExecTerminal,
+} from "../../../terminal/aiExecTerminal";
 import type {
   HostSystemStats,
   SshTunnelInfo,
@@ -22,20 +28,16 @@ import type {
  * 设计要点：
  * - `resource_id` / `connection_id` 都是 connections 表中的 SSH 连接 id；
  *   AI 可先调用 Native 工具 `omni_ssh_list_connections` 获取候选主机。
- * - exec 命令直接走连接池的 exec channel（非交互式 capture），返回结构化
- *   `{stdout, stderr, exit_code}`，不会污染终端 UI。
- * - 高危命令（rm -rf 等）会先走在场验证，再把 token 传给 `ssh_pool_exec_command`。
+ * - exec 优先在终端里跑：跟随开则左侧打开这台主机的 SSH 终端；跟随关则进后台终端。
+ *   终端起不来时回落连接池 exec channel。
+ * - 高危命令（rm -rf 等）先走在场验证。用户取消后不再改走连接池。
  */
 
 async function sshExec(args: Record<string, unknown>): Promise<string> {
   const resource_id = requireString(args, "resource_id");
   const command = requireString(args, "command");
 
-  const run = async () => {
-    const presenceToken = await resolveSshExecToken(resource_id, command);
-    if (presenceToken === null) {
-      throw new Error("已取消在场验证");
-    }
+  const runPool = async (presenceToken: string | null | undefined) => {
     const res = await commands.sshPoolExecCommand(resource_id, command, presenceToken ?? null);
     if (res.status !== "ok") {
       throw new Error(res.error.message);
@@ -54,6 +56,25 @@ async function sshExec(args: Record<string, unknown>): Promise<string> {
         2,
       ),
     );
+  };
+
+  const run = async () => {
+    const presenceToken = await resolveSshExecToken(resource_id, command);
+    if (presenceToken === null) {
+      throw new Error("已取消在场验证");
+    }
+    try {
+      const tabId = await ensureAiExecTerminal({
+        follow: isFollowAiActionsEnabled(),
+        sshResourceId: resource_id,
+      });
+      const result = await executeTerminalCommandCore({ command, session_id: tabId });
+      if (result.rejected) return result.outputJson;
+      return annotateTerminalSession(result.outputJson, tabId);
+    } catch (err) {
+      if (err instanceof Error && err.message === "已取消在场验证") throw err;
+      return runPool(presenceToken);
+    }
   };
 
   return runWithToolGate(

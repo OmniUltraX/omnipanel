@@ -55,9 +55,8 @@ mod web_search;
 mod workflow;
 
 pub use agent_prompt::{
-    AGENT_PROMPT_IDS, AgentPromptEntry, agent_prompt, clear_prompt_cache, client_tools_preamble,
-    ensure_default_prompts, list_prompt_entries, reset_prompt, routing_policy, save_prompt,
-    system_prompt,
+    AGENT_PROMPT_IDS, AgentPromptEntry, agent_prompt, clear_prompt_cache, ensure_default_prompts,
+    list_prompt_entries, reset_prompt, routing_policy, save_prompt, system_prompt,
 };
 pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
 pub use app_module::{AppModule, AppModuleStatus, DEFAULT_APP_MODULES, PLUGIN_MODULE_SORT_ORDER};
@@ -112,7 +111,7 @@ pub use knowledge_vector::{
 pub use ks_sync::{KsFileState, KsSourceConfig};
 pub use paths::default_file_index_storage_dir;
 pub use paths::{
-    ai_config_dir, ai_providers_path, cli_providers_path, database_connections_path,
+    ai_config_dir, ai_providers_path, database_connections_path,
     database_host_resolve_cache_path, database_schema_cache_path, database_schema_filters_path,
     database_schema_tree_expanded_path, docker_sidebar_cache_path, http_proxy_config_path,
     knowledge_assets_root, knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir,

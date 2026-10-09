@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { useI18n } from "../../i18n";
-import { useBackendSelectOptions } from "../../lib/ai/backendSelectOptions";
+import { modelSelectTitle, useBackendSelectOptions } from "../../lib/ai/backendSelectOptions";
+import { rememberRecentModelIds, withRecentModelGroup } from "../../lib/ai/recentModelOptions";
 import { useAiModelsStore } from "../../stores/aiModelsStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTerminalModelSelectionId } from "../../lib/terminalScenarioModels";
@@ -38,27 +39,42 @@ export function TerminalCommandBarControls({
     [t],
   );
 
-  const modelOptions = useMemo(
+  const recentModelIds = useSettingsStore((s) => s.aiRecentModelSelectionIds);
+  const rememberRecentModel = useSettingsStore((s) => s.rememberRecentModel);
+  const flatModelOptions = useMemo(
     () =>
       backendOptions
         .filter((opt) => opt.installed !== false)
         .map((opt) => ({
           value: opt.value,
-          label: opt.group === "cli" ? `[CLI] ${opt.label}` : opt.label,
+          label: opt.label,
           subtitle: opt.subtitle,
           meta: opt.meta,
-          title: [opt.label, opt.meta, opt.subtitle].filter(Boolean).join(" · "),
+          title: modelSelectTitle(opt.label, opt.meta, opt.subtitle),
         })),
     [backendOptions],
   );
 
   const savedModelId = useSettingsStore((s) => s.aiScenarioTerminalModelSelectionId);
   const modelValue =
-    savedModelId && modelOptions.some((o) => o.value === savedModelId)
+    savedModelId && flatModelOptions.some((o) => o.value === savedModelId)
       ? savedModelId
-      : modelSelectionId && modelOptions.some((o) => o.value === modelSelectionId)
+      : modelSelectionId && flatModelOptions.some((o) => o.value === modelSelectionId)
         ? modelSelectionId
-        : modelOptions[0]?.value ?? "";
+        : flatModelOptions[0]?.value ?? "";
+  const modelOptions = useMemo(
+    () =>
+      withRecentModelGroup(
+        flatModelOptions,
+        modelValue ? rememberRecentModelIds(recentModelIds, modelValue) : recentModelIds,
+        t("ai.modelSelect.recent"),
+      ),
+    [flatModelOptions, modelValue, recentModelIds, t],
+  );
+
+  useEffect(() => {
+    if (savedModelId) rememberRecentModel(savedModelId);
+  }, [rememberRecentModel, savedModelId]);
 
   return (
     <div className={className ? `term-cmd-toolbar ${className}` : "term-cmd-toolbar"}>
@@ -78,9 +94,10 @@ export function TerminalCommandBarControls({
       {modelOptions.length > 0 ? (
         <Select
           value={modelValue}
-          onChange={(next) =>
-            setGlobalTerminalModel({ aiScenarioTerminalModelSelectionId: next })
-          }
+          onChange={(next) => {
+            rememberRecentModel(next);
+            setGlobalTerminalModel({ aiScenarioTerminalModelSelectionId: next });
+          }}
           options={modelOptions}
           size="sm"
           borderless

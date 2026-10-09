@@ -127,11 +127,6 @@ pub fn ai_providers_path() -> OmniResult<PathBuf> {
     Ok(ai_config_dir()?.join("providers.json"))
 }
 
-/// CLI 自定义提供者：`~/.omnipd/ai/cli-providers.json`。
-pub fn cli_providers_path() -> OmniResult<PathBuf> {
-    Ok(ai_config_dir()?.join("cli-providers.json"))
-}
-
 /// Web 搜索配置：`~/.omnipd/ai/web-search.json`。
 pub fn web_search_config_path() -> OmniResult<PathBuf> {
     Ok(ai_config_dir()?.join("web-search.json"))

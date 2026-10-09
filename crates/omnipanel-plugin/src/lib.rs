@@ -1,5 +1,6 @@
 //! 插件 Runtime：清单、权限、注册表、第一方命令网关。
 
+mod agent_sidecar;
 mod candidate;
 mod contribution;
 mod crypto;
@@ -17,6 +18,7 @@ mod registry;
 mod resolve;
 mod source;
 
+pub use agent_sidecar::{InstalledAgentDriver, collect_activated_installed_agent_drivers};
 pub use candidate::{ImportCandidate, upsert_candidates};
 pub use contribution::{
     AiContributes, AiToolContribution, AiToolExecKind, CloudCapabilityDecl, CloudContributes,

@@ -7,11 +7,7 @@
  */
 import { streamModelChat, type ModelConfig } from "../../components/ai/assistant-ui/chatModel";
 import { resolveScenarioModelSelectionId } from "../aiScenarioModels";
-import {
-  isAcpBackendId,
-  isCliBackendId,
-  resolveBackendFromSelection,
-} from "../ai/inferenceBackend";
+import { resolveBackendFromSelection } from "../ai/inferenceBackend";
 import { canUseAiBackend } from "../isTauriRuntime";
 import {
   initAiModelsStore,
@@ -43,7 +39,6 @@ async function resolveHttpModelConfig(): Promise<ModelConfig | null> {
     useSettingsStore.getState().aiScenarioAssistantModelSelectionId,
   );
   if (!selectionId) return null;
-  if (isCliBackendId(selectionId) || isAcpBackendId(selectionId)) return null;
 
   const backend = resolveBackendFromSelection(providers, selectionId);
   if (!backend || backend.kind !== "http") return null;

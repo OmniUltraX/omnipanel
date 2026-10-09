@@ -14,8 +14,9 @@ pub use orchestrator::{
 };
 pub use provider::{AiProvider, AiProviderRegistry, RenamedProvider};
 pub use providers::agent_source::{
-    AgentSourceCard, AgentSourceCreditPackage, AgentSourceCredits, AgentSourceModel,
-    AgentSourceRegistry, agent_source_registry,
+    AgentSource, AgentSourceCard, AgentSourceCreditPackage, AgentSourceCredits, AgentSourceModel,
+    AgentSourceRegistry, InstalledAgentSidecar, agent_source_registry,
+    sync_installed_agent_sidecars,
 };
 pub use providers::model_list::{
     FetchModelsError, RemoteModelInfo, fetch_provider_models, parse_models_payload,

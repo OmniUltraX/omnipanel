@@ -8445,6 +8445,30 @@ button.omni-btn-tool[aria-pressed="true"] {
         gap: 1px;
     }
 
+    .omni-select-option-row {
+        display: contents;
+    }
+
+    .omni-select-group {
+        padding: 8px 10px 2px;
+        font-size: 10px;
+        line-height: 1.2;
+        color: var(--meta);
+    }
+
+    .omni-select-group--split {
+        margin-top: 4px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+    }
+
+    .omni-select-divider {
+        height: 1px;
+        margin: 8px 10px 6px;
+        background: color-mix(in srgb, var(--fg) 22%, transparent);
+        flex: none;
+    }
+
     .omni-select-option {
         display: flex;
         align-items: center;
@@ -8507,6 +8531,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         text-align: right;
         font-size: 11px;
         font-variant-numeric: tabular-nums;
+        white-space: nowrap;
         color: var(--meta);
     }
 

@@ -44,7 +44,7 @@ pub struct PluginContributes {
     /// 知识源适配器（kind=knowledge）：只读数据源，落库由宿主管线负责。
     #[serde(default)]
     pub knowledge_sources: Vec<Value>,
-    /// Agent 来源（kind=agent）：登录态、目录与补全。对话与工具留在宿主。
+    /// Agent 来源（kind=agent）：sidecar 提供登录态、目录和一轮对话。编排留在宿主。
     #[serde(default)]
     pub agent_sources: Vec<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

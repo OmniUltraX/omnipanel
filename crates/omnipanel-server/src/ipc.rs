@@ -2826,31 +2826,6 @@ pub async fn dispatch(
                 };
             respond(crate::skills_cmds::provider_registry_save(file).await)
         }
-        "provider_list_models_cmd" => {
-            let provider_id = get_str(&args, "providerId").unwrap_or_default();
-            respond(crate::skills_cmds::provider_list_models(&provider_id))
-        }
-        "cli_provider_list_cmd" => respond(crate::skills_cmds::cli_provider_list()),
-        "cli_provider_patch_cmd" => {
-            let input =
-                match serde_json::from_value(args.get("input").cloned().unwrap_or(args.clone())) {
-                    Ok(v) => v,
-                    Err(e) => return InvokeResponse::err(format!("invalid input: {e}")),
-                };
-            respond(crate::skills_cmds::cli_provider_patch(input))
-        }
-        "cli_provider_upsert_cmd" => {
-            let input =
-                match serde_json::from_value(args.get("input").cloned().unwrap_or(args.clone())) {
-                    Ok(v) => v,
-                    Err(e) => return InvokeResponse::err(format!("invalid input: {e}")),
-                };
-            respond(crate::skills_cmds::cli_provider_upsert(input))
-        }
-        "cli_provider_remove_cmd" => {
-            let id = get_str(&args, "id").unwrap_or_default();
-            respond(crate::skills_cmds::cli_provider_remove(&id))
-        }
         "embedding_provider_get" => {
             respond_omni(crate::embedding_cmds::embedding_provider_get().await)
         }
@@ -4011,13 +3986,6 @@ pub async fn dispatch(
             let monospace_only = args.get("monospaceOnly").and_then(|v| v.as_bool());
             respond_omni(crate::system_cmds::list_system_fonts(monospace_only).await)
         }
-        "detect_all_agents" => {
-            let agents = crate::system_cmds::detect_all_agents().await;
-            InvokeResponse::ok(serde_json::to_value(agents).unwrap_or(serde_json::json!([])))
-        }
-        "detect_opencode_install" => {
-            respond_omni(crate::system_cmds::detect_opencode_install().await)
-        }
         "ai_services_probe" => {
             let enabled = args
                 .get("enabled")
@@ -4518,53 +4486,6 @@ pub async fn dispatch(
                 )
                 .await,
             )
-        }
-
-        /* ---------------- ACP ---------------- */
-        "acp_connect" => {
-            let command_line = get_str(&args, "commandLine").unwrap_or_default();
-            respond(crate::acp_cmds::acp_connect(state, command_line).await)
-        }
-        "acp_connect_default" => respond(crate::acp_cmds::acp_connect_default(state).await),
-        "acp_disconnect" => respond(crate::acp_cmds::acp_disconnect(state).await),
-        "acp_get_status" => respond(crate::acp_cmds::acp_get_status(state).await),
-        "acp_get_default_command" => respond(crate::acp_cmds::acp_get_default_command()),
-        "acp_prompt" => {
-            let prompt_args: crate::acp_cmds::AcpPromptArgs =
-                match serde_json::from_value(args.clone()) {
-                    Ok(v) => v,
-                    Err(e) => return InvokeResponse::err(format!("解析 acp_prompt 参数失败: {e}")),
-                };
-            match crate::acp_cmds::acp_prompt(state, prompt_args).await {
-                Ok(()) => InvokeResponse::ok(serde_json::json!(null)),
-                Err(e) => InvokeResponse::err(e),
-            }
-        }
-        "acp_cancel" => {
-            let conversation_id = get_str(&args, "conversationId").unwrap_or_default();
-            match crate::acp_cmds::acp_cancel(state, conversation_id).await {
-                Ok(()) => InvokeResponse::ok(serde_json::json!(null)),
-                Err(e) => InvokeResponse::err(e),
-            }
-        }
-        "acp_respond_permission" => {
-            let request_id = args
-                .get("requestId")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            let option_id = get_str(&args, "optionId").unwrap_or_default();
-            match crate::acp_cmds::acp_respond_permission(state, request_id, option_id).await {
-                Ok(()) => InvokeResponse::ok(serde_json::json!(null)),
-                Err(e) => InvokeResponse::err(e),
-            }
-        }
-        "acp_save_agent_config" => {
-            let config: crate::acp_cmds::AcpAgentConfigInput =
-                match serde_json::from_value(args.get("config").cloned().unwrap_or_default()) {
-                    Ok(v) => v,
-                    Err(e) => return InvokeResponse::err(format!("解析 config 失败: {e}")),
-                };
-            respond(crate::acp_cmds::acp_save_agent_config(config).await)
         }
 
         /* ---------------- 暂缓（sniffer / updater） ---------------- */

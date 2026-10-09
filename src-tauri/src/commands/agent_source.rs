@@ -117,27 +117,11 @@ pub async fn open_agent_provider(
     source_id: &str,
     model_id: &str,
 ) -> Result<Option<Box<dyn omnipanel_ai::AiProvider>>, String> {
-    let source_id_for_origin = source_id.to_string();
-    let origin = tokio::task::spawn_blocking(move || {
-        omnipanel_ai::agent_source_registry()
-            .get(&source_id_for_origin)
-            .map(|source| source.upstream_origin().to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    let Some(origin) = origin else {
-        return Ok(None);
-    };
-    let proxy_config = state.proxy_config.lock().await.clone();
-    let client = crate::commands::proxy::build_http_client_for_url(
-        &origin,
-        &proxy_config,
-        std::time::Duration::from_secs(300),
-    )?;
+    let proxy = serde_json::to_value(&*state.proxy_config.lock().await).map_err(|e| e.to_string())?;
     let source_id = source_id.to_string();
     let model_id = model_id.to_string();
     tokio::task::spawn_blocking(move || {
-        omnipanel_ai::agent_source_registry().open_provider(&source_id, &model_id, client)
+        omnipanel_ai::agent_source_registry().open_provider(&source_id, &model_id, proxy)
     })
     .await
     .map_err(|e| e.to_string())?

@@ -131,13 +131,6 @@ function resolveQuickLauncherModelLabel(
     const providerName = provider?.providerName?.trim() || backend.httpProvider.providerId;
     return { short: name, full: `${providerName} / ${name}` };
   }
-  if (backend?.kind === "cli") {
-    const short = backend.modelId || backend.providerId;
-    return { short, full: backend.backendId };
-  }
-  if (backend?.kind === "acp") {
-    return { short: backend.agentKind, full: backend.backendId };
-  }
   return { short: selectionId, full: selectionId };
 }
 /** 与侧栏一致的模块图标行（点击打开独立窗） */

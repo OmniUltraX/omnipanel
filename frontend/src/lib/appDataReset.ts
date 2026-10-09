@@ -17,7 +17,6 @@ import { invalidatePathListingCache } from "../modules/terminal/commandBar/pathL
 import { useConnectionStore } from "../stores/connectionStore";
 import { useAiStore } from "../stores/aiStore";
 import { useAiModelsStore } from "../stores/aiModelsStore";
-import { useAcpServicesStore, initAcpServicesStore } from "../stores/acpServicesStore";
 import { useDbConnectionListStore } from "../stores/dbConnectionListStore";
 import { useDbDockLayoutStore } from "../stores/dbDockLayoutStore";
 import { useDockerSidebarCacheStore } from "../stores/dockerSidebarCacheStore";
@@ -171,8 +170,6 @@ export async function clearAppUserData(): Promise<void> {
 
     useAiStore.setState({ conversations: [], activeConversationId: null });
     useAiModelsStore.getState().resetProviders();
-    useAcpServicesStore.getState().resetServices();
-    await initAcpServicesStore();
 
     const taskRes = await commands.taskList(null, 500);
     if (taskRes.status === "ok") {

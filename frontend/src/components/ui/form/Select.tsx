@@ -22,6 +22,8 @@ export interface SelectOption {
   title?: string;
   disabled?: boolean;
   labelStyle?: CSSProperties;
+  /** 连续相同的分组会在第一项前显示一行标题。搜索时不显示。 */
+  group?: string;
 }
 
 export type SelectOptionsInput = readonly SelectOption[] | readonly string[];
@@ -472,7 +474,7 @@ export function Select({
                   {emptyText ?? t("ui.select.noResults")}
                 </div>
               ) : (
-                filteredOptions.map((opt) => {
+                filteredOptions.map((opt, index) => {
                   const selectableIndex = selectableOptions.findIndex(
                     (item) => item.value === opt.value,
                   );
@@ -481,9 +483,25 @@ export function Select({
                   const optionTitle =
                     opt.title ??
                     [opt.label, opt.meta, opt.subtitle].filter(Boolean).join(" · ");
+                  const previous = filteredOptions[index - 1];
+                  const showGroup =
+                    !trimmedQuery &&
+                    Boolean(opt.group) &&
+                    opt.group !== previous?.group;
+                  const showDivider =
+                    !trimmedQuery && !opt.group && Boolean(previous?.group);
                   return (
+                    <div key={`${opt.value}::${opt.label}`} className="omni-select-option-row">
+                    {showDivider ? <div className="omni-select-divider" role="separator" /> : null}
+                    {showGroup ? (
+                      <div
+                        className={index > 0 ? "omni-select-group omni-select-group--split" : "omni-select-group"}
+                        role="presentation"
+                      >
+                        {opt.group}
+                      </div>
+                    ) : null}
                     <button
-                      key={`${opt.value}::${opt.label}`}
                       type="button"
                       role="option"
                       aria-selected={opt.value === value}
@@ -527,6 +545,7 @@ export function Select({
                         </svg>
                       ) : null}
                     </button>
+                    </div>
                   );
                 })
               )}

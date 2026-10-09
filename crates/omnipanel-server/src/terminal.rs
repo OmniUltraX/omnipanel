@@ -93,8 +93,6 @@ pub struct ServerState {
     pub file_index_tasks: Arc<std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>>,
     /// 动作执行引擎（workflow / task_run）。
     pub engine: Arc<ExecutionEngine>,
-    /// ACP Agent 连接状态。
-    pub acp: Mutex<crate::acp_cmds::AcpState>,
     /// 运行中的任务句柄（task_run 取消用）。
     pub running_tasks: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// 文件索引自定义存储目录（空字符串表示默认）。
@@ -167,7 +165,6 @@ impl ServerState {
             )),
             file_index_tasks: Arc::new(std::sync::Mutex::new(HashMap::new())),
             engine: crate::exec_cmds::new_execution_engine(),
-            acp: Mutex::new(crate::acp_cmds::AcpState::default()),
             running_tasks: Arc::new(Mutex::new(HashMap::new())),
             file_index_storage_dir: Arc::new(Mutex::new(String::new())),
             plugins,

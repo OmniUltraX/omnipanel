@@ -3,8 +3,8 @@ use specta::Type;
 
 /// 插件身份。新增 kind 只接受平台级能力（多租户），不为单一产品开口子。
 /// `knowledge`（知识源适配器：思源/Obsidian/Logseq/Notion 只读镜像）即此类。
-/// `agent`（Agent 来源：WorkBuddy 等）同样：多家来源共用一条宿主管线，
-/// 插件只提供登录态、目录和补全，对话、工具与审批留在宿主。
+/// `agent`（Agent 来源：WorkBuddy、Cursor 等）同样：多家来源共用一条宿主管线。
+/// 插件以 sidecar 提供登录态、目录和一轮对话事件；编排、工具与审批留在宿主。
 /// 与已弃用的 CLI `AgentKind`（整轮交给外部进程）不是同一个枚举。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]

@@ -1,0 +1,28 @@
+[package]
+name = "omnipanel-agent-cursor"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+flate2 = "1"
+futures = "0.3"
+h2 = "0.4"
+http = "1"
+omnipanel-agent-session = { path = "../../../crates/omnipanel-agent-session" }
+omnipanel-ai = { path = "../../../crates/omnipanel-ai" }
+omnipanel-store = { path = "../../../crates/omnipanel-store" }
+reqwest.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde.workspace = true
+serde_json.workspace = true
+sha1 = "0.10"
+sha2 = "0.10"
+tokio.workspace = true
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12", "ring"] }
+tokio-stream = "0.1"
+webpki-roots = "1"

@@ -170,9 +170,26 @@ pub fn seed_plugin_runtime(
     registry.activate_enabled(PluginPlatform::current());
     sync_engine_plugin_gate(&registry);
     sync_plugin_engine_launches(&registry, plugins_root);
+    sync_agent_sidecars(&registry, plugins_root);
     let mut gateway = InvokeGateway::new();
     register_builtin_invoke_handlers(&mut gateway);
     (registry, Arc::new(gateway))
+}
+
+/// 已安装 agent sidecar：登记进模型桥。第一方 Cursor / WorkBuddy 由宿主按官方二进制解析。
+fn sync_agent_sidecars(registry: &PluginRegistry, plugins_root: Option<&Path>) {
+    let installed = plugins_root
+        .map(|root| omnipanel_plugin::collect_activated_installed_agent_drivers(registry, root))
+        .unwrap_or_default();
+    let mapped = installed
+        .into_iter()
+        .map(|driver| omnipanel_ai::InstalledAgentSidecar {
+            source_id: driver.source_id,
+            title: driver.title,
+            program: driver.driver_path,
+        })
+        .collect();
+    omnipanel_ai::sync_installed_agent_sidecars(mapped);
 }
 
 fn sync_engine_plugin_gate(registry: &PluginRegistry) {
@@ -280,6 +297,7 @@ pub(crate) async fn rebuild_and_sync(state: &State<'_, AppState>) -> Result<(), 
     new_registry.activate_enabled(PluginPlatform::current());
     sync_engine_plugin_gate(&new_registry);
     sync_plugin_engine_launches(&new_registry, state.plugin_packages_dir.as_deref());
+    sync_agent_sidecars(&new_registry, state.plugin_packages_dir.as_deref());
     remap_highgo_identity_connections(&state.db_connections, &new_registry);
     for item in new_registry.list() {
         if item.kind != PluginKind::Engine || (item.enabled && item.activated) {
@@ -777,6 +795,7 @@ pub async fn plugin_set_enabled(
         registry.set_enabled(&plugin_id, enabled)?;
         sync_engine_plugin_gate(&registry);
         sync_plugin_engine_launches(&registry, state.plugin_packages_dir.as_deref());
+        sync_agent_sidecars(&registry, state.plugin_packages_dir.as_deref());
     }
     if !enabled {
         if let Some(kind) = omnipanel_db::sidecar::EngineKind::from_plugin_id(&plugin_id) {

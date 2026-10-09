@@ -7,10 +7,7 @@ import type {
 } from "@assistant-ui/react";
 import { useExternalStoreRuntime } from "@assistant-ui/react";
 
-import type { AcpStreamEvent } from "../../../lib/acp/acpStream";
-import { respondAcpPermission } from "../../../lib/acp/acpStream";
 import { commands } from "../../../ipc/bindings";
-import { canAutoAllowAcp } from "../../../lib/ai/toolGate";
 import { resolveBackendFromSelection } from "../../../lib/ai/inferenceBackend";
 import { runInternalAiChat, type InternalStreamEvent } from "../../../lib/ai/orchestrator";
 import {
@@ -83,8 +80,6 @@ import {
   aiMessagesToThreadMessages,
   threadMessagesToAiMessages,
 } from "./messageBridge";
-import { useActionDraftStore } from "../../../stores/actionDraftStore";
-
 function extractUserContent(message: ThreadMessage | AppendMessage): string {
   for (const part of message.content) {
     if (part.type === "text") return part.text;
@@ -114,93 +109,8 @@ function isShellExecClientTool(toolName: string): boolean {
   return isTerminalPtyExecTool(toolName) || toolName === SSH_EXEC_TOOL_NAME;
 }
 
-type PermissionEvent = Extract<AcpStreamEvent, { type: "permission_request" }>;
 type StreamEventHandler = InternalStreamEvent;
 
-function pickAllowOnceOptionId(
-  options: PermissionEvent["options"],
-): string | null {
-  const exact = options.find(
-    (o) =>
-      o.optionId === "allow_once" ||
-      o.optionId === "allow-once" ||
-      o.optionId === "allow_always" ||
-      o.optionId === "allow-always",
-  );
-  if (exact) return exact.optionId;
-  const fuzzy = options.find(
-    (o) =>
-      /allow|允许|批准/i.test(o.optionId) ||
-      /allow|允许|批准/i.test(o.name),
-  );
-  return fuzzy?.optionId ?? null;
-}
-
-/** 只读 / 低风险工具：经 ToolGate 自动放行，避免每次弹确认框。 */
-function tryAutoAllowSafePermission(event: PermissionEvent): boolean {
-  if (!canAutoAllowAcp(event.title, event.raw_input)) {
-    return false;
-  }
-  const optionId = pickAllowOnceOptionId(event.options);
-  const requestId = event.requestId;
-  if (!optionId || requestId == null) return false;
-  void respondAcpPermission(requestId, optionId).catch((error) => {
-    console.error("[ACP] ToolGate 自动放行失败:", error);
-  });
-  return true;
-}
-
-/** ACP permission_request → 统一审批队列（侧栏内嵌 / 全局弹窗） */
-function enqueueAcpPermission(event: PermissionEvent): void {
-  if (tryAutoAllowSafePermission(event)) return;
-  const requestId = event.requestId;
-  if (requestId == null) return;
-
-  // 不设 reject:true，确保选项都走 runAction → respondAcpPermission
-  const actions = event.options.map((option) => ({
-    id: option.optionId,
-    label: option.name,
-    variant: option.optionId.includes("reject")
-      ? ("secondary" as const)
-      : ("primary" as const),
-  }));
-
-  const primaryId =
-    pickAllowOnceOptionId(event.options) ??
-    event.options.find((o) => !o.optionId.includes("reject"))?.optionId ??
-    event.options[0]?.optionId ??
-    "allow_once";
-
-  void useActionDraftStore
-    .getState()
-    .enqueueAwaitable({
-      kind: "generic",
-      source: "acp",
-      title: event.title || "ACP 工具确认",
-      preview: event.raw_input || event.title,
-      toolName: event.title,
-      actions: actions.length
-        ? actions
-        : [
-            { id: "allow_once", label: "允许", variant: "primary" },
-            { id: "reject_once", label: "拒绝", variant: "secondary" },
-          ],
-      target: { module: "ai" },
-      execute: async () => {
-        await respondAcpPermission(requestId, primaryId);
-        return "allowed";
-      },
-      runAction: async (actionId) => {
-        await respondAcpPermission(requestId, actionId);
-        return actionId;
-      },
-    })
-    .catch(() => {
-      const rejectId =
-        event.options.find((o) => o.optionId.includes("reject"))?.optionId ?? "reject";
-      void respondAcpPermission(requestId, rejectId).catch(() => {});
-    });
-}
 
 function buildHistoryJson(convId: string): string | undefined {
   const conv = useAiStore.getState().conversations.find((c) => c.id === convId);
@@ -325,7 +235,6 @@ function handleStreamEvent(
     appendReasoning: (chunk: string) => void;
     upsertToolCall: (id: string, name: string, args: string) => void;
     updateToolCall: (id: string, status: string, result?: string) => void;
-    enqueuePermission: (event: PermissionEvent) => void;
     onUsage: (inputTokens: number, outputTokens: number) => void;
     finishGeneration: (failed?: boolean) => void;
     setIsGenerating: (v: boolean) => void;
@@ -347,7 +256,6 @@ function handleStreamEvent(
       handlers.updateToolCall(event.id, event.status, event.result ?? undefined);
       break;
     case "permission_request":
-      handlers.enqueuePermission(event);
       break;
     case "usage":
       handlers.onUsage(event.input_tokens, event.output_tokens);
@@ -451,10 +359,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
 
   // 子会话视图模式下，禁止 setMessages 写回（只读）
   const isReadOnlyView = !!viewingChildConversationId;
-
-  const enqueuePermission = useCallback((event: PermissionEvent) => {
-    enqueueAcpPermission(event);
-  }, []);
 
   const handleSetMessages = useCallback(
     (messages: readonly ThreadMessage[]) => {
@@ -906,7 +810,6 @@ export function AiRuntimeProvider({ children }: { children: ReactNode }) {
                 appendReasoning,
                 upsertToolCall,
                 updateToolCall,
-                enqueuePermission,
                 onUsage,
                 finishGeneration,
                 setIsGenerating,

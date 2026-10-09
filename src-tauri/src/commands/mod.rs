@@ -1,7 +1,5 @@
-pub mod acp;
 pub mod agent_prompt;
 pub mod agent_source;
-pub mod agents;
 #[allow(dead_code)]
 pub mod ai;
 pub mod ai_chat;
@@ -49,7 +47,6 @@ pub mod navicat;
 pub mod official_catalog;
 pub mod ollama_catalog;
 pub mod ollama_recommend;
-pub mod opencode;
 pub mod panel;
 pub mod plugin;
 pub mod plugin_bridge;

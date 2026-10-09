@@ -65,15 +65,6 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
     }
 
     // --- generated shaped object stubs ---
-    if c == "acp_connect"
-        || c == "acp_connect_default"
-        || c == "acp_disconnect"
-        || c == "acp_get_status"
-    {
-        // AcpStatus arrays=[]
-        return serde_json::json!({ "connected": false, "agentName": null, "executable": null });
-    }
-
     if c == "agent_prompt_reset" || c == "agent_prompt_save" {
         // AgentPromptEntry arrays=[]
         return serde_json::json!({ "id": "", "content": "", "path": "" });
@@ -196,11 +187,6 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
     if c == "client_sync_push_modules" {
         // ClientSyncPushModulesResult arrays=[]
         return serde_json::json!({ "objectKey": "", "etag": null, "bytes": null });
-    }
-
-    if c == "cli_provider_patch_cmd" || c == "cli_provider_upsert_cmd" {
-        // CliProviderRecord arrays=[args,staticModels,manualModelNames,disabledModelNames,modelDiscoveryArgs]
-        return serde_json::json!({ "args": [], "staticModels": [], "manualModelNames": [], "disabledModelNames": [], "modelDiscoveryArgs": [], "id": "", "displayName": "", "protocol": "", "binary": null, "env": "", "cwd": null, "timeoutSecs": null, "enabled": false, "builtin": false, "modelDiscoveryCommand": null });
     }
 
     if c == "file_save_connection" {
@@ -515,7 +501,6 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
             | "bg_task_history_list"
             | "bg_task_list"
             | "builtin_tool_audit_list"
-            | "cli_provider_list_cmd"
             | "cloud_list_certs"
             | "cloud_list_domains"
             | "cloud_list_ecs"
@@ -530,7 +515,6 @@ pub fn soft_degrade_value(cmd: &str) -> serde_json::Value {
             | "db_mysql_export_list"
             | "db_redis_slowlog"
             | "db_schema_sync_preview_sql"
-            | "detect_all_agents"
             | "docker_list_ssh_hosts"
             | "file_index_search"
             | "grpc_list_connections"

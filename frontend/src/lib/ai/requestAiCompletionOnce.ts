@@ -6,8 +6,6 @@ import {
 } from "../../stores/aiModelsStore";
 import { resolveTerminalModelSelectionId } from "../terminalScenarioModels";
 import {
-  isCliBackendId,
-  isAcpBackendId,
   resolveBackendFromSelection,
   type ResolvedBackend,
 } from "./inferenceBackend";
@@ -29,7 +27,7 @@ interface AiModelConfig {
 
 /** 将 selectionId 解析为 HTTP 直连配置（跳过 CLI/ACP）。 */
 function resolveHttpConfigFromSelection(selectionId: string | null): AiModelConfig | null {
-  if (!selectionId || isCliBackendId(selectionId) || isAcpBackendId(selectionId)) {
+  if (!selectionId) {
     return null;
   }
   // http:{provider}::{model} → {provider}::{model}

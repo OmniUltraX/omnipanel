@@ -404,6 +404,26 @@ function smokeLogic(dir, logicRel) {
   return errors;
 }
 
+function agentSidecarErrors(raw, dir) {
+  if (raw.kind !== "agent" || raw.runtime !== "sidecar") return [];
+  const driver = raw.entry?.driver;
+  if (!driver || !/\.(mjs|js)$/i.test(driver)) return [];
+  const agent = path.join(dir, driver);
+  if (!existsSync(agent)) return [];
+  const checker = path.join(root, "scripts", "check-agent-sidecar.mjs");
+  const args = [checker, agent];
+  const sourceId = raw.contributes?.agentSources?.[0]?.id;
+  if (typeof sourceId === "string" && sourceId.trim()) {
+    args.push("--source", sourceId.trim());
+  }
+  const result = spawnSync(process.execPath, args, { encoding: "utf8", timeout: 20000 });
+  if (result.status !== 0) {
+    const out = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+    return [`sidecar check-agent-sidecar 失败${out ? `:\n${out}` : ""}`];
+  }
+  return [];
+}
+
 function sidecarErrors(raw, dir) {
   if (raw.kind !== "engine" || raw.runtime !== "sidecar") return [];
   const driver = raw.entry?.driver;
@@ -438,6 +458,7 @@ function validateDir(dir) {
     ...kindErrors(raw, dir),
     ...smokeLogic(dir, raw.entry?.logic),
     ...sidecarErrors(raw, dir),
+    ...agentSidecarErrors(raw, dir),
   ];
   return { label, errors };
 }

@@ -41,7 +41,7 @@
 | `discovery[]` | panel/module | 发现 probe 归属声明 `{ probeId }` |
 | `importers[]` | importer | `{ id, title, hint?, sourceKind?: instances\|dockerConnections, fetchMethod?, scanners?, defaultGroup?, resourceKinds?, defaultTag?, sshAuth?, note?, fields[…], entry? }`。`instances`（默认）由宿主画实例表单，L2 `fetchMethod` 拉目标；`dockerConnections` 左侧列出已有 Docker 连接，宿主按 `scanners[]` 扫描。`resourceKinds` 声明会写入的资源类型，设置里按类型各选分组。样板：`plugins/importer-warpgate`、`plugins/importer-docker-db` |
 | `knowledgeSources[]` | knowledge | 只读数据源适配器：`{ id（全局唯一）, title?, hint?, formats?[], listMethod, listDocumentsMethod, getMethod, searchMethod?, fields[…] }`。插件只管列目录/取文档/解析 Markdown（L2 methods，必须配 `entry.logic`），落库、命名空间隔离、增量、调度由宿主管线负责。样板：`plugins-samples/knowledge-starter` |
-| `agentSources[]` | agent | Agent 来源：`{ id（全局唯一）, title?, hint?, statusMethod, catalogMethod, completeMethod }`。插件提供登录态、目录和补全；对话、工具、审批留在宿主。token 留在宿主进程 |
+| `agentSources[]` | agent | Agent 来源：`{ id（全局唯一）, title?, hint?, statusMethod, catalogMethod, completeMethod }`。`runtime=sidecar` + `entry.driver`。进程提供登录态、目录和一轮对话；编排、工具、审批留在宿主。token 只留在 sidecar 进程内存。协议见 [sidecar-agent.md](./sidecar-agent.md) |
 | `themes.tokens` | theme | 公开 token 合同；**theme 禁止 JS**，permissions 必须为空 |
 | `ai.tools[]` | 任意 | `{ name, description, execKind, moduleKey, crossModule, externalExposed, inputSchema }` |
 | `configuration` | 任意 | 插件设置（插件中心「设置」SubWindow）。`{ title?, properties?: { [key]: { type, default?, description?, enum?, format?, order?, secret? } }, fields?: importerField[], panel? }`。`properties` / `fields` / `panel` 至少其一；`secret`/`format:password` 写 vault，其余写 plugin state |

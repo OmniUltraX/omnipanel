@@ -1,0 +1,20 @@
+[package]
+name = "omnipanel-agent-workbuddy"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow.workspace = true
+async-trait.workspace = true
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+futures = "0.3"
+omnipanel-agent-session = { path = "../../../crates/omnipanel-agent-session" }
+omnipanel-ai = { path = "../../../crates/omnipanel-ai" }
+omnipanel-store = { path = "../../../crates/omnipanel-store" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tokio.workspace = true

@@ -11,6 +11,7 @@
 | [本文](./README.md) | 九种 kind、Host 合同、脚手架与校验 |
 | [manifest-reference.md](./manifest-reference.md) | 清单字段表 |
 | [sidecar-dbx.md](./sidecar-dbx.md) | Engine sidecar 协议 |
+| [sidecar-agent.md](./sidecar-agent.md) | Agent sidecar 协议 |
 | [permissions-and-levels.md](./permissions-and-levels.md) | 权限与 L1 / L2 / L3 |
 | [packaging-and-install.md](./packaging-and-install.md) | 打包、签名、安装 |
 | [publishing.md](./publishing.md) | 托管源、publish CLI |
@@ -50,7 +51,7 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/<name> <name>.omn
 | `theme` | 主题 | `themes.tokens`，禁止 JS |
 | `addon` | Overlay / 菜单 / 启动条 | `overlays` / `menus` / `launcher` |
 | `knowledge` | 知识源管线（宿主侧） | `knowledgeSources[]` + L2（`listMethod` / `getMethod` / 可选 `searchMethod`）；插件只读，落库由宿主负责 |
-| `agent` | Agent 来源（宿主编排） | `agentSources[]`（`statusMethod` / `catalogMethod` / `completeMethod`）；插件提供登录态、目录和补全，对话、工具与审批留在宿主 |
+| `agent` | Agent 来源（宿主编排） | `runtime=sidecar` + `entry.driver` + `agentSources[]`。进程提供登录态、目录和一轮对话；编排、工具与审批留在宿主。协议见 [sidecar-agent.md](./sidecar-agent.md) |
 
 枚举以 `crates/omnipanel-plugin/src/kind.rs` 为准。新 kind 只接受平台级、会有多家来源的能力，不为某一个产品单开。`knowledge` 就是这条规则的例子：思源、Obsidian、Logseq、Notion 共用一条管线。又一家笔记源登记进 `knowledge`，不要再加 kind。单一产品先问落在哪条已有贡献点上。
 
@@ -114,7 +115,7 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 | 写操作走 `dangerAction` + `consume_grant` | 插件自签确认令牌 |
 | Engine sidecar：`entry.driver` + `engineKey` 进启动表 | 第三方写 inproc Rust（Rust 只以 sidecar 进程进来） |
 
-九种 kind 同一条交付标准：出现在对的入口、凭据回源后仍能调、至少一读一写（theme 只读；addon 启动条算 L1；knowledge 只读数据源，落库由宿主负责；agent 只提供登录态、目录和补全，编排留在宿主）、调用栈不进第一方面板客户端。
+九种 kind 同一条交付标准：出现在对的入口、凭据回源后仍能调、至少一读一写（theme 只读；addon 启动条算 L1；knowledge 只读数据源，落库由宿主负责；agent 用 sidecar 提供登录态、目录和一轮对话，编排留在宿主）、调用栈不进第一方面板客户端。
 
 ```js
 var sig = host.hmac(JSON.stringify({
@@ -297,6 +298,22 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/my-db my-db.omni-
 协议全文见 [sidecar-dbx.md](./sidecar-dbx.md)；Node 参考 agent 开箱可跑，
 Rust 参考在 `src-agent-rs/`（`cargo build --release` 后把产物拷为 `bin/<engine>` 并改 `entry.driver`）。
 拉起规则：`.js/.mjs→node`，`.jar→java -jar`，其它（含 Rust 产物）直接执行。
+
+---
+
+## Agent 来源
+
+`kind=agent`。选择器里的 backend id 是 `http:{来源}::{模型}`。插件进程负责本机登录、模型目录、一轮上游对话；工具执行和审批仍在宿主编排器里。
+
+私有长连接走 sidecar，拉起规则和数据库引擎相同，协议不同。`logic.js` / WASM 只做短 JSON。说明见 [sidecar-agent.md](./sidecar-agent.md)。
+
+官方示例：`plugins/agent-cursor`、`plugins/agent-workbuddy`（Rust 进程）。最小可跑样板：`plugins-samples/agent-echo`。
+
+```bash
+node scripts/create-plugin.mjs my-agent agent
+node scripts/check-agent-sidecar.mjs plugins-custom/my-agent/bin/agent.mjs --source my-agent
+cargo build -p omnipanel-agent-cursor -p omnipanel-agent-workbuddy
+```
 
 ---
 

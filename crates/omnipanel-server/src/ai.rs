@@ -244,15 +244,6 @@ pub async fn ai_chat_stream(state: &ServerState, args: AiChatStreamArgs) -> Resu
     let mut internal = to_internal(args.request)?;
     let conversation_id = internal.conversation_id.clone();
 
-    // 解析 backend：仅支持 HTTP（ACP/CLI 依赖本地进程，Web 端不支持）。
-    let parsed = omnipanel_ai::routing::parse_backend_id(&internal.backend_id)?;
-    if parsed.kind != omnipanel_ai::routing::BackendKind::Http {
-        return Err(format!(
-            "Web 端暂不支持 backend: {}（ACP/CLI 后端依赖本地 Agent 进程）",
-            internal.backend_id
-        ));
-    }
-
     let snapshot = internal
         .http_provider
         .as_ref()

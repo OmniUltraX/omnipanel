@@ -705,7 +705,8 @@ export const useTerminalStore = create<TerminalState>()(
             (s) =>
               s.session.resourceId === hostId &&
               s.session.type === "remote" &&
-              s.lifecycle === "suspended",
+              s.lifecycle === "suspended" &&
+              s.session.purpose !== "ai-background",
           );
           tabId = suspended
             ? get().openSessionTab(suspended.id)
@@ -724,7 +725,10 @@ export const useTerminalStore = create<TerminalState>()(
           return existing.id;
         }
         const suspended = get().sessions.find(
-          (s) => s.session.resourceId === "local-terminal" && s.lifecycle === "suspended",
+          (s) =>
+            s.session.resourceId === "local-terminal" &&
+            s.lifecycle === "suspended" &&
+            s.session.purpose !== "ai-background",
         );
         if (suspended) return get().openSessionTab(suspended.id);
         return get().addLocalTerminalTab(title);

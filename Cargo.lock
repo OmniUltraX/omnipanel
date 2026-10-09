@@ -5511,10 +5511,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "omnipanel-ai"
+name = "omnipanel-agent-cursor"
 version = "0.0.5"
 dependencies = [
- "aes-gcm",
  "anyhow",
  "async-trait",
  "base64 0.22.1",
@@ -5524,6 +5523,8 @@ dependencies = [
  "futures",
  "h2",
  "http 1.4.1",
+ "omnipanel-agent-session",
+ "omnipanel-ai",
  "omnipanel-store",
  "reqwest 0.12.28",
  "rusqlite",
@@ -5531,12 +5532,72 @@ dependencies = [
  "serde_json",
  "sha1 0.10.6",
  "sha2 0.10.9",
- "thiserror 2.0.18",
  "tokio",
  "tokio-rustls 0.26.4",
  "tokio-stream",
- "tracing",
  "webpki-roots 1.0.7",
+]
+
+[[package]]
+name = "omnipanel-agent-proto"
+version = "0.0.5"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "omnipanel-agent-session"
+version = "0.0.5"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "omnipanel-agent-proto",
+ "omnipanel-ai",
+ "omnipanel-protocol",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "omnipanel-agent-workbuddy"
+version = "0.0.5"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "futures",
+ "omnipanel-agent-session",
+ "omnipanel-ai",
+ "omnipanel-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
+
+[[package]]
+name = "omnipanel-ai"
+version = "0.0.5"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "omnipanel-agent-proto",
+ "omnipanel-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tracing",
 ]
 
 [[package]]

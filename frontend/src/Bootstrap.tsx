@@ -8,8 +8,6 @@ import { commands } from "./ipc/bindings";
 import { initAiModelsStore } from "./stores/aiModelsStore";
 import { initDbSqlFilesStore } from "./stores/dbSqlFileStore";
 import { initDbTreeChartFilesStore } from "./stores/dbTreeChartFileStore";
-import { initAcpServicesStore } from "./stores/acpServicesStore";
-import { initCliProvidersStore } from "./stores/cliProvidersStore";
 import { initAgentSourcesStore } from "./stores/agentSourcesStore";
 import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
@@ -173,8 +171,6 @@ export function Bootstrap() {
           initAiModelsStore(),
           initDbSqlFilesStore(),
           initDbTreeChartFilesStore(),
-          initAcpServicesStore(),
-          initCliProvidersStore(),
           initAgentSourcesStore(),
           import("./modules/database/schema/initDbSchemaUiStores").then((m) =>
             m.initDbSchemaUiStores(),

@@ -13,6 +13,10 @@ import {
 } from "../lib/sqlKeywordCase";
 import type { TerminalApprovalMode } from "../lib/terminalApprovalTypes";
 import { restoreDockWindowChromeAfterLayout } from "../lib/restoreDockWindowChromeAfterLayout";
+import {
+  normalizeRecentModelIds,
+  rememberRecentModelIds,
+} from "../lib/ai/recentModelOptions";
 
 export type Locale = "zh-CN" | "en-US";
 export type UiDensity = "compact" | "standard" | "comfortable";
@@ -348,6 +352,8 @@ interface SettingsState {
   aiScenarioAssistantModelSelectionId: string | null;
   /** 终端内联 AI 默认模型 */
   aiScenarioTerminalModelSelectionId: string | null;
+  /** 模型下拉里最近选过的 selection id，新的在前 */
+  aiRecentModelSelectionIds: string[];
   /** Agent Router 是否启用 */
   aiGatewayEnabled: boolean;
   /** Agent Router 端口 */
@@ -422,6 +428,7 @@ interface SettingsState {
   setAiScenarioSettings: (patch: Partial<Pick<SettingsState,
     "aiScenarioAssistantModelSelectionId" | "aiScenarioTerminalModelSelectionId"
   >>) => void;
+  rememberRecentModel: (id: string) => void;
   setAiGatewaySettings: (patch: Partial<Pick<SettingsState,
     "aiGatewayEnabled" | "aiGatewayPort" | "aiGatewayApiKey" | "aiGatewayBindLan" | "mcpExternalRequireApproval"
   >>) => void;
@@ -540,6 +547,7 @@ export const useSettingsStore = create<SettingsState>()(
       knowledgeEmbeddingOllamaModel: { ...DEFAULT_KNOWLEDGE_EMBEDDING_OLLAMA_MODEL },
       aiScenarioAssistantModelSelectionId: null,
       aiScenarioTerminalModelSelectionId: null,
+      aiRecentModelSelectionIds: [],
       aiGatewayEnabled: true,
       aiGatewayPort: import.meta.env.DEV ? 8766 : 8765,
       aiGatewayApiKey: "",
@@ -612,6 +620,22 @@ export const useSettingsStore = create<SettingsState>()(
           };
         }),
       setAiScenarioSettings: (patch) => set(patch),
+      rememberRecentModel: (id) =>
+        set((state) => {
+          const aiRecentModelSelectionIds = rememberRecentModelIds(
+            state.aiRecentModelSelectionIds,
+            id,
+          );
+          if (
+            aiRecentModelSelectionIds.length === state.aiRecentModelSelectionIds.length &&
+            aiRecentModelSelectionIds.every(
+              (item, index) => item === state.aiRecentModelSelectionIds[index],
+            )
+          ) {
+            return state;
+          }
+          return { aiRecentModelSelectionIds };
+        }),
       setAiGatewaySettings: (patch) => set(patch),
       setTerminalApprovalMode: (terminalApprovalMode) => set({ terminalApprovalMode }),
       setTerminalCommandWhitelist: (terminalCommandWhitelist) =>
@@ -773,6 +797,7 @@ export const useSettingsStore = create<SettingsState>()(
         knowledgeEmbeddingOllamaModel: state.knowledgeEmbeddingOllamaModel,
         aiScenarioAssistantModelSelectionId: state.aiScenarioAssistantModelSelectionId,
         aiScenarioTerminalModelSelectionId: state.aiScenarioTerminalModelSelectionId,
+        aiRecentModelSelectionIds: state.aiRecentModelSelectionIds,
         aiGatewayEnabled: state.aiGatewayEnabled,
         aiGatewayPort: state.aiGatewayPort,
         aiGatewayApiKey: state.aiGatewayApiKey,
@@ -842,6 +867,9 @@ export const useSettingsStore = create<SettingsState>()(
           terminalTmuxMode: normalizeTerminalTmuxMode(state?.terminalTmuxMode),
           terminalDefaultInputMode: normalizeTerminalDefaultInputMode(
             state?.terminalDefaultInputMode,
+          ),
+          aiRecentModelSelectionIds: normalizeRecentModelIds(
+            state?.aiRecentModelSelectionIds,
           ),
         });
       },

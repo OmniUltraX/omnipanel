@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "displayName": "WorkBuddy",
   "kind": "agent",
+  "runtime": "sidecar",
   "platforms": ["windows"],
-  "permissions": [],
+  "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/omnipanel-agent-workbuddy"
+  },
   "methods": [
     { "name": "status", "permissions": [] },
     { "name": "catalog", "permissions": [] },

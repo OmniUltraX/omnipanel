@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "displayName": "Cursor",
   "kind": "agent",
+  "runtime": "sidecar",
   "platforms": ["windows", "macos", "linux"],
-  "permissions": [],
+  "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/omnipanel-agent-cursor"
+  },
   "methods": [
     { "name": "status", "permissions": [] },
     { "name": "catalog", "permissions": [] },
