@@ -22,6 +22,7 @@ members = [
     "crates/omnipanel-agent-proto",
     "crates/omnipanel-agent-session",
     "plugins/agent-cursor/src-agent",
+    "plugins/agent-trae/src-agent",
     "plugins/agent-workbuddy/src-agent",
     "crates/omnipanel-mcp",
     "crates/omnipanel-gateway",

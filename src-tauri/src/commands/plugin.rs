@@ -92,6 +92,18 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
         "cursor",
         "Cursor",
     );
+    register_agent_source_handlers(
+        gateway,
+        omnipanel_plugin::PLUGIN_ID_AGENT_TRAE,
+        "trae",
+        "Trae",
+    );
+    register_agent_source_handlers(
+        gateway,
+        omnipanel_plugin::PLUGIN_ID_AGENT_TRAE_GLOBAL,
+        "trae-global",
+        "Trae 国际版",
+    );
 }
 
 fn register_agent_source_handlers(

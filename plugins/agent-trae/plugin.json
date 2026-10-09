@@ -1,0 +1,29 @@
+{
+  "id": "omni.agent.trae",
+  "version": "0.1.0",
+  "displayName": "Trae",
+  "kind": "agent",
+  "runtime": "sidecar",
+  "platforms": ["windows", "macos", "linux"],
+  "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/omnipanel-agent-trae"
+  },
+  "methods": [
+    { "name": "status", "permissions": [] },
+    { "name": "catalog", "permissions": [] },
+    { "name": "complete", "permissions": [] }
+  ],
+  "contributes": {
+    "agentSources": [
+      {
+        "id": "trae",
+        "title": "Trae",
+        "hint": "读取本机 Trae 国内版登录。模型进入对话选择器；刷新时自动领取当日签到积分。对话、工具与审批留在 OmniPanel。",
+        "statusMethod": "status",
+        "catalogMethod": "catalog",
+        "completeMethod": "complete"
+      }
+    ]
+  }
+}

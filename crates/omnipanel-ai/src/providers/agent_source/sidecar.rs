@@ -194,6 +194,7 @@ impl SharedSession {
 enum ProgramKind {
     Official {
         bin_name: &'static str,
+        package_name: &'static str,
         plugin_dir: &'static str,
         driver: &'static str,
         env_var: &'static str,
@@ -216,6 +217,7 @@ impl SidecarSource {
         id: &'static str,
         title: &'static str,
         bin_name: &'static str,
+        package_name: &'static str,
         plugin_dir: &'static str,
         driver: &'static str,
         env_var: &'static str,
@@ -227,6 +229,7 @@ impl SidecarSource {
             origin,
             program: ProgramKind::Official {
                 bin_name,
+                package_name,
                 plugin_dir,
                 driver,
                 env_var,
@@ -242,6 +245,7 @@ impl SidecarSource {
             "workbuddy",
             "WorkBuddy",
             "omnipanel-agent-workbuddy",
+            "omnipanel-agent-workbuddy",
             "agent-workbuddy",
             "bin/omnipanel-agent-workbuddy",
             "OMNIPANEL_AGENT_WORKBUDDY_BIN",
@@ -254,10 +258,37 @@ impl SidecarSource {
             "cursor",
             "Cursor",
             "omnipanel-agent-cursor",
+            "omnipanel-agent-cursor",
             "agent-cursor",
             "bin/omnipanel-agent-cursor",
             "OMNIPANEL_AGENT_CURSOR_BIN",
             "https://agentn.global.api5.cursor.sh",
+        )
+    }
+
+    pub fn trae() -> Self {
+        Self::official(
+            "trae",
+            "Trae",
+            "omnipanel-agent-trae",
+            "omnipanel-agent-trae",
+            "agent-trae",
+            "bin/omnipanel-agent-trae",
+            "OMNIPANEL_AGENT_TRAE_BIN",
+            "https://trae-api-cn.mchost.guru",
+        )
+    }
+
+    pub fn trae_global() -> Self {
+        Self::official(
+            "trae-global",
+            "Trae 国际版",
+            "omnipanel-agent-trae-global",
+            "omnipanel-agent-trae",
+            "agent-trae-global",
+            "bin/omnipanel-agent-trae-global",
+            "OMNIPANEL_AGENT_TRAE_GLOBAL_BIN",
+            "https://coresg-normal.trae.ai",
         )
     }
 
@@ -289,10 +320,18 @@ impl SidecarSource {
             }
             ProgramKind::Official {
                 bin_name,
+                package_name,
                 plugin_dir,
                 driver,
                 env_var,
-            } => resolve_official(*bin_name, *plugin_dir, *driver, *env_var, &self.title),
+            } => resolve_official(
+                *bin_name,
+                *package_name,
+                *plugin_dir,
+                *driver,
+                *env_var,
+                &self.title,
+            ),
         }
     }
 
@@ -495,6 +534,7 @@ pub fn sync_installed_agent_sidecars(installed: Vec<InstalledAgentSidecar>) {
 
 fn resolve_official(
     bin_name: &str,
+    package_name: &str,
     plugin_dir: &str,
     driver: &str,
     env_var: &str,
@@ -515,7 +555,7 @@ fn resolve_official(
         missing.push(candidate.display().to_string());
     }
     Err(format!(
-        "未找到 {title} sidecar。请先 cargo build -p {bin_name}。已查找：{}",
+        "未找到 {title} sidecar。请先 cargo build -p {package_name}。已查找：{}",
         missing.join("; ")
     ))
 }

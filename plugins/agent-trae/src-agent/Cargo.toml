@@ -1,0 +1,28 @@
+[package]
+name = "omnipanel-agent-trae"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aes = "0.8"
+anyhow.workspace = true
+async-trait.workspace = true
+base64 = "0.22"
+cbc = { version = "0.1", features = ["alloc"] }
+futures = "0.3"
+omnipanel-agent-session = { path = "../../../crates/omnipanel-agent-session" }
+omnipanel-ai = { path = "../../../crates/omnipanel-ai" }
+omnipanel-store = { path = "../../../crates/omnipanel-store" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tokio.workspace = true
+
+[[bin]]
+name = "omnipanel-agent-trae"
+path = "src/bin/cn.rs"
+
+[[bin]]
+name = "omnipanel-agent-trae-global"
+path = "src/bin/global.rs"

@@ -11,7 +11,7 @@
 `crates/omnipanel-ai/src/providers/agent_source/sidecar.rs`（宿主拉起与事件翻译）。
 本文是面向第三方的人话版；冲突时以 Rust 单源为准。
 
-官方示例是 `plugins/agent-cursor` 与 `plugins/agent-workbuddy`。可跑的最小样板是 `plugins-samples/agent-echo`。
+官方示例是 `plugins/agent-cursor`、`plugins/agent-workbuddy` 与 `plugins/agent-trae`（国内版 / 国际版两个二进制）。可跑的最小样板是 `plugins-samples/agent-echo`。
 
 ## 和 logic.js / WASM 的关系
 
@@ -120,16 +120,16 @@ Windows 上如果 driver 没有后缀，宿主还会再试同名 `.exe`。
 
 官方 Cursor / WorkBuddy 不在「已安装插件」目录里。开发时宿主按这个顺序找二进制：
 
-1. `OMNIPANEL_AGENT_CURSOR_BIN` / `OMNIPANEL_AGENT_WORKBUDDY_BIN`
+1. `OMNIPANEL_AGENT_CURSOR_BIN` / `OMNIPANEL_AGENT_WORKBUDDY_BIN` / `OMNIPANEL_AGENT_TRAE_BIN` / `OMNIPANEL_AGENT_TRAE_GLOBAL_BIN`
 2. 正在运行的 `omnipanel-app` 同目录
 3. 仓库 `plugins/agent-*/<entry.driver>`（Windows 会补 `.exe`）
 4. 仓库 `target/debug`，其次 `target/release`（若当前程序路径里有 `release` 则反过来）
 
 ```bash
-cargo build -p omnipanel-agent-cursor -p omnipanel-agent-workbuddy
+cargo build -p omnipanel-agent-cursor -p omnipanel-agent-workbuddy -p omnipanel-agent-trae
 ```
 
-产物是 `target/debug/omnipanel-agent-cursor.exe` 与 `target/debug/omnipanel-agent-workbuddy.exe`（Windows）。
+产物是 `target/debug/omnipanel-agent-cursor.exe`、`target/debug/omnipanel-agent-workbuddy.exe`，以及 Trae 的 `omnipanel-agent-trae.exe`（国内）和 `omnipanel-agent-trae-global.exe`（国际版）。Windows 下带 `.exe`。
 桌面开发版就在旁边，设置里刷新即可，不用先拷进 `bin/`。
 
 发给别人的包把对应平台的二进制放进 `bin/`，`entry.driver` 指过去。每个平台打自己的包。
@@ -158,4 +158,4 @@ node scripts/check-agent-sidecar.mjs plugins-custom/<name>/bin/agent.mjs --sourc
 ```
 
 脚手架给出的 `bin/agent.mjs` 会回一条假目录和一句假正文。换成真实上游后再打包。
-Rust 官方示例的进程入口在 `plugins/agent-cursor/src-agent` 与 `plugins/agent-workbuddy/src-agent`，服务端循环可以复用 `omnipanel-agent-session::serve`。
+Rust 官方示例的进程入口在 `plugins/agent-cursor/src-agent`、`plugins/agent-workbuddy/src-agent` 与 `plugins/agent-trae/src-agent`，服务端循环可以复用 `omnipanel-agent-session::serve`。

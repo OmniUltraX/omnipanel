@@ -5563,6 +5563,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-agent-trae"
+version = "0.0.5"
+dependencies = [
+ "aes",
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "cbc",
+ "futures",
+ "omnipanel-agent-session",
+ "omnipanel-ai",
+ "omnipanel-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
+
+[[package]]
 name = "omnipanel-agent-workbuddy"
 version = "0.0.5"
 dependencies = [

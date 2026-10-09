@@ -1,0 +1,29 @@
+{
+  "id": "omni.agent.trae-global",
+  "version": "0.1.0",
+  "displayName": "Trae 国际版",
+  "kind": "agent",
+  "runtime": "sidecar",
+  "platforms": ["windows", "macos", "linux"],
+  "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/omnipanel-agent-trae-global"
+  },
+  "methods": [
+    { "name": "status", "permissions": [] },
+    { "name": "catalog", "permissions": [] },
+    { "name": "complete", "permissions": [] }
+  ],
+  "contributes": {
+    "agentSources": [
+      {
+        "id": "trae-global",
+        "title": "Trae 国际版",
+        "hint": "读取本机 Trae 国际版登录。模型进入对话选择器。对话、工具与审批留在 OmniPanel。",
+        "statusMethod": "status",
+        "catalogMethod": "catalog",
+        "completeMethod": "complete"
+      }
+    ]
+  }
+}
