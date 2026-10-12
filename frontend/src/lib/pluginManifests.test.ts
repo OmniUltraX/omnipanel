@@ -43,8 +43,8 @@ function withInstalledClouds(run: () => void) {
 describe("pluginManifests 单源目录", () => {
   it("解析全部第一方清单且 id 唯一", () => {
     const ids = FIRST_PARTY_PLUGIN_MANIFESTS.map((m) => m.id);
-    expect(ids).toHaveLength(14);
-    expect(new Set(ids).size).toBe(14);
+    expect(ids).toHaveLength(18);
+    expect(new Set(ids).size).toBe(18);
     expect(ids).not.toContain("omni.module.nacos");
     expect(ids).not.toContain("omni.cloud.aliyun");
   });
@@ -65,6 +65,12 @@ describe("pluginManifests 单源目录", () => {
     expect(listPluginManifests("cloud")).toHaveLength(0);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(1);
+    expect(listPluginManifests("agent").map((m) => m.id)).toEqual([
+      "omni.agent.cursor",
+      "omni.agent.trae",
+      "omni.agent.trae-global",
+      "omni.agent.workbuddy",
+    ]);
     expect(listPluginManifests("importer")).toHaveLength(1);
   });
 

@@ -32,6 +32,10 @@ RUN apt-get update \
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+# workspace 成员：只拷 sidecar 源码，避免把云插件 submodule 带进 Rust 层
+COPY plugins/agent-cursor/src-agent ./plugins/agent-cursor/src-agent
+COPY plugins/agent-trae/src-agent ./plugins/agent-trae/src-agent
+COPY plugins/agent-workbuddy/src-agent ./plugins/agent-workbuddy/src-agent
 COPY src-tauri/Cargo.toml ./src-tauri/Cargo.toml
 # workspace member 占位，避免拉取完整 Tauri 源码层
 RUN mkdir -p src-tauri/src \

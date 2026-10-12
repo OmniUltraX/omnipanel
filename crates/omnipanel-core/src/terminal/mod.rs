@@ -252,9 +252,7 @@ fn resolve_shell(spec: Option<&ShellSpec>) -> (String, ShellKind) {
 
 fn term_needs_default(term: &str) -> bool {
     let term = term.trim();
-    term.is_empty()
-        || term.eq_ignore_ascii_case("dumb")
-        || term.eq_ignore_ascii_case("unknown")
+    term.is_empty() || term.eq_ignore_ascii_case("dumb") || term.eq_ignore_ascii_case("unknown")
 }
 
 fn ensure_interactive_term(cmd: &mut CommandBuilder, env_vars: &[(String, String)]) {

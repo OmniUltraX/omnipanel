@@ -346,7 +346,6 @@ pub struct HttpProviderRecord {
     pub created_at: i64,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvidersFile {

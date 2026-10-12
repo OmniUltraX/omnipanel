@@ -111,11 +111,11 @@ pub use knowledge_vector::{
 pub use ks_sync::{KsFileState, KsSourceConfig};
 pub use paths::default_file_index_storage_dir;
 pub use paths::{
-    ai_config_dir, ai_providers_path, database_connections_path,
-    database_host_resolve_cache_path, database_schema_cache_path, database_schema_filters_path,
-    database_schema_tree_expanded_path, docker_sidebar_cache_path, http_proxy_config_path,
-    knowledge_assets_root, knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir,
-    omnipd_root, prompts_root, skills_root, web_search_config_path,
+    ai_config_dir, ai_providers_path, database_connections_path, database_host_resolve_cache_path,
+    database_schema_cache_path, database_schema_filters_path, database_schema_tree_expanded_path,
+    docker_sidebar_cache_path, http_proxy_config_path, knowledge_assets_root,
+    knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir, omnipd_root,
+    prompts_root, skills_root, web_search_config_path,
 };
 pub use resource_profile::{ResourceObservation, ResourceProfileSummary};
 pub use schema_cache::{

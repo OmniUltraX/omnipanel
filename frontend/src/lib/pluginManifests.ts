@@ -4,6 +4,10 @@ import {
   type PluginManifest,
 } from "@omnipanel/plugin-sdk";
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
+import agentCursorJson from "../../../plugins/agent-cursor/plugin.json";
+import agentTraeJson from "../../../plugins/agent-trae/plugin.json";
+import agentTraeGlobalJson from "../../../plugins/agent-trae-global/plugin.json";
+import agentWorkbuddyJson from "../../../plugins/agent-workbuddy/plugin.json";
 import dbClickhouseJson from "../../../plugins/db-clickhouse/plugin.json";
 import dbMongodbJson from "../../../plugins/db-mongodb/plugin.json";
 import dbMysqlJson from "../../../plugins/db-mysql/plugin.json";
@@ -26,6 +30,10 @@ import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
  */
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
+  parsePluginManifest(agentCursorJson),
+  parsePluginManifest(agentTraeJson),
+  parsePluginManifest(agentTraeGlobalJson),
+  parsePluginManifest(agentWorkbuddyJson),
   parsePluginManifest(dbClickhouseJson),
   parsePluginManifest(dbMongodbJson),
   parsePluginManifest(dbMysqlJson),

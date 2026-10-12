@@ -56,6 +56,62 @@
       ]
     },
     {
+      "id": "omni.agent.cursor",
+      "kind": "agent",
+      "name": "Cursor",
+      "description": "Read the local Cursor desktop login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.agent.trae",
+      "kind": "agent",
+      "name": "Trae",
+      "description": "Read the local Trae (China) login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.agent.trae-global",
+      "kind": "agent",
+      "name": "Trae International",
+      "description": "Read the local Trae international login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.agent.workbuddy",
+      "kind": "agent",
+      "name": "WorkBuddy",
+      "description": "Read the local WorkBuddy desktop login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
       "id": "omni.cloud.aliyun",
       "kind": "cloud",
       "name": "Alibaba Cloud",

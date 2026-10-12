@@ -209,7 +209,6 @@ impl GatewayRouter {
             .body(body)
             .unwrap())
     }
-
 }
 
 /// Parse OpenAI-format messages into `ChatMessage`s, preserving `tool_calls`,
@@ -282,7 +281,6 @@ fn extract_message_content(item: &serde_json::Value) -> String {
         Some(other) => other.to_string(),
     }
 }
-
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()

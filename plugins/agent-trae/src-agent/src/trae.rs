@@ -2207,7 +2207,11 @@ mod tests {
             "event: output\ndata: {\"tool_calls\":[{\"id\":\"c1\",\"function_call\":{\"arguments\":\"command\\\":\\\"Get-Date\\\"}\"}}]}\n\n",
         );
         match second.as_slice() {
-            [StreamEvent::ToolCall { name, arguments, .. }] => {
+            [
+                StreamEvent::ToolCall {
+                    name, arguments, ..
+                },
+            ] => {
                 assert_eq!(name, "omni_terminal_exec");
                 assert_eq!(arguments, "{\"command\":\"Get-Date\"}");
             }

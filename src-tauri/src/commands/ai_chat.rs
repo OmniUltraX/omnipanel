@@ -317,7 +317,6 @@ impl TryFrom<InternalChatRequestDto> for InternalChatRequest {
     }
 }
 
-
 /// 构建知识库 RAG 自动注入文本。
 ///
 /// 流程：
@@ -704,7 +703,6 @@ pub async fn ai_list_backends(state: State<'_, AppState>) -> Result<Vec<BackendI
         }
     }
     drop(registry);
-
 
     Ok(backends)
 }

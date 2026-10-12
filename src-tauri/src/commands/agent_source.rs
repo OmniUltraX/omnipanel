@@ -117,7 +117,8 @@ pub async fn open_agent_provider(
     source_id: &str,
     model_id: &str,
 ) -> Result<Option<Box<dyn omnipanel_ai::AiProvider>>, String> {
-    let proxy = serde_json::to_value(&*state.proxy_config.lock().await).map_err(|e| e.to_string())?;
+    let proxy =
+        serde_json::to_value(&*state.proxy_config.lock().await).map_err(|e| e.to_string())?;
     let source_id = source_id.to_string();
     let model_id = model_id.to_string();
     tokio::task::spawn_blocking(move || {
