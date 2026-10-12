@@ -336,7 +336,7 @@ export function CloudPanel() {
         leftColumnTitle={t("shell.nav.cloud")}
         leftPreset="server"
         tagModuleKey="cloud"
-        leftHeaderActions={<ModuleLeftHeaderActions moduleKey="cloud" />}
+        leftHeaderActions={<ModuleLeftHeaderActions />}
         leftSidebar={
           <VerticalSplitSidebar className="server-panel-sidebar">
             <ScopedSearch

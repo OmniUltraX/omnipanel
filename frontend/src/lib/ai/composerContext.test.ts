@@ -28,15 +28,14 @@ describe("resolveFocusModuleKey", () => {
 describe("parseModuleContextChipLabel", () => {
   it("parses Chinese module context sections", () => {
     const text = ["## SSH 主机上下文", "- 主机：p8", "- 地址：root@1.2.3.4"].join("\n");
-    expect(parseModuleContextChipLabel(text)).toBe("SSH 主机上下文 · p8 · root@1.2.3.4");
+    expect(parseModuleContextChipLabel(text)).toBe("SSH · p8 · root@1.2.3.4");
   });
 
   it("parses database context", () => {
     const text = ["## 数据库模块上下文", "- 连接名称：local-mysql", "- 当前数据库：app"].join(
       "\n",
     );
-    expect(parseModuleContextChipLabel(text)).toContain("数据库");
-    expect(parseModuleContextChipLabel(text)).toContain("local-mysql");
+    expect(parseModuleContextChipLabel(text)).toBe("数据库 · local-mysql · app");
   });
 });
 

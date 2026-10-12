@@ -65,7 +65,7 @@ export default {
         "Scan with the mini program (same WeChat account) to receive this organization's sync key. Scan again per organization.",
     },
     topbar: {
-      aiAssistant: "AI Assistant ({shortcut})",
+      aiAssistant: "AI assistant, click again to collapse ({shortcut})",
       notifications: "Notifications",
       commandPalette: "Command Palette (Ctrl+K)",
       minimize: "Minimize",

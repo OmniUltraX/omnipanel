@@ -23,18 +23,16 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
   return (
     <Modal open onClose={onCancel}>
       <div className="bg-bg-deeper border border-border rounded-lg shadow-2xl w-[480px] max-w-[90vw]">
-        {/* Header */}
-        <div className={`flex items-center gap-3 px-4 py-3 border-b border-border rounded-t-lg ${style.bg}`}>
-          <div className={`w-8 h-8 rounded-full border-2 ${style.border} flex items-center justify-center text-sm font-bold text-danger`}>
+        <div className={`flex min-h-10 items-center gap-2 px-4 ${style.bg}`}>
+          <div className={`size-7 rounded-full border ${style.border} flex items-center justify-center text-[13px] font-medium text-danger`}>
             {style.icon}
           </div>
           <div>
-            <div className="text-sm font-medium text-fg">{style.title}</div>
+            <div className="text-[13px] font-semibold leading-tight text-fg">{style.title}</div>
             <div className="text-xs text-muted capitalize">风险等级：{result.level}</div>
           </div>
         </div>
 
-        {/* Command */}
         <div className="px-4 py-3">
           <div className="text-xs text-meta mb-1">操作内容：</div>
           <pre className="bg-bg rounded-md px-3 py-2 text-sm text-fg font-mono overflow-x-auto break-all">
@@ -54,7 +52,7 @@ export function DangerConfirmDialog({ command, result, onConfirm, onCancel }: Pr
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
+        <div className="modal-footer justify-end">
           <WorkbenchActionButton onClick={onCancel}>
             取消
           </WorkbenchActionButton>

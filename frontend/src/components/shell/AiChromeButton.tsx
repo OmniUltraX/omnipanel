@@ -1,9 +1,10 @@
 import { useAiStore } from "../../stores/aiStore";
 import { useI18n } from "../../i18n";
 import { formatModShortcut } from "../../lib/platform";
+import { focusAiComposer } from "../../lib/ai/attachCurrentSelection";
 import { IconSparkles } from "../ui/icons/Icons";
 
-/** 主窗顶栏 / 模块窗右上角共用的 AI 助手入口 */
+/** 主窗顶栏 / 模块窗右上角：打开或收起 AI。现场上下文由输入框自动带上。 */
 export function AiChromeButton() {
   const { t } = useI18n();
   const drawerOpen = useAiStore((s) => s.drawerOpen);
@@ -19,7 +20,13 @@ export function AiChromeButton() {
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        useAiStore.getState().toggleDrawer();
+        const store = useAiStore.getState();
+        if (store.drawerOpen) {
+          store.closeDrawer();
+          return;
+        }
+        store.openDrawer();
+        focusAiComposer();
       }}
     >
       <IconSparkles size={14} />

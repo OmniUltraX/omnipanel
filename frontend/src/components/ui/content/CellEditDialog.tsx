@@ -1,6 +1,5 @@
 import type { FormEvent, ReactNode } from "react";
 import { Modal } from "../overlay/Modal";
-import { Button } from "../primitives/Button";
 import { WorkbenchActionButton } from "../primitives/WorkbenchActionButton";
 import { useI18n } from "../../../i18n";
 
@@ -49,22 +48,22 @@ export function CellEditDialog({
   const dialogClass = ["modal-dialog", "cell-edit-dialog", className].filter(Boolean).join(" ");
 
   return (
-    <Modal open={open} onClose={onCancel}>
+    <Modal open={open} onClose={onCancel} dismissOnOverlay={false}>
       <form className={dialogClass} onSubmit={handleSubmit} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="cell-edit-dialog__heading">
             <h3>{title}</h3>
           </div>
-          <Button
+          <WorkbenchActionButton
+            icon
             type="button"
-            variant="icon"
             onClick={onCancel}
             aria-label={t("shell.topbar.close")}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden>
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
-          </Button>
+          </WorkbenchActionButton>
         </div>
 
         {meta}
@@ -72,10 +71,10 @@ export function CellEditDialog({
         <div className="modal-body cell-edit-dialog__body">{children}</div>
 
         <div className="modal-footer">
+          <div className="modal-footer-spacer" />
           <WorkbenchActionButton onClick={onCancel}>
             {cancelLabel ?? t("common.cancel")}
           </WorkbenchActionButton>
-          <div className="modal-footer-spacer" />
           <WorkbenchActionButton type="submit" disabled={confirmDisabled}>
             {confirmLabel ?? t("common.confirm")}
           </WorkbenchActionButton>

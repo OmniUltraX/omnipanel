@@ -63,7 +63,7 @@ export default {
       teamKeyHint: "用已登录同一账号的小程序扫码，接收当前组织的同步密钥（可对多个组织分别扫码）",
     },
     topbar: {
-      aiAssistant: "AI 助手 ({shortcut})",
+      aiAssistant: "AI 助手，再点收起 ({shortcut})",
       notifications: "通知",
       commandPalette: "命令面板 (Ctrl+K)",
       minimize: "最小化",

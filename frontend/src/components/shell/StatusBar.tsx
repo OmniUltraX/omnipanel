@@ -23,7 +23,7 @@ import { StatusBarLocalRuntimeIndicator } from "./StatusBarLocalRuntimeIndicator
 import { StatusBarActionBar } from "./StatusBarActionBar";
 import { StatusBarInfoBar } from "./StatusBarInfoBar";
 import { useActionDraftStore } from "../../stores/actionDraftStore";
-import { Button } from "../ui/primitives/Button";
+import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import {
   Dialog,
   DialogContent,
@@ -228,12 +228,12 @@ function StatusBarModuleLog() {
           </DialogHeader>
           <pre className="statusbar-log-detail-body">{logEntry.message}</pre>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => void handleCopy()}>
+            <WorkbenchActionButton type="button" onClick={() => void handleCopy()}>
               {copied ? t("common.copied") : t("common.copy")}
-            </Button>
-            <Button type="button" onClick={() => setDetailOpen(false)}>
+            </WorkbenchActionButton>
+            <WorkbenchActionButton type="button" onClick={() => setDetailOpen(false)}>
               {t("common.close")}
-            </Button>
+            </WorkbenchActionButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

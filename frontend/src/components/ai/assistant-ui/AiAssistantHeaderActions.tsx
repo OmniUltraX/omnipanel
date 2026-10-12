@@ -9,18 +9,14 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { useLocation } from "react-router-dom";
 import { PanelRightCloseIcon } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { clampMenuPosition } from "../../../lib/contextMenuPosition";
 import { useI18n } from "../../../i18n";
-import { isPluginsPath } from "../../../lib/paths";
 import { useUiFollowStore } from "../../../lib/ai/uiFollow";
+import { focusAiComposer } from "../../../lib/ai/attachCurrentSelection";
 import { useAiStore } from "../../../stores/aiStore";
-import {
-  useSettingsStore,
-  type AiDisplayMode,
-} from "../../../stores/settingsStore";
+import { useAiComposerContextStore } from "../../../stores/aiComposerContextStore";
 import { AiConversationList } from "./AiConversationList";
 import { AiConversationTitle } from "./AiConversationTitle";
 import { useAiDockOpen } from "../../../lib/ai/useAiDockOpen";
@@ -42,40 +38,6 @@ function ChevronIcon() {
   );
 }
 
-function PopoutIcon() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      aria-hidden
-    >
-      <rect x="2" y="2" width="9" height="9" rx="1" />
-      <path d="M5 11v2.5A1.5 1.5 0 0 0 6.5 15H12a1 1 0 0 0 1-1V8.5A1.5 1.5 0 0 0 11.5 7H11" />
-    </svg>
-  );
-}
-
-function DockIcon() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      aria-hidden
-    >
-      <rect x="2" y="2" width="12" height="12" rx="1" />
-      <path d="M11 2v12" />
-    </svg>
-  );
-}
-
 function PlusIcon() {
   return (
     <svg
@@ -92,10 +54,6 @@ function PlusIcon() {
       <path d="M5 12h14" />
     </svg>
   );
-}
-
-function toggleAiDisplayMode(mode: AiDisplayMode): AiDisplayMode {
-  return mode === "dockview" ? "subwindow" : "dockview";
 }
 
 function useToolbarDropdown(menuMinWidth: number) {
@@ -297,34 +255,29 @@ export function AiFollowToggle() {
   );
 }
 
-/** Dock 边栏 ↔ 居中弹窗 */
-export function AiDisplayModeToggle() {
+/** 新建会话并聚焦输入框。当前现场由上下文条自动展示，不再另挂一颗芯片。 */
+export function AiNewConversationButton() {
   const { t } = useI18n();
-  const location = useLocation();
-  const mode = useSettingsStore((s) => s.aiDisplayMode);
-  const setAiDisplayMode = useSettingsStore((s) => s.setAiDisplayMode);
-  const openDrawer = useAiStore((s) => s.openDrawer);
-
-  if (isPluginsPath(location.pathname)) return null;
-
-  const label =
-    mode === "dockview"
-      ? t("ai.displayMode.toSubwindow")
-      : t("ai.displayMode.toDock");
+  const isGenerating = useAiStore((s) => s.isGenerating);
+  const createConversation = useAiStore((s) => s.createConversation);
+  const label = t("ai.conversations.new");
 
   return (
     <Button
       variant="ghost"
       size="sm"
       className="ai-toolbar-btn ai-toolbar-btn--icon"
+      type="button"
       title={label}
       aria-label={label}
+      disabled={isGenerating}
       onClick={() => {
-        setAiDisplayMode(toggleAiDisplayMode(mode));
-        openDrawer();
+        createConversation();
+        useAiComposerContextStore.getState().clear();
+        focusAiComposer();
       }}
     >
-      {mode === "dockview" ? <PopoutIcon /> : <DockIcon />}
+      <PlusIcon />
     </Button>
   );
 }
@@ -360,13 +313,13 @@ export function AiDrawerCollapseButton() {
   );
 }
 
-/** 右侧轻量操作：收起 / 跟随 / 显示模式 */
+/** 右侧轻量操作：收起 / 跟随 / 新建会话 */
 export function AiPanelToolbarActions() {
   return (
     <div className="ai-panel-toolbar-actions" role="toolbar" aria-label="AI">
-      <AiDrawerCollapseButton />
+      <AiNewConversationButton />
       <AiFollowToggle />
-      <AiDisplayModeToggle />
+      <AiDrawerCollapseButton />
     </div>
   );
 }

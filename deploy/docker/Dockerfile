@@ -32,10 +32,29 @@ RUN apt-get update \
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-# workspace 成员：只拷 sidecar 源码，避免把云插件 submodule 带进 Rust 层
+# workspace 成员 sidecar，以及编译期 include_str! 的第一方清单。
+# 云厂商 / Warpgate 是 submodule，运行时读盘，不进这一层。
 COPY plugins/agent-cursor/src-agent ./plugins/agent-cursor/src-agent
+COPY plugins/agent-cursor/plugin.json ./plugins/agent-cursor/plugin.json
 COPY plugins/agent-trae/src-agent ./plugins/agent-trae/src-agent
+COPY plugins/agent-trae/plugin.json ./plugins/agent-trae/plugin.json
+COPY plugins/agent-trae-global/plugin.json ./plugins/agent-trae-global/plugin.json
 COPY plugins/agent-workbuddy/src-agent ./plugins/agent-workbuddy/src-agent
+COPY plugins/agent-workbuddy/plugin.json ./plugins/agent-workbuddy/plugin.json
+COPY plugins/theme-default/plugin.json plugins/theme-default/tokens.json ./plugins/theme-default/
+COPY plugins/addon-everything/plugin.json ./plugins/addon-everything/plugin.json
+COPY plugins/panel-1panel/plugin.json ./plugins/panel-1panel/plugin.json
+COPY plugins/panel-bt/plugin.json ./plugins/panel-bt/plugin.json
+COPY plugins/panel-hestia/plugin.json plugins/panel-hestia/logic.js ./plugins/panel-hestia/
+COPY plugins/db-qdrant/plugin.json ./plugins/db-qdrant/plugin.json
+COPY plugins/db-clickhouse/plugin.json ./plugins/db-clickhouse/plugin.json
+COPY plugins/db-mongodb/plugin.json ./plugins/db-mongodb/plugin.json
+COPY plugins/db-mysql/plugin.json ./plugins/db-mysql/plugin.json
+COPY plugins/db-postgres/plugin.json ./plugins/db-postgres/plugin.json
+COPY plugins/db-redis/plugin.json ./plugins/db-redis/plugin.json
+COPY plugins/db-sqlite/plugin.json ./plugins/db-sqlite/plugin.json
+COPY plugins/db-sqlserver/plugin.json ./plugins/db-sqlserver/plugin.json
+COPY plugins/importer-docker-db/plugin.json plugins/importer-docker-db/icon.svg ./plugins/importer-docker-db/
 COPY src-tauri/Cargo.toml ./src-tauri/Cargo.toml
 # workspace member 占位，避免拉取完整 Tauri 源码层
 RUN mkdir -p src-tauri/src \
