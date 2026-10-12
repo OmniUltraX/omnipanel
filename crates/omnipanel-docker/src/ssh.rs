@@ -649,7 +649,7 @@ pub async fn create_exec(
     rows: u16,
 ) -> OmniResult<(DockerExecSession, DockerExecOutput)> {
     let cmd_interactive = format!(
-        "docker exec -it {} {}",
+        "docker exec -it -e TERM=xterm-256color {} {}",
         shell_quote(container_id),
         shell_quote(shell)
     );

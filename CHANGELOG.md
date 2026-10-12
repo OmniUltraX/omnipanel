@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.8.42] - 2026-10-12
+
+### 修复
+
+- **终端**：窗口、字体或面板恢复后把新行列同步给 PTY。`top` 不再把表头顶出视口，刷新不再把滚动条越拉越长
+- **终端**：本地 PTY 在 `TERM` 为空、`dumb` 或 `unknown` 时设为 `xterm-256color`，从图形界面启动时 `vim`、`top`、`less` 可以全屏操作；已有 `TERM` 不覆盖
+- **Docker · 终端**：容器 exec、宿主机 shell、本地 Docker shell 同样同步行列；交互 exec 带上 `TERM=xterm-256color`
+- **终端 · Shell Agent**：ConPTY 缩放后的整屏重绘不再堆到卡片下面；卡片宽度跟当前列数，不再用旧列数乘新格子宽
+
 ## [0.8.41] - 2026-09-24
 
 ### 修复

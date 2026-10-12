@@ -772,12 +772,18 @@ function bindDecorationViewportClip(
   const apply = (el: HTMLElement) => {
     try {
       const buf = term.buffer?.active;
+      const rowCount = Math.max(1, rows);
+      // xterm 在 onRender 前刚按自己的 cell 高度写过 inline height。
+      // resize 当下 getBoundingClientRect 还是旧视口，用它会把 top/height 改歪。
+      const styledH = Number.parseFloat(el.style.height);
+      const cellHeight =
+        styledH > 0 ? styledH / rowCount : terminalCellHeightPx(term);
       clipShellAgentDecorationToViewport({
         viewportY: buf?.viewportY ?? 0,
         viewportRows: term.rows || 24,
         markerLine: decoration.marker?.line ?? -1,
         rows,
-        cellHeight: terminalCellHeightPx(term),
+        cellHeight,
         el,
       });
     } catch {
@@ -1504,35 +1510,59 @@ export function clearShellAgentGeometry(sessionId: string): void {
   emit(sessionId);
 }
 
-/** resize 后按新 cols 重注册 decoration 宽度（marker 不动）；先挂新再卸旧 */
+/**
+ * xterm 把 decoration 宽度记成注册时的列数，resize 后仍用旧列数 × 新 cell 宽。
+ * 公开类型把 width 标成只读，但运行时 options 就是当初传入的对象，渲染每帧都读它。
+ * 原地改宽度；重注册会在拖拽缩放时堆出一串未卸的卡，历史冻结卡还会丢掉快照。
+ */
+function readTerminalCellWidthPx(term: Terminal): number {
+  const screen = term.element?.querySelector(".xterm-screen");
+  if (!(screen instanceof HTMLElement) || term.cols <= 0) return 0;
+  const styled = Number.parseFloat(screen.style.width);
+  const width =
+    Number.isFinite(styled) && styled > 0
+      ? styled
+      : screen.getBoundingClientRect().width;
+  if (!Number.isFinite(width) || width <= 0) return 0;
+  return width / term.cols;
+}
+
+function paintDecorationFullWidth(
+  decoration: IDecoration,
+  cols: number,
+  cellWidth: number,
+): void {
+  const opts = decoration.options as { width?: number };
+  opts.width = cols;
+  const el = decoration.element;
+  if (!el || cellWidth <= 0) return;
+  el.style.width = `${Math.round(cols * cellWidth)}px`;
+}
+
+/** resize 后把活卡和已归档卡的 decoration 拉到当前列宽（marker / 行数不动） */
 export function relayoutShellAgentCard(sessionId: string): void {
-  const prev = geometries.get(sessionId);
-  if (!prev || prev.mode !== "inline" || !prev.cardKind) return;
   const term = getXterm(sessionId);
-  const marker = prev.marker;
-  if (!term || !marker || marker.isDisposed) {
-    if (prev.cardKind === "cmd" || prev.cardKind === "ask") {
-      failToDetached(sessionId, prev.cardKind, prev);
-    } else {
-      detachActiveShellAgentGeometry(sessionId);
+  if (!term) return;
+  const cols = Math.max(1, term.cols);
+  const cellWidth = readTerminalCellWidthPx(term);
+
+  const prev = geometries.get(sessionId);
+  if (prev?.mode === "inline" && prev.cardKind) {
+    const marker = prev.marker;
+    if (!marker || marker.isDisposed) {
+      if (prev.cardKind === "cmd" || prev.cardKind === "ask") {
+        failToDetached(sessionId, prev.cardKind, prev);
+      } else {
+        detachActiveShellAgentGeometry(sessionId);
+      }
+    } else if (prev.decoration) {
+      paintDecorationFullWidth(prev.decoration, cols, cellWidth);
     }
-    return;
   }
 
-  const oldDecoration = prev.decoration;
-  const decoration = registerCardDecoration(term, marker, prev.rows, prev.promptIndentCols);
-  if (!decoration) return;
-
-  setGeometry(sessionId, { ...prev, decoration, version: prev.version + 1 });
-
-  if (oldDecoration && oldDecoration !== decoration) {
-    whenDecorationPortalIdle(oldDecoration, () => {
-      try {
-        oldDecoration.dispose();
-      } catch {
-        // ignore
-      }
-    });
+  for (const archived of archivedBySession.get(sessionId) ?? []) {
+    if (!archived.marker || archived.marker.isDisposed) continue;
+    paintDecorationFullWidth(archived.decoration, cols, cellWidth);
   }
 }
 

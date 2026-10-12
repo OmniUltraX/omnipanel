@@ -51,6 +51,9 @@ impl Terminal {
         for (key, value) in &config.env_vars {
             cmd.env(key, value);
         }
+        // 从访达 / Dock 启动时经常没有 TERM。vim、top、less 会落到 dumb，
+        // 进得去但没有全屏和按键。调用方显式传入的 TERM 不覆盖。
+        ensure_interactive_term(&mut cmd, &config.env_vars);
 
         // Inject shell integration script
         match shell_kind {
@@ -245,6 +248,24 @@ fn resolve_shell(spec: Option<&ShellSpec>) -> (String, ShellKind) {
         return (default_prog.to_string(), kind);
     }
     detect_shell()
+}
+
+fn term_needs_default(term: &str) -> bool {
+    let term = term.trim();
+    term.is_empty()
+        || term.eq_ignore_ascii_case("dumb")
+        || term.eq_ignore_ascii_case("unknown")
+}
+
+fn ensure_interactive_term(cmd: &mut CommandBuilder, env_vars: &[(String, String)]) {
+    if env_vars.iter().any(|(key, _)| key == "TERM") {
+        return;
+    }
+    let current = std::env::var("TERM").unwrap_or_default();
+    if !term_needs_default(&current) {
+        return;
+    }
+    cmd.env("TERM", "xterm-256color");
 }
 
 /// 按 shell 种类构造启动命令。WSL 需要附加发行版参数。
@@ -503,5 +524,26 @@ fn which(name: &str) -> Option<String> {
         Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::term_needs_default;
+
+    #[test]
+    fn empty_or_dumb_term_gets_a_default() {
+        assert!(term_needs_default(""));
+        assert!(term_needs_default("  "));
+        assert!(term_needs_default("dumb"));
+        assert!(term_needs_default("DUMB"));
+        assert!(term_needs_default("unknown"));
+    }
+
+    #[test]
+    fn usable_term_is_kept() {
+        assert!(!term_needs_default("xterm-256color"));
+        assert!(!term_needs_default("screen"));
+        assert!(!term_needs_default("tmux-256color"));
     }
 }

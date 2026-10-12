@@ -34,6 +34,59 @@ export function hasConptyScreenReset(input: string): boolean {
   return /\x1b\[[23]J/.test(input);
 }
 
+/**
+ * ConPTY 在 ResizePseudoConsole 之后会按它自己的视口整屏重绘。
+ * 本地卡片占位行它看不见，CUP 又会被改到当前行，于是整屏（含大段空行）被追加到光标下面。
+ * 多次定位，或一次定位后再跟多行，都算这次重绘，不是 PSReadLine 的单行刷新。
+ */
+export function isConptyViewportReplay(input: string): boolean {
+  if (!input.includes("\x1b[")) return false;
+  if (hasConptyScreenReset(input)) return false;
+  const cups = input.match(/\x1b\[[0-9;]*[Hf]/g)?.length ?? 0;
+  const lineBreaks = input.match(/\n/g)?.length ?? 0;
+  if (cups >= 2) return true;
+  if (cups >= 1 && lineBreaks >= 2) return true;
+  if (/\x1b\[\?25l/.test(input) && lineBreaks >= 2) return true;
+  return false;
+}
+
+const RESIZE_REPLAY_WINDOW_MS = 800;
+const resizeReplayUntil = new Map<string, number>();
+/** 同一轮 resize 里，首帧认出来之后，后续拆开的 CUP/空行也丢掉 */
+const resizeReplayLatched = new Map<string, number>();
+
+export function noteConptyResize(sessionId: string, now = Date.now()): void {
+  const until = now + RESIZE_REPLAY_WINDOW_MS;
+  resizeReplayUntil.set(sessionId, until);
+  resizeReplayLatched.delete(sessionId);
+}
+
+function isReplayContinuation(input: string): boolean {
+  const visible = input
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
+    .replace(/[\r\n\t ]/g, "");
+  if (visible.length === 0 && (/\n/.test(input) || input.includes("\x1b["))) return true;
+  return /\x1b\[[0-9;?]*[HfJKsuABCDG]/.test(input);
+}
+
+export function shouldDropConptyResizeReplay(
+  sessionId: string,
+  input: string,
+  now = Date.now(),
+): boolean {
+  const until = resizeReplayUntil.get(sessionId);
+  if (until == null || now > until) {
+    resizeReplayUntil.delete(sessionId);
+    resizeReplayLatched.delete(sessionId);
+    return false;
+  }
+  if (isConptyViewportReplay(input)) {
+    resizeReplayLatched.set(sessionId, until);
+    return true;
+  }
+  return resizeReplayLatched.get(sessionId) === until && isReplayContinuation(input);
+}
+
 function cupToCurrentLine(params: string): string {
   const parts = params.split(";");
   const colRaw = parts.length >= 2 ? parts[1] : "1";

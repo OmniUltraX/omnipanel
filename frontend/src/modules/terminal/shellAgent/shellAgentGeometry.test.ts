@@ -28,6 +28,7 @@ import {
   contentHeightToCardRows,
   fitShellAgentCardToContent,
   clipShellAgentDecorationToViewport,
+  relayoutShellAgentCard,
 } from "./shellAgentGeometry";
 import { clearShellAgentThinkingFull, setShellAgentThinkingFull, getArchivedDisplayToolIds, clearArchivedDisplayToolIds } from "./thinkingCache";
 
@@ -47,7 +48,12 @@ type FakeTerm = {
     };
   };
   registerMarker: (offset: number) => IMarker;
-  registerDecoration: (opts: { marker: IMarker; height?: number }) => IDecoration | undefined;
+  registerDecoration: (opts: {
+    marker: IMarker;
+    height?: number;
+    width?: number;
+  }) => IDecoration | undefined;
+  element?: HTMLElement;
   write: (data: string, cb?: () => void) => void;
   failDecoration: boolean;
 };
@@ -107,9 +113,11 @@ function createFakeTerm(opts?: { cursorY?: number; lineText?: string }): FakeTer
         disposed: false,
       };
       term.decorations.push(deco);
+      const element = document.createElement("div");
       return {
         marker: opts.marker,
-        element: document.createElement("div"),
+        element,
+        options: opts,
         onRender: () => ({ dispose: () => {} }),
         dispose: () => {
           deco.disposed = true;
@@ -241,6 +249,50 @@ describe("shellAgentGeometry", () => {
     expect(term.decorations[1].height).toBe(6);
     // marker 复用不重建
     expect(term.markers).toHaveLength(1);
+  });
+
+  it("relayoutShellAgentCard：列数变化只改宽度，活卡和归档卡都不拆", () => {
+    const term = createFakeTerm();
+    const root = document.createElement("div");
+    const screen = document.createElement("div");
+    screen.className = "xterm-screen";
+    screen.style.width = "320px";
+    root.appendChild(screen);
+    term.element = root;
+    registerXterm(SID, term as unknown as Terminal);
+
+    beginShellAgentCard(SID, {
+      kind: "thinking",
+      promptIndentCols: 2,
+      promptPrefix: "PS> ",
+      query: "现在几点",
+    });
+    setShellAgentThinkingFull(SID, "先看系统时间");
+    const archived = getShellAgentGeometry(SID)?.decoration;
+    archiveActiveInlineCard(SID);
+
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "PS> ",
+      query: "Get-Date",
+    });
+    const live = getShellAgentGeometry(SID)?.decoration;
+    expect(live).toBeTruthy();
+    expect(live).not.toBe(archived);
+
+    term.cols = 40;
+    relayoutShellAgentCard(SID);
+
+    const widthOf = (deco: IDecoration | null | undefined) =>
+      (deco?.options as { width?: number } | undefined)?.width;
+    expect(widthOf(archived)).toBe(40);
+    expect(widthOf(live)).toBe(40);
+    expect(archived?.element?.style.width).toBe("320px");
+    expect(live?.element?.style.width).toBe("320px");
+    expect(getShellAgentGeometry(SID)?.decoration).toBe(live);
+    expect(term.decorations.filter((d) => !d.disposed)).toHaveLength(2);
+    expect(term.markers).toHaveLength(2);
   });
 
   it("思考卡 fit/resize 不扩行，避免冻结后空白累加", () => {
