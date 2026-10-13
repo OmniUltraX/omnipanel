@@ -427,6 +427,7 @@ export default {
       },
       updates: "更新 ({count})",
       updateAll: "全部更新",
+      updateAllCount: "全部更新 ({count})",
       updateFailed: "{id} 更新失败：{error}",
       changelog: "更新说明",
       noChangelog: "无更新说明",

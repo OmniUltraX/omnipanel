@@ -8,6 +8,7 @@ import {
   sanitizeExternalId,
   shouldConfirmInstallPlan,
   sortMarketItems,
+  updatesFromMarketItems,
   updatesFromMarketplace,
 } from "./pluginCenterTypes";
 
@@ -90,6 +91,40 @@ describe("formatPluginCount", () => {
     expect(formatPluginCount(12)).toBe("12");
     expect(formatPluginCount(1500)).toBe("1.5k");
     expect(formatPluginCount(12_000)).toBe("12k");
+  });
+});
+
+describe("updatesFromMarketItems", () => {
+  it("includes DBX catalog rows with needsUpdate", () => {
+    const rows = updatesFromMarketItems([
+      item({
+        id: "omni.db.engine.cassandra",
+        name: "Cassandra",
+        installed: true,
+        installedVersion: "0.1.44",
+        needsUpdate: true,
+        version: "0.1.53",
+        sourceId: "dbx",
+        dbxKey: "cassandra",
+      }),
+      item({
+        id: "omni.addon.ok",
+        name: "Ok",
+        installed: true,
+        installedVersion: "1.0.0",
+        needsUpdate: false,
+        version: "1.0.0",
+      }),
+    ]);
+    expect(rows).toEqual([
+      {
+        id: "omni.db.engine.cassandra",
+        installedVersion: "0.1.44",
+        latestVersion: "0.1.53",
+        changelog: null,
+        sourceId: "dbx",
+      },
+    ]);
   });
 });
 

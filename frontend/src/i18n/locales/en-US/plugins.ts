@@ -427,6 +427,7 @@ export default {
       },
       updates: "Updates ({count})",
       updateAll: "Update all",
+      updateAllCount: "Update all ({count})",
       updateFailed: "{id} failed: {error}",
       changelog: "Changelog",
       noChangelog: "No changelog",

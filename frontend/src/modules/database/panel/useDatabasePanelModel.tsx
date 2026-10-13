@@ -70,6 +70,11 @@ import { ensureCatalogEngines, ensureEngineForDbType } from "../ensureCatalogEng
 import { isEngineReady } from "../engineRegistry";
 import { buildDatabaseSchema, introspectToTableSchemas } from "../sqlEditor/language/completionItems";
 import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
+import { collectSqlSchemaRefreshPlans } from "../sqlIntel/sqlSchemaRefreshPlan";
+import {
+  refreshSchemaPlansAfterSql,
+  type SchemaTreeRefreshHooks,
+} from "../schema/schemaTreeRefresh";
 import { fetchAndApplyTableColumnMeta } from "../shared/columnMetaUtils";
 import { buildRedisColumnMeta } from "../redis/redisTableMeta";
 import { getCachedDatabaseNames, getCachedTableColumns } from "../schema/schemaCacheMerge";
@@ -879,6 +884,78 @@ export function useDatabasePanelModel() {
     [resolveSqlTabConnection, schemaByKey],
   );
 
+  const handleSchemaCacheConnectionPatched = useCallback(
+    (connId: string, entry: SchemaCacheConnectionEntry) => {
+      const names = entry.databases.map((db) => db.name);
+      setDatabasesByConnId((prev) => ({ ...prev, [connId]: names }));
+      setDatabaseFilters((prev) => ({
+        ...prev,
+        [connId]: mergeFilter(prev[connId], names),
+      }));
+      setTableFilters((prev) => {
+        const next = { ...prev };
+        for (const db of entry.databases) {
+          if (db.tables.length === 0) {
+            continue;
+          }
+          const key = makeTableFilterKey(connId, db.name);
+          next[key] = mergeFilter(
+            prev[key],
+            db.tables.map((table) => table.name),
+            { showAll: true },
+          );
+        }
+        return next;
+      });
+    },
+    [setDatabaseFilters, setTableFilters],
+  );
+
+  const sqlSchemaRefreshHooks = useMemo<SchemaTreeRefreshHooks>(
+    () => ({
+      syncDatabaseFilter: (connId, names) => {
+        setDatabaseFilters((prev) => ({
+          ...prev,
+          [connId]: mergeFilter(prev[connId], names),
+        }));
+      },
+      syncTableFilter: (connId, dbName, names, options) => {
+        const key = makeTableFilterKey(connId, dbName);
+        setTableFilters((prev) => ({
+          ...prev,
+          [key]: mergeFilter(prev[key], names, options),
+        }));
+      },
+      onConnectionPatched: handleSchemaCacheConnectionPatched,
+    }),
+    [handleSchemaCacheConnectionPatched, setDatabaseFilters, setTableFilters],
+  );
+
+  const handleSqlSchemaMutated = useCallback(
+    (connection: DbConnectionConfig, succeededSql: string[]) => {
+      const activeDatabase = connection.database?.trim() ?? "";
+      let connectionLevel = false;
+      const databasePlans = new Map<string, { level: "database"; connId: string; dbName: string }>();
+      for (const sql of succeededSql) {
+        for (const plan of collectSqlSchemaRefreshPlans(sql, connection.id, activeDatabase)) {
+          if (plan.level === "connection") {
+            connectionLevel = true;
+          } else {
+            databasePlans.set(plan.dbName, plan);
+          }
+        }
+      }
+      const plans = connectionLevel
+        ? [{ level: "connection" as const, connId: connection.id }]
+        : [...databasePlans.values()];
+      if (plans.length === 0) {
+        return;
+      }
+      void refreshSchemaPlansAfterSql(connection, plans, sqlSchemaRefreshHooks);
+    },
+    [sqlSchemaRefreshHooks],
+  );
+
   useEffect(() => {
     if (!filtersHydrated) {
       void hydrateSchemaFilters();
@@ -1305,7 +1382,9 @@ export function useDatabasePanelModel() {
     setWorkspaceTabs,
     isActiveRoute,
     sqlAutoRunNonce,
-    pendingSqlAutoRunRef });
+    pendingSqlAutoRunRef,
+    onSqlSchemaMutated: handleSqlSchemaMutated,
+  });
 
   const openSlowQueryLogTab = useCallback(
     (connection: DbConnectionConfig, availability: SlowLogAvailability) => {
@@ -1512,33 +1591,6 @@ export function useDatabasePanelModel() {
       toggleConnectionEnabled,
       openProfile,
     ],
-  );
-
-  const handleSchemaCacheConnectionPatched = useCallback(
-    (connId: string, entry: SchemaCacheConnectionEntry) => {
-      const names = entry.databases.map((db) => db.name);
-      setDatabasesByConnId((prev) => ({ ...prev, [connId]: names }));
-      setDatabaseFilters((prev) => ({
-        ...prev,
-        [connId]: mergeFilter(prev[connId], names) }));
-      // 库内新建表刷新后，同步表过滤可见集，避免侧栏仍按旧名单隐藏新表
-      setTableFilters((prev) => {
-        const next = { ...prev };
-        for (const db of entry.databases) {
-          if (db.tables.length === 0) {
-            continue;
-          }
-          const key = makeTableFilterKey(connId, db.name);
-          next[key] = mergeFilter(
-            prev[key],
-            db.tables.map((table) => table.name),
-            { showAll: true },
-          );
-        }
-        return next;
-      });
-    },
-    [setDatabaseFilters, setTableFilters],
   );
 
   const refreshConnDatabases = useCallback(

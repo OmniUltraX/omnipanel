@@ -63,6 +63,7 @@ export type UseDatabasePanelSqlDeps = {
   isActiveRoute: boolean;
   sqlAutoRunNonce: number;
   pendingSqlAutoRunRef: MutableRefObject<{ tabId: string; sql: string } | null>;
+  onSqlSchemaMutated?: (connection: DbConnectionConfig, succeededSql: string[]) => void;
 };
 
 export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
@@ -84,6 +85,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
     isActiveRoute,
     sqlAutoRunNonce,
     pendingSqlAutoRunRef,
+    onSqlSchemaMutated,
   } = deps;
 
   const persistSqlFileState = useCallback((tabId: string, state: SqlTabState) => {
@@ -330,6 +332,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
           elapsed: Math.round(performance.now() - started),
           running: false,
         });
+        onSqlSchemaMutated?.(conn, [sql]);
       } catch (e) {
         updateSqlResultSession(resolvedTabId, session.id, {
           result: null,
@@ -403,6 +406,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
     const historyTab = workspaceTabsRef.current.find((item) => item.id === resolvedTabId);
     const sqlFileId = historyTab?.kind === "sql" ? historyTab.sqlFileId ?? null : null;
     let anySuccess = false;
+    const succeededSql: string[] = [];
     let lastRunId: string | null = null;
     const batchIds: string[] = [];
     const trackBatch = plannedSessions.length > 1;
@@ -516,6 +520,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
           running: false,
         });
         anySuccess = true;
+        succeededSql.push(session.sql);
         logExec("ok", {
           elapsedMs: elapsed,
           rowsAffected: res.rowsAffected,
@@ -573,6 +578,10 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
         ...(useManualTxn && anySuccess ? { inTransaction: true } : {}),
       });
     }
+
+    if (anySuccess && succeededSql.length > 0) {
+      onSqlSchemaMutated?.(conn, succeededSql);
+    }
   }, [
     connectionForSqlTab,
     resolveSqlTabConnection,
@@ -581,6 +590,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
     t,
     updateSqlTabState,
     updateSqlResultSession,
+    onSqlSchemaMutated,
   ]);
 
   // 快捷启动 / follow openSqlDraft(autoRun)：草稿挂载后再执行

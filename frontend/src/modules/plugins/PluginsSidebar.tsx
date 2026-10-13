@@ -28,6 +28,9 @@ type Props = {
   devIds: ReadonlySet<string>;
   installing: boolean;
   onInstallFile: () => void;
+  updateAllCount: number;
+  onUpdateAll: () => void;
+  updateAllBusy: boolean;
 };
 
 export function PluginsSidebar({
@@ -48,6 +51,9 @@ export function PluginsSidebar({
   devIds,
   installing,
   onInstallFile,
+  updateAllCount,
+  onUpdateAll,
+  updateAllBusy,
 }: Props) {
   const { t } = useI18n();
   const groups = kindFilter === "all" ? groupInstalledByKind(installed) : null;
@@ -79,6 +85,15 @@ export function PluginsSidebar({
     <aside className="plugin-center-col plugin-center-col--installed">
       <div className="plugin-center-col__head">
         <h2>{t("plugins.center.installedCount", { count: installed.length })}</h2>
+        {updateAllCount > 0 ? (
+          <WorkbenchActionButton
+            disabled={updateAllBusy}
+            onClick={onUpdateAll}
+            title={t("plugins.center.updateAll")}
+          >
+            {t("plugins.center.updateAllCount", { count: updateAllCount })}
+          </WorkbenchActionButton>
+        ) : null}
         <button
           type="button"
           className="btn btn-sm btn-secondary"

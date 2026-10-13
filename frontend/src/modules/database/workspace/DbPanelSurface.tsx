@@ -34,7 +34,11 @@ import { createDefaultSqlTabState, type SqlTabState } from "./dbWorkspaceState";
 import { sqlAtOffset } from "../sqlIntel/sqlStatement";
 import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
 import { SqlToolbarLeftControls } from "../sql/SqlToolbarLeftControls";
-import { registerSqlRepairApply, setSqlRepairNote } from "../sql/sqlExecErrorPresent";
+import {
+  registerSqlRepairApply,
+  setSqlRepairNote,
+  tryBuiltinSqlExecRepair,
+} from "../sql/sqlExecErrorPresent";
 import { requestAiCompletionOnce } from "../../../lib/ai/requestAiCompletionOnce";
 import { SqlEditorContextMenu } from "../sql/SqlEditorContextMenu";
 import {
@@ -299,6 +303,19 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const explainError = useCallback(() => {
     if (!execError) return;
     const sessionId = activeResultSession?.id ?? "";
+    const builtin = tryBuiltinSqlExecRepair(
+      execError.sql,
+      execError.message,
+      tabConn?.db_type,
+    );
+    if (builtin) {
+      setSqlRepairNote({
+        sessionId,
+        text: builtin.hint,
+        sql: builtin.sql.trim() ? builtin.sql : null,
+      });
+      return;
+    }
     const publish = (content: string) => {
       const closed = content.match(/```(?:sql)?\s*([\s\S]*?)```/i);
       const open = closed ? null : content.match(/```(?:sql)?\s*([\s\S]*)$/i);
