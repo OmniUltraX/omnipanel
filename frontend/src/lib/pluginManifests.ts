@@ -5,6 +5,7 @@ import {
 } from "@omnipanel/plugin-sdk";
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
 import agentCursorJson from "../../../plugins/agent-cursor/plugin.json";
+import agentOpencodeGoJson from "../../../plugins/agent-opencode-go/plugin.json";
 import agentTraeJson from "../../../plugins/agent-trae/plugin.json";
 import agentTraeGlobalJson from "../../../plugins/agent-trae-global/plugin.json";
 import agentWorkbuddyJson from "../../../plugins/agent-workbuddy/plugin.json";
@@ -31,6 +32,7 @@ import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
   parsePluginManifest(agentCursorJson),
+  parsePluginManifest(agentOpencodeGoJson),
   parsePluginManifest(agentTraeJson),
   parsePluginManifest(agentTraeGlobalJson),
   parsePluginManifest(agentWorkbuddyJson),

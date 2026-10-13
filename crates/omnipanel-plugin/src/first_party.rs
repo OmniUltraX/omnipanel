@@ -5,6 +5,7 @@ pub const PLUGIN_ID_AGENT_WORKBUDDY: &str = "omni.agent.workbuddy";
 pub const PLUGIN_ID_AGENT_CURSOR: &str = "omni.agent.cursor";
 pub const PLUGIN_ID_AGENT_TRAE: &str = "omni.agent.trae";
 pub const PLUGIN_ID_AGENT_TRAE_GLOBAL: &str = "omni.agent.trae-global";
+pub const PLUGIN_ID_AGENT_OPENCODE_GO: &str = "omni.agent.opencode-go";
 pub const PLUGIN_ID_ADDON_EVERYTHING: &str = "omni.addon.everything";
 pub const PLUGIN_ID_CLOUD_ALIYUN: &str = "omni.cloud.aliyun";
 pub const PLUGIN_ID_CLOUD_TENCENT: &str = "omni.cloud.tencent";
@@ -61,6 +62,10 @@ pub fn agent_trae() -> PluginManifest {
 
 pub fn agent_trae_global() -> PluginManifest {
     first_party_manifest!("agent-trae-global")
+}
+
+pub fn agent_opencode_go() -> PluginManifest {
+    first_party_manifest!("agent-opencode-go")
 }
 
 pub fn addon_everything() -> PluginManifest {
@@ -226,6 +231,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         agent_cursor(),
         agent_trae(),
         agent_trae_global(),
+        agent_opencode_go(),
         // 全部云厂商 / Warpgate → download-only（安装后经 Runtime 装载）
         panel_1panel(),
         panel_bt(),
@@ -257,6 +263,8 @@ mod tests {
         assert_eq!(agent_trae().kind, crate::kind::PluginKind::Agent);
         assert_eq!(agent_trae_global().id, PLUGIN_ID_AGENT_TRAE_GLOBAL);
         assert_eq!(agent_trae_global().kind, crate::kind::PluginKind::Agent);
+        assert_eq!(agent_opencode_go().id, PLUGIN_ID_AGENT_OPENCODE_GO);
+        assert_eq!(agent_opencode_go().kind, crate::kind::PluginKind::Agent);
         assert_eq!(addon_everything().id, PLUGIN_ID_ADDON_EVERYTHING);
         assert_eq!(cloud_aliyun().id, PLUGIN_ID_CLOUD_ALIYUN);
         assert_eq!(cloud_aliyun().logic_entry(), Some("logic.js"));

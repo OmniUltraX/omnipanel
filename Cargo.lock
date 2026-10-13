@@ -5539,6 +5539,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "omnipanel-agent-opencode-go"
+version = "0.0.5"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "omnipanel-agent-session",
+ "omnipanel-ai",
+ "omnipanel-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "uuid",
+]
+
+[[package]]
 name = "omnipanel-agent-proto"
 version = "0.0.5"
 dependencies = [

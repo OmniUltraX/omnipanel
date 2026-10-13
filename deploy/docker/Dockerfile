@@ -36,6 +36,8 @@ COPY crates ./crates
 # 云厂商 / Warpgate 是 submodule，运行时读盘，不进这一层。
 COPY plugins/agent-cursor/src-agent ./plugins/agent-cursor/src-agent
 COPY plugins/agent-cursor/plugin.json ./plugins/agent-cursor/plugin.json
+COPY plugins/agent-opencode-go/src-agent ./plugins/agent-opencode-go/src-agent
+COPY plugins/agent-opencode-go/plugin.json ./plugins/agent-opencode-go/plugin.json
 COPY plugins/agent-trae/src-agent ./plugins/agent-trae/src-agent
 COPY plugins/agent-trae/plugin.json ./plugins/agent-trae/plugin.json
 COPY plugins/agent-trae-global/plugin.json ./plugins/agent-trae-global/plugin.json

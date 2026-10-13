@@ -4,6 +4,7 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use reqwest::Client;
 use serde_json::{Value, json};
@@ -27,6 +28,7 @@ enum CallError {
 
 struct SidecarSession {
     program: PathBuf,
+    source_mtime: Option<SystemTime>,
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<std::process::ChildStdout>,
@@ -42,7 +44,12 @@ impl Drop for SidecarSession {
 
 impl SidecarSession {
     fn spawn(program: &Path) -> Result<Self, String> {
-        let mut child = launch_command(program)
+        let source_mtime = std::fs::metadata(program)
+            .and_then(|meta| meta.modified())
+            .ok();
+        // 跑副本，源 exe 不被占用，cargo 可以覆盖；下次请求看到 mtime 变化再拉起新进程。
+        let launched = launchable_copy(program);
+        let mut child = launch_command(&launched)
             .spawn()
             .map_err(|err| format!("启动 sidecar 失败 ({}): {err}", program.display()))?;
         let stdin = child
@@ -55,6 +62,7 @@ impl SidecarSession {
             .ok_or_else(|| "sidecar 没有 stdout".to_string())?;
         let mut session = Self {
             program: program.to_path_buf(),
+            source_mtime,
             child,
             stdin,
             stdout: BufReader::new(stdout),
@@ -173,7 +181,11 @@ impl SharedSession {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let stale = match guard.as_mut() {
-            Some(session) => !session.alive() || session.program != program,
+            Some(session) => {
+                !session.alive()
+                    || session.program != program
+                    || session.source_mtime != program_mtime(program)
+            }
             None => true,
         };
         if stale {
@@ -289,6 +301,19 @@ impl SidecarSource {
             "bin/omnipanel-agent-trae-global",
             "OMNIPANEL_AGENT_TRAE_GLOBAL_BIN",
             "https://coresg-normal.trae.ai",
+        )
+    }
+
+    pub fn opencode_go() -> Self {
+        Self::official(
+            "opencode-go",
+            "OpenCode Go",
+            "omnipanel-agent-opencode-go",
+            "omnipanel-agent-opencode-go",
+            "agent-opencode-go",
+            "bin/omnipanel-agent-opencode-go",
+            "OMNIPANEL_AGENT_OPENCODE_GO_BIN",
+            "https://opencode.ai",
         )
     }
 
@@ -605,6 +630,52 @@ fn with_exe(path: PathBuf) -> Vec<PathBuf> {
         out.push(exe);
     }
     out
+}
+
+fn program_mtime(program: &Path) -> Option<SystemTime> {
+    std::fs::metadata(program)
+        .and_then(|meta| meta.modified())
+        .ok()
+}
+
+/// 把 sidecar 复制到临时目录再启动。Windows 会锁住正在运行的 exe，直接跑源文件时 cargo 无法覆盖。
+fn launchable_copy(program: &Path) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join("omnipanel-agent-sidecars");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return program.to_path_buf();
+    }
+    sweep_old_copies(&dir);
+    let name = program
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "sidecar".into());
+    let dest = dir.join(format!("{stamp}-{name}"));
+    match std::fs::copy(program, &dest) {
+        Ok(_) => dest,
+        Err(_) => program.to_path_buf(),
+    }
+}
+
+fn sweep_old_copies(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let cutoff = SystemTime::now()
+        .checked_sub(Duration::from_secs(60 * 60))
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.modified().ok().is_some_and(|mtime| mtime < cutoff) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 fn launch_command(program: &Path) -> Command {

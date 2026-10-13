@@ -24,6 +24,7 @@ members = [
     "plugins/agent-cursor/src-agent",
     "plugins/agent-trae/src-agent",
     "plugins/agent-workbuddy/src-agent",
+    "plugins/agent-opencode-go/src-agent",
     "crates/omnipanel-mcp",
     "crates/omnipanel-gateway",
     "crates/omnipanel-s3",

@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.8.47] - 2026-10-13
+
+### 新增
+
+- **AI · OpenCode Go**：内置订阅来源。优先使用插件设置中的 API Key，未填写时读取本机 OpenCode CLI 的 `auth.json`。按 models.dev 的协议分别走 Responses、Chat Completions 与 Anthropic Messages，工具调用可以继续执行
+
+### 修复
+
+- **Agent sidecar**：启动时复制到临时目录再拉起，源文件不再被占用；二进制更新后下一次对话自动换新进程
+
 ## [0.8.46] - 2026-10-13
 
 ### 新增

@@ -180,6 +180,7 @@ fn registry_slot() -> &'static Mutex<AgentSourceRegistry> {
         registry.register_pinned(Arc::new(sidecar::SidecarSource::cursor()));
         registry.register_pinned(Arc::new(sidecar::SidecarSource::trae()));
         registry.register_pinned(Arc::new(sidecar::SidecarSource::trae_global()));
+        registry.register_pinned(Arc::new(sidecar::SidecarSource::opencode_go()));
         Mutex::new(registry)
     })
 }

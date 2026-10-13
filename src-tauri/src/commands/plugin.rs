@@ -104,6 +104,12 @@ fn register_builtin_invoke_handlers(gateway: &mut InvokeGateway) {
         "trae-global",
         "Trae 国际版",
     );
+    register_agent_source_handlers(
+        gateway,
+        omnipanel_plugin::PLUGIN_ID_AGENT_OPENCODE_GO,
+        "opencode-go",
+        "OpenCode Go",
+    );
 }
 
 fn register_agent_source_handlers(

@@ -112,6 +112,21 @@
       ]
     },
     {
+      "id": "omni.agent.opencode-go",
+      "kind": "agent",
+      "name": "OpenCode Go",
+      "description": "Connect OpenCode Go subscription models with an API key; sync catalog and usage from the gateway.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
       "id": "omni.cloud.aliyun",
       "kind": "cloud",
       "name": "Alibaba Cloud",
