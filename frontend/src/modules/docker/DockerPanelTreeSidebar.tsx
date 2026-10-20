@@ -6,7 +6,6 @@ import {
   useState,
   type DragEvent,
   type MouseEvent,
-  type MutableRefObject,
   type ReactNode,
 } from "react";
 import { useI18n } from "@/i18n";
@@ -19,8 +18,9 @@ import {
   SidebarCountBadge,
   SidebarIcon,
   SidebarImportIcon,
+  SidebarStatusDot,
+  type SidebarStatus,
 } from "@/components/ui/module-sidebar";
-import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import {
   type VerticalSplitSidebarSectionConfig,
 } from "@/components/ui/sidebar/VerticalSplitSidebar";
@@ -30,7 +30,6 @@ import {
   SidebarTreeRoot,
   SidebarTreeSelectionProvider,
   resolveSidebarTreeDeleteTargets,
-  useSidebarTreeSelection,
 } from "@/components/ui/sidebar-tree";
 import type { DockerConnectionInfo } from "@/ipc/bindings";
 import {
@@ -52,6 +51,8 @@ import {
 } from "./hooks/useDockerConnectionResources";
 import { DockerContainersTreeBranch } from "./DockerContainersTreeBranch";
 import { dockerSourceLabel } from "./dockerConnectionSource";
+import { isDockerConnectionProbePending } from "./dockerConnectionList";
+import { ensureDockerSidebarContainers } from "./dockerSidebarCacheSeed";
 import { groupContainersByComposeProject } from "./dockerComposeGroups";
 import { usePersistedTreeExpanded } from "@/components/ui/module-sidebar/usePersistedTreeExpanded";
 import { DockerTreeRefreshButton } from "./DockerTreeRefreshButton";
@@ -77,7 +78,7 @@ import {
   type DockerSidebarFolder,
 } from "@/stores/dockerSidebarTreeStore";
 
-function statusDotStatus(status: DockerConnectionInfo["status"]): StatusDotStatus {
+function statusDotStatus(status: DockerConnectionInfo["status"]): SidebarStatus {
   if (status === "online") return "online";
   if (status === "degraded") return "connecting";
   return "offline";
@@ -161,59 +162,6 @@ function DockerTreeBranch({
   );
 }
 
-/** Ctrl+A 全选 / Delete 删除（仅侧栏指针激活时响应，避免误触右侧面板）。 */
-function DockerTreeHotkeys({
-  allKeys,
-  armedRef,
-  onDeleteSelected,
-}: {
-  allKeys: readonly string[];
-  armedRef: MutableRefObject<boolean>;
-  onDeleteSelected: (selected: ReadonlySet<string>) => boolean | Promise<boolean>;
-}) {
-  const selection = useSidebarTreeSelection();
-  const selectionRef = useRef(selection);
-  selectionRef.current = selection;
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
-      if (!armedRef.current) return;
-      const target = event.target as HTMLElement | null;
-      if (
-        target?.closest(
-          "input, textarea, select, [contenteditable=''], [contenteditable='true']",
-        )
-      ) {
-        return;
-      }
-
-      const mod = event.ctrlKey || event.metaKey;
-      if (mod && event.key.toLowerCase() === "a") {
-        if (allKeys.length === 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        selectionRef.current?.setSelectedIds(allKeys);
-        return;
-      }
-
-      if (event.key === "Delete") {
-        const selected = selectionRef.current?.selectedIds;
-        if (!selected || selected.size === 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        void Promise.resolve(onDeleteSelected(selected)).then((deleted) => {
-          if (deleted) selectionRef.current?.clearSelection();
-        });
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [allKeys, armedRef, onDeleteSelected]);
-
-  return null;
-}
-
 export interface DockerPanelTreeSidebarProps {
   connections: DockerConnectionInfo[];
   activeConnectionId: string | null;
@@ -260,8 +208,6 @@ export function DockerPanelTreeSidebar({
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [ctxTarget, setCtxTarget] = useState<CtxTarget | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const sidebarHotkeysArmedRef = useRef(false);
   const selectedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
@@ -280,7 +226,11 @@ export function DockerPanelTreeSidebar({
   useEffect(() => {
     if (!activeConnectionId) return;
     ensureExpanded(makeDockerTreeKey(activeConnectionId));
-  }, [activeConnectionId, ensureExpanded]);
+    const selected = connections.find((item) => item.connectionId === activeConnectionId);
+    if (selected && connectionSupportsSidebarResources(selected)) {
+      ensureDockerSidebarContainers(activeConnectionId);
+    }
+  }, [activeConnectionId, connections, ensureExpanded]);
 
   const connectionById = useMemo(() => {
     const map = new Map<string, DockerConnectionInfo>();
@@ -358,7 +308,6 @@ export function DockerPanelTreeSidebar({
   const openCtx = (event: MouseEvent, target: CtxTarget) => {
     event.preventDefault();
     event.stopPropagation();
-    sidebarHotkeysArmedRef.current = true;
     setCtxPos({ x: event.clientX, y: event.clientY });
     setCtxTarget(target);
   };
@@ -435,14 +384,6 @@ export function DockerPanelTreeSidebar({
       onDeleteConnection,
     ],
   );
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      sidebarHotkeysArmedRef.current = Boolean(rootRef.current?.contains(event.target as Node));
-    };
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => window.removeEventListener("pointerdown", onPointerDown, true);
-  }, []);
 
   const handleCreateFolder = (parentId: string | null) => {
     void (async () => {
@@ -526,12 +467,14 @@ export function DockerPanelTreeSidebar({
           id: "edit",
           label: t("docker.sidebar.edit"),
           icon: contextMenuIcons.edit,
+          shortcut: "F2",
           onClick: () => onEditConnection?.(ctxTarget.connection),
         },
         {
           id: "delete",
           label: t("docker.sidebar.delete"),
           icon: contextMenuIcons.delete,
+          shortcut: "Del",
           danger: true,
           onClick: () => {
             if (!onDeleteConnection) return;
@@ -608,21 +551,27 @@ export function DockerPanelTreeSidebar({
           }}
           onDragEnd={() => setDragOverKey(null)}
           prefix={
-            <StatusDot
-              status={statusDotStatus(connection.status)}
+            <SidebarStatusDot
+              status={
+                isDockerConnectionProbePending(connection.connectionId)
+                  ? "connecting"
+                  : statusDotStatus(connection.status)
+              }
               title={
-                connection.status === "online"
-                  ? t("docker.sidebar.statusOnline")
-                  : connection.status === "degraded"
-                    ? t("docker.sidebar.statusDegraded")
-                    : t("docker.sidebar.statusOffline")
+                isDockerConnectionProbePending(connection.connectionId)
+                  ? t("common.statusConnecting")
+                  : connection.status === "online"
+                    ? t("docker.sidebar.statusOnline")
+                    : connection.status === "degraded"
+                      ? t("docker.sidebar.statusDegraded")
+                      : t("docker.sidebar.statusOffline")
               }
             />
           }
           label={
             <span className="server-tree-server-label">
               <span className="server-tree-server-name">{connection.name}</span>
-              <span className="sidebar-tag-chip badge badge-muted docker-tree-source-tag">
+              <span className="sidebar-tag-chip docker-tree-source-tag">
                 {connection.connectionId.startsWith("docker-mesh:")
                   ? "团队共享"
                   : dockerSourceLabel(connection.source)}
@@ -633,10 +582,22 @@ export function DockerPanelTreeSidebar({
           hasChildren
           expanded={connectionExpanded}
           active={activeNavKey === connectionKey || activeConnectionId === connection.connectionId}
-          onToggle={() => toggle(connectionKey)}
+          onToggle={() => {
+            const willExpand = !connectionExpanded;
+            toggle(connectionKey);
+            if (willExpand && supportsResources) {
+              ensureDockerSidebarContainers(connection.connectionId);
+            }
+          }}
           onSelect={() => onNavigate({ connectionId: connection.connectionId }, "preview")}
           onActivate={() => onNavigate({ connectionId: connection.connectionId }, "permanent")}
           onContextMenu={(event) => openCtx(event, { kind: "connection", connection })}
+          onRename={
+            !isBuiltinLocalDockerConnection(connection.connectionId) && onEditConnection
+              ? () => onEditConnection(connection)
+              : undefined
+          }
+          renameLabel={t("docker.sidebar.edit")}
           trailing={
             supportsResources ? (
               <div className="tree-node-actions">
@@ -741,12 +702,8 @@ export function DockerPanelTreeSidebar({
       <SidebarTreeSelectionProvider
         orderedKeys={allTreeKeys}
         onSelectedIdsChange={handleSelectedIdsChange}
+        onDeleteSelected={handleHotkeyDelete}
       >
-        <DockerTreeHotkeys
-          allKeys={allTreeKeys}
-          armedRef={sidebarHotkeysArmedRef}
-          onDeleteSelected={handleHotkeyDelete}
-        />
         <div
           className="docker-sidebar-tree-wrap"
           onContextMenu={(event) => {
@@ -780,7 +737,7 @@ export function DockerPanelTreeSidebar({
 
   if (section) {
     return (
-      <div ref={rootRef} className="server-sidebar docker-sidebar">
+      <div className="server-sidebar docker-sidebar">
         <ModuleSidebarSection
           {...section}
           count={connections.length}
@@ -804,7 +761,7 @@ export function DockerPanelTreeSidebar({
   }
 
   return (
-    <div ref={rootRef} className="server-sidebar docker-sidebar">
+    <div className="server-sidebar docker-sidebar">
       <div className="server-sidebar-subheader window-drag-surface" data-tauri-drag-region>
         <span>{t("docker.sidebar.title")}</span>
         <SidebarCountBadge count={connections.length} />

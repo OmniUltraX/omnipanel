@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createInitialDockTabVisited,
   createInitialDockTabVisitedOrder,
+  dockTabKeysToBump,
   markDockTabVisited,
   markDockTabVisitedMru,
   shouldMountDockTabContent,
@@ -108,5 +109,13 @@ describe("markDockTabVisitedMru / trimDockTabVisitedMru", () => {
         protect: new Set(["a", "b", "c"]),
       }),
     ).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("dockTabKeysToBump", () => {
+  it("只在已记录的 key 变化时 bump", () => {
+    expect(dockTabKeysToBump({}, { a: "skip" })).toEqual([]);
+    expect(dockTabKeysToBump({ a: "skip" }, { a: "skip", b: "mount" })).toEqual([]);
+    expect(dockTabKeysToBump({ a: "skip" }, { a: "mount" })).toEqual(["a"]);
   });
 });

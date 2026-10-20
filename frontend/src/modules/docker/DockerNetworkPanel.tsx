@@ -14,8 +14,7 @@ import type {
 import { unwrapCommand, unwrapCommandResult } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
-import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
-import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
+import { peekDockerSidebarCache, publishDockerSidebarCategory } from "./dockerSidebarCacheSeed";
 import {
   DOCKER_QUIET_IPC,
   handleDockerAutoFetchFailure,
@@ -164,15 +163,6 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Record<string, true>>({});
 
-  const refreshSidebar = useCallback(() => {
-    void useDockerSidebarCacheStore
-      .getState()
-      .refreshScope({ kind: "category", connectionId: connection.connectionId, category: "networks" });
-    void useDockerSidebarCacheStore
-      .getState()
-      .refreshScope({ kind: "category", connectionId: connection.connectionId, category: "containers" });
-  }, [connection.connectionId]);
-
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -183,6 +173,8 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
           // 顺序拉取：SSH 并发 list 易抢 exec 通道
           const nextNetworks = await fetchNetworks(connection.connectionId);
           const nextContainers = await fetchContainers(connection.connectionId);
+          publishDockerSidebarCategory(connection.connectionId, "networks", nextNetworks);
+          publishDockerSidebarCategory(connection.connectionId, "containers", nextContainers);
           startTransition(() => {
             setNetworks(nextNetworks);
             setContainers(nextContainers);
@@ -190,7 +182,6 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
         },
         connection.boundSshConnectionId,
       );
-      refreshSidebar();
     } catch (err) {
       if (
         err &&
@@ -206,7 +197,7 @@ export function DockerNetworkPanel({ connection, isActive = false }: DockerNetwo
     } finally {
       setLoading(false);
     }
-  }, [connection.boundSshConnectionId, connection.connectionId, refreshSidebar]);
+  }, [connection.boundSshConnectionId, connection.connectionId]);
 
   useEffect(() => {
     const cached = peekDockerSidebarCache(connection.connectionId);

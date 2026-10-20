@@ -67,9 +67,6 @@
     }
 
     .docker-tree-source-tag {
-        font-size: 10px;
-        padding: 0 4px;
-        line-height: 16px;
         flex-shrink: 0;
     }
 
@@ -346,8 +343,8 @@
 
     .docker-sidebar-tree .docker-tree-brand-icon {
         display: block;
-        width: 13px;
-        height: 13px;
+        width: 14px;
+        height: 14px;
         object-fit: contain;
         flex-shrink: 0;
     }

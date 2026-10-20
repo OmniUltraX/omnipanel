@@ -259,8 +259,23 @@ impl TmuxManager {
         };
 
         // 优先 attach 回原 window（关 Tab 保留进程后重连），匹配不到则新建。
+        // 该 pane 已经属于另一个还活着的标签时必须新建 window，否则两个标签
+        // 的按键和 AI 命令会写进同一个 shell，回显却只出现在其中一个。
         // create_window 返回的 PaneEntry 必须回填，否则前端无法在关 Tab 后按 pane 恢复。
-        let pane_id = if let Some(pid) = pane_id_override {
+        let reuse_pane = match pane_id_override {
+            Some(pid) => match host.controller.pane_owner(PaneId(pid)) {
+                Some(owner) if owner != session_id => {
+                    tracing::warn!(
+                        target: "tmux",
+                        "pane %{pid} 已属于 {owner}，为 {session_id} 新建 window"
+                    );
+                    None
+                }
+                _ => Some(pid),
+            },
+            None => None,
+        };
+        let pane_id = if let Some(pid) = reuse_pane {
             match host
                 .controller
                 .attach_to_existing_pane(session_id, &host.session_name, PaneId(pid))

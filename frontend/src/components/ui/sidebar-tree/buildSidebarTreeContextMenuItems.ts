@@ -28,6 +28,7 @@ export function buildSidebarTreeContextMenuItems({
       id: "sidebar-tree-rename",
       label: renameLabel,
       icon: contextMenuIcons.rename,
+      shortcut: "F2",
       disabled: renameDisabled,
       onClick: onRename,
     });
@@ -38,6 +39,7 @@ export function buildSidebarTreeContextMenuItems({
       id: "sidebar-tree-delete",
       label: deleteLabel,
       icon: contextMenuIcons.delete,
+      shortcut: "Del",
       danger: true,
       disabled: deleteDisabled,
       onClick: onDelete,

@@ -464,6 +464,7 @@ export function WorkflowPanel() {
     <>
       <ModuleWorkspaceLayout
         className="workflow-module-layout"
+        layoutKey="workflow"
         leftColumnTitle={t("routes.workflow")}
       >
         <ModuleSegmentDock

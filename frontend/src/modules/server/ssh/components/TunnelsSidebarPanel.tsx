@@ -8,7 +8,9 @@ import { Select } from "../../../../components/ui/Select";
 import { TextInput } from "../../../../components/ui/TextInput";
 import { useSshWorkspaceNavStore } from "../stores/sshWorkspaceNavStore";
 import { SshSidebarHeaderIconBtn } from "./SshSidebarModal";
-import { SidebarRefreshIcon } from "../../../../components/ui/module-sidebar";
+import { SidebarIcon, SidebarRefreshIcon, SidebarStatusDot } from "../../../../components/ui/module-sidebar";
+import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot } from "../../../../components/ui/sidebar-tree";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 
 type Props = {
   sshResources: WorkspaceResource[];
@@ -217,71 +219,76 @@ export function TunnelsSidebarPanel({
             onChange={setRemotePort}
           />
           <div className="ssh-sidebar-form__actions">
-            <button type="button" className="btn btn-primary btn-xs" onClick={() => void handleCreate()}>
+            <WorkbenchActionButton type="button" onClick={() => void handleCreate()}>
               {t("ssh.tunnels.create")}
-            </button>
-            <button type="button" className="btn btn-secondary btn-xs" onClick={() => setShowCreate(false)}>
+            </WorkbenchActionButton>
+            <WorkbenchActionButton type="button" onClick={() => setShowCreate(false)}>
               {t("ssh.keys.cancel")}
-            </button>
+            </WorkbenchActionButton>
           </div>
         </div>
       ) : null}
 
       {loading && tunnels.length === 0 ? (
-        <div className="ssh-sidebar-list-panel__empty">{t("ssh.keys.loading")}</div>
+        <SidebarTreeEmpty>{t("ssh.keys.loading")}</SidebarTreeEmpty>
       ) : tunnels.length === 0 ? (
-        <div className="ssh-sidebar-list-panel__empty">{t("ssh.tunnels.empty")}</div>
+        <SidebarTreeEmpty>{t("ssh.tunnels.empty")}</SidebarTreeEmpty>
       ) : (
-        <ul className="ssh-sidebar-list">
+        <SidebarTreeRoot className="ssh-sidebar-tree">
           {tunnels.map((tunnel) => {
             const hostName = hostNameById.get(tunnel.connectionId) ?? tunnel.connectionId;
             const label = `${tunnel.localPort} → ${tunnel.remoteHost}:${tunnel.remotePort}`;
-            const active = tunnel.status === "active" || tunnel.status === "running";
+            const running = tunnel.status === "active" || tunnel.status === "running";
             const selected = activeTunnelId === tunnel.id;
+            const statusLabel = running ? t("ssh.tunnels.active") : t("ssh.tunnels.closed");
             return (
-              <li
+              <SidebarTreeNode
                 key={tunnel.id}
-                className={`ssh-sidebar-list__row${selected ? " ssh-sidebar-list__row--active" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="ssh-sidebar-list__item"
-                  onClick={() => selectTunnel(tunnel.id)}
-                >
-                  <span className="ssh-sidebar-list__name">{label}</span>
-                  <span className="ssh-sidebar-list__meta">
-                    <span>{hostName}</span>
-                  </span>
-                </button>
-                <div className="ssh-sidebar-list__aside">
-                  <span
-                    className={`ssh-sidebar-list__preview-idle ssh-sidebar-list__status ssh-sidebar-list__status--${active ? "on" : "off"}`}
-                  >
-                    {active ? t("ssh.tunnels.active") : t("ssh.tunnels.closed")}
-                  </span>
-                  <div className="ssh-sidebar-list__aside-hover">
-                    <div className="ssh-sidebar-list__row-actions">
+                module="ssh"
+                nodeType="tunnel"
+                depth={0}
+                treeKey={tunnel.id}
+                expanded={false}
+                hasChildren={false}
+                active={selected}
+                icon={<SidebarIcon kind="tunnel" />}
+                prefix={
+                  <SidebarStatusDot
+                    status={running ? "online" : "idle"}
+                    title={statusLabel}
+                  />
+                }
+                label={label}
+                note={hostName}
+                trailing={
+                  <>
+                    <span className="sidebar-tag-chip">{tunnel.tunnelType.toUpperCase()}</span>
+                    <span className="sidebar-tag-chip">{statusLabel}</span>
+                    <div className="tree-node-actions">
                       <button
                         type="button"
-                        className="ssh-sidebar-list__action-btn ssh-sidebar-list__action-btn--danger"
+                        className="tree-action-btn tree-action-btn--danger"
+                        title={t("ssh.tunnels.delete")}
+                        aria-label={t("ssh.tunnels.delete")}
                         disabled={closingId === tunnel.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={(event) => {
+                          event.stopPropagation();
                           void handleClose(tunnel.id);
                         }}
                       >
-                        {t("ssh.tunnels.delete")}
+                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+                          <path d="M4 4l8 8M12 4l-8 8" />
+                        </svg>
                       </button>
                     </div>
-                    <span className="ssh-sidebar-list__preview">
-                      {tunnel.tunnelType.toUpperCase()} · {hostName}
-                    </span>
-                  </div>
-                </div>
-              </li>
+                  </>
+                }
+                onToggle={() => {}}
+                onSelect={() => selectTunnel(tunnel.id)}
+              />
             );
           })}
-        </ul>
+        </SidebarTreeRoot>
       )}
     </div>
   );

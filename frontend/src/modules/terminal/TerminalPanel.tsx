@@ -122,6 +122,8 @@ export function TerminalPanel() {
   const { t } = useI18n();
   const { isActiveRoute, moduleLive } = useModuleRouteActive("terminal");
   const [dockActiveId, setDockActiveId] = useState("");
+  // SSH「打开终端」跳转后补一次软刷新：空 panel 不会因为 render 函数变了就自己重绘。
+  const [sshJumpEpoch, setSshJumpEpoch] = useState(0);
   const allTabs = useTerminalStore((state) => state.tabs);
   const tabs = useMemo(
     () => allTabs.filter((tab) => !tab.workspaceOnly),
@@ -438,10 +440,14 @@ export function TerminalPanel() {
 
   useEffect(() => {
     const handler = (event: Event) => {
-      const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      const detail = (event as CustomEvent<{ tabId?: string; ensureContent?: boolean }>).detail;
+      const tabId = detail?.tabId;
       if (!tabId) return;
       setDockActiveId(tabId);
       setActiveTab(tabId);
+      if (!detail?.ensureContent) return;
+      // 路由切换是 startTransition，这一帧模块可能还挂着。等下一帧再刷，空面板才能画出来。
+      requestAnimationFrame(() => setSshJumpEpoch((epoch) => epoch + 1));
     };
     window.addEventListener("omnipanel-terminal-focus-tab", handler);
     return () => window.removeEventListener("omnipanel-terminal-focus-tab", handler);
@@ -624,7 +630,12 @@ export function TerminalPanel() {
       const copyTitle = `${ctxTab.title} (副本)`;
       const newSessionId = `sess-copy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const store = useTerminalStore.getState();
-      store.createSession(copyTitle, ctxTab.session, newSessionId);
+      // 副本要新开 window。沿用 tmuxPaneId 会 attach 回原 pane，命令写进被复制的那个标签。
+      store.createSession(
+        copyTitle,
+        { ...ctxTab.session, tmuxPaneId: null },
+        newSessionId,
+      );
       const newTabId = store.openSessionTab(newSessionId);
       if (newTabId) setActiveTab(newTabId);
     },
@@ -854,9 +865,12 @@ export function TerminalPanel() {
             // 懒创建 + 访问后粘住；xterm 仍受 suspended / IntersectionObserver 门闩约束
             stickyVisit: true,
             contentSuspended: !moduleLive,
-            softRefreshKey: taskbarSubWindowTabId
-              ? `taskbar:${taskbarSubWindowTabId}`
-              : undefined,
+            softRefreshKey: [
+              taskbarSubWindowTabId ? `taskbar:${taskbarSubWindowTabId}` : "",
+              sshJumpEpoch ? `ssh-jump:${sshJumpEpoch}` : "",
+            ]
+              .filter(Boolean)
+              .join("|") || undefined,
             onActiveTabChange: handleDockActiveChange,
             onCloseTab: handleCloseTab,
             savedLayout: visibleTabs.length === 0 ? null : dockLayout,

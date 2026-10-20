@@ -1,9 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { commands } from "../../../ipc/bindings";
 import type { DockerContainerStats, DockerContainerSummary } from "../../../ipc/bindings";
-import { asArray } from "../../../ipc/asArray";
-import { unwrapCommand } from "../../../ipc/result";
-import { peekDockerSidebarCache } from "../dockerSidebarCacheSeed";
+import { fetchDockerContainersShared, peekDockerSidebarCache } from "../dockerSidebarCacheSeed";
 import { handleDockerAutoFetchFailure, isBtPanelAuthOrLockoutError } from "../dockerConnectionOffline";
 import {
   DOCKER_CONTAINERS_POLL_MS,
@@ -13,8 +10,6 @@ import {
 } from "../dockerContainerStats";
 import { pickStats } from "../dockerContainerStatsMatch";
 import { useDockerContainerStats } from "./useDockerContainerStats";
-
-const unwrap = unwrapCommand;
 
 export type DockerContainerGridItem = {
   container: DockerContainerSummary;
@@ -100,11 +95,7 @@ export function useDockerContainerGrid(
       if (stopPolling) return;
       if (initial) setLoading(true);
       try {
-        const list = asArray(
-          await unwrap(commands.dockerListContainers(connectionId, null), {
-            quiet: true,
-          }),
-        );
+        const list = await fetchDockerContainersShared(connectionId);
         if (cancelled) return;
         startTransition(() => {
           setContainers(list);

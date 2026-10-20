@@ -1,8 +1,16 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-/** 所有模块左侧资源侧栏共用同一宽度持久化 key */
+/**
+ * 旧版「所有模块共用一条宽度」的持久化 key。
+ * 新写入按模块分开；尚未单独拖过的模块仍回落到这条宽度，避免升级后突然变宽。
+ */
 export const MODULE_LEFT_SIDEBAR_LAYOUT_KEY = "module-left-sidebar";
+
+/** 某个模块左侧栏宽度在 leftSizes 里的 key */
+export function moduleLeftSidebarSizeKey(layoutKey: string): string {
+  return `module-left:${layoutKey}`;
+}
 
 export const MODULE_LEFT_SIDEBAR_MIN_PX = 180;
 /** 模块左侧资源侧栏最大宽度占应用窗口宽度的比例 */
@@ -51,12 +59,29 @@ const LEGACY_LEFT_SIDEBAR_KEYS = [
   "protocol-websocket",
 ] as const;
 
-export function getModuleLeftSidebarSize(leftSizes: Record<string, number>): number | undefined {
+export function getModuleLeftSidebarSize(
+  leftSizes: Record<string, number>,
+  layoutKey?: string,
+): number | undefined {
+  if (layoutKey) {
+    const own = leftSizes[moduleLeftSidebarSizeKey(layoutKey)];
+    if (typeof own === "number" && own >= MODULE_LEFT_SIDEBAR_MIN_PX) {
+      return own;
+    }
+  }
   const shared = leftSizes[MODULE_LEFT_SIDEBAR_LAYOUT_KEY];
   if (typeof shared === "number" && shared >= MODULE_LEFT_SIDEBAR_MIN_PX) {
     return shared;
   }
   return undefined;
+}
+
+/** 只认该模块自己记下的折叠。没有记录就是展开，不继承旧的全局折叠。 */
+export function getModuleLeftSidebarCollapsed(
+  collapsedByKey: Record<string, boolean> | undefined,
+  layoutKey: string,
+): boolean {
+  return collapsedByKey?.[layoutKey] === true;
 }
 
 function migrateLegacyLeftSidebarSizes(leftSizes: Record<string, number>): Record<string, number> {
@@ -96,13 +121,18 @@ interface PanelLayoutState {
   leftSizes: Record<string, number>;
   rightSizes: Record<string, number>;
   splitRatios: Record<string, number>;
-  /** 所有模块左侧资源侧栏共用折叠状态 */
+  /**
+   * 尚未单独折叠过的模块回落到这个值。
+   * 新的折叠只写 {@link moduleLeftSidebarCollapsedByKey}。
+   */
   moduleLeftSidebarCollapsed: boolean;
+  /** 各模块左侧栏是否折叠 */
+  moduleLeftSidebarCollapsedByKey: Record<string, boolean>;
   /** 递增信号：Shell 侧栏重复点击当前模块时触发侧栏折叠切换 */
   moduleSidebarToggleNonce: number;
   setLeftSize: (key: string, size: number) => void;
-  setModuleLeftSidebarSize: (size: number) => void;
-  setModuleLeftSidebarCollapsed: (collapsed: boolean) => void;
+  setModuleLeftSidebarSize: (layoutKey: string, size: number) => void;
+  setModuleLeftSidebarCollapsed: (layoutKey: string, collapsed: boolean) => void;
   setRightSize: (key: string, size: number) => void;
   setSplitRatio: (key: string, percent: number) => void;
   toggleModuleSidebar: () => void;
@@ -115,6 +145,7 @@ export const usePanelLayoutStore = create<PanelLayoutState>()(
       rightSizes: {},
       splitRatios: {},
       moduleLeftSidebarCollapsed: false,
+      moduleLeftSidebarCollapsedByKey: {},
       moduleSidebarToggleNonce: 0,
 
       setLeftSize: (key, size) =>
@@ -122,16 +153,21 @@ export const usePanelLayoutStore = create<PanelLayoutState>()(
           leftSizes: { ...state.leftSizes, [key]: size },
         })),
 
-      setModuleLeftSidebarSize: (size) =>
+      setModuleLeftSidebarSize: (layoutKey, size) =>
         set((state) => ({
           leftSizes: {
             ...state.leftSizes,
-            [MODULE_LEFT_SIDEBAR_LAYOUT_KEY]: clampModuleLeftSidebarSize(size),
+            [moduleLeftSidebarSizeKey(layoutKey)]: clampModuleLeftSidebarSize(size),
           },
         })),
 
-      setModuleLeftSidebarCollapsed: (collapsed) =>
-        set({ moduleLeftSidebarCollapsed: collapsed }),
+      setModuleLeftSidebarCollapsed: (layoutKey, collapsed) =>
+        set((state) => ({
+          moduleLeftSidebarCollapsedByKey: {
+            ...state.moduleLeftSidebarCollapsedByKey,
+            [layoutKey]: collapsed,
+          },
+        })),
 
       setRightSize: (key, size) =>
         set((state) => ({
@@ -171,6 +207,7 @@ export const usePanelLayoutStore = create<PanelLayoutState>()(
         rightSizes: state.rightSizes,
         splitRatios: state.splitRatios,
         moduleLeftSidebarCollapsed: state.moduleLeftSidebarCollapsed,
+        moduleLeftSidebarCollapsedByKey: state.moduleLeftSidebarCollapsedByKey,
       }),
     },
   ),

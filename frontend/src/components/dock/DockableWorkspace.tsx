@@ -232,6 +232,7 @@ export interface DockAddTabConfig {
 }
 
 import type { DockPanelRefreshProps } from "./dockPanelRefresh";
+import { dockTabKeysToBump } from "./dockTabVisit";
 
 export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   tabs: DockableTab[];
@@ -243,6 +244,12 @@ export interface DockableWorkspaceProps extends DockPanelRefreshProps {
   renderPanel: (tabId: string) => ReactNode;
   /** 按 tabId 局部 invalidate；优先于 panelContentKey 的全局 bump */
   panelContentKeysByTab?: Record<string, string>;
+  /**
+   * 按 tab 的软刷新 key。值变化时只 bump 该 tab 的 softRev，让 renderPanel 再跑一次。
+   * 用于 sticky 挂起期间建出的空 panel：模块恢复 live 后资格从 skip 变成 mount，
+   * 但 dockview 不会因为 render 函数变了就重绘。
+   */
+  panelSoftKeysByTab?: Record<string, string>;
   /**
    * 是否延后通知 React activeTabId（默认 true）。
    * - true：setTimeout + startTransition（终端等重型父树）
@@ -420,6 +427,7 @@ export function DockableWorkspace({
   panelContentKey = "default",
   softRefreshKey,
   panelContentKeysByTab,
+  panelSoftKeysByTab,
   deferActiveTabNotify = true,
   defaultRenderer = "always",
   className,
@@ -501,6 +509,7 @@ export function DockableWorkspace({
   const lastBumpedPanelContentKeyRef = useRef<string | null>(null);
   const lastBumpedSoftRefreshKeyRef = useRef<string | null>(null);
   const prevPanelContentKeysByTabRef = useRef<Record<string, string>>({});
+  const prevPanelSoftKeysByTabRef = useRef<Record<string, string>>({});
   const onCloseTabRef = useRef(onCloseTab);
   onCloseTabRef.current = onCloseTab;
   const onActiveTabChangeRef = useRef(onActiveTabChange);
@@ -871,6 +880,23 @@ export function DockableWorkspace({
       bumpPanelSoftRevForTabIds(currentApi, tabIds);
     });
   }, [activeTabId, layoutReady, bumpPanelSoftRevForTabIds]);
+
+  // sticky 挂起时新建的 panel 会以 null 内容落盘。资格从 skip → mount 后必须再绘一次，
+  // 否则从 SSH「打开终端」跳过来会停在黄点、窗体空白。布局未就绪时不消费变更。
+  useEffect(() => {
+    if (!panelSoftKeysByTab) return;
+    const api = apiRef.current;
+    if (!api || !layoutLoadedRef.current) return;
+    const prev = prevPanelSoftKeysByTabRef.current;
+    const changed = dockTabKeysToBump(prev, panelSoftKeysByTab);
+    prevPanelSoftKeysByTabRef.current = { ...panelSoftKeysByTab };
+    if (changed.length === 0) return;
+    queueMicrotask(() => {
+      const currentApi = apiRef.current;
+      if (!currentApi || !layoutLoadedRef.current) return;
+      bumpPanelSoftRevForTabIds(currentApi, changed);
+    });
+  }, [panelSoftKeysByTab, layoutReady, bumpPanelSoftRevForTabIds]);
 
   // 自定义 tab：元数据通过 panel params + DockWorkspaceTabHeader 内 liveMeta 同步
   const defaultTabComponent = nativeTabs ? undefined : DockWorkspaceTabHeader;

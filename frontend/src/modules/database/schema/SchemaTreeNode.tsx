@@ -4,7 +4,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useI18n } from "../../../i18n";
-import { StatusDot } from "../../../components/ui/primitives/StatusDot";
+import { SidebarStatusDot } from "../../../components/ui/module-sidebar";
 import {
   useDbConnectionRuntimeStore,
   resolveDbConnectionRuntimeStatus,
@@ -323,7 +323,7 @@ export const TreeNode = memo(
       icon={iconNode}
       prefix={
         isConnection ? (
-          <StatusDot
+          <SidebarStatusDot
             status={runtimeStatus}
             title={
               !connectionEnabled
@@ -345,7 +345,7 @@ export const TreeNode = memo(
             <span className="server-tree-server-label">
               <span className="server-tree-server-name">{label}</span>
               <span
-                className="sidebar-tag-chip badge badge-muted server-item__type-tag server-item__type-tag--onepanel"
+                className="sidebar-tag-chip server-item__type-tag server-item__type-tag--onepanel"
                 title={`${t("database.connectionInfo.deployment.server")}: ${deploymentServerTag}`}
               >
                 {deploymentServerTag}

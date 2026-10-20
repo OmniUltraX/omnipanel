@@ -1,4 +1,5 @@
 import { useI18n } from "../../../../i18n";
+import { SidebarStatusDot, type SidebarStatus } from "../../../../components/ui/module-sidebar";
 import { StatusDot } from "../../../../components/ui/primitives/StatusDot";
 import { useSshHostStore } from "../../../../stores/sshHostStore";
 import {
@@ -37,14 +38,19 @@ export function HostStatusIndicator({ resourceId, showLabel = false, className }
     .filter(Boolean)
     .join(" · ");
 
-  const dot = (
+  const mapped = hostStatusDotStatus(status);
+  const sidebarStatus: SidebarStatus =
+    mapped === "online" || mapped === "connecting" || mapped === "offline" ? mapped : "idle";
+  const dot = showLabel ? (
     <StatusDot
-      status={hostStatusDotStatus(status)}
+      status={mapped}
       title={title}
       label={label}
       size="sm"
-      className={showLabel ? undefined : className}
+      className={className}
     />
+  ) : (
+    <SidebarStatusDot status={sidebarStatus} title={title} label={label} className={className} />
   );
 
   if (showLabel) {

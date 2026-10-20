@@ -3,16 +3,18 @@ import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
-import { StatusDot, type StatusDotStatus } from "@/components/ui/primitives/StatusDot";
 import { appConfirm } from "@/lib/appConfirm";
 import { showToast } from "@/stores/toastStore";
 import {
   type VerticalSplitSidebarSectionConfig,
 } from "@/components/ui/sidebar/VerticalSplitSidebar";
-import { ModuleSidebarSection, SidebarCountBadge } from "@/components/ui/module-sidebar";
 import {
+  ModuleSidebarSection,
   ModuleSidebarTreeToolbar,
+  SidebarCountBadge,
+  SidebarStatusDot,
   usePersistedTreeExpanded,
+  type SidebarStatus,
 } from "@/components/ui/module-sidebar";
 import {
   SidebarTreeEmpty,
@@ -377,6 +379,7 @@ export function ServerPanelTreeSidebar({
       id: "edit",
       label: t("server.sidebar.edit"),
       icon: contextMenuIcons.edit,
+      shortcut: "F2",
       onClick: () => ctxServer && onEditServer?.(ctxServer),
     },
     ...(ctxServer
@@ -386,6 +389,7 @@ export function ServerPanelTreeSidebar({
       id: "delete",
       label: t("server.sidebar.delete"),
       icon: contextMenuIcons.delete,
+      shortcut: "Del",
       danger: true,
       onClick: () => {
         if (!ctxServer || !onDeleteServer) return;
@@ -455,7 +459,7 @@ export function ServerPanelTreeSidebar({
             const serverRefreshing =
               Boolean(refreshingServerIds[server.id]) || Boolean(refreshingAppsServerIds[server.id]);
             const resources = resourcesByServerId[server.id];
-            const serverStatus: StatusDotStatus = serverRefreshing
+            const serverStatus: SidebarStatus = serverRefreshing
               ? "connecting"
               : resources?.error
                 ? "offline"
@@ -477,7 +481,7 @@ export function ServerPanelTreeSidebar({
                   nodeType="server"
                   treeKey={serverKey}
                   icon={<ServerTreeIcon kind={iconKind} />}
-                  prefix={<StatusDot status={serverStatus} title={serverStatusTitle} />}
+                  prefix={<SidebarStatusDot status={serverStatus} title={serverStatusTitle} />}
                   className={serverTreeNodeClassName(
                     iconKind,
                     isBtPanelService(server.serviceType)
@@ -492,7 +496,7 @@ export function ServerPanelTreeSidebar({
                     <span className="server-tree-server-label">
                       <span className="server-tree-server-name">{server.name}</span>
                       <span
-                        className={`sidebar-tag-chip badge badge-muted server-item__type-tag server-item__type-tag--${panelTypeTagModifier(server.serviceType)}`}
+                        className={`sidebar-tag-chip server-item__type-tag server-item__type-tag--${panelTypeTagModifier(server.serviceType)}`}
                       >
                         {panelServiceTypeLabel(server.serviceType, t)}
                       </span>
@@ -506,6 +510,24 @@ export function ServerPanelTreeSidebar({
                   onSelect={() => onNavigate({ serverId: server.id }, "preview")}
                   onActivate={() => onNavigate({ serverId: server.id }, "permanent")}
                   onContextMenu={(event) => handleContextMenu(event, server)}
+                  onRename={onEditServer ? () => onEditServer(server) : undefined}
+                  renameLabel={t("server.sidebar.edit")}
+                  onDelete={
+                    onDeleteServer
+                      ? () => {
+                          const keys = resolveSidebarTreeDeleteTargets(
+                            serverKey,
+                            selectedIdsRef.current,
+                            { filter: (id) => serverKeyById.has(id) },
+                          );
+                          const ids = keys
+                            .map((key) => serverKeyById.get(key))
+                            .filter((id): id is string => Boolean(id));
+                          if (ids.length === 0) return;
+                          onDeleteServer(ids.length === 1 ? ids[0]! : ids);
+                        }
+                      : undefined
+                  }
                   onRefresh={
                     supportsResources ? () => handleRefreshServer(server) : undefined
                   }

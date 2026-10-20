@@ -75,8 +75,9 @@ export async function ensureAiExecTerminal(options: {
   const requested = options.sessionId?.trim() ?? "";
   const sshResourceId = options.sshResourceId?.trim() ?? "";
 
-  if (requested && terminalPaneSenders[requested]) {
-    if (options.follow) focusTerminalTab(requested);
+  // 对话已经绑在某个标签上时，必须写回这个标签。
+  // 不能因为发送器还没挂上、或同主机还有更早的标签，就改去 openOrFocus 的第一个。
+  if (requested && (await stayOnRequestedTerminal(requested, sshResourceId, options.follow))) {
     return requested;
   }
 
@@ -101,6 +102,30 @@ export async function ensureAiExecTerminal(options: {
   const resourceId =
     pane?.type === "remote" ? pane.resourceId : LOCAL_TERMINAL_RESOURCE_ID;
   return openExecTerminal(options.follow, resourceId, resourceId === LOCAL_TERMINAL_RESOURCE_ID ? 8_000 : 15_000);
+}
+
+/**
+ * 请求里点名的标签还在，且就是这台主机时，聚焦并等待它的输入通道。
+ * 返回 false 表示这个标签不存在，或它不是目标主机，调用方再去开别的终端。
+ */
+async function stayOnRequestedTerminal(
+  requested: string,
+  sshResourceId: string,
+  follow: boolean,
+): Promise<boolean> {
+  const pane = findTerminalPane(requested);
+  if (!pane) return false;
+  if (
+    sshResourceId &&
+    pane.type === "remote" &&
+    pane.resourceId !== sshResourceId
+  ) {
+    return false;
+  }
+  if (follow) focusTerminalTab(requested);
+  if (terminalPaneSenders[requested]) return true;
+  if (await waitForTerminalSender(requested, 8_000)) return true;
+  throw new Error("终端尚未就绪");
 }
 
 async function openExecTerminal(

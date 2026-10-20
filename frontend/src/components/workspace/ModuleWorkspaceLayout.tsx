@@ -46,7 +46,12 @@ export interface ModuleWorkspaceLayoutProps {
   leftSidebar?: ReactNode;
   /** 启用全局标签：标题行 chips + # 弹窗 */
   tagModuleKey?: string;
-  /** @deprecated 所有模块已统一侧栏尺寸，保留仅为兼容旧调用 */
+  /**
+   * 本模块左侧栏宽度的持久化 key。
+   * 不传时用 tagModuleKey。各模块互不影响。
+   */
+  layoutKey?: string;
+  /** @deprecated 侧栏宽度已按模块分别保存，预设不再决定持久化宽度 */
   leftPreset?: DockRailPreset;
   leftSizePx?: number;
   leftMinPx?: number;
@@ -71,6 +76,7 @@ export function ModuleWorkspaceLayout({
   leftHeaderActions,
   leftSidebar,
   tagModuleKey,
+  layoutKey,
   leftSizePx: propLeftSizePx,
   leftMinPx = MODULE_LEFT_SIDEBAR_MIN_PX,
   leftMaxPx = MODULE_LEFT_SIDEBAR_MAX_SIZE,
@@ -92,18 +98,24 @@ export function ModuleWorkspaceLayout({
     leftColumnTitle || leftIconRail || leftHeaderActions || tagModuleKey,
   );
   const hasLeft = Boolean(hasSidebarHeader || leftSidebar);
+  const resolvedLayoutKey = layoutKey ?? tagModuleKey ?? "workspace";
 
   const {
     leftSizePx,
+    leftDefaultSizePx,
     moduleLeftSidebarCollapsed,
     handleLeftResize,
     handleLeftLayoutChanged,
+    handleLeftHandlePointerDown: markLeftSidebarUserResize,
+    handleLeftHandleKeyDown,
     updateSidebarCollapsed,
   } = useSharedModuleLeftSidebar({
     leftPanelRef,
+    visibleRootRef: mainPanelRef,
     syncWhenActive: true,
     moduleActive,
     hasLeft,
+    layoutKey: resolvedLayoutKey,
     propSizePx: propLeftSizePx,
     onCollapsedChange: onSidebarCollapsedChange,
   });
@@ -116,6 +128,7 @@ export function ModuleWorkspaceLayout({
   }, []);
 
   const handleLeftHandlePointerDown = useCallback(() => {
+    markLeftSidebarUserResize();
     const el = mainPanelRef.current;
     if (!el) return;
     freezeMainPanelWidth(el);
@@ -137,7 +150,7 @@ export function ModuleWorkspaceLayout({
     };
     window.addEventListener("pointerup", onPointerEnd, true);
     window.addEventListener("pointercancel", onPointerEnd, true);
-  }, []);
+  }, [markLeftSidebarUserResize]);
 
   const handleLeftLayoutChangedAndUnfreeze = useCallback(() => {
     releaseMainWidthFreeze();
@@ -154,7 +167,7 @@ export function ModuleWorkspaceLayout({
     if (!handle) return;
     if (handle.isCollapsed()) {
       const restorePx = clampModuleLeftSidebarSize(
-        getModuleLeftSidebarSize(usePanelLayoutStore.getState().leftSizes) ??
+        getModuleLeftSidebarSize(usePanelLayoutStore.getState().leftSizes, resolvedLayoutKey) ??
           leftSizePx ??
           MODULE_LEFT_SIDEBAR_DEFAULT_PX,
       );
@@ -167,10 +180,15 @@ export function ModuleWorkspaceLayout({
     }
     handle.collapse();
     updateSidebarCollapsed(true);
-  }, [leftPanelRef, leftSizePx, updateSidebarCollapsed]);
+  }, [leftPanelRef, leftSizePx, resolvedLayoutKey, updateSidebarCollapsed]);
 
   useEffect(() => {
-    if (!moduleActive || !hasLeft) return;
+    // 折叠信号是全局递增的。模块藏在后面时也要跟上序号，
+    // 否则切回来会把「在别的模块上点过一次」当成自己的折叠，左侧栏直接消失。
+    if (!moduleActive || !hasLeft) {
+      lastSidebarToggleNonceRef.current = moduleSidebarToggleNonce;
+      return;
+    }
     if (moduleSidebarToggleNonce === lastSidebarToggleNonceRef.current) return;
     lastSidebarToggleNonceRef.current = moduleSidebarToggleNonce;
     toggleSidebarFromShell();
@@ -210,7 +228,7 @@ export function ModuleWorkspaceLayout({
   return (
     <DockWorkspace
       className={rootClass}
-      leftSizePx={leftSizePx}
+      leftSizePx={leftDefaultSizePx}
       leftMinPx={leftMinPx}
       leftMaxPx={leftMaxPx}
       leftPanelRef={leftPanelRef}
@@ -218,6 +236,7 @@ export function ModuleWorkspaceLayout({
       onLeftResize={handleLeftResize}
       onLeftLayoutChanged={handleLeftLayoutChangedAndUnfreeze}
       onLeftHandlePointerDown={handleLeftHandlePointerDown}
+      onLeftHandleKeyDown={handleLeftHandleKeyDown}
       left={
         <ModuleLeftColumn
           title={leftColumnTitle}

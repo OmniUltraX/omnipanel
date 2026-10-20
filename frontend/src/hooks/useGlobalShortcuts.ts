@@ -284,7 +284,11 @@ export function useGlobalShortcuts() {
       const focusedModule = resolveModuleFromScope(
         useStatusBarActionBarStore.getState().activeDock?.dockScope,
       );
-      if (focusedModule === "terminal") {
+        if (focusedModule === "terminal") {
+        const inSidebarTree = Boolean(
+          (e.target as HTMLElement | null)?.closest?.("[data-sidebar-tree-keyboard]"),
+        );
+        if (!inSidebarTree) {
         const termStore = useTerminalStore.getState();
         const activeTabId = termStore.activeTabId;
         const activeTab = activeTabId
@@ -443,6 +447,7 @@ export function useGlobalShortcuts() {
             e.stopPropagation();
             return;
           }
+        }
         }
       }
 

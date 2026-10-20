@@ -92,3 +92,19 @@ export function createInitialDockTabVisitedOrder(
 ): string[] {
   return activeTabId ? [activeTabId] : [];
 }
+
+/**
+ * 挂载资格 key 变化时需要 soft bump 的 tab。
+ * 首次出现不 bump：panel 往往还没 add，空刷会丢掉「skip → mount」那一次。
+ */
+export function dockTabKeysToBump(
+  prev: Readonly<Record<string, string>>,
+  next: Readonly<Record<string, string>>,
+): string[] {
+  const ids: string[] = [];
+  for (const id of Object.keys(next)) {
+    const previous = prev[id];
+    if (previous !== undefined && previous !== next[id]) ids.push(id);
+  }
+  return ids;
+}

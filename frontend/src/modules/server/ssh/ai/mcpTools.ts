@@ -7,6 +7,7 @@ import { optionalString, requireString } from "../../../../lib/ai/mcpToolArgs";
 import { redactSecretsInText } from "../../../../lib/ai/redactSecrets";
 import { runWithToolGate } from "../../../../lib/ai/toolGate";
 import { isFollowAiActionsEnabled } from "../../../../lib/ai/uiFollow/uiFollowStore";
+import { findTerminalPane } from "../../../../stores/terminalStore";
 import { executeTerminalCommandCore } from "../../../terminal/ai/mcpTools";
 import {
   annotateTerminalSession,
@@ -36,6 +37,16 @@ import type {
 async function sshExec(args: Record<string, unknown>): Promise<string> {
   const resource_id = requireString(args, "resource_id");
   const command = requireString(args, "command");
+  // 桥接层注入的对话标签。用完即删，不进入审批参数展示。
+  const boundSessionId = optionalString(args, "bound_terminal_session_id");
+  delete args.bound_terminal_session_id;
+  const boundPane = boundSessionId ? findTerminalPane(boundSessionId) : undefined;
+  const sessionId =
+    boundSessionId &&
+    boundPane?.type === "remote" &&
+    boundPane.resourceId === resource_id
+      ? boundSessionId
+      : undefined;
 
   const runPool = async (presenceToken: string | null | undefined) => {
     const res = await commands.sshPoolExecCommand(resource_id, command, presenceToken ?? null);
@@ -66,6 +77,7 @@ async function sshExec(args: Record<string, unknown>): Promise<string> {
     try {
       const tabId = await ensureAiExecTerminal({
         follow: isFollowAiActionsEnabled(),
+        sessionId,
         sshResourceId: resource_id,
       });
       const result = await executeTerminalCommandCore({ command, session_id: tabId });

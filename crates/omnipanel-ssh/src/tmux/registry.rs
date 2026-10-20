@@ -33,8 +33,22 @@ impl PaneRegistry {
 
     /// 登记一个会话。同名会话重复登记时，旧的 pane / window 索引会被清理，
     /// 避免重连场景下残留指向已销毁 pane 的映射。
+    ///
+    /// 一个 pane 只属于一个前端会话。后来者登记时摘掉原主人的映射，
+    /// 否则原主人的 `by_session` 仍指向这个 pane，按键会写进别人的标签，
+    /// 而 `%output` 却只投给 `by_pane` 上的后登记者。
     pub fn register(&mut self, session_id: impl Into<String>, window: WindowId, pane: PaneId) {
         let session_id = session_id.into();
+        if let Some(other) = self.by_pane.get(&pane).cloned() {
+            if other != session_id {
+                self.unregister(&other);
+            }
+        }
+        if let Some(other) = self.by_window.get(&window).cloned() {
+            if other != session_id {
+                self.unregister(&other);
+            }
+        }
         if let Some(old) = self.by_session.remove(&session_id) {
             self.by_pane.remove(&old.pane);
             self.by_window.remove(&old.window);
@@ -150,6 +164,16 @@ mod tests {
         assert_eq!(removed.session_id, "ssh-2");
         assert_eq!(r.session_of_pane(PaneId(1)), None);
         assert_eq!(r.remove_window(WindowId(1)), None);
+    }
+
+    #[test]
+    fn second_session_taking_a_pane_drops_the_previous_owner() {
+        let mut r = registry_with_two();
+        r.register("ssh-2", WindowId(0), PaneId(0));
+        assert_eq!(r.len(), 1, "同一个 pane 不能同时挂两个会话");
+        assert_eq!(r.session_of_pane(PaneId(0)), Some("ssh-2"));
+        assert!(r.entry("ssh-1").is_none(), "原主人不能再往这个 pane 写");
+        assert_eq!(r.entry("ssh-2").unwrap().pane, PaneId(0));
     }
 
     #[test]

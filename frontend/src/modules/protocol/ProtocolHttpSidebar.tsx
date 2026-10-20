@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type MouseEvent,
-  type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
@@ -27,7 +26,7 @@ import {
 import { useSidebarNoteStore } from "../../stores/sidebarNoteStore";
 import { useI18n } from "../../i18n";
 import { cn } from "../../lib/utils";
-import { IconFolder } from "../../components/ui/icons/Icons";
+import { SidebarIcon } from "../../components/ui/module-sidebar";
 import { ProtocolSidebarNewButton, runProtocolHttpImport } from "./ProtocolSidebarNewButton";
 import {
   useProtocolHttpLayoutStore,
@@ -53,9 +52,9 @@ import {
   ProtocolTreeHttpIcon,
 } from "./protocolTreeIcons";
 import {
+  SidebarTreeKeyboardRoot,
   SidebarTreeSelectionProvider,
   resolveSidebarTreeDeleteTargets,
-  useSidebarTreeSelection,
 } from "@/components/ui/sidebar-tree";
 import { useProtocolHttpOptional } from "./ProtocolHttpContext";
 import {
@@ -122,58 +121,6 @@ function filterTopLevelSelectedFolderIds(
   });
 }
 
-function ProtocolTreeHotkeys({
-  allKeys,
-  armedRef,
-  onDeleteSelected,
-}: {
-  allKeys: readonly string[];
-  armedRef: MutableRefObject<boolean>;
-  onDeleteSelected: (selected: ReadonlySet<string>) => boolean | Promise<boolean>;
-}) {
-  const selection = useSidebarTreeSelection();
-  const selectionRef = useRef(selection);
-  selectionRef.current = selection;
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
-      if (!armedRef.current) return;
-      const target = event.target as HTMLElement | null;
-      if (
-        target?.closest(
-          "input, textarea, select, [contenteditable=''], [contenteditable='true']",
-        )
-      ) {
-        return;
-      }
-
-      const mod = event.ctrlKey || event.metaKey;
-      if (mod && event.key.toLowerCase() === "a") {
-        if (allKeys.length === 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        selectionRef.current?.setSelectedIds(allKeys);
-        return;
-      }
-
-      if (event.key === "Delete") {
-        const selected = selectionRef.current?.selectedIds;
-        if (!selected || selected.size === 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        void Promise.resolve(onDeleteSelected(selected)).then((deleted) => {
-          if (deleted) selectionRef.current?.clearSelection();
-        });
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [allKeys, armedRef, onDeleteSelected]);
-
-  return null;
-}
-
 export function ProtocolHttpSidebar() {
   const { t } = useI18n();
   const openShareDialog = useShareUiStore((s) => s.openShareDialog);
@@ -214,8 +161,6 @@ export function ProtocolHttpSidebar() {
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
   }, []);
-  /** 最近一次指针交互落在协议侧栏内时，才响应 Ctrl+A / Delete（避免右侧面板误触） */
-  const sidebarHotkeysArmedRef = useRef(false);
   const sidebarRootRef = useRef<HTMLElement>(null);
   const [isPointerDragging, setIsPointerDragging] = useState(false);
   const treeRootRef = useRef<HTMLDivElement>(null);
@@ -351,16 +296,6 @@ export function ProtocolHttpSidebar() {
       siblingOrder,
     ],
   );
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      sidebarHotkeysArmedRef.current = Boolean(
-        sidebarRootRef.current?.contains(event.target as Node),
-      );
-    };
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => window.removeEventListener("pointerdown", onPointerDown, true);
-  }, []);
 
   const closeTabsForResource = useCallback(
     (resourceId: string, protocol?: string) => {
@@ -750,7 +685,6 @@ export function ProtocolHttpSidebar() {
   const openContextMenu = useCallback((event: MouseEvent, target: ContextTarget) => {
     event.preventDefault();
     event.stopPropagation();
-    sidebarHotkeysArmedRef.current = true;
     setCtxMenu({ x: event.clientX, y: event.clientY, target });
   }, []);
 
@@ -1039,7 +973,7 @@ export function ProtocolHttpSidebar() {
                 expanded={expanded}
                 hasChildren={hasChildren}
                 label={entry.folder.name}
-                icon={<IconFolder size={14} />}
+                icon={<SidebarIcon kind="folder" />}
                 dataTreeKey={entry.key}
                 className={`${hintClass}${draggingClass}`}
                 onToggle={() => {
@@ -1048,6 +982,16 @@ export function ProtocolHttpSidebar() {
                 }}
                 onPointerDown={(e) => onNodePointerDown(e, entry.key)}
                 onContextMenu={(e) => openContextMenu(e, { kind: "folder", folderId })}
+                onRename={() => {
+                  void quickInput({
+                    title: t("protocol.sidebar.renameFolderTitle"),
+                    defaultValue: entry.folder.name,
+                    validate: (value) => (value.trim() ? null : t("protocol.sidebar.folderNameRequired")),
+                  }).then((name) => {
+                    if (!name) return;
+                    renameFolder(folderId, name.trim());
+                  });
+                }}
               />
               {expanded && hasChildren ? renderTree(childEntries, depth + 1) : null}
             </div>
@@ -1070,7 +1014,7 @@ export function ProtocolHttpSidebar() {
               icon={<ProtocolTreeHttpIcon />}
               afterLabel={
                 <span
-                  className="tag proto-method-tag"
+                  className="sidebar-tag-chip proto-method-tag"
                   style={{ color: methodTint, borderColor: methodTint }}
                 >
                   {formatMethodBadge(req.method)}
@@ -1091,6 +1035,16 @@ export function ProtocolHttpSidebar() {
               }}
               onPointerDown={(e) => onNodePointerDown(e, entry.key)}
               onContextMenu={(e) => openContextMenu(e, { kind: "request", requestId: req.id })}
+              onRename={() => {
+                void quickInput({
+                  title: t("protocol.sidebar.renameRequestTitle"),
+                  defaultValue: req.name,
+                  validate: (value) => (value.trim() ? null : t("protocol.sidebar.folderNameRequired")),
+                }).then((name) => {
+                  if (!name || !http) return;
+                  void http.renameSavedRequest(req.id, name.trim());
+                });
+              }}
             />
           );
         }
@@ -1128,6 +1082,21 @@ export function ProtocolHttpSidebar() {
             }}
             onPointerDown={(e) => onNodePointerDown(e, entry.key)}
             onContextMenu={(e) => openContextMenu(e, { kind: "entry", entryId: labEntry.id })}
+            onRename={() => {
+              void quickInput({
+                title: t("protocol.sidebar.renameRequestTitle"),
+                defaultValue: labEntry.name,
+                validate: (value) => (value.trim() ? null : t("protocol.sidebar.folderNameRequired")),
+              }).then((name) => {
+                if (!name) return;
+                const next = name.trim();
+                renameLabEntry(labEntry.id, next);
+                const tab = workspaceTabsForClose.find(
+                  (item) => item.resourceId === labEntry.id && item.protocol === labEntry.protocol,
+                );
+                if (tab) useProtocolWorkspaceStore.getState().updateTabLabel(tab.id, next);
+              });
+            }}
           />
         );
       });
@@ -1145,6 +1114,11 @@ export function ProtocolHttpSidebar() {
       toggleFolderExpanded,
       handleSelectRequest,
       handleSelectEntry,
+      renameFolder,
+      renameLabEntry,
+      http,
+      workspaceTabsForClose,
+      t,
     ],
   );
 
@@ -1156,7 +1130,6 @@ export function ProtocolHttpSidebar() {
         if ((e.target as HTMLElement).closest(".tree-node, .history-item, .vsplit-sidebar-section__header")) {
           return;
         }
-        sidebarHotkeysArmedRef.current = true;
         openContextMenu(e, { kind: "root" });
       }}
     >
@@ -1170,17 +1143,13 @@ export function ProtocolHttpSidebar() {
           <SidebarTreeSelectionProvider
             orderedKeys={allTreeKeys}
             onSelectedIdsChange={handleSelectedIdsChange}
-          >
-          <ProtocolTreeHotkeys
-            allKeys={allTreeKeys}
-            armedRef={sidebarHotkeysArmedRef}
             onDeleteSelected={deleteSelectedTreeItems}
-          />
+          >
+          <SidebarTreeKeyboardRoot targetRef={treeRootRef} />
           <div
             ref={treeRootRef}
             className={`proto-tree-root sidebar-tree-sticky${isPointerDragging && dropHint === null ? " proto-tree-root--drag-active" : ""}`}
             onContextMenu={(e) => {
-              sidebarHotkeysArmedRef.current = true;
               openContextMenu(e, { kind: "root" });
             }}
           >

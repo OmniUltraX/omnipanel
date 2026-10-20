@@ -94,7 +94,11 @@ import {
   isMultilineTerminalCommand,
 } from "../modules/terminal/formatPtyCommandInput";
 import { resolveTerminalShellFamily } from "../modules/terminal/terminalAutoLsShell";
-import { setTerminalPaneRawWriter, writeTerminalRaw } from "../modules/terminal/terminalPaneSenders";
+import {
+  clearTerminalPaneSenderIf,
+  setTerminalPaneRawWriter,
+  writeTerminalRaw,
+} from "../modules/terminal/terminalPaneSenders";
 import { useTerminalUiStore } from "../modules/terminal/terminalUiStore";
 import { hasFullTerminalSignal, hasFullTerminalExitSignal } from "../modules/terminal/fullTerminalSignals";
 import {
@@ -1045,6 +1049,7 @@ export function useTerminal(
     let fitAddon: FitAddon | null = null;
     let webglAddon: WebglAddon | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let preInitObserver: ResizeObserver | null = null;
     let destroyed = false;
     let contextmenuHandler: ((e: MouseEvent) => void) | null = null;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1911,7 +1916,23 @@ export function useTerminal(
     }
 
     function initTerminal() {
-      if (destroyed || term || suspendedRef.current) return;
+      // 从 SSH 跳进来时，模块可能仍被 clip / 尚未 layout。此时建 xterm 会吃到 0 尺寸，
+      // 而且 IntersectionObserver 不会因为后来变大再回调，状态就停在 connecting（黄点）。
+      if (destroyed || term || suspendedRef.current || !activeRef.current) return;
+      if (!containerCanFit()) {
+        const node = containerRef.current;
+        if (!node || preInitObserver) return;
+        const observer = new ResizeObserver(() => {
+          initTerminal();
+        });
+        preInitObserver = observer;
+        observer.observe(node);
+        return;
+      }
+      if (preInitObserver) {
+        preInitObserver.disconnect();
+        preInitObserver = null;
+      }
 
       try {
         const settings = useSettingsStore.getState();
@@ -2147,7 +2168,13 @@ export function useTerminal(
     // 仅重建后端 PTY session。外部 cleanup（autoReconnect / TerminalPanel reconnect handler）
     // 已 dispose 旧 PTY 资源 + 清 store backendSessionId，这里只做"前端侧"重新拉起。
     function performReconnect() {
-      if (destroyed || !term) return;
+      if (destroyed) return;
+      // 跳转进来时可能已经错过首次 init（尺寸为 0 / 面板当时是空的）。
+      // 没有 xterm 就再走一遍启动，而不是直接 return 把黄点留住。
+      if (!term) {
+        initTerminal();
+        return;
+      }
       // 1) 清理旧 backend session 引用（外部已 dispose 真正的 PTY）
       backendSid = null;
       registerRuntimeBackendSession(sessionId, null);
@@ -2218,6 +2245,8 @@ export function useTerminal(
       destroyed = true;
       fitTerminalRef.current = () => {};
       observer.disconnect();
+      preInitObserver?.disconnect();
+      preInitObserver = null;
       resizeObserver?.disconnect();
       if (resizeTimer) {
         clearTimeout(resizeTimer);
@@ -2233,8 +2262,9 @@ export function useTerminal(
       if (contextmenuHandler) {
         container.removeEventListener("contextmenu", contextmenuHandler);
       }
+      const ownedSender = sendCommandRef.current;
       sendCommandRef.current = null;
-      registerShellHistoryPtySender(sessionId, null);
+      if (ownedSender) clearTerminalPaneSenderIf(sessionId, ownedSender);
       setTerminalPaneRawWriter(sessionId, null);
       unregisterTerminalAutoLsSession(sessionId);
       registerRuntimeBackendSession(sessionId, null);
@@ -2336,12 +2366,10 @@ export function useTerminal(
     if (!rt.webglAddon && rt.setupWebgl) {
       rt.setupWebgl();
     }
-    // 仅当前激活 tab 才初始化；非激活 tab 保活已有实例，不在此抢主线程
-    if (!term && activeRef.current && rt.container && rt.initTerminal) {
-      const rect = rt.container.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        rt.initTerminal();
-      }
+    // 仅当前激活 tab 才初始化；非激活 tab 保活已有实例，不在此抢主线程。
+    // 尺寸不够时交给 initTerminal 自己挂 ResizeObserver，不能在这里直接放弃。
+    if (!term && activeRef.current && rt.initTerminal) {
+      rt.initTerminal();
     }
     if (term && rt.outputBuffer.length > 0) {
       for (const bytes of rt.outputBuffer) {
@@ -2376,11 +2404,8 @@ export function useTerminal(
     if (rt.container && rt.resizeObserver) {
       rt.resizeObserver.observe(rt.container);
     }
-    if (!termRef.current && rt.container && rt.initTerminal) {
-      const rect = rt.container.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        rt.initTerminal();
-      }
+    if (!termRef.current && rt.initTerminal) {
+      rt.initTerminal();
     }
     // dockview 切 Tab 不会触发 IntersectionObserver（visibility:hidden 尺寸不变）。
     // 必须在 active 恢复时 flush + 清 WebGL 图集 + 全量重绘，否则字间距错乱。
@@ -2420,9 +2445,6 @@ export function useTerminal(
     if (active && !suspended && sendCommandRef.current) {
       sendRef.current = sendCommandRef.current;
       registerShellHistoryPtySender(sessionId, sendCommandRef.current);
-    } else if (sendRef.current === sendCommandRef.current) {
-      sendRef.current = null;
-      registerShellHistoryPtySender(sessionId, null);
     }
   }, [active, sendRef, sessionId, suspended]);
 

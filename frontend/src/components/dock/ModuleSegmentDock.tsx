@@ -263,6 +263,29 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
     ],
   );
 
+  // dockview 只在 panel 参数变化时重绘。挂起期间建出的空面板，要等资格变成 mount 再 soft bump。
+  const panelSoftKeysByTab = useMemo(() => {
+    if (!stickyVisit && !contentSuspended) return undefined;
+    const keys: Record<string, string> = {};
+    for (const tab of tabs) {
+      const mount = shouldMountDockTabContent({
+        active: tab.id === activeTabId,
+        visited: visitedTabIds.has(tab.id),
+        contentSuspended,
+        keepVisitedWhileSuspended,
+      });
+      keys[tab.id] = mount ? "mount" : "skip";
+    }
+    return keys;
+  }, [
+    activeTabId,
+    contentSuspended,
+    keepVisitedWhileSuspended,
+    stickyVisit,
+    tabs,
+    visitedTabIds,
+  ]);
+
   const resolvedRenderer =
     stickyVisit || contentSuspended ? "always" : defaultRenderer;
 
@@ -315,6 +338,7 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
       windowChromeVariant="segment"
       panelContentKey={panelContentKey}
       panelContentKeysByTab={panelContentKeysByTab}
+      panelSoftKeysByTab={panelSoftKeysByTab}
       softRefreshKey={composedSoftRefreshKey}
       defaultRenderer={resolvedRenderer}
       deferActiveTabNotify={deferActiveTabNotify}

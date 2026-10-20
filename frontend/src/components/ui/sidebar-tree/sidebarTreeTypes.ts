@@ -9,4 +9,6 @@ export type SidebarTreeModule =
   | "protocol"
   | "terminal"
   | "cloud"
+  | "files"
+  | "tasks"
   | "module";

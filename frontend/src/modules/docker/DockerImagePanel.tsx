@@ -12,8 +12,7 @@ import type {
 } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { showToast } from "../../stores/toastStore";
-import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
-import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
+import { peekDockerSidebarCache, publishDockerSidebarCategory } from "./dockerSidebarCacheSeed";
 import {
   DOCKER_QUIET_IPC,
   handleDockerAutoFetchFailure,
@@ -134,15 +133,6 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
   const [view, setView] = useState<PanelView>("list");
   const [pendingRemove, setPendingRemove] = useState<Record<string, boolean>>({});
 
-  const refreshSidebarImages = useCallback(() => {
-    void useDockerSidebarCacheStore
-      .getState()
-      .refreshScope({ kind: "category", connectionId: connection.connectionId, category: "images" });
-    void useDockerSidebarCacheStore
-      .getState()
-      .refreshScope({ kind: "category", connectionId: connection.connectionId, category: "containers" });
-  }, [connection.connectionId]);
-
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -153,6 +143,8 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
           // 顺序拉取：SSH 并发 list 易抢 exec 通道
           const nextImages = await fetchImages(connection.connectionId);
           const nextContainers = await fetchContainers(connection.connectionId);
+          publishDockerSidebarCategory(connection.connectionId, "images", nextImages);
+          publishDockerSidebarCategory(connection.connectionId, "containers", nextContainers);
           startTransition(() => {
             setImages(nextImages);
             setContainers(nextContainers);
@@ -160,7 +152,6 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
         },
         connection.boundSshConnectionId,
       );
-      refreshSidebarImages();
     } catch (err) {
       if (
         err &&
@@ -176,7 +167,7 @@ export function DockerImagePanel({ connection, isActive = false }: DockerImagePa
     } finally {
       setLoading(false);
     }
-  }, [connection.boundSshConnectionId, connection.connectionId, refreshSidebarImages]);
+  }, [connection.boundSshConnectionId, connection.connectionId]);
 
   useEffect(() => {
     // cache-first：切换连接时先灌入侧栏缓存，再由 isActive 触发后台 refresh，禁止同步清空

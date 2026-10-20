@@ -16701,8 +16701,6 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .server-item__type-tag {
         flex-shrink: 0;
-        font-size: 10px;
-        font-weight: 600;
     }
 
     .server-item__type-tag--bt {
@@ -17054,8 +17052,8 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     .server-sidebar-body .server-tree-brand-icon {
         display: block;
-        width: 13px;
-        height: 13px;
+        width: 14px;
+        height: 14px;
         object-fit: contain;
         flex-shrink: 0;
     }
