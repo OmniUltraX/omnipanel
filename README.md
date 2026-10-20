@@ -12,7 +12,7 @@
     <a href="./README.md">English</a>
   </p>
   <p align="center">
-    <a href="https://omniultrax.github.io/omnipanel/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
+    <a href="https://omnipanel.cn/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web"><img src="https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square" alt="Docker"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/releases"><img src="https://img.shields.io/github/v/release/OmniUltraX/omnipanel?style=flat-square&color=007aff" alt="Release"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square&color=007aff" alt="License"></a>
@@ -27,7 +27,7 @@
 
 > One window to manage servers, databases, containers, and workflows. One AI that understands your entire engineering context.
 
-**Website:** [https://omniultrax.github.io/omnipanel/](https://omniultrax.github.io/omnipanel/) · **Releases:** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
+**Website:** [https://omnipanel.cn/](https://omnipanel.cn/) · **Releases:** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
 
 ### 📸 Screenshots
 

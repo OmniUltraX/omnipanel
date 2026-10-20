@@ -25,16 +25,11 @@ npm run preview
 
 1. 在仓库 **Settings → Pages** 中，Source 选择 **GitHub Actions**
 2. 推送 `website/` 目录变更到 `master` 分支，或手动运行 **Deploy Website** workflow
-3. 站点地址：`https://omniultrax.github.io/omnipanel/`
+3. 站点地址：`https://omnipanel.cn/`（`website/public/CNAME`，构建 base 为 `/`）
 
 ### 自定义域名
 
-在 `website/public/` 下添加 `CNAME` 文件，内容为你的域名；并在仓库 Pages 设置中填写同一域名。构建时将 `GITHUB_PAGES_BASE` 设为 `/`：
-
-```yaml
-env:
-  GITHUB_PAGES_BASE: /
-```
+`website/public/CNAME` 内容为 `omnipanel.cn`。GitHub Actions 部署以产物里的这个文件为准，Pages 设置里手填的域名会被下一次部署覆盖。流水线已把 `GITHUB_PAGES_BASE` 设为 `/`。
 
 ### 修改 base 路径
 

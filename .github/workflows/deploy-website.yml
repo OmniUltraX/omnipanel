@@ -36,7 +36,8 @@ jobs:
       - name: Build site
         working-directory: website
         env:
-          GITHUB_PAGES_BASE: /${{ github.event.repository.name }}/
+          # 自定义域名 omnipanel.cn 从站点根提供页面
+          GITHUB_PAGES_BASE: /
         run: npm run build
 
       - name: Upload artifact

@@ -12,7 +12,7 @@
     <a href="./README.md">English</a>
   </p>
   <p align="center">
-    <a href="https://omniultrax.github.io/omnipanel/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
+    <a href="https://omnipanel.cn/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web"><img src="https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square" alt="Docker"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/releases"><img src="https://img.shields.io/github/v/release/OmniUltraX/omnipanel?style=flat-square&color=007aff" alt="Release"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square&color=007aff" alt="License"></a>
@@ -27,7 +27,7 @@
 
 > 一个窗口，管理服务器、数据库、容器与工作流；一个 AI，贯穿开发运维上下文。
 
-**官网：** [https://omniultrax.github.io/omnipanel/](https://omniultrax.github.io/omnipanel/) · **安装包：** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
+**官网：** [https://omnipanel.cn/](https://omnipanel.cn/) · **安装包：** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
 
 ### 📸 界面预览
 

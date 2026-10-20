@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 
-/** GitHub Pages 项目站路径，如 https://omniultrax.github.io/omnipanel/ */
+/** 线上为自定义域名根路径；本地未设置时仍用项目页 /omnipanel/ */
 const base = process.env.GITHUB_PAGES_BASE ?? "/omnipanel/";
 
 export default defineConfig({
