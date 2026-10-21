@@ -16,6 +16,7 @@ import { initAppModuleStore } from "./stores/appModuleStore";
 import { initPluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { warmDbxCatalogCache } from "./stores/dbxCatalogStore";
 import { initPluginConfirmListener } from "./lib/pluginConfirm";
+import { initResourceDedupeListener } from "./lib/resourceDedupeRewrite";
 import { initBuiltinToolStore } from "./stores/builtinToolStore";
 import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
@@ -127,6 +128,7 @@ export function Bootstrap() {
         await initPluginRuntimeStore();
         warmDbxCatalogCache();
         void initPluginConfirmListener();
+        void initResourceDedupeListener();
 
         await pushLog(t("app.splash.logs.builtinTools"));
         const toolsChain = initBuiltinToolStore().then(async () => {

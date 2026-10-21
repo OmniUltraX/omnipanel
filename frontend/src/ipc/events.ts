@@ -83,6 +83,12 @@ export const ASSISTANT_TERMINAL_OPEN_OR_FOCUS =
 /** 团队成员 → 本机分享创建通知（payload: teamId / shareId / objectKey） */
 export const TEAM_SHARE_INBOUND = "team-share-inbound" as const;
 
+/** 同组织设备发起的 HTTP 同步密钥中继（payload: requestId / teamId / ephemeralPubkey） */
+export const SYNC_KEY_RELAY_PENDING = "sync-key-relay-pending" as const;
+
+/** 同步密钥中继通知流连通状态（payload: up） */
+export const SYNC_KEY_RELAY_CHANNEL = "sync-key-relay-channel" as const;
+
 /** 任一窗口切换插件启用状态后广播，各窗口 reload plugin_list */
 export const PLUGIN_CHANGED = "plugin://changed" as const;
 
@@ -93,6 +99,9 @@ export const PLUGIN_OFFICIAL_CATALOG_UPDATED = "plugin://official-catalog-update
 export const PLUGIN_DISCOVERY_CANCELLED = "plugin://discovery-cancelled" as const;
 /** prod 目标命中：请求用户交互确认（requestId → pluginConfirmResolve 回传） */
 export const PLUGIN_CONFIRM_REQUEST = "plugin://confirm-request" as const;
+
+/** 重复资源已合并：前端把打开中的会话改挂到保留项 */
+export const RESOURCE_DEDUPE_APPLIED = "resource-dedupe-applied" as const;
 
 export type IpcEventName =
   | typeof TERMINAL_OUTPUT
@@ -120,7 +129,10 @@ export type IpcEventName =
   | typeof ASSISTANT_CHAT_SET_MODEL
   | typeof ASSISTANT_TERMINAL_OPEN_OR_FOCUS
   | typeof TEAM_SHARE_INBOUND
+  | typeof SYNC_KEY_RELAY_PENDING
+  | typeof SYNC_KEY_RELAY_CHANNEL
   | typeof PLUGIN_CHANGED
   | typeof PLUGIN_OFFICIAL_CATALOG_UPDATED
   | typeof PLUGIN_DISCOVERY_CANCELLED
-  | typeof PLUGIN_CONFIRM_REQUEST;
+  | typeof PLUGIN_CONFIRM_REQUEST
+  | typeof RESOURCE_DEDUPE_APPLIED;

@@ -35,6 +35,7 @@ import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
 import { initPluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { warmDbxCatalogCache } from "./stores/dbxCatalogStore";
+import { initResourceDedupeListener } from "./lib/resourceDedupeRewrite";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
@@ -188,6 +189,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
   }, [dockOpen, dockWidth]);
 
   useEffect(() => {
+    void initResourceDedupeListener();
     dismissHtmlBootSplash();
     document.documentElement.classList.add("module-window-root");
     document.body.classList.add("module-window-body");

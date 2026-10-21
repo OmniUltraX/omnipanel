@@ -6,7 +6,7 @@
 //! - 宿主注入全局只读对象 `host`：
 //!   `ping(): number`、`hmac(specJson): string`、`hash(specJson): string`、`netFetch(url): string`、`fsRead(path): string`、
 //!   `connectionUpsert(candidateJson): void`、`invoke(method, argsJson): string`、
-//!   `vaultGet/Has/Put/Delete`、`stateGet/Set`；
+//!   `vaultGet/Has/Put/Delete`、`stateGet/Set`、`resourcesScan()`、`resourcesApply(planJson)`；
 //!   失败以 JS 异常抛出。
 //!
 //! 资源限制：内存 64MB、栈 1MB、单次调用默认 10s 中断阈值（防死循环）。
@@ -242,6 +242,24 @@ impl JsInstanceInner {
                     let b = Arc::clone(&bridge);
                     move |ctx: Ctx<'_>, payload: String| -> rquickjs::Result<()> {
                         b.state_set(&payload).map_err(|msg| throw_host(&ctx, msg))
+                    }
+                }),
+            )?;
+            host.set(
+                "resourcesScan",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |ctx: Ctx<'_>| -> rquickjs::Result<String> {
+                        b.resources_scan().map_err(|msg| throw_host(&ctx, msg))
+                    }
+                }),
+            )?;
+            host.set(
+                "resourcesApply",
+                Function::new(ctx.clone(), {
+                    let b = Arc::clone(&bridge);
+                    move |ctx: Ctx<'_>, plan: String| -> rquickjs::Result<String> {
+                        b.resources_apply(&plan).map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;

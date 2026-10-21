@@ -66,7 +66,7 @@ pub struct AppState {
     pub current_provider: Arc<Mutex<Option<String>>>,
     #[allow(dead_code)]
     pub current_model: Arc<Mutex<Option<String>>>,
-    pub db_connections: DatabaseConnectionStore,
+    pub db_connections: Arc<DatabaseConnectionStore>,
     /// 本地元数据存储（连接、审计等）。
     pub storage: Arc<Mutex<Storage>>,
     /// 动作执行引擎（按 kind 分发到各 Executor）。
@@ -175,6 +175,7 @@ impl AppState {
         db_connections: DatabaseConnectionStore,
         mcp_manager: SharedMcpManager,
     ) -> Self {
+        let db_connections = Arc::new(db_connections);
         let log_store = LogStore::new(500);
         let ssh_pool_sessions = Arc::new(Mutex::new(HashMap::new()));
         let ssh_pool = Arc::new(SshPool::new(

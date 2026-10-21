@@ -124,6 +124,7 @@ impl ServerState {
             ssh_sessions.clone(),
             docker_ssh_sessions.clone(),
             presence_tokens.clone(),
+            db_connections.clone(),
         );
         let worker_pool = Arc::new(crate::bg_worker_pool::BackgroundWorkerPool::new(
             crate::bg_worker_pool::default_worker_count(),

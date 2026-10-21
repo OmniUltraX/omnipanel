@@ -35,6 +35,10 @@ pub struct PluginBridge {
     pub http: reqwest::Client,
     pub confirmer: Arc<dyn ProdConfirmer>,
     pub ssh: Arc<dyn SshExec>,
+    /// 数据库连接仓库。缺省时只扫 SQLite 里的统一连接。
+    pub databases: Option<Arc<omnipanel_store::DatabaseConnectionStore>>,
+    /// 合并成功后通知前端改挂已打开的会话。参数是报告 JSON。
+    pub on_resources_applied: Option<Arc<dyn Fn(String) + Send + Sync>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -263,6 +267,8 @@ impl PluginHostBridge for PluginBridge {
             http: self.http.clone(),
             confirmer: Arc::clone(&self.confirmer),
             ssh: Arc::clone(&self.ssh),
+            databases: self.databases.clone(),
+            on_resources_applied: self.on_resources_applied.clone(),
         };
         let gate_target = spec.url.clone();
         block_on_detached(async move { gate_bridge.prod_gate("net.fetch", &gate_target).await })
@@ -427,6 +433,52 @@ impl PluginHostBridge for PluginBridge {
         Ok(())
     }
 
+    fn resources_scan(&self) -> Result<String, String> {
+        self.require(PluginPermission::ConnectionsWrite)
+            .map_err(|e| e.to_string())?;
+        let storage = Arc::clone(&self.storage);
+        let databases = self.databases.clone();
+        let report = block_on_detached(async move {
+            let listed = match &databases {
+                Some(store) => store.list().map_err(|err| err.to_string())?,
+                None => omnipanel_store::load_database_connections().unwrap_or_default(),
+            };
+            let store = storage.lock().await;
+            let scan = omnipanel_store::scan_resource_duplicates(&store, &listed)
+                .map_err(|err| err.to_string())?;
+            serde_json::to_string(&scan).map_err(|err| err.to_string())
+        });
+        self.audit("plugin.resource-dedupe", "success", "scan".into());
+        report
+    }
+
+    fn resources_apply(&self, plan_json: &str) -> Result<String, String> {
+        self.require(PluginPermission::ConnectionsWrite)
+            .map_err(|e| e.to_string())?;
+        let storage = Arc::clone(&self.storage);
+        let databases = self.databases.clone();
+        let plan_json = plan_json.to_string();
+        let report = block_on_detached(async move {
+            let store = storage.lock().await;
+            let report = omnipanel_store::apply_resource_dedupe(
+                &store,
+                databases.as_deref(),
+                &plan_json,
+            )
+            .map_err(|err| err.to_string())?;
+            serde_json::to_string(&report).map_err(|err| err.to_string())
+        })?;
+        if let Some(notify) = &self.on_resources_applied {
+            notify(report.clone());
+        }
+        self.audit(
+            "plugin.resource-dedupe",
+            "success",
+            args_digest(&report),
+        );
+        Ok(report)
+    }
+
     fn ssh_exec(&self, spec_json: &str) -> Result<String, String> {
         self.require(PluginPermission::SshExec)
             .map_err(|e| e.to_string())?;
@@ -466,6 +518,8 @@ impl PluginHostBridge for PluginBridge {
                 http: self.http.clone(),
                 confirmer: Arc::clone(&self.confirmer),
                 ssh: Arc::clone(&self.ssh),
+                databases: self.databases.clone(),
+                on_resources_applied: self.on_resources_applied.clone(),
             };
             let target = connection_id.clone();
             block_on_detached(async move { gate_bridge.prod_gate("ssh.exec", &target).await })

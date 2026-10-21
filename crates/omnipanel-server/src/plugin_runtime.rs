@@ -179,6 +179,8 @@ pub struct PluginRuntime {
     pub ssh: Arc<dyn SshExec>,
     pub confirmer: Arc<dyn ProdConfirmer>,
     pub presence: Arc<omnipanel_presence::TokenStore>,
+    pub databases: Arc<omnipanel_store::DatabaseConnectionStore>,
+    bus: EventBus,
 }
 
 impl PluginRuntime {
@@ -188,6 +190,7 @@ impl PluginRuntime {
         ssh_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
         docker_ssh_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
         presence: Arc<omnipanel_presence::TokenStore>,
+        databases: Arc<omnipanel_store::DatabaseConnectionStore>,
     ) -> Self {
         let packages_dir = user_plugins_dir();
         if let Some(root) = packages_dir.as_deref() {
@@ -209,7 +212,7 @@ impl PluginRuntime {
             storage: Arc::clone(&storage),
         });
         let confirmer: Arc<dyn ProdConfirmer> = Arc::new(WebProdConfirmer {
-            bus,
+            bus: bus.clone(),
             pending: Arc::clone(&pending_confirms),
         });
         let runtime = Self {
@@ -224,6 +227,8 @@ impl PluginRuntime {
             ssh,
             confirmer,
             presence,
+            databases,
+            bus: bus.clone(),
         };
         runtime.sync_logic_blocking();
         runtime
@@ -293,6 +298,15 @@ impl PluginRuntime {
             http: self.http.clone(),
             confirmer: Arc::clone(&self.confirmer),
             ssh: Arc::clone(&self.ssh),
+            databases: Some(Arc::clone(&self.databases)),
+            on_resources_applied: Some(Arc::new({
+                let bus = self.bus.clone();
+                move |payload: String| {
+                    if let Ok(value) = serde_json::from_str::<Value>(&payload) {
+                        bus.emit("resource-dedupe-applied", value);
+                    }
+                }
+            })),
         }
     }
 

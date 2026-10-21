@@ -7,6 +7,7 @@ pub const PLUGIN_ID_AGENT_TRAE: &str = "omni.agent.trae";
 pub const PLUGIN_ID_AGENT_TRAE_GLOBAL: &str = "omni.agent.trae-global";
 pub const PLUGIN_ID_AGENT_OPENCODE_GO: &str = "omni.agent.opencode-go";
 pub const PLUGIN_ID_ADDON_EVERYTHING: &str = "omni.addon.everything";
+pub const PLUGIN_ID_ADDON_RESOURCE_DEDUPE: &str = "omni.addon.resource-dedupe";
 pub const PLUGIN_ID_CLOUD_ALIYUN: &str = "omni.cloud.aliyun";
 pub const PLUGIN_ID_CLOUD_TENCENT: &str = "omni.cloud.tencent";
 pub const PLUGIN_ID_CLOUD_HUAWEI: &str = "omni.cloud.huawei";
@@ -70,6 +71,10 @@ pub fn agent_opencode_go() -> PluginManifest {
 
 pub fn addon_everything() -> PluginManifest {
     first_party_manifest!("addon-everything")
+}
+
+pub fn addon_resource_dedupe() -> PluginManifest {
+    first_party_manifest!("addon-resource-dedupe")
 }
 
 /// download-only：仅供测试读清单，不进 `first_party_manifests`。
@@ -180,6 +185,14 @@ pub fn addon_warpgate() -> PluginManifest {
 pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u8>> {
     let rel = logic_rel.trim().replace('\\', "/");
     match (plugin_id, rel.as_str()) {
+        (PLUGIN_ID_ADDON_RESOURCE_DEDUPE, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/addon-resource-dedupe/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
         (PLUGIN_ID_PANEL_HESTIA, "logic.js") => Some(
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -207,6 +220,30 @@ pub fn first_party_asset_bytes(plugin_id: &str, rel: &str) -> Option<Vec<u8>> {
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../plugins/importer-docker-db/icon.svg"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_ADDON_RESOURCE_DEDUPE, "icon.svg") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/addon-resource-dedupe/icon.svg"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_ADDON_RESOURCE_DEDUPE, "ui/index.html") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/addon-resource-dedupe/ui/index.html"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_ADDON_RESOURCE_DEDUPE, "ui/main.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/addon-resource-dedupe/ui/main.js"
             ))
             .as_bytes()
             .to_vec(),
@@ -245,6 +282,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         engine_sqlite(),
         engine_sqlserver(),
         importer_docker_db(),
+        addon_resource_dedupe(),
     ]
 }
 
@@ -266,6 +304,11 @@ mod tests {
         assert_eq!(agent_opencode_go().id, PLUGIN_ID_AGENT_OPENCODE_GO);
         assert_eq!(agent_opencode_go().kind, crate::kind::PluginKind::Agent);
         assert_eq!(addon_everything().id, PLUGIN_ID_ADDON_EVERYTHING);
+        assert_eq!(addon_resource_dedupe().id, PLUGIN_ID_ADDON_RESOURCE_DEDUPE);
+        assert_eq!(addon_resource_dedupe().logic_entry(), Some("logic.js"));
+        addon_resource_dedupe()
+            .validate()
+            .expect("清理重复资源插件清单应通过校验");
         assert_eq!(cloud_aliyun().id, PLUGIN_ID_CLOUD_ALIYUN);
         assert_eq!(cloud_aliyun().logic_entry(), Some("logic.js"));
         assert_eq!(cloud_tencent().id, PLUGIN_ID_CLOUD_TENCENT);

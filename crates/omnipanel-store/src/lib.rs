@@ -26,6 +26,7 @@ mod ks_sync;
 mod paths;
 mod plugin_settings;
 mod plugin_sources;
+mod resource_dedupe;
 mod resource_profile;
 mod schema_cache;
 mod schema_filters;
@@ -74,6 +75,10 @@ pub use builtin_tool_spec::{
     builtin_tool_spec,
 };
 pub use connection::{Connection, ConnectionKind};
+pub use resource_dedupe::{
+    DedupeApplyReport, DedupeGroup, DedupeMember, DedupeScan, apply_resource_dedupe,
+    scan_resource_duplicates,
+};
 pub use database::{
     BUILTIN_FILE_INDEX_CONN_ID, BUILTIN_META_DB_CONN_ID, DatabaseConnectionStore,
     DbConnectionConfig, ensure_builtin_demo_connections, fill_db_password_from_vault,

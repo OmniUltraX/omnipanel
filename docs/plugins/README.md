@@ -95,6 +95,8 @@ L2 要声明 `entry.logic`（`.js` / `.wasm`）和 `methods[]` 白名单。未�
 | `host.fsRead(path)` | `fs:read` | 仅插件自己的安装目录 |
 | `host.vaultGet/Has/Put/Delete(key)` | `vault:read` | 命名空间 `plugin:{id}:{key}` |
 | `host.connectionUpsert(json)` | `connections:write` | 候选 `pluginId` 必须是自己 |
+| `host.resourcesScan()` | `connections:write` | 按端点扫描重复资源，返回分组 JSON |
+| `host.resourcesApply(planJson)` | `connections:write` | `{ groups: [{ keepId, dropIds }] }`。合并引用、补空字段和缺失凭据后删除重复项 |
 | `host.stateGet/Set` | — | 插件私有状态 |
 | `host.invoke(method, argsJson)` | 该方法声明的权限 | 调本插件其它 method |
 

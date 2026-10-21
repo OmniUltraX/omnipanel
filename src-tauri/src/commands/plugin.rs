@@ -466,6 +466,15 @@ pub async fn sync_plugin_logic(state: &State<'_, AppState>) {
             ssh: Arc::new(crate::commands::plugin_bridge::TauriSshExec {
                 pool: Arc::clone(&state.ssh_pool),
             }),
+            databases: Some(Arc::clone(&state.db_connections)),
+            on_resources_applied: Some(Arc::new({
+                let app = state.app_handle.clone();
+                move |payload: String| {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload) {
+                        let _ = app.emit("resource-dedupe-applied", value);
+                    }
+                }
+            })),
         });
         let package = omnipanel_plugin::LogicPackage::from_entry_bytes(&logic_rel, bytes);
         let result =
@@ -1239,6 +1248,8 @@ pub async fn plugin_sandbox_net_fetch(
             pending: Arc::clone(&state.plugin_pending_confirms),
         }),
         ssh: Arc::new(omnipanel_plugin_host::DisabledSsh),
+        databases: Some(Arc::clone(&state.db_connections)),
+        on_resources_applied: None,
     };
     // 同步桥放阻塞任务（经 PluginHostBridge trait 调用）
     use omnipanel_plugin::PluginHostBridge as _;
