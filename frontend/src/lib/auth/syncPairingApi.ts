@@ -8,17 +8,22 @@ import { authOmniFetch } from "./authOmniFetch";
 async function authFetch(
   token: string,
   path: string,
-  init?: RequestInit & { appId?: string; deviceId?: string },
+  init?: RequestInit & { appId?: string; deviceId?: string; quiet?: boolean },
 ): Promise<Response> {
   const { appId, deviceId, ...rest } = init ?? {};
   return authOmniFetch(token, path, { ...rest, appId, deviceId });
 }
 
-export async function trustSyncDevice(token: string, deviceId?: string): Promise<void> {
+export async function trustSyncDevice(
+  token: string,
+  deviceId?: string,
+  opts?: { quiet?: boolean },
+): Promise<void> {
   const id = deviceId ?? (await resolveDeviceId());
   const res = await authFetch(token, "/api/sync/device/trust", {
     method: "POST",
     deviceId: id,
+    quiet: opts?.quiet,
   });
   if (!res.ok) {
     const text = await res.text();

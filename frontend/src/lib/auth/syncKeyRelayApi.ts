@@ -61,7 +61,7 @@ async function resolveDeviceId(): Promise<string> {
 async function authFetch(
   token: string,
   path: string,
-  init?: RequestInit & { deviceId?: string },
+  init?: RequestInit & { deviceId?: string; quiet?: boolean },
 ): Promise<Response> {
   const deviceId = (init?.deviceId ?? (await resolveDeviceId())).trim();
   const { deviceId: _deviceId, ...rest } = init ?? {};
@@ -71,8 +71,14 @@ async function authFetch(
   });
 }
 
-export async function listPendingKeyRelays(token: string): Promise<PendingKeyRelayItem[]> {
-  const res = await authFetch(token, "/api/sync/key/pending", { method: "GET" });
+export async function listPendingKeyRelays(
+  token: string,
+  opts?: { quiet?: boolean },
+): Promise<PendingKeyRelayItem[]> {
+  const res = await authFetch(token, "/api/sync/key/pending", {
+    method: "GET",
+    quiet: opts?.quiet,
+  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `list pending failed: ${res.status}`);
@@ -93,9 +99,11 @@ export async function listPendingKeyRelays(token: string): Promise<PendingKeyRel
 export async function relayTeamSyncKey(
   token: string,
   args: { requestId: string; wrappedKey: string; wrapAlg?: string },
+  opts?: { quiet?: boolean },
 ): Promise<void> {
   const res = await authFetch(token, "/api/sync/key/relay", {
     method: "POST",
+    quiet: opts?.quiet,
     body: JSON.stringify({
       requestId: args.requestId,
       wrappedKey: args.wrappedKey,

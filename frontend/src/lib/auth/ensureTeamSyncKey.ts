@@ -15,6 +15,7 @@ import {
   type RequestTeamSyncKeyOptions,
 } from "./syncKeyRelayApi";
 import { meshHostname, startTeamMeshFor, waitForMeshReady } from "./teamMesh";
+import { noteSyncTeamKeyChanged } from "./syncKeyRelayDonorBridge";
 
 export class TeamSyncKeyRequiredError extends Error {
   constructor(message = "需要团队同步密钥") {
@@ -160,10 +161,13 @@ export async function requestTeamSyncKey(
     if (!fingerprint) {
       throw new SyncKeyRelayError("request_failed", "mesh 传钥成功但无法读取密钥指纹");
     }
+    noteSyncTeamKeyChanged();
     return { fingerprint };
   }
 
-  return requestTeamSyncKeyFromRelay(opts);
+  const relayed = await requestTeamSyncKeyFromRelay(opts);
+  noteSyncTeamKeyChanged();
+  return relayed;
 }
 
 function waitForForcedTeamSyncKey(teamId: number): Promise<void> {
@@ -194,16 +198,19 @@ export async function ensureTeamSyncKeyForTeam(
   if (!Number.isFinite(teamId) || teamId <= 0) return false;
 
   if (await hasTeamSyncKey(teamId)) {
+    noteSyncTeamKeyChanged();
     useSyncDeviceAuthStore.getState().closeDialog();
     return true;
   }
 
   const relayTimeoutMs = options?.relayTimeoutMs ?? 60_000;
   if (await tryMeshTeamSyncKey(teamId, Math.min(relayTimeoutMs, 25_000))) {
+    noteSyncTeamKeyChanged();
     useSyncDeviceAuthStore.getState().closeDialog();
     return true;
   }
   if (await tryRelayTeamSyncKey(teamId, relayTimeoutMs)) {
+    noteSyncTeamKeyChanged();
     useSyncDeviceAuthStore.getState().closeDialog();
     return true;
   }
@@ -213,6 +220,7 @@ export async function ensureTeamSyncKeyForTeam(
     if (!(await hasTeamSyncKey(teamId))) {
       throw new TeamSyncKeyRequiredError();
     }
+    noteSyncTeamKeyChanged();
     return true;
   }
 

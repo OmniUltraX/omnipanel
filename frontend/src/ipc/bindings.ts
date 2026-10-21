@@ -1439,6 +1439,10 @@ export const commands = {
 	teamShareInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_share_inbox_start", { token })),
 	/**  停止团队分享收件箱 SSE 循环。 */
 	teamShareInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("team_share_inbox_stop")),
+	/**  启动同步密钥中继收件：SSE 等待 `client.sync.key.relay.pending`。 */
+	syncKeyRelayInboxStart: (token: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_key_relay_inbox_start", { token })),
+	/**  停止同步密钥中继收件 SSE 循环。 */
+	syncKeyRelayInboxStop: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_key_relay_inbox_stop")),
 	/**  推送客户端元数据快照到 OSS（`dry_run=true` 时只组装不上传）。 */
 	assistantPushSnapshot: (request: AssistantPushRequest) => typedError<PushSnapshotResult, OmniError_Serialize>(__TAURI_INVOKE("assistant_push_snapshot", { request })),
 	/**  使用现有助手 STS，将文本写入 OSS（聊天记录分片等）。 */

@@ -1,6 +1,7 @@
 import { commands } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
+import { noteSyncTeamKeyChanged } from "./syncKeyRelayDonorBridge";
 
 /** 当前同步团队的本机密钥状态。 */
 export async function getSyncTeamKeyStatus(teamId?: number | null) {
@@ -17,7 +18,9 @@ export async function ensureSyncTeamKey(teamId?: number | null) {
   if (!id || id <= 0) {
     throw new Error("无法解析当前同步团队");
   }
-  return unwrapCommand(commands.syncTeamKeyGetOrCreate(id));
+  const created = await unwrapCommand(commands.syncTeamKeyGetOrCreate(id));
+  noteSyncTeamKeyChanged();
+  return created;
 }
 
 /** 导出明文密钥供小程序扫码（QR 含 team_id + key）。 */
@@ -35,6 +38,7 @@ export async function clearSyncTeamKey(teamId?: number | null) {
     throw new Error("无法解析当前同步团队");
   }
   await unwrapCommand(commands.syncTeamKeyClear(id));
+  noteSyncTeamKeyChanged();
 }
 
 export async function exportSyncTeamKeyFile(
@@ -58,7 +62,9 @@ export async function importSyncTeamKeyFile(
   if (!id || id <= 0) {
     throw new Error("无法解析当前同步团队");
   }
-  return unwrapCommand(
+  const result = await unwrapCommand(
     commands.syncTeamKeyImportFile(id, path, opts?.passphrase?.trim() || null),
   );
+  noteSyncTeamKeyChanged();
+  return result;
 }

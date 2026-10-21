@@ -11,6 +11,8 @@ const AUTH_ASSET_BASE = "https://mp.99.protected.fun";
 export type AuthOmniFetchInit = RequestInit & {
   deviceId?: string;
   appId?: string;
+  /** 后台轮询失败时不打 console.error */
+  quiet?: boolean;
 };
 
 export async function authOmniFetch(
@@ -27,6 +29,7 @@ export async function authOmniFetch(
         ? String(rawBody)
         : null;
 
+  const quiet = init?.quiet === true;
   if (canUseIpcBackend() && typeof commands.authApiRequest === "function") {
     const result = await unwrapCommand(
       commands.authApiRequest(
@@ -37,6 +40,7 @@ export async function authOmniFetch(
         init?.deviceId?.trim() || null,
         init?.appId?.trim() || null,
       ),
+      { quiet },
     );
     const headers = new Headers();
     if (result.contentType) {
@@ -52,6 +56,6 @@ export async function authOmniFetch(
   if (body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const { deviceId: _deviceId, appId: _appId, ...rest } = init ?? {};
+  const { deviceId: _deviceId, appId: _appId, quiet: _quiet, ...rest } = init ?? {};
   return fetch(`${AUTH_ASSET_BASE}${path}`, { ...rest, method, headers, body });
 }
