@@ -46,8 +46,8 @@ GITHUB_PAGES_BASE=/ npm run build   # 根路径部署
 
 ## 下载与联系
 
-- 下载区块：`#download`（OSS `latest.json` / `versions.json`，构建时镜像到 `public/releases/`）
-- 联系区块：`#contact`（企业邮箱 + 微信公众号二维码）
+- 下载页：`download.html`（OSS `latest.json` / `versions.json`，构建时镜像到 `public/releases/`）
+- 联系区块：首页 `#contact`（企业邮箱 + 微信公众号二维码）
 - 首次引导历史索引：`node scripts/bootstrap-oss-versions.mjs --out ./versions.json`
 
 ## 插件市场 / 开发文档
@@ -66,11 +66,13 @@ website/
 ├── index.html              # 首页
 ├── plugins.html            # 插件市场
 ├── plugins/docs.html       # 插件开发文档
+├── download.html           # 下载页
 ├── src/
 │   ├── main.ts             # 首页入口
 │   ├── pluginsPage.ts      # 市场页
 │   ├── pluginsDocsPage.ts  # 文档页
-│   ├── download.ts         # 下载区块
+│   ├── downloadPage.ts     # 下载页入口
+│   ├── download.ts         # 下载区块逻辑
 │   ├── releases.ts         # OSS 清单解析
 │   ├── site.ts             # 公共导航 / 主题 / i18n
 │   └── styles/main.css     # 样式
@@ -82,5 +84,6 @@ website/
 │   ├── logo/
 │   ├── plugins/            # 构建生成 registry.json
 │   └── examples/
-└── vite.config.ts          # MPA：index + plugins + docs
+└── vite.config.ts          # MPA：index + plugins + docs + download
 ```
+

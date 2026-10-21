@@ -17,6 +17,7 @@ export default defineConfig({
         main: path.resolve(root, "index.html"),
         plugins: path.resolve(root, "plugins.html"),
         pluginsDocs: path.resolve(root, "plugins/docs.html"),
+        download: path.resolve(root, "download.html"),
       },
     },
   },

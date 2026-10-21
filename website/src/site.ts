@@ -15,7 +15,7 @@ export function siteBase(): string {
 
 /**
  * 解析站内路径。
- * - `#download` → `/omnipanel/#download`
+ * - `download.html` → `/omnipanel/download.html`（或自定义域名 `/download.html`）
  * - `plugins.html` → `/omnipanel/plugins.html`
  * - `plugins/docs.html` → `/omnipanel/plugins/docs.html`
  */
@@ -27,7 +27,7 @@ export function siteUrl(path = ""): string {
 }
 
 export function downloadSectionHref(): string {
-  return siteUrl("#download");
+  return siteUrl("download.html");
 }
 
 export function setupSiteChrome() {
@@ -66,15 +66,19 @@ export function setupSiteChrome() {
 
 function markActiveNav() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  const isPlugins = /\/plugins\.html$/i.test(path) || /\/plugins\/docs\.html$/i.test(path);
+  const isDownload = /\/download\.html$/i.test(path);
+  const isHome = !isPlugins && !isDownload;
+
   document.querySelectorAll<HTMLAnchorElement>("[data-nav-key]").forEach((el) => {
     const key = el.dataset.navKey;
     let active = false;
     if (key === "plugins") {
-      active = /\/plugins\.html$/i.test(path);
-    } else if (key === "plugins-docs") {
-      active = /\/plugins\/docs\.html$/i.test(path);
+      active = isPlugins;
+    } else if (key === "download") {
+      active = isDownload;
     } else if (key === "home") {
-      active = !/\/plugins(\/|$)/i.test(path);
+      active = isHome;
     }
     el.classList.toggle("is-active", active);
     if (active) el.setAttribute("aria-current", "page");

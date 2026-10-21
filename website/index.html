@@ -68,7 +68,7 @@
     </a>
     <header class="topnav">
       <div class="container topnav-inner">
-        <a class="brand" href="#top" data-i18n-aria="nav.home">
+        <a class="brand" href="#top" data-site-path="" data-i18n-aria="nav.home">
           <img src="./logo/omni.png" width="28" height="28" alt="" />
           <span>OmniPanel</span>
         </a>
@@ -85,17 +85,13 @@
           <span></span>
         </button>
         <nav id="site-nav" data-nav-menu>
-          <a href="#showcase" data-i18n="nav.showcase">实机界面</a>
-          <a href="#highlights" data-i18n="nav.highlights">近期亮点</a>
-          <a href="#modules" data-i18n="nav.modules">核心模块</a>
+          <a href="./" data-site-path="" data-nav-key="home" data-i18n="nav.homePage">首页</a>
           <a href="./plugins.html" data-site-path="plugins.html" data-nav-key="plugins" data-i18n="nav.plugins"
             >插件</a
           >
-          <a href="#ai" data-i18n="nav.ai">AI 原生</a>
-          <a href="#architecture" data-i18n="nav.architecture">技术架构</a>
-          <a href="#deploy" data-i18n="nav.deploy">部署</a>
-          <a href="#download" data-i18n="nav.download">下载</a>
-          <a href="#contact" data-i18n="nav.contact">联系我们</a>
+          <a href="./download.html" data-site-path="download.html" data-nav-key="download" data-i18n="nav.download"
+            >下载</a
+          >
         </nav>
         <div class="prefs">
           <button type="button" class="pref-btn" data-lang-toggle aria-label="Language">EN</button>
@@ -121,7 +117,12 @@
             一个 AI，贯穿开发运维上下文。OmniPanel 将终端、SSH、数据库、Docker、服务器管理、文件、协议调试与 AI 辅助集成于单一工作台 —— 支持桌面应用与 Web 版（Docker 一键部署）。
           </p>
           <div class="hero-cta">
-            <a class="btn btn-primary" data-download-link href="#download" data-i18n="hero.ctaDownload"
+            <a
+              class="btn btn-primary"
+              data-download-link
+              href="./download.html"
+              data-site-path="download.html"
+              data-i18n="hero.ctaDownload"
               >下载 OmniPanel</a
             >
             <a class="btn btn-secondary" href="#deploy" data-i18n="hero.ctaDeploy">Web 版部署</a>
@@ -730,24 +731,6 @@
         </div>
       </section>
 
-      <section class="section" id="download">
-        <div class="container">
-          <div class="section-head" data-reveal>
-            <p class="eyebrow">Download</p>
-            <h2 class="h2 text-fx" data-i18n="dl.sectionTitle" data-split="words">下载 OmniPanel</h2>
-            <p class="muted download-version-line">
-              <span data-i18n="dl.currentVersion">当前版本</span>
-              <span class="accent-text" data-download-version>—</span>
-            </p>
-            <p class="status-line" data-status hidden></p>
-          </div>
-          <div class="download-latest" data-latest data-reveal>
-            <p class="lead" data-i18n="dl.loading">正在加载版本信息…</p>
-          </div>
-          <div class="download-history" data-history data-reveal style="margin-top: 40px"></div>
-        </div>
-      </section>
-
       <section class="section" id="contact">
         <div class="container" data-reveal>
           <div class="section-head contact-head">
@@ -814,8 +797,9 @@
         <span>OmniPanel © <span data-year>2026</span></span>
         <span data-i18n="foot.tagline">All in One · 小而全而优而美</span>
         <div class="pagefoot-links">
+          <a href="./" data-site-path="" data-i18n="nav.homePage">首页</a>
           <a href="./plugins.html" data-site-path="plugins.html" data-i18n="nav.plugins">插件</a>
-          <a href="#download" data-i18n="nav.download">下载</a>
+          <a href="./download.html" data-site-path="download.html" data-i18n="nav.download">下载</a>
           <a href="#contact" data-i18n="nav.contact">联系我们</a>
           <a href="mailto:service@omnipanel.cn">service@omnipanel.cn</a>
           <a data-repo-link href="#">GitHub</a>

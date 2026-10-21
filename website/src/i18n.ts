@@ -21,6 +21,10 @@ const zh: Dict = {
   "nav.github": "在 GitHub 上查看 OmniPanel",
   "nav.menu": "打开菜单",
   "nav.home": "OmniPanel 首页",
+  "nav.homePage": "首页",
+  "meta.downloadTitle": "下载 — OmniPanel",
+  "meta.downloadDesc":
+    "下载 OmniPanel 桌面安装包：Windows / macOS / Linux，安装包托管于阿里云 OSS。",
   "meta.pluginsTitle": "插件市场 — OmniPanel",
   "meta.pluginsDesc":
     "浏览 OmniPanel 官方插件目录：云厂商、数据库引擎、面板、模块与主题。桌面端插件中心一键安装。",
@@ -265,6 +269,10 @@ const en: Dict = {
   "nav.github": "View OmniPanel on GitHub",
   "nav.menu": "Open menu",
   "nav.home": "OmniPanel home",
+  "nav.homePage": "Home",
+  "meta.downloadTitle": "Download — OmniPanel",
+  "meta.downloadDesc":
+    "Download OmniPanel desktop installers for Windows, macOS, and Linux. Packages are hosted on Aliyun OSS.",
   "meta.pluginsTitle": "Plugin Marketplace — OmniPanel",
   "meta.pluginsDesc":
     "Browse the official OmniPanel plugin catalog: clouds, database engines, panels, modules, and themes. Install from the in-app Plugin Center.",

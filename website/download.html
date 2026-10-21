@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN" data-i18n-desc="meta.downloadDesc">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n-title="meta.downloadTitle">下载 — OmniPanel</title>
+    <meta
+      name="description"
+      content="下载 OmniPanel 桌面安装包：Windows / macOS / Linux，安装包托管于阿里云 OSS。"
+    />
+    <meta name="theme-color" content="#0c1118" />
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem("omnipanel-theme") || "system";
+          var dark =
+            pref === "dark" ||
+            (pref !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.dataset.themePref = pref;
+          var lang = localStorage.getItem("omnipanel-lang");
+          if (lang !== "zh" && lang !== "en") {
+            lang = navigator.language.toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+          }
+          document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+          document.documentElement.dataset.lang = lang;
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="./logo/omni.png" />
+  </head>
+  <body>
+    <div class="bg-fx" aria-hidden="true"></div>
+    <a
+      class="github-star"
+      data-repo-link
+      data-github-stars
+      href="https://github.com/OmniUltraX/omnipanel"
+      target="_blank"
+      rel="noopener noreferrer"
+      data-i18n-aria="nav.github"
+    >
+      <svg class="github-star-icon" viewBox="0 0 16 16" aria-hidden="true" width="16" height="16">
+        <path
+          fill="currentColor"
+          d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
+        />
+      </svg>
+      <svg class="github-star-mark" viewBox="0 0 16 16" aria-hidden="true" width="14" height="14">
+        <path
+          fill="currentColor"
+          d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"
+        />
+      </svg>
+      <span class="github-star-count" data-star-count>…</span>
+    </a>
+    <header class="topnav">
+      <div class="container topnav-inner">
+        <a class="brand" href="./" data-site-path="" data-i18n-aria="nav.home">
+          <img src="./logo/omni.png" width="28" height="28" alt="" />
+          <span>OmniPanel</span>
+        </a>
+        <button
+          class="nav-toggle"
+          type="button"
+          data-nav-toggle
+          aria-expanded="false"
+          aria-controls="site-nav"
+          data-i18n-aria="nav.menu"
+        >
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <nav id="site-nav" data-nav-menu>
+          <a href="./" data-site-path="" data-nav-key="home" data-i18n="nav.homePage">首页</a>
+          <a href="./plugins.html" data-site-path="plugins.html" data-nav-key="plugins" data-i18n="nav.plugins"
+            >插件</a
+          >
+          <a href="./download.html" data-site-path="download.html" data-nav-key="download" data-i18n="nav.download"
+            >下载</a
+          >
+        </nav>
+        <div class="prefs">
+          <button type="button" class="pref-btn" data-lang-toggle aria-label="Language">EN</button>
+          <button type="button" class="pref-btn" data-theme-toggle data-i18n-aria="pref.theme">
+            <span data-theme-label>Auto</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="download-page">
+      <section class="section" id="download">
+        <div class="container">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow">Download</p>
+            <h1 class="h2 text-fx" data-i18n="dl.sectionTitle" data-split="words">下载 OmniPanel</h1>
+            <p class="muted download-version-line">
+              <span data-i18n="dl.currentVersion">当前版本</span>
+              <span class="accent-text" data-download-version>—</span>
+            </p>
+            <p class="status-line" data-status hidden></p>
+          </div>
+          <div class="download-latest" data-latest data-reveal>
+            <p class="lead" data-i18n="dl.loading">正在加载版本信息…</p>
+          </div>
+          <div class="download-history" data-history data-reveal style="margin-top: 40px"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="pagefoot">
+      <div class="container pagefoot-inner">
+        <span>OmniPanel © <span data-year>2026</span></span>
+        <span data-i18n="foot.tagline">All in One · 小而全而优而美</span>
+        <div class="pagefoot-links">
+          <a href="./" data-site-path="" data-i18n="nav.homePage">首页</a>
+          <a href="./plugins.html" data-site-path="plugins.html" data-i18n="nav.plugins">插件</a>
+          <a href="./download.html" data-site-path="download.html" data-i18n="nav.download">下载</a>
+          <a href="mailto:service@omnipanel.cn">service@omnipanel.cn</a>
+          <a data-repo-link href="#">GitHub</a>
+          <a data-license-link href="#">MIT License</a>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/downloadPage.ts"></script>
+  </body>
+</html>
