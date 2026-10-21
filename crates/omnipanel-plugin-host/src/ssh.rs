@@ -29,7 +29,8 @@ pub fn injected_connection() -> Option<String> {
 
 /// 壳实现的 SSH 执行。桥负责权限、长度和 prod 确认。
 pub trait SshExec: Send + Sync {
-    fn exec(&self, connection_id: &str, command: &str, timeout: Duration) -> Result<String, String>;
+    fn exec(&self, connection_id: &str, command: &str, timeout: Duration)
+    -> Result<String, String>;
 }
 
 /// 未装配时拒绝，避免静默连上任意主机。

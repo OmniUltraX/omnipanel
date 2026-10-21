@@ -206,8 +206,23 @@ export const useDockerSidebarCacheStore = create<DockerSidebarCacheState>((set, 
       get().patchEntry(connectionId, merged);
       return merged;
     }
-    get().patchEntry(connectionId, fetched);
-    return fetched;
+    // 全量刷新只覆盖本次真正拉到的分类，避免某一类失败或和面板写入交错时把已有容器抹掉。
+    const current = get().getEntry(connectionId);
+    const loaded = fetched.loadedCategories ?? {};
+    const merged: DockerSidebarCacheEntry = {
+      images: loaded.images ? fetched.images : current.images,
+      containers: loaded.containers ? fetched.containers : current.containers,
+      networks: loaded.networks ? fetched.networks : current.networks,
+      volumes: loaded.volumes ? fetched.volumes : current.volumes,
+      loadedCategories: {
+        ...(current.loadedCategories ?? {}),
+        ...loaded,
+      },
+      refreshedAt: fetched.refreshedAt ?? current.refreshedAt,
+      error: fetched.error,
+    };
+    get().patchEntry(connectionId, merged);
+    return merged;
   };
 
   return {

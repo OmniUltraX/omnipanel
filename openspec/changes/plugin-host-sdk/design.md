@@ -8,7 +8,7 @@ Tauri 不能运行时加载 Rust crate。不可信 JS 与主 WebView 同进程�
 
 **Goals:**
 
-- 一个 Runtime、七种 kind、若干 Host（工作台 + 总线），贡献点公共、身份不独占插槽。
+- 一个 Runtime、若干 Host（工作台 + 总线），贡献点公共、身份不独占插槽。kind 以 `crates/omnipanel-plugin/src/kind.rs` 为准（现为八种，含平台级 `knowledge`）。
 - 第一方插件与宿主同一 SDK；官方样板进 `plugins/` 与 CI。
 - 连接、标签、环境、Vault、任务中心、prod 确认仍由宿主强制。
 - 云独立侧栏；发现/导入/血缘闭环可复用于 Warpgate 与 Nacos 扫描。
@@ -43,7 +43,9 @@ Tauri 不能运行时加载 Rust crate。不可信 JS 与主 WebView 同进程�
 
 备选：把一切叫 Extension，不分 Host。否决——工作台壳（SQL 网格 vs 云 Region Tab）差异太大，混成一个 API 会变成 hook 大海。
 
-### 决策 2：七种 kind 锁死，不再随功能加第八种
+### 决策 2：kind 只为平台级能力开口
+
+本变更落地时是七种。其后按同一条规则加了 `knowledge`：多家知识源共用一条宿主管线，插件只读，落库由宿主负责。当前枚举以 `crates/omnipanel-plugin/src/kind.rs` 为准，不再把「七种、不许加第八种」当作现行规则。
 
 | kind | 主业 | 默认侧栏 | 官方样板 |
 |------|------|----------|----------|
@@ -54,8 +56,10 @@ Tauri 不能运行时加载 Rust crate。不可信 JS 与主 WebView 同进程�
 | `module` | 自带控制台 | 有，默认 `closed` | 后期 Nacos；本期只留壳 |
 | `theme` | token + 终端色板 | 无 | `theme-default`（现暗/亮） |
 | `addon` | 命令/菜单/浮层/启动器源/本机工具 | 无 | `addon-everything`；分享菜单迁入；翻译后期 |
+| `knowledge` | 知识源只读适配 | 无（进知识库管线） | 思源 / Obsidian / Logseq / Notion |
+| `agent` | Agent 来源 | 无（进模型选择器） | WorkBuddy 等待接 |
 
-新需求先问落在哪条 **贡献点**，而不是新 kind。Kafka/Consul/Harbor → `module`；计算器/翻译 → `addon`；Nord 皮肤 → `theme`。
+新 kind 只接受「多家来源、同一条宿主管线」。单一产品先问落在哪条 **贡献点**。Kafka/Consul/Harbor → `module`；计算器/翻译 → `addon`；Nord 皮肤 → `theme`；又一家笔记源 → `knowledge`。
 
 备选：只有 `connector | app` 两种。否决——主题禁止 JS、addon 无连接、cloud 有 Region 模型，挤在一起权限模型会错。
 

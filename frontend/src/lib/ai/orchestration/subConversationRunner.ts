@@ -340,14 +340,6 @@ async function runSingleChild(
           );
           break;
         case "permission_request":
-          // 子会话的权限请求走统一的 ACP 审批队列
-          // 复用 AiRuntimeProvider 的 enqueueAcpPermission 逻辑
-          // 这里直接调用 respondAcpPermission 的封装（通过 CustomEvent 委托给主 runtime）
-          window.dispatchEvent(
-            new CustomEvent("omnipanel:acp-permission-request", {
-              detail: { event, conversationId },
-            }),
-          );
           break;
         case "usage":
           if (event.type === "usage") {

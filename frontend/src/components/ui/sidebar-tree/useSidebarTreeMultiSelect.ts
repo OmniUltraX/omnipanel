@@ -28,6 +28,10 @@ export function useSidebarTreeMultiSelect(initialIds: Iterable<string> = []) {
     setState(createSidebarTreeSelectionState(ids));
   }, []);
 
+  const replaceSelection = useCallback((ids: Iterable<string>, anchorId: string | null) => {
+    setState({ selectedIds: new Set(ids), anchorId });
+  }, []);
+
   return {
     selectedIds: state.selectedIds,
     anchorId: state.anchorId,
@@ -35,5 +39,6 @@ export function useSidebarTreeMultiSelect(initialIds: Iterable<string> = []) {
     isSelected,
     clearSelection,
     setSelectedIds,
+    replaceSelection,
   };
 }

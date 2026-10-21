@@ -2,7 +2,8 @@ import { useMemo } from "react";
 
 import { Select } from "../../ui/Select";
 import { useI18n } from "../../../i18n";
-import { useBackendSelectOptions } from "../../../lib/ai/backendSelectOptions";
+import { modelSelectTitle, useBackendSelectOptions } from "../../../lib/ai/backendSelectOptions";
+import { rememberRecentModelIds, withRecentModelGroup } from "../../../lib/ai/recentModelOptions";
 import {
   resolveConversationModelSelectionId,
   useAssistantScenarioModelSelectionId,
@@ -26,16 +27,19 @@ export function AiConversationModelSelect() {
   const assistantDefaultId = useSettingsStore((s) => s.aiScenarioAssistantModelSelectionId);
   const fallbackSelectionId = useAssistantScenarioModelSelectionId();
   const backendOptions = useBackendSelectOptions(providers);
+  const recentModelIds = useSettingsStore((s) => s.aiRecentModelSelectionIds);
+  const rememberRecentModel = useSettingsStore((s) => s.rememberRecentModel);
 
-  const modelOptions = useMemo(
+  const flatModelOptions = useMemo(
     () =>
       backendOptions
         .filter((opt) => opt.installed !== false)
         .map((opt) => ({
           value: opt.value,
-          label: opt.group === "cli" ? `[CLI] ${opt.label}` : opt.label,
+          label: opt.label,
           subtitle: opt.subtitle,
-          title: opt.subtitle ?? opt.label,
+          meta: opt.meta,
+          title: modelSelectTitle(opt.label, opt.meta, opt.subtitle),
         })),
     [backendOptions],
   );
@@ -47,26 +51,37 @@ export function AiConversationModelSelect() {
       assistantDefaultId,
       draftModelSelectionId,
     );
-    if (resolved && modelOptions.some((o) => o.value === resolved)) {
+    if (resolved && flatModelOptions.some((o) => o.value === resolved)) {
       return resolved;
     }
     if (
       fallbackSelectionId &&
-      modelOptions.some((o) => o.value === fallbackSelectionId)
+      flatModelOptions.some((o) => o.value === fallbackSelectionId)
     ) {
       return fallbackSelectionId;
     }
-    return modelOptions[0]?.value ?? "";
+    return flatModelOptions[0]?.value ?? "";
   }, [
     activeConversation,
     assistantDefaultId,
     draftModelSelectionId,
     fallbackSelectionId,
-    modelOptions,
+    flatModelOptions,
     providers,
   ]);
 
+  const modelOptions = useMemo(
+    () =>
+      withRecentModelGroup(
+        flatModelOptions,
+        modelValue ? rememberRecentModelIds(recentModelIds, modelValue) : recentModelIds,
+        t("ai.modelSelect.recent"),
+      ),
+    [flatModelOptions, modelValue, recentModelIds, t],
+  );
+
   const handleChange = (next: string) => {
+    rememberRecentModel(next);
     if (activeConversationId) {
       setConversationModelSelectionId(activeConversationId, next);
       return;
@@ -74,7 +89,7 @@ export function AiConversationModelSelect() {
     setDraftModelSelectionId(next);
   };
 
-  if (modelOptions.length === 0) {
+  if (flatModelOptions.length === 0) {
     return (
       <span className="ai-model-select-empty" title={t("ai.modelSelect.empty")}>
         {t("ai.modelSelect.empty")}

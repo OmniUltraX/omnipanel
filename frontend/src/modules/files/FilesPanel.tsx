@@ -1060,7 +1060,7 @@ function FilesBrowserView() {
         leftColumnTitle={t("routes.files")}
         leftPreset="schema"
         tagModuleKey="files"
-        leftHeaderActions={<ModuleLeftHeaderActions moduleKey="files" />}
+        leftHeaderActions={<ModuleLeftHeaderActions />}
         leftIconRail={
           <ModuleModeIconRail
             items={modeIconItems}

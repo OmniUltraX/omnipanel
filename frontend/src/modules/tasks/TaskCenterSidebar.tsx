@@ -4,9 +4,8 @@ import {
   VerticalSplitSidebar,
 } from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { ModuleSidebarSection } from "../../components/ui/module-sidebar";
-import { SidebarTreeEmpty } from "../../components/ui/sidebar-tree";
+import { SidebarTreeEmpty, SidebarTreeNode } from "../../components/ui/sidebar-tree";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
-import { Button } from "../../components/ui/primitives/Button";
 import {
   IconCheckCircle,
   IconClipboard,
@@ -102,7 +101,6 @@ function tStatus(t: (k: string) => string, status: string): string {
   return labeled === key ? status : labeled;
 }
 
-/** 与文件管理 fm-conn-item 同构的一行 */
 function ConnRow({
   active,
   icon,
@@ -119,25 +117,25 @@ function ConnRow({
   onClick: () => void;
 }) {
   return (
-    <div
-      className={`fm-conn-item${active ? " active" : ""}`}
-      onClick={onClick}
-      title={title ?? name}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
+    <SidebarTreeNode
+      module="tasks"
+      nodeType="item"
+      depth={0}
+      expanded={false}
+      hasChildren={false}
+      active={active}
+      icon={icon}
+      label={<span className="tree-label-name" title={title ?? name}>{name}</span>}
+      trailing={trailing}
+      onToggle={() => {}}
+      onSelect={() => onClick()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
           onClick();
         }
       }}
-    >
-      <span className="conn-icon conn-icon--local" aria-hidden>
-        {icon}
-      </span>
-      <span className="conn-name">{name}</span>
-      {trailing}
-    </div>
+    />
   );
 }
 
@@ -349,14 +347,9 @@ export function TaskCenterSidebar({
         >
           {cancellablePassiveCount > 0 ? (
             <BatchBar>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => void handleCancelAllPassive()}
-              >
+              <WorkbenchActionButton type="button" onClick={() => void handleCancelAllPassive()}>
                 {t("taskCenter.activity.cancelAll")}
-              </Button>
+              </WorkbenchActionButton>
             </BatchBar>
           ) : null}
           {passiveJobs.length === 0 ? (
@@ -379,7 +372,7 @@ export function TaskCenterSidebar({
                     )
                   }
                   trailing={
-                    <span className="sidebar-tag-chip badge badge-muted">{tStatus(t, item.status)}</span>
+                    <span className="sidebar-tag-chip">{tStatus(t, item.status)}</span>
                   }
                   onClick={() => onSelect({ tab: "activity", kind: "job", id: item.id })}
                 />
@@ -408,7 +401,7 @@ export function TaskCenterSidebar({
                   title={`${item.title} · ${item.module}`}
                   icon={<IconRobot size={12} />}
                   trailing={
-                    <span className="sidebar-tag-chip badge badge-muted">{tStatus(t, item.status)}</span>
+                    <span className="sidebar-tag-chip">{tStatus(t, item.status)}</span>
                   }
                   onClick={() => onSelect({ tab: "activity", kind: "job", id: item.id })}
                 />
@@ -437,7 +430,7 @@ export function TaskCenterSidebar({
                   title={s.description || s.name}
                   icon={<IconRefresh size={12} />}
                   trailing={
-                    <span className="sidebar-tag-chip badge badge-muted">
+                    <span className="sidebar-tag-chip">
                       {s.enabled ? t("taskCenter.loops.on") : t("taskCenter.loops.off")}
                     </span>
                   }
@@ -613,7 +606,7 @@ export function TaskCenterSidebar({
                     name={item.title}
                     title={item.title}
                     icon={<IconInbox size={12} />}
-                    trailing={<span className="sidebar-tag-chip badge badge-muted">{riskLabel}</span>}
+                    trailing={<span className="sidebar-tag-chip">{riskLabel}</span>}
                     onClick={() => {
                       onInboxBucketChange("suggestions");
                       onSelect({ tab: "inbox", bucket: "suggestions", id: item.id });
@@ -693,14 +686,9 @@ export function TaskCenterSidebar({
                   ))}
                 </select>
                 {historyModuleFilter !== "all" ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => onHistoryModuleFilterChange("all")}
-                  >
+                  <WorkbenchActionButton type="button" onClick={() => onHistoryModuleFilterChange("all")}>
                     {t("taskCenter.history.clearFilter")}
-                  </Button>
+                  </WorkbenchActionButton>
                 ) : null}
               </div>
             </div>
@@ -742,7 +730,7 @@ export function TaskCenterSidebar({
                             {riskLabel}
                           </span>
                         ) : (
-                          <span className="sidebar-tag-chip badge badge-muted">{tStatus(t, item.status)}</span>
+                          <span className="sidebar-tag-chip">{tStatus(t, item.status)}</span>
                         )}
                       </>
                     }

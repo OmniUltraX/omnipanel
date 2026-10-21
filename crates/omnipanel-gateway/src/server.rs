@@ -13,7 +13,6 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::acp_resolver::AcpResolver;
 use crate::router::GatewayRouter;
 
 /// 正式版 Agent Router 默认端口。
@@ -60,11 +59,10 @@ pub fn spawn_gateway(
     config: GatewayConfig,
     ai_registry: Arc<Mutex<AiProviderRegistry>>,
     storage: Option<Arc<Mutex<Storage>>>,
-    acp_resolver: Option<Arc<dyn AcpResolver>>,
 ) -> GatewayHandle {
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let ctx = AppCtx {
-        router: Arc::new(GatewayRouter::new(ai_registry, storage, acp_resolver)),
+        router: Arc::new(GatewayRouter::new(ai_registry, storage)),
         api_key: config.api_key.filter(|k| !k.trim().is_empty()),
     };
 

@@ -25,6 +25,22 @@ const META = {
     name: "Everything local search",
     description: "Search local file paths via Everything (Windows, metadata only).",
   },
+  "omni.agent.cursor": {
+    name: "Cursor",
+    description: "Read the local Cursor desktop login and surface models in the chat picker.",
+  },
+  "omni.agent.trae": {
+    name: "Trae",
+    description: "Read the local Trae (China) login and surface models in the chat picker.",
+  },
+  "omni.agent.trae-global": {
+    name: "Trae International",
+    description: "Read the local Trae international login and surface models in the chat picker.",
+  },
+  "omni.agent.workbuddy": {
+    name: "WorkBuddy",
+    description: "Read the local WorkBuddy desktop login and surface models in the chat picker.",
+  },
   "omni.cloud.aliyun": {
     name: "Alibaba Cloud",
     description: "Manage ECS, security groups, RDS, metrics, and other Alibaba Cloud resources.",

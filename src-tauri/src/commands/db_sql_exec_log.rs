@@ -58,7 +58,10 @@ pub async fn db_sql_exec_delete(state: State<'_, AppState>, id: String) -> OmniR
 
 #[tauri::command]
 #[specta::specta]
-pub async fn db_sql_exec_clear(state: State<'_, AppState>, connection_id: String) -> OmniResult<u32> {
+pub async fn db_sql_exec_clear(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> OmniResult<u32> {
     let storage = state.storage.lock().await;
     clear_sql_executions(&storage, &connection_id)
 }

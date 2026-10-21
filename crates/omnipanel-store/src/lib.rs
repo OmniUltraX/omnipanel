@@ -26,9 +26,9 @@ mod ks_sync;
 mod paths;
 mod plugin_settings;
 mod plugin_sources;
+mod resource_dedupe;
 mod resource_profile;
 mod schema_cache;
-mod sql_exec_log;
 mod schema_filters;
 mod schema_tree_expanded;
 mod secrets_crypto;
@@ -36,6 +36,7 @@ mod siyuan_sync;
 mod skill;
 mod skill_db;
 mod skill_seed;
+mod sql_exec_log;
 mod ssh_keys;
 mod ssh_vault;
 mod storage;
@@ -55,9 +56,8 @@ mod web_search;
 mod workflow;
 
 pub use agent_prompt::{
-    AGENT_PROMPT_IDS, AgentPromptEntry, agent_prompt, clear_prompt_cache, client_tools_preamble,
-    ensure_default_prompts, list_prompt_entries, reset_prompt, routing_policy, save_prompt,
-    system_prompt,
+    AGENT_PROMPT_IDS, AgentPromptEntry, agent_prompt, clear_prompt_cache, ensure_default_prompts,
+    list_prompt_entries, reset_prompt, routing_policy, save_prompt, system_prompt,
 };
 pub use ai_trace::{AiSessionRecord, AiTraceRecord, BuiltinToolAuditRecord};
 pub use app_module::{AppModule, AppModuleStatus, DEFAULT_APP_MODULES, PLUGIN_MODULE_SORT_ORDER};
@@ -75,6 +75,10 @@ pub use builtin_tool_spec::{
     builtin_tool_spec,
 };
 pub use connection::{Connection, ConnectionKind};
+pub use resource_dedupe::{
+    DedupeApplyReport, DedupeGroup, DedupeMember, DedupeScan, apply_resource_dedupe,
+    scan_resource_duplicates,
+};
 pub use database::{
     BUILTIN_FILE_INDEX_CONN_ID, BUILTIN_META_DB_CONN_ID, DatabaseConnectionStore,
     DbConnectionConfig, ensure_builtin_demo_connections, fill_db_password_from_vault,
@@ -112,11 +116,11 @@ pub use knowledge_vector::{
 pub use ks_sync::{KsFileState, KsSourceConfig};
 pub use paths::default_file_index_storage_dir;
 pub use paths::{
-    ai_config_dir, ai_providers_path, cli_providers_path, database_connections_path,
-    database_host_resolve_cache_path, database_schema_cache_path, database_schema_filters_path,
-    database_schema_tree_expanded_path, docker_sidebar_cache_path, http_proxy_config_path,
-    knowledge_assets_root, knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir,
-    omnipd_root, prompts_root, skills_root, web_search_config_path,
+    ai_config_dir, ai_providers_path, database_connections_path, database_host_resolve_cache_path,
+    database_schema_cache_path, database_schema_filters_path, database_schema_tree_expanded_path,
+    docker_sidebar_cache_path, http_proxy_config_path, knowledge_assets_root,
+    knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir, omnipd_root,
+    prompts_root, skills_root, web_search_config_path,
 };
 pub use resource_profile::{ResourceObservation, ResourceProfileSummary};
 pub use schema_cache::{
@@ -150,15 +154,15 @@ pub use skill_db::{
     SkillApplication, SkillDbRecord, SkillKnowledgeLink, SkillVectorHit, SkillVectorStatus,
 };
 pub use skill_seed::{ensure_agent_defaults, ensure_default_skills};
-pub use ssh_keys::{SshKeyRecord, gen_ssh_key_id, ssh_key_passphrase_ref, ssh_key_private_ref};
-pub use ssh_vault::{
-    ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
-    inject_ssh_vault_into_config, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
-};
 pub use sql_exec_log::{
     SqlExecAppend, SqlExecListFilter, SqlExecRecord, SqlExecResultPage, append_sql_execution,
     clear_sql_executions, delete_sql_execution, get_sql_execution_result, list_sql_executions,
     rebind_sql_execution_file, set_sql_execution_pinned,
+};
+pub use ssh_keys::{SshKeyRecord, gen_ssh_key_id, ssh_key_passphrase_ref, ssh_key_private_ref};
+pub use ssh_vault::{
+    ai_provider_key_ref, db_password_ref, embedding_api_key_ref, http_proxy_password_ref,
+    inject_ssh_vault_into_config, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
 };
 pub use storage::{AuditEntry, Storage};
 pub use sync_crypto::{
@@ -184,9 +188,10 @@ pub use sync_team_key::{
     store_sync_team_key, sync_team_key_fingerprint,
 };
 pub use tag::{
-    CREATOR_TAG_KEY, ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode, TagSource,
-    TaggableKind, TaggedResourceSummary, ensure_creator_tag, migrate_device_tags_to_creator,
-    normalize_tag_path, normalize_tag_segment,
+    CREATOR_TAG_KEY, ORIGIN_TAG_KEY, ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode,
+    TagSource, TaggableKind, TaggedResourceSummary, creator_device_name, ensure_creator_tag,
+    ensure_origin_for_creator, ensure_origin_tag, migrate_device_tags_to_creator,
+    normalize_tag_path, normalize_tag_segment, origin_device_id,
 };
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use task_events::{TaskEventFilter, TaskEventRecord};

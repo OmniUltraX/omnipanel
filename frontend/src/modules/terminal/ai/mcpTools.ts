@@ -12,6 +12,8 @@ import { resolveResourceById } from "../../../stores/connectionStore";
 import { executeAiTerminalCommand } from "../executeAiTerminalCommand";
 import { decideInlineTerminalApproval } from "../terminalApprovalPolicy";
 import { LOCAL_TERMINAL_RESOURCE_ID } from "../paneResource";
+import { annotateTerminalSession, ensureAiExecTerminal } from "../aiExecTerminal";
+import { isFollowAiActionsEnabled } from "../../../lib/ai/uiFollow/uiFollowStore";
 
 export interface TerminalCommandCoreArgs {
   command: string;
@@ -29,7 +31,7 @@ export type TerminalCommandCoreResult =
 
 /**
  * 终端 PTY 内执行命令的核心（供 UI/内联审批等本地路径复用）。
- * 对外「当前 Tab 跑命令」工具为 `omni_terminal_exec`；`omni_ssh_exec` 走 SSH 连接池。
+ * 对外「当前 Tab 跑命令」工具为 `omni_terminal_exec`。`omni_ssh_exec` 也优先走这里，终端起不来再回落连接池。
  */
 export async function executeTerminalCommandCore(
   args: TerminalCommandCoreArgs,
@@ -82,12 +84,15 @@ async function terminalExec(args: Record<string, unknown>): Promise<string> {
     );
   }
   const session_id = optionalString(args, "session_id");
-  const tabId = session_id ?? useTerminalStore.getState().activeTabId;
-  const pane = tabId ? findTerminalPane(tabId) : undefined;
+  const tabId = await ensureAiExecTerminal({
+    follow: isFollowAiActionsEnabled(),
+    sessionId: session_id,
+  });
+  const pane = findTerminalPane(tabId);
 
   const run = async () => {
-    const result = await executeTerminalCommandCore({ command, session_id });
-    return result.outputJson;
+    const result = await executeTerminalCommandCore({ command, session_id: tabId });
+    return annotateTerminalSession(result.outputJson, tabId);
   };
 
   if (tabId && !decideInlineTerminalApproval(command, tabId)) {

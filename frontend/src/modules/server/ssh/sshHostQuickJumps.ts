@@ -27,10 +27,24 @@ export type JumpNavigate = (
 
 /** 打开 / 聚焦该 SSH 主机的终端会话。 */
 export function jumpSshTerminal(sshId: string, name: string): void {
-  const tabId = useTerminalStore.getState().openOrFocusSshTab(sshId, name);
-  useTerminalStore.getState().setActiveTab(tabId);
+  const store = useTerminalStore.getState();
+  const tabId = store.openOrFocusSshTab(sshId, name);
+  store.setActiveTab(tabId);
+  const tab = useTerminalStore.getState().tabs.find((item) => item.id === tabId);
+  // 复用到一个从没画出来的会话时，xterm 不会自己重试，黄点会一直停着。
+  if (tab && !tab.terminal && tab.status === "connecting") {
+    store.bumpReconnect(tab.sessionId);
+  }
+  useWorkspaceStore.getState().selectResource(sshId);
   useWorkspaceStore.getState().setActivePath(MODULE_PATHS.terminal);
   followUiIntent({ type: "focusModule", module: "terminal" });
+  // 路由切换走 startTransition，终端 dock 的本地激活态不会跟着 store 一起提交。
+  // 与 openSshTerminalSession 一样补一枪，避免跳过去后 tab 停在旧 pane。
+  window.dispatchEvent(
+    new CustomEvent("omnipanel-terminal-focus-tab", {
+      detail: { tabId, ensureContent: true },
+    }),
+  );
 }
 
 function writeSftpDeepLink(link: SshSftpDeepLink): void {

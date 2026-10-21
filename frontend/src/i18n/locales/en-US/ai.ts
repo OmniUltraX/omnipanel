@@ -10,6 +10,7 @@ export default {
     modelSelect: {
       label: "Model",
       empty: "Add and enable a model in Settings → AI Models",
+      recent: "Recent",
     },
     skillSelect: {
       label: "Skills",

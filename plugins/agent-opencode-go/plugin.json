@@ -1,0 +1,47 @@
+{
+  "id": "omni.agent.opencode-go",
+  "version": "0.1.0",
+  "displayName": "OpenCode Go",
+  "kind": "agent",
+  "runtime": "sidecar",
+  "platforms": ["windows", "macos", "linux"],
+  "permissions": ["net:connect", "vault:read"],
+  "entry": {
+    "driver": "bin/omnipanel-agent-opencode-go"
+  },
+  "methods": [
+    { "name": "status", "permissions": [] },
+    { "name": "catalog", "permissions": [] },
+    { "name": "complete", "permissions": [] }
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "OpenCode Go",
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "description": "OpenCode Go 订阅 API Key（在 opencode.ai 获取）",
+          "format": "password",
+          "secret": true,
+          "order": 0
+        },
+        "baseUrl": {
+          "type": "string",
+          "description": "网关 Base URL，留空则使用官方默认地址",
+          "default": "https://opencode.ai/zen/go/v1",
+          "order": 1
+        }
+      }
+    },
+    "agentSources": [
+      {
+        "id": "opencode-go",
+        "title": "OpenCode Go",
+        "hint": "使用 OpenCode Go 订阅模型。优先使用插件设置中的 API Key；若未填写，将自动尝试读取本机 OpenCode CLI 在 ~/.local/share/opencode/auth.json 中保存的 OpenCode Go 凭据。",
+        "statusMethod": "status",
+        "catalogMethod": "catalog",
+        "completeMethod": "complete"
+      }
+    ]
+  }
+}

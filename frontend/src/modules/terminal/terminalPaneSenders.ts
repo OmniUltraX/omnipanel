@@ -41,3 +41,13 @@ export function clearTerminalPaneSender(tabId: string): void {
   delete terminalPaneSenders[tabId];
   delete terminalPaneRawWriters[tabId];
 }
+
+/** 只摘掉自己注册的发送器，避免镜像面板卸载时把另一个标签的通道清掉。 */
+export function clearTerminalPaneSenderIf(
+  tabId: string,
+  sender: (cmd: string) => void,
+): void {
+  if (terminalPaneSenders[tabId] === sender) {
+    delete terminalPaneSenders[tabId];
+  }
+}

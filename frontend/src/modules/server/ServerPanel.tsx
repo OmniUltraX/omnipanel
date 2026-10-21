@@ -361,7 +361,7 @@ export function ServerPanel() {
           leftColumnTitle={t("routes.server")}
           leftPreset="server"
           tagModuleKey="server"
-          leftHeaderActions={<ModuleLeftHeaderActions moduleKey="server" />}
+          leftHeaderActions={<ModuleLeftHeaderActions />}
           leftSidebar={
             <ServerPanelSidebar
               servers={visiblePanelServers}

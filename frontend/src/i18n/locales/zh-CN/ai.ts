@@ -10,6 +10,7 @@ export default {
     modelSelect: {
       label: "模型",
       empty: "请先在设置 → AI 模型 中添加并启用模型",
+      recent: "常用",
     },
     skillSelect: {
       label: "Skills",

@@ -1,3 +1,13 @@
+/** 现场条只保留种类，不把「模块上下文」这类标题占掉库名的位置。 */
+function shortContextKind(title: string): string {
+  if (title.startsWith("数据库")) return "数据库";
+  if (title.startsWith("Docker")) return "Docker";
+  if (title.startsWith("文件")) return "文件";
+  if (title.startsWith("SSH")) return "SSH";
+  if (title.startsWith("终端") || title.startsWith("[Terminal")) return "终端";
+  return title.replace(/^#+ /, "").replace(/^\[|\]$/g, "");
+}
+
 /** 从单模块 ContextProvider 文本中提取现场条芯片标签。 */
 export function parseModuleContextChipLabel(text: string): string | null {
   const sections = text.split(/\n---\n|\n## /);
@@ -18,9 +28,7 @@ export function parseModuleContextChipLabel(text: string): string | null {
       section.match(/当前路径[：:]\s*(.+)/)?.[1]?.trim() ||
       section.match(/Working directory:\s*(.+)/i)?.[1]?.trim() ||
       section.match(/地址[：:]\s*(.+)/)?.[1]?.trim();
-    const label = [title.replace(/^#+ /, "").replace(/^\[|\]$/g, ""), conn, extra]
-      .filter(Boolean)
-      .join(" · ");
+    const label = [shortContextKind(title), conn, extra].filter(Boolean).join(" · ");
     if (label) return label;
   }
   return null;

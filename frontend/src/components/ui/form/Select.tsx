@@ -17,9 +17,13 @@ export interface SelectOption {
   value: string;
   label: string;
   subtitle?: string;
+  /** 贴在副标题左侧的短标记，例如模型消耗比例 `0.79x`。 */
+  meta?: string;
   title?: string;
   disabled?: boolean;
   labelStyle?: CSSProperties;
+  /** 连续相同的分组会在第一项前显示一行标题。搜索时不显示。 */
+  group?: string;
 }
 
 export type SelectOptionsInput = readonly SelectOption[] | readonly string[];
@@ -119,7 +123,7 @@ export function Select({
       next = options;
     } else {
       const ranked = rankByFuzzy(enabled, query, (opt) =>
-        `${opt.label} ${opt.subtitle ?? ""} ${opt.value}`,
+        `${opt.label} ${opt.meta ?? ""} ${opt.subtitle ?? ""} ${opt.value}`,
       );
       const rankedSet = new Set(ranked.map((opt) => opt.value));
       const disabledOpts = options.filter((opt) => opt.disabled);
@@ -470,7 +474,7 @@ export function Select({
                   {emptyText ?? t("ui.select.noResults")}
                 </div>
               ) : (
-                filteredOptions.map((opt) => {
+                filteredOptions.map((opt, index) => {
                   const selectableIndex = selectableOptions.findIndex(
                     (item) => item.value === opt.value,
                   );
@@ -478,10 +482,26 @@ export function Select({
                     !opt.disabled && selectableIndex === highlightIndex;
                   const optionTitle =
                     opt.title ??
-                    [opt.label, opt.subtitle].filter(Boolean).join(" · ");
+                    [opt.label, opt.meta, opt.subtitle].filter(Boolean).join(" · ");
+                  const previous = filteredOptions[index - 1];
+                  const showGroup =
+                    !trimmedQuery &&
+                    Boolean(opt.group) &&
+                    opt.group !== previous?.group;
+                  const showDivider =
+                    !trimmedQuery && !opt.group && Boolean(previous?.group);
                   return (
+                    <div key={`${opt.value}::${opt.label}`} className="omni-select-option-row">
+                    {showDivider ? <div className="omni-select-divider" role="separator" /> : null}
+                    {showGroup ? (
+                      <div
+                        className={index > 0 ? "omni-select-group omni-select-group--split" : "omni-select-group"}
+                        role="presentation"
+                      >
+                        {opt.group}
+                      </div>
+                    ) : null}
                     <button
-                      key={`${opt.value}::${opt.label}`}
                       type="button"
                       role="option"
                       aria-selected={opt.value === value}
@@ -506,6 +526,9 @@ export function Select({
                       <span className="omni-select-option-label" style={opt.labelStyle}>
                         {opt.label}
                       </span>
+                      {opt.meta ? (
+                        <span className="omni-select-option-meta">{opt.meta}</span>
+                      ) : null}
                       {opt.subtitle ? (
                         <span className="omni-select-option-sub">{opt.subtitle}</span>
                       ) : null}
@@ -522,6 +545,7 @@ export function Select({
                         </svg>
                       ) : null}
                     </button>
+                    </div>
                   );
                 })
               )}

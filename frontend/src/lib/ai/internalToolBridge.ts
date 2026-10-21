@@ -30,6 +30,25 @@ function toolCallKey(conversationId: string, toolCallId: string): string {
   return `${conversationId}:${toolCallId}`;
 }
 
+/** 内联对话所在标签就是这条命令的目标主机时，命令必须留在这个标签。 */
+function inlineSessionOwnsSshResource(
+  sessionId: string | undefined,
+  argsJson: string,
+): boolean {
+  const tabId = sessionId?.trim();
+  if (!tabId || !argsHaveResourceId(argsJson)) return false;
+  let resourceId = "";
+  try {
+    const parsed = JSON.parse(argsJson) as { resource_id?: unknown };
+    if (typeof parsed.resource_id === "string") resourceId = parsed.resource_id.trim();
+  } catch {
+    return false;
+  }
+  if (!resourceId) return false;
+  const pane = findTerminalPane(tabId);
+  return pane?.type === "remote" && pane.resourceId === resourceId;
+}
+
 /**
  * ACP / 缺参场景：若未传 resource_id，尝试从绑定的终端会话注入 SSH 连接 id。
  * 仅用于 omni_ssh_exec / create_run_script；当前 Tab PTY 走 omni_terminal_exec，不依赖 resource_id。
@@ -91,6 +110,10 @@ async function handleModulePendingTool(options: {
     }
 
     injectSshResourceIdIfNeeded(options.toolName, args, options.terminalSessionId);
+    // 侧栏 / 已绑定终端：把会话交给 ssh exec，避免同主机多标签时写进第一个。
+    if (options.toolName === SSH_EXEC_TOOL_NAME && options.terminalSessionId) {
+      args.bound_terminal_session_id = options.terminalSessionId;
+    }
 
     // handler 内部自带 runWithToolGate（见各模块 mcpTools.ts），
     // 危险操作会在 handler 内部进入审批队列，用户确认后才真正执行。
@@ -210,14 +233,20 @@ export async function dispatchPendingTool(options: {
   }
 
   // 终端内联：当前 Tab PTY 执行（omni_terminal_exec + 历史别名）。
-  // 兼容（不鼓励）：无 resource_id 的 omni_ssh_exec 仍打进当前 Tab，避免空转。
+  // 同主机的 omni_ssh_exec 也必须打进正在对话的这个标签，不能落到更早打开的那个。
+  // 无 resource_id 的 omni_ssh_exec 同样打进当前 Tab，避免空转。
   const sshMissingResource =
     toolName === SSH_EXEC_TOOL_NAME && !argsHaveResourceId(options.argsJson);
+  const sshOnChatTab =
+    toolName === SSH_EXEC_TOOL_NAME &&
+    Boolean(options.inline) &&
+    inlineSessionOwnsSshResource(options.inline?.sessionId, options.argsJson);
   const inlinePtyExec =
     Boolean(options.inline) &&
     (toolName === TERMINAL_EXEC_TOOL_NAME ||
       isTerminalPtyExecTool(options.toolName) ||
-      sshMissingResource);
+      sshMissingResource ||
+      sshOnChatTab);
   if (inlinePtyExec && options.inline) {
     if (sshMissingResource) {
       console.warn(

@@ -11,6 +11,7 @@ export { useTreeClickDelay, type UseTreeClickDelayOptions } from "./useTreeClick
 export { useSidebarTreeMultiSelect } from "./useSidebarTreeMultiSelect";
 export {
   SidebarTreeSelectionProvider,
+  SidebarTreeKeyboardRoot,
   useSidebarTreeSelection,
   useSidebarTreeNodeSelection,
 } from "./SidebarTreeSelectionProvider";

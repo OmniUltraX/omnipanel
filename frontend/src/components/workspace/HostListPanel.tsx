@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   type DragEvent,
-  type MutableRefObject,
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
@@ -65,7 +64,6 @@ import {
   SidebarTreeNode,
   SidebarTreeRoot,
   SidebarTreeSelectionProvider,
-  useSidebarTreeSelection,
   type TreeRowMouseEvent,
 } from "../ui/sidebar-tree";
 import { usePersistedTreeExpanded } from "../ui/module-sidebar/usePersistedTreeExpanded";
@@ -211,74 +209,6 @@ function isDropTargetBlockedByMovingFolders(
   return false;
 }
 
-/** Ctrl+A 全选 / Delete 删除（仅侧栏指针激活时响应）。 */
-function SshTreeHotkeys({
-  allKeys,
-  armedRef,
-  onDeleteSelected,
-}: {
-  allKeys: readonly string[];
-  armedRef: MutableRefObject<boolean>;
-  onDeleteSelected: (selected: ReadonlySet<string>) => boolean | Promise<boolean>;
-}) {
-  const selection = useSidebarTreeSelection();
-  const selectionRef = useRef(selection);
-  selectionRef.current = selection;
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
-      if (!armedRef.current) return;
-      const target = event.target as HTMLElement | null;
-      if (
-        target?.closest(
-          "input, textarea, select, [contenteditable=''], [contenteditable='true']",
-        )
-      ) {
-        return;
-      }
-
-      const mod = event.ctrlKey || event.metaKey;
-      if (mod && event.key.toLowerCase() === "a") {
-        if (allKeys.length === 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        selectionRef.current?.setSelectedIds(allKeys);
-        return;
-      }
-
-      if (event.key === "Delete") {
-        const selected = selectionRef.current?.selectedIds;
-        if (!selected || selected.size === 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        void Promise.resolve(onDeleteSelected(selected)).then((deleted) => {
-          if (deleted) selectionRef.current?.clearSelection();
-        });
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [allKeys, armedRef, onDeleteSelected]);
-
-  return null;
-}
-
-/** 在 Provider 内捕获多选 API，供主机行 onSelect 调用。 */
-function SshSelectionApiCapture({
-  apiRef,
-}: {
-  apiRef: MutableRefObject<ReturnType<typeof useSidebarTreeSelection>>;
-}) {
-  apiRef.current = useSidebarTreeSelection();
-  return null;
-}
-
-/** SSH 主机条目图标：统一图标集（原 assets/icons/host.svg） */
-function HostTreeIcon() {
-  return <SidebarIcon kind="host" />;
-}
-
 const PANEL_ICON_ORDER: PanelBrandIconKind[] = ["bt", "1panel", "hestia"];
 
 function HostPanelIcons({ sshId }: { sshId: string }) {
@@ -379,27 +309,16 @@ export function HostListPanel({
   );
   const [editConnection, setEditConnection] = useState<Connection | undefined>(undefined);
   const [presetFolderId, setPresetFolderId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const tagAllowedIds = useModuleTagFilter(tagModuleKey, CONNECTION_TAG_KINDS);
-  const rootRef = useRef<HTMLDivElement>(null);
   const presetFolderIdRef = useRef<string | null>(null);
   presetFolderIdRef.current = presetFolderId;
   const importTargetFolderIdRef = useRef<string | null>(null);
   importTargetFolderIdRef.current = importTargetFolderId;
+  const [deleting, setDeleting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const tagAllowedIds = useModuleTagFilter(tagModuleKey, CONNECTION_TAG_KINDS);
   const treeSelectedIdsRef = useRef<ReadonlySet<string>>(new Set());
-  const sidebarHotkeysArmedRef = useRef(false);
-  const selectionApiRef = useRef<ReturnType<typeof useSidebarTreeSelection>>(null);
   const handleTreeSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     treeSelectedIdsRef.current = ids;
-  }, []);
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      sidebarHotkeysArmedRef.current = Boolean(rootRef.current?.contains(event.target as Node));
-    };
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => window.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
 
   useEffect(() => {
@@ -864,6 +783,7 @@ export function HostListPanel({
         id: "host-edit",
         label: t("ssh.dialog.edit"),
         icon: contextMenuIcons.edit,
+        shortcut: "F2",
         onClick: () => {
           const conn = connections.find((c) => c.id === host.id);
           if (conn) {
@@ -916,6 +836,7 @@ export function HostListPanel({
         id: "host-delete",
         label: t("ssh.dialog.delete"),
         icon: contextMenuIcons.delete,
+        shortcut: "Del",
         onClick: () => void handleDeleteHost(host),
         danger: true,
       },
@@ -981,12 +902,14 @@ export function HostListPanel({
           id: "rename-folder",
           label: t("ssh.sidebar.renameFolder"),
           icon: contextMenuIcons.rename,
+          shortcut: "F2",
           onClick: () => handleRenameFolder(ctxTarget.folder),
         },
         {
           id: "delete-folder",
           label: t("ssh.sidebar.deleteFolder"),
           icon: contextMenuIcons.delete,
+          shortcut: "Del",
           danger: true,
           onClick: () => void handleDeleteFolder(ctxTarget.folder),
         },
@@ -1056,7 +979,6 @@ export function HostListPanel({
           module="ssh"
           nodeType="host"
           treeKey={treeKey}
-          icon={<HostTreeIcon />}
           className={dragOverKey === dragKey ? "ssh-tree-drop-target" : ""}
           prefix={
             selectionMode ? (
@@ -1075,8 +997,10 @@ export function HostListPanel({
           label={
             <span className="host-info ssh-tree-host-label">
               <span className="host-row-1">
-                <span className="host-name">{host.name}</span>
-                <span className="host-row-2">{host.subtitle}</span>
+                <span className="host-name" title={host.name}>{host.name}</span>
+                {host.subtitle ? (
+                  <span className="host-row-2" title={host.subtitle}>{host.subtitle}</span>
+                ) : null}
               </span>
             </span>
           }
@@ -1096,11 +1020,18 @@ export function HostListPanel({
           }}
           onDragEnd={() => setDragOverKey(null)}
           onSelect={(event: TreeRowMouseEvent) => {
-            selectionApiRef.current?.handleSelect(treeKey, event);
             if (event.ctrlKey || event.metaKey || event.shiftKey) return;
             handleHostClick(host);
           }}
           onActivate={() => handleHostDoubleClick(host)}
+          onRename={() => {
+            const conn = connections.find((item) => item.id === host.id);
+            if (!conn) return;
+            setEditConnection(conn);
+            setPresetFolderId(null);
+            setShowDialog(true);
+          }}
+          renameLabel={t("ssh.dialog.edit")}
           onContextMenu={(event) => openCtx(event, { kind: "host", host })}
         />
       </div>
@@ -1261,7 +1192,7 @@ export function HostListPanel({
   const empty = filteredHosts.length === 0 && (searching || folders.length === 0);
 
   return (
-    <div className="host-list-panel" ref={rootRef}>
+    <div className="host-list-panel">
       {!embedded ? (
         <div className="host-list-header window-drag-surface" data-tauri-drag-region>
           <h3>{t("ssh.sidebar.title")}</h3>
@@ -1273,13 +1204,8 @@ export function HostListPanel({
         <SidebarTreeSelectionProvider
           orderedKeys={allTreeKeys}
           onSelectedIdsChange={handleTreeSelectedIdsChange}
+          onDeleteSelected={handleHotkeyDelete}
         >
-          <SshSelectionApiCapture apiRef={selectionApiRef} />
-          <SshTreeHotkeys
-            allKeys={allTreeKeys}
-            armedRef={sidebarHotkeysArmedRef}
-            onDeleteSelected={handleHotkeyDelete}
-          />
           <div
             className="host-list ssh-sidebar-tree-wrap"
             onContextMenu={(event) => {

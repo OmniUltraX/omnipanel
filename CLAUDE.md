@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OmniPanel is an AI-native cross-platform engineering workstation for developers. It unifies terminal, SSH, database, Docker, server management, and AI assistance into a single desktop application.
 
-**Status:** v0.8.43（事实源见 `CHANGELOG.md`）。桌面版（Tauri）与 Web 版（`crates/omnipanel-server` + axum）双形态，共用同一套前端与业务 crate。
+**Status:** v0.8.48（事实源见 `CHANGELOG.md`）。桌面版（Tauri）与 Web 版（`crates/omnipanel-server` + axum）双形态，共用同一套前端与业务 crate。
 
 > **本文档只记稳定约定。** 模块进度与版本以 `CHANGELOG.md` 为准，目录结构以实际代码为准。发现本文档与代码不一致时，以代码为准并顺手修正本文档。
 
@@ -22,7 +22,7 @@ OmniPanel is an AI-native cross-platform engineering workstation for developers.
 - **SSH:** russh 0.54（`ring` 后端，避免 aws-lc-rs 在 Windows 需要 NASM 构建链）+ russh-sftp
 - **Database:** sqlx 0.8（MySQL / PostgreSQL）· redis 0.27 · mongodb 3.2 · ClickHouse；引擎以 feature 门面挂在 `omnipanel-db` 上（`engine-*` crate 是薄壳）。SQL Server / Oracle / 达梦 / Hive 走 sidecar 或 DBX 插件
 - **Docker:** bollard 0.21（`default-features=false` + `pipe`，Windows 命名管道必需）
-- **AI:** 自研 provider（reqwest + SSE）：OpenAI 兼容 / Anthropic / Ollama / ACP / CLI Agent；**已不使用** `rig` / `async-openai`
+- **AI:** 自研 provider（reqwest + SSE）：OpenAI 兼容 / Anthropic / Ollama，以及 `kind=agent` 模型桥（WorkBuddy / Cursor，官方示例是 sidecar 进程，协议见 `docs/plugins/sidecar-agent.md`）；**已不使用** ACP / CLI 整轮外派、`rig` / `async-openai`
 - **Storage:** rusqlite 0.32（bundled）+ keyring 3（凭据）+ argon2 / aes-gcm / x25519-dalek（加密与密钥交换）
 - **HTTP / Protocols:** reqwest · tokio-tungstenite（WebSocket）· rumqttc（MQTT）· serialport · grpc
 - **Plugins:** QuickJS（`plugin-js`）、WASM（`plugin-wasm`）、ed25519 签名包（`plugin-pkg`）
@@ -234,7 +234,7 @@ cargo test
 - `omnipanel-assistant` + `modules/assistant`：云端助手设备同步 / 入站聊天 → 再进内置编排
 - `runSimpleChat` / `streamOpenAI`：遗留前端直连 SSE，**禁止新调用**；oneshot 一律优先 `runInternalAiChat`
 
-Desktop / Web：Web 的 `ai_chat_stream` 仅 HTTP backend（无 ACP/CLI）；Agent Router / 内置 OmniMCP 监听以桌面为主。
+Desktop / Web：`ai_chat_stream` 只走 HTTP backend（含模型桥 `http:{来源}::{模型}`）。Agent Router / 内置 OmniMCP 监听以桌面为主。
 
 ## Cross-Platform Targets
 

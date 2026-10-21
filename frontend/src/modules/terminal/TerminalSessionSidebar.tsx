@@ -664,6 +664,12 @@ export function TerminalSessionSidebar({
                         dataAttrs={{ "data-connection-id": group.resourceId }}
                         onToggle={() => toggleExpanded(group.resourceId)}
                         onActivate={() => toggleExpanded(group.resourceId)}
+                        onRename={
+                          onRenameConnection
+                            ? () => onRenameConnection(group.resourceId, group.name)
+                            : undefined
+                        }
+                        renameLabel={t("terminal.sessions.renameConnection")}
                         onPointerDown={(event) => handleConnectionPointerDown(event, group.resourceId)}
                         contextMenuItems={buildConnectionCtxItems(group)}
                         trailing={
@@ -708,6 +714,7 @@ export function TerminalSessionSidebar({
                                 active={isActive}
                                 onToggle={() => {}}
                                 onActivate={() => onSelectSession(session.id)}
+                                onDelete={() => endSessionsForTarget(session.id)}
                                 onContextMenu={(event) => handleSessionContextMenu(event, session.id)}
                                 prefix={<SidebarStatusDot status={sessionStatusDotClass(status)} />}
                                 afterLabel={

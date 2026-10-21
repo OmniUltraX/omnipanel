@@ -9,6 +9,7 @@ export const pluginKindSchema = z.enum([
   "theme",
   "addon",
   "knowledge",
+  "agent",
 ]);
 
 export type PluginKind = z.infer<typeof pluginKindSchema>;
@@ -324,6 +325,28 @@ export const knowledgeSourceSchema = z.object({
 
 export type KnowledgeSourceContribution = z.infer<typeof knowledgeSourceSchema>;
 
+/**
+ * Agent 来源（kind=agent）：多家上游共用一条宿主管线。
+ * 插件声明登录态、目录和一次补全的 method；对话、工具、审批留在宿主。
+ * token 留在宿主进程，不进前端快照。方法名必须出现在 `methods[]`。
+ * 不是把整轮交给外部 CLI 的旧 AgentKind。
+ */
+export const agentSourceSchema = z.object({
+  /** 来源 id，如 workbuddy。全局唯一。 */
+  id: z.string().min(1),
+  /** 展示名；缺省回退 id。 */
+  title: z.string().min(1).optional(),
+  hint: z.string().optional(),
+  /** 当前登录与目录来源：() => { signedIn, account?, catalogSource, error? }。 */
+  statusMethod: z.string().min(1),
+  /** 模型目录：() => [{ id, name, contextWindow? }]。未登录时返回空数组。 */
+  catalogMethod: z.string().min(1),
+  /** 一次补全。请求体由宿主传入，插件返回上游流或已翻译的补全结果。 */
+  completeMethod: z.string().min(1),
+});
+
+export type AgentSourceContribution = z.infer<typeof agentSourceSchema>;
+
 export type PluginHomeContribution = z.infer<typeof pluginHomeContributionSchema>;
 
 export const cloudCapabilityScopeSchema = z.enum(["region", "global"]);
@@ -548,6 +571,8 @@ export const pluginManifestSchema = z.object({
       importers: z.array(importerContributionSchema).optional(),
       /** 知识源适配器（kind=knowledge）：只读，落库由宿主管线负责。 */
       knowledgeSources: z.array(knowledgeSourceSchema).optional(),
+      /** Agent 来源（kind=agent）：登录态、目录与补全，编排留在宿主。 */
+      agentSources: z.array(agentSourceSchema).optional(),
       themes: z
         .object({
           tokens: z

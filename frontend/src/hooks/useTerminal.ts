@@ -94,7 +94,11 @@ import {
   isMultilineTerminalCommand,
 } from "../modules/terminal/formatPtyCommandInput";
 import { resolveTerminalShellFamily } from "../modules/terminal/terminalAutoLsShell";
-import { setTerminalPaneRawWriter, writeTerminalRaw } from "../modules/terminal/terminalPaneSenders";
+import {
+  clearTerminalPaneSenderIf,
+  setTerminalPaneRawWriter,
+  writeTerminalRaw,
+} from "../modules/terminal/terminalPaneSenders";
 import { useTerminalUiStore } from "../modules/terminal/terminalUiStore";
 import { hasFullTerminalSignal, hasFullTerminalExitSignal } from "../modules/terminal/fullTerminalSignals";
 import {
@@ -129,7 +133,12 @@ import {
   getShellAgentGeometry,
   setShellAgentGeometryWriteSuspended,
 } from "../modules/terminal/shellAgent/shellAgentGeometry";
-import { hasConptyScreenReset, stripConptyCursorRestore } from "../modules/terminal/shellAgent/conptyCursorFilter";
+import {
+  hasConptyScreenReset,
+  noteConptyResize,
+  shouldDropConptyResizeReplay,
+  stripConptyCursorRestore,
+} from "../modules/terminal/shellAgent/conptyCursorFilter";
 import { showToast } from "../stores/toastStore";
 import { createTranslator } from "../i18n";
 import {
@@ -1029,6 +1038,7 @@ export function useTerminal(
   // 温和重连句柄：保留 term/webgl/addon/listener，仅重建后端 PTY session。
   // 由外部 useEffect[reconnectKey] 调用，避免历史"全销毁重建"的卡顿。
   const performReconnectRef = useRef<(() => void) | null>(null);
+  const fitTerminalRef = useRef<() => void>(() => {});
   const firstReconnectRef = useRef(true);
 
   useEffect(() => {
@@ -1039,10 +1049,47 @@ export function useTerminal(
     let fitAddon: FitAddon | null = null;
     let webglAddon: WebglAddon | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let preInitObserver: ResizeObserver | null = null;
     let destroyed = false;
     let contextmenuHandler: ((e: MouseEvent) => void) | null = null;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let backendSid: string | null = null;
+
+    // 折叠/隐藏时 client 尺寸会掉到 0，fit 会把行列收成 2×1。
+    // 这个尺寸一旦发给 PTY，top 会按错误的 winsize 刷屏。
+    function containerCanFit(): boolean {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return false;
+      return rect.width >= 40 && rect.height >= 40;
+    }
+
+    function fitTerminal(): void {
+      if (destroyed || suspendedRef.current || !fitAddon || !term) return;
+      if (!containerCanFit()) return;
+      fitAddon.fit();
+    }
+    fitTerminalRef.current = fitTerminal;
+
+    function schedulePtyResize(cols: number, rows: number): void {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        if (destroyed || suspendedRef.current || !backendSid) return;
+        if (cols < 2 || rows < 1) return;
+        const { resizeCmd } = resolveBackendTransport(sessionId, backendSid);
+        noteConptyResize(sessionId);
+        invoke(resizeCmd, {
+          id: backendSid,
+          cols,
+          rows,
+        }).catch(() => {});
+      }, 100);
+    }
+
+    function publishCurrentSize(): void {
+      if (!term) return;
+      schedulePtyResize(term.cols, term.rows);
+    }
     let pendingInput: string[] = [];
     let unlistenOutput: UnlistenFn | null = null;
     let unlistenEvent: UnlistenFn | null = null;
@@ -1493,6 +1540,20 @@ export function useTerminal(
         // dockview 非激活 panel 仅 visibility:hidden：IntersectionObserver 仍判定可见，
         // 但 WebGL canvas 已挂起。继续写入会污染纹理图集，切回后字间距错乱（选中才重绘）。
         // 因此非 active 也必须缓冲，等切回后再 flush + refresh。
+        // 刚把尺寸交给 ConPTY：它会按自己的视口整屏重绘。卡片占位是本地的，
+        // 这段重绘写进来会在下面堆出空白和一份重复的提示符/命令输出。
+        // 命令还在跑时不能丢，否则进度和真实输出会一起被吞。
+        const resizeFlags = getEnterGateFlags(sessionId);
+        if (
+          cardsBottomLine(sessionId) != null &&
+          !resizeFlags.altScreen &&
+          !resizeFlags.commandRunning &&
+          !resizeFlags.agentExecuting &&
+          shouldDropConptyResizeReplay(sessionId, rawText)
+        ) {
+          return;
+        }
+
         if (suspendedRef.current || !visibleRef.current || !activeRef.current) {
           pushSuspendedOutput(runtimeRef.current, merged);
         } else if (shouldWriteToXterm()) {
@@ -1735,6 +1796,7 @@ export function useTerminal(
       if (reusableSid) {
         shellBootstrapReattached = true;
         backendSid = reusableSid;
+        publishCurrentSize();
         // 提前置 restoring：从 backendSid 赋值到 restoreSnapshot 完成之间，
         // tmux control mode attach 会通过 %output 重放 pane 当前屏幕内容，
         // 若不丢弃会与 capture-pane 快照内容重叠导致输出重复显示（用户看到的 3 次重复）。
@@ -1796,6 +1858,7 @@ export function useTerminal(
         const sid = await acquireBackendSession(sessionId, cols, rows);
         if (destroyed) return;
         backendSid = sid;
+        publishCurrentSize();
         registerRuntimeBackendSession(sessionId, sid);
         useTerminalStore.getState().setStatus(sessionId, "connected");
         void refreshTransportMode(sid);
@@ -1853,7 +1916,23 @@ export function useTerminal(
     }
 
     function initTerminal() {
-      if (destroyed || term || suspendedRef.current) return;
+      // 从 SSH 跳进来时，模块可能仍被 clip / 尚未 layout。此时建 xterm 会吃到 0 尺寸，
+      // 而且 IntersectionObserver 不会因为后来变大再回调，状态就停在 connecting（黄点）。
+      if (destroyed || term || suspendedRef.current || !activeRef.current) return;
+      if (!containerCanFit()) {
+        const node = containerRef.current;
+        if (!node || preInitObserver) return;
+        const observer = new ResizeObserver(() => {
+          initTerminal();
+        });
+        preInitObserver = observer;
+        observer.observe(node);
+        return;
+      }
+      if (preInitObserver) {
+        preInitObserver.disconnect();
+        preInitObserver = null;
+      }
 
       try {
         const settings = useSettingsStore.getState();
@@ -1938,7 +2017,18 @@ export function useTerminal(
         setupWebglRenderer();
 
         term.open(container!);
-        fitAddon.fit();
+        disposables.push(
+          term.onResize(({ cols, rows }) => {
+            // 字体晚到、WebGL 测量或布局变化都会改行列。
+            // 不发给 PTY 的话，top 仍按旧 winsize 刷整屏：行被撑高、表头滚出视口，
+            // 每次刷新再往 scrollback 追加一帧。
+            schedulePtyResize(cols, rows);
+          }),
+        );
+        fitTerminal();
+        void document.fonts?.ready.then(() => {
+          fitTerminal();
+        });
         // open/WebGL 后再刷一次，对齐当前 data-theme（防水合竞态卡浅色底）
         applyTerminalTheme(term);
 
@@ -1970,18 +2060,7 @@ export function useTerminal(
         );
 
         resizeObserver = new ResizeObserver(() => {
-          if (suspendedRef.current || !fitAddon || !term) return;
-          fitAddon.fit();
-          if (resizeTimer) clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(() => {
-            if (destroyed || !backendSid || suspendedRef.current) return;
-            const { resizeCmd } = resolveBackendTransport(sessionId, backendSid);
-            invoke(resizeCmd, {
-              id: backendSid,
-              cols: term!.cols,
-              rows: term!.rows,
-            }).catch(() => { });
-          }, 100);
+          fitTerminal();
         });
         resizeObserver.observe(container!);
         runtimeRef.current.resizeObserver = resizeObserver;
@@ -2089,7 +2168,13 @@ export function useTerminal(
     // 仅重建后端 PTY session。外部 cleanup（autoReconnect / TerminalPanel reconnect handler）
     // 已 dispose 旧 PTY 资源 + 清 store backendSessionId，这里只做"前端侧"重新拉起。
     function performReconnect() {
-      if (destroyed || !term) return;
+      if (destroyed) return;
+      // 跳转进来时可能已经错过首次 init（尺寸为 0 / 面板当时是空的）。
+      // 没有 xterm 就再走一遍启动，而不是直接 return 把黄点留住。
+      if (!term) {
+        initTerminal();
+        return;
+      }
       // 1) 清理旧 backend session 引用（外部已 dispose 真正的 PTY）
       backendSid = null;
       registerRuntimeBackendSession(sessionId, null);
@@ -2130,7 +2215,7 @@ export function useTerminal(
               flushOutputBuffer();
               requestAnimationFrame(() => {
                 if (destroyed || suspendedRef.current || !activeRef.current) return;
-                fitAddon?.fit();
+                fitTerminal();
                 // WebGL 在隐藏 canvas 上写过会坏图集：先清再全量重绘
                 try {
                   term?.clearTextureAtlas();
@@ -2158,7 +2243,10 @@ export function useTerminal(
 
     return () => {
       destroyed = true;
+      fitTerminalRef.current = () => {};
       observer.disconnect();
+      preInitObserver?.disconnect();
+      preInitObserver = null;
       resizeObserver?.disconnect();
       if (resizeTimer) {
         clearTimeout(resizeTimer);
@@ -2174,8 +2262,9 @@ export function useTerminal(
       if (contextmenuHandler) {
         container.removeEventListener("contextmenu", contextmenuHandler);
       }
+      const ownedSender = sendCommandRef.current;
       sendCommandRef.current = null;
-      registerShellHistoryPtySender(sessionId, null);
+      if (ownedSender) clearTerminalPaneSenderIf(sessionId, ownedSender);
       setTerminalPaneRawWriter(sessionId, null);
       unregisterTerminalAutoLsSession(sessionId);
       registerRuntimeBackendSession(sessionId, null);
@@ -2277,12 +2366,10 @@ export function useTerminal(
     if (!rt.webglAddon && rt.setupWebgl) {
       rt.setupWebgl();
     }
-    // 仅当前激活 tab 才初始化；非激活 tab 保活已有实例，不在此抢主线程
-    if (!term && activeRef.current && rt.container && rt.initTerminal) {
-      const rect = rt.container.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        rt.initTerminal();
-      }
+    // 仅当前激活 tab 才初始化；非激活 tab 保活已有实例，不在此抢主线程。
+    // 尺寸不够时交给 initTerminal 自己挂 ResizeObserver，不能在这里直接放弃。
+    if (!term && activeRef.current && rt.initTerminal) {
+      rt.initTerminal();
     }
     if (term && rt.outputBuffer.length > 0) {
       for (const bytes of rt.outputBuffer) {
@@ -2292,7 +2379,7 @@ export function useTerminal(
     }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        rt.fitAddon?.fit();
+        fitTerminalRef.current();
         // 模块从 display:none 恢复可见时同样需要强制重绘，否则 WebGL 纹理叠字
         const t = termRef.current;
         if (t) {
@@ -2317,11 +2404,8 @@ export function useTerminal(
     if (rt.container && rt.resizeObserver) {
       rt.resizeObserver.observe(rt.container);
     }
-    if (!termRef.current && rt.container && rt.initTerminal) {
-      const rect = rt.container.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        rt.initTerminal();
-      }
+    if (!termRef.current && rt.initTerminal) {
+      rt.initTerminal();
     }
     // dockview 切 Tab 不会触发 IntersectionObserver（visibility:hidden 尺寸不变）。
     // 必须在 active 恢复时 flush + 清 WebGL 图集 + 全量重绘，否则字间距错乱。
@@ -2335,7 +2419,7 @@ export function useTerminal(
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (!activeRef.current || suspendedRef.current) return;
-        rt.fitAddon?.fit();
+        fitTerminalRef.current();
         const t = termRef.current;
         if (t) {
           try {
@@ -2361,9 +2445,6 @@ export function useTerminal(
     if (active && !suspended && sendCommandRef.current) {
       sendRef.current = sendCommandRef.current;
       registerShellHistoryPtySender(sessionId, sendCommandRef.current);
-    } else if (sendRef.current === sendCommandRef.current) {
-      sendRef.current = null;
-      registerShellHistoryPtySender(sessionId, null);
     }
   }, [active, sendRef, sessionId, suspended]);
 

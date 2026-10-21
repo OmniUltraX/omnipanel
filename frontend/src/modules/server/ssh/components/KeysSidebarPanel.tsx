@@ -10,7 +10,9 @@ import { contextMenuIcons } from "../../../../components/ui/menu/contextMenuIcon
 import { FormDialog } from "../../../../components/ui/form/FormDialog";
 import { IconCopy } from "../../../../components/ui/icons/Icons";
 import { Button } from "../../../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 import {
+  SidebarTreeEmpty,
   SidebarTreeNode,
   SidebarTreeRoot,
 } from "../../../../components/ui/sidebar-tree";
@@ -61,14 +63,6 @@ function groupKeysByType(keys: SshKeyInfo[]): [string, SshKeyInfo[]][] {
     bucket.sort((a, b) => a.name.localeCompare(b.name));
   }
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-}
-
-function KeyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="14" height="14">
-      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-    </svg>
-  );
 }
 
 function KeyDetailReadonlyField({
@@ -509,17 +503,12 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
             onChange={setGenPassphrase}
           />
           <div className="ssh-sidebar-form__actions">
-            <button
-              type="button"
-              className="btn btn-primary btn-xs"
-              disabled={generating}
-              onClick={() => void handleGenerate()}
-            >
+            <WorkbenchActionButton type="button" disabled={generating} onClick={() => void handleGenerate()}>
               {generating ? t("ssh.keys.generating") : t("ssh.keys.generateAction")}
-            </button>
-            <button type="button" className="btn btn-secondary btn-xs" onClick={() => setForm("none")}>
+            </WorkbenchActionButton>
+            <WorkbenchActionButton type="button" onClick={() => setForm("none")}>
               {t("ssh.keys.cancel")}
-            </button>
+            </WorkbenchActionButton>
           </div>
         </div>
       ) : null}
@@ -540,25 +529,20 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
             onChange={(e) => setImportKey(e.target.value)}
           />
           <div className="ssh-sidebar-form__actions">
-            <button
-              type="button"
-              className="btn btn-primary btn-xs"
-              disabled={importing}
-              onClick={() => void handleImport()}
-            >
+            <WorkbenchActionButton type="button" disabled={importing} onClick={() => void handleImport()}>
               {importing ? t("ssh.keys.importing") : t("ssh.keys.importAction")}
-            </button>
-            <button type="button" className="btn btn-secondary btn-xs" onClick={() => setForm("none")}>
+            </WorkbenchActionButton>
+            <WorkbenchActionButton type="button" onClick={() => setForm("none")}>
               {t("ssh.keys.cancel")}
-            </button>
+            </WorkbenchActionButton>
           </div>
         </div>
       ) : null}
 
       {loading && keys.length === 0 ? (
-        <div className="ssh-sidebar-list-panel__empty">{t("ssh.keys.loading")}</div>
+        <SidebarTreeEmpty>{t("ssh.keys.loading")}</SidebarTreeEmpty>
       ) : keys.length === 0 ? (
-        <div className="ssh-sidebar-list-panel__empty">{t("ssh.keys.empty")}</div>
+        <SidebarTreeEmpty>{t("ssh.keys.empty")}</SidebarTreeEmpty>
       ) : (
         <div className="ssh-sidebar-tree-wrap">
           <SidebarTreeRoot className="ssh-sidebar-tree">
@@ -608,7 +592,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                               module="ssh"
                               nodeType="key"
                               treeKey={treeKey}
-                              icon={<KeyIcon />}
+                              icon={<SidebarIcon kind="key" />}
                               className={selected ? "selected" : ""}
                               active={selected}
                               label={
@@ -625,7 +609,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                                     {hostUsageCount > 0 ? (
                                       <span className="host-row-1-meta">
                                         <span
-                                          className="sidebar-tag-chip badge badge-muted ssh-key-usage-tag"
+                                          className="sidebar-tag-chip ssh-key-usage-tag"
                                           title={t("ssh.keys.hostUsage", { count: hostUsageCount })}
                                         >
                                           {t("ssh.keys.hostUsageTag", { count: hostUsageCount })}

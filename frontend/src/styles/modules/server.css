@@ -238,8 +238,8 @@
     }
 
     .ssh-tree-host-label .host-row-2 {
-        /* 副标题（user@host 等）：与主机名同行，占位并收缩省略 */
-        flex: 1 1 auto;
+        /* 副标题（user@host）：吃掉剩余空间，先于主机名省略 */
+        flex: 1 1 0;
         min-width: 0;
         font-size: 11px;
         color: var(--muted);
@@ -353,9 +353,11 @@
     }
 
     .ssh-tree-host-label .host-name {
-        /* 按内容占宽；空间不足时优先收缩标题，给标签让路 */
-        flex: 0 2 auto;
-        min-width: 3ch;
+        /* 按文字本身占宽，短名称不省略；只有名字本身超出整行时才截断 */
+        flex: 0 0 auto;
+        /* 短名称按字宽显示；名字特别长时仍给灰色地址留一截 */
+        max-width: calc(100% - 4.5em);
+        min-width: 0;
         font-size: var(--font-size-sm, 13px);
         font-weight: 500;
         color: var(--fg);

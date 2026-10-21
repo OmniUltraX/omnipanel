@@ -18,10 +18,10 @@ import {
 } from "./schemaTreeFlatRows";
 import { ModuleSidebarSection, SidebarImportIcon } from "@/components/ui/module-sidebar";
 import {
+  SidebarTreeKeyboardRoot,
   SidebarTreeSelectionProvider,
 } from "@/components/ui/sidebar-tree";
 import { SqlNewQueryIcon } from "../sql/SqlNewQueryIcon";
-import { SchemaTreeHotkeys } from "./SchemaTreeHotkeys";
 import { SchemaTreeSelectionSync } from "./SchemaTreeSelectionSync";
 import { useSchemaBrowserModel } from "./useSchemaBrowserModel";
 import type { SchemaBrowserProps } from "./schemaBrowserTypes";
@@ -80,7 +80,6 @@ export function SchemaBrowser({
     setSchemaCtxMenu,
     selectableNodeIds,
     handleSelectedIdsChange,
-    sidebarHotkeysArmedRef,
     handleHotkeyDelete,
     sidebarScrollTargetId,
     useTreeVirtualization,
@@ -284,12 +283,9 @@ export function SchemaBrowser({
         <SidebarTreeSelectionProvider
           orderedKeys={selectableNodeIds}
           onSelectedIdsChange={handleSelectedIdsChange}
-        >
-        <SchemaTreeHotkeys
-          allKeys={selectableNodeIds}
-          armedRef={sidebarHotkeysArmedRef}
           onDeleteSelected={handleHotkeyDelete}
-        />
+        >
+        <SidebarTreeKeyboardRoot targetRef={schemaTreeRef} />
         <SchemaTreeSelectionSync targetId={sidebarScrollTargetId} />
         {loading && (
           <div style={{ padding: "12px 16px", fontSize: "12px", color: "var(--text-secondary, #8e8e93)" }}>

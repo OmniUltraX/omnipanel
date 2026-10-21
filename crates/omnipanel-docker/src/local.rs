@@ -292,6 +292,8 @@ impl LocalDockerAdapter {
             attach_stdout: Some(true),
             attach_stderr: Some(true),
             tty: Some(true),
+            // 与 docker CLI 的 `exec -t` 一致：交互 TTY 带上 TERM，否则容器里 vim/top 落到 dumb。
+            env: Some(vec!["TERM=xterm-256color".to_string()]),
             cmd: Some(cmd),
             ..Default::default()
         };

@@ -94,6 +94,11 @@
     background: var(--accent-soft);
 }
 
+.sidebar-tree-node:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+}
+
 .sidebar-tree-node--muted {
     color: var(--muted);
 }
@@ -159,6 +164,54 @@
     color: var(--meta);
 }
 
+.sidebar-tree-icon svg,
+.tree-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sidebar-tree-icon .conn-icon {
+    width: 14px;
+    height: 14px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--r-sm);
+    flex-shrink: 0;
+}
+
+.sidebar-tree-icon .conn-icon svg {
+    width: 14px;
+    height: 14px;
+}
+
+.sidebar-tree-icon .conn-icon--local {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.sidebar-tree-icon .conn-icon--ftp {
+    background: var(--success-soft);
+    color: var(--success);
+}
+
+.sidebar-tree-icon .conn-icon--sftp {
+    background: var(--warn-soft);
+    color: var(--warn);
+}
+
+.sidebar-tree-icon .conn-icon--s3 {
+    background: color-mix(in oklch, #a78bfa 15%, transparent);
+    color: #a78bfa;
+}
+
+.sidebar-tree-icon .conn-icon--missing {
+    width: 14px;
+    height: 14px;
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    border: 1px dashed var(--border);
+}
+
 .sidebar-tree-label,
 .tree-label {
     flex: 1;
@@ -205,6 +258,17 @@
 .sidebar-tree-label .server-tree-server-label {
     flex: 1 1 auto;
     min-width: 0;
+}
+
+/* 来源 / 类型标签贴行尾。名称过长时先省略，芯片不挤到名字旁边。 */
+.sidebar-tree-label .server-tree-server-name {
+    min-width: 0;
+    flex: 0 1 auto;
+}
+
+.sidebar-tree-label .server-tree-server-label > .sidebar-tag-chip {
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .sidebar-tree-trailing,

@@ -697,7 +697,7 @@ export function DockerPanel() {
           leftColumnTitle={t("routes.docker")}
           leftPreset="server"
           tagModuleKey="docker"
-          leftHeaderActions={<ModuleLeftHeaderActions moduleKey="docker" />}
+          leftHeaderActions={<ModuleLeftHeaderActions />}
           leftSidebar={
             <DockerConnectionSidebar
               connections={visibleConnections}

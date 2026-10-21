@@ -4,6 +4,11 @@ import {
   type PluginManifest,
 } from "@omnipanel/plugin-sdk";
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
+import agentCursorJson from "../../../plugins/agent-cursor/plugin.json";
+import agentOpencodeGoJson from "../../../plugins/agent-opencode-go/plugin.json";
+import agentTraeJson from "../../../plugins/agent-trae/plugin.json";
+import agentTraeGlobalJson from "../../../plugins/agent-trae-global/plugin.json";
+import agentWorkbuddyJson from "../../../plugins/agent-workbuddy/plugin.json";
 import dbClickhouseJson from "../../../plugins/db-clickhouse/plugin.json";
 import dbMongodbJson from "../../../plugins/db-mongodb/plugin.json";
 import dbMysqlJson from "../../../plugins/db-mysql/plugin.json";
@@ -13,6 +18,7 @@ import dbRedisJson from "../../../plugins/db-redis/plugin.json";
 import dbSqliteJson from "../../../plugins/db-sqlite/plugin.json";
 import dbSqlserverJson from "../../../plugins/db-sqlserver/plugin.json";
 import importerDockerDbJson from "../../../plugins/importer-docker-db/plugin.json";
+import addonResourceDedupeJson from "../../../plugins/addon-resource-dedupe/plugin.json";
 import panel1panelJson from "../../../plugins/panel-1panel/plugin.json";
 import panelBtJson from "../../../plugins/panel-bt/plugin.json";
 import panelHestiaJson from "../../../plugins/panel-hestia/plugin.json";
@@ -26,6 +32,11 @@ import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
  */
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
+  parsePluginManifest(agentCursorJson),
+  parsePluginManifest(agentOpencodeGoJson),
+  parsePluginManifest(agentTraeJson),
+  parsePluginManifest(agentTraeGlobalJson),
+  parsePluginManifest(agentWorkbuddyJson),
   parsePluginManifest(dbClickhouseJson),
   parsePluginManifest(dbMongodbJson),
   parsePluginManifest(dbMysqlJson),
@@ -39,6 +50,7 @@ export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(panelBtJson),
   parsePluginManifest(panelHestiaJson),
   parsePluginManifest(themeDefaultJson),
+  parsePluginManifest(addonResourceDedupeJson),
 ];
 
 export function listPluginManifests(kind?: PluginKind): PluginManifest[] {

@@ -12,7 +12,7 @@
     <a href="./README.md">English</a>
   </p>
   <p align="center">
-    <a href="https://omniultrax.github.io/omnipanel/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
+    <a href="https://omnipanel.cn/"><img src="https://img.shields.io/badge/website-live-0ea5a4?style=flat-square" alt="Website"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web"><img src="https://img.shields.io/badge/docker-ghcr.io-2496ed?style=flat-square" alt="Docker"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/releases"><img src="https://img.shields.io/github/v/release/OmniUltraX/omnipanel?style=flat-square&color=007aff" alt="Release"></a>
     <a href="https://github.com/OmniUltraX/omnipanel/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square&color=007aff" alt="License"></a>
@@ -27,7 +27,7 @@
 
 > One window to manage servers, databases, containers, and workflows. One AI that understands your entire engineering context.
 
-**Website:** [https://omniultrax.github.io/omnipanel/](https://omniultrax.github.io/omnipanel/) · **Plugin marketplace:** [plugins.html](https://omniultrax.github.io/omnipanel/plugins.html) · **Releases:** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
+**Website:** [https://omnipanel.cn/](https://omnipanel.cn/) · **Plugin marketplace:** [plugins.html](https://omnipanel.cn/plugins.html) · **Releases:** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
 
 ### 📸 Screenshots
 
@@ -77,8 +77,8 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 
 | Area | Highlights |
 |------|------------|
-| **Plugin platform** | Signed `.omni-plugin` install; Plugin Center + studio; website [marketplace](https://omniultrax.github.io/omnipanel/plugins.html) + [dev docs](https://omniultrax.github.io/omnipanel/plugins/docs.html); L1 / L2 / L3 |
-| **Cloud vendors** | Capability workbench (account → capability → instance); download-only L2 plugins (Aliyun / Tencent / Huawei / AWS / Azure / GCP / DigitalOcean / BandwagonHost / JDCloud / Qiniu Kodo); Aliyun SG delete + EIP / SLB / RDS / Redis / disk / DNS |
+| **Plugin platform** | Signed `.omni-plugin` install; Plugin Center + studio; website [marketplace](https://omnipanel.cn/plugins.html) + [dev docs](https://omnipanel.cn/plugins/docs.html); L1 / L2 / L3 |
+| **Cloud vendors** | Capability workbench (account → capability → instance); eight vendors as **download-only** L2 plugins from Plugin Center (Aliyun / Tencent / Huawei / AWS / Azure / GCP / DigitalOcean / BandwagonHost); Aliyun SG delete + EIP / SLB / RDS / Redis / disk / DNS |
 | **Module plugins** | Nacos (download-only): namespace switch, service online/offline, resizable split, Ctrl+F config search |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
 | **Presence guard** | Dangerous ops require Windows Hello / Touch ID or short-lived type-issued token; consumed once per action across DB / Docker / cloud / SSH |

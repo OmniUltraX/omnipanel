@@ -66,7 +66,7 @@ export function resolvePanelBrandIcon(
 
 export function BrandIconImg({
   kind,
-  size = 13,
+  size = 14,
   className = "server-tree-brand-icon",
   title,
 }: {

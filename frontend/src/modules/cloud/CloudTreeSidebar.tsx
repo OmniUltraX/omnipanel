@@ -305,7 +305,7 @@ function CloudCapabilityBranch({
                   note={sidebarNotes[SidebarNoteKeys.cloudInstance(account.id, row.id)]}
                   afterLabel={
                     !global && row.regionId ? (
-                      <span className="sidebar-tag-chip badge badge-muted">{cloudRegionLabel(row.regionId)}</span>
+                      <span className="sidebar-tag-chip">{cloudRegionLabel(row.regionId)}</span>
                     ) : null
                   }
                   icon={<ServerTreeIcon kind="server" />}
@@ -559,6 +559,7 @@ export function CloudTreeSidebar({
           id: "edit",
           label: t("common.edit"),
           icon: contextMenuIcons.edit,
+          shortcut: "F2",
           onClick: () => onEditAccount(ctxTarget.account),
         });
       }
@@ -568,6 +569,7 @@ export function CloudTreeSidebar({
           id: "delete",
           label: t("common.delete"),
           icon: contextMenuIcons.delete,
+          shortcut: "Del",
           danger: true,
           onClick: () => onDeleteAccount(ctxTarget.account.id),
         });
@@ -743,7 +745,7 @@ export function CloudTreeSidebar({
                     label={account.name}
                     note={sidebarNotes[SidebarNoteKeys.cloudAccount(account.id)]}
                     afterLabel={
-                      <span className="sidebar-tag-chip badge badge-muted">
+                      <span className="sidebar-tag-chip">
                         {pluginDisplayName(account.pluginId, t)}
                       </span>
                     }
@@ -789,6 +791,8 @@ export function CloudTreeSidebar({
                       onNavigate({ kind: "account", accountId: account.id }, "permanent")
                     }
                     onContextMenu={(event) => handleNodeContextMenu(event, { kind: "account", account })}
+                    onRename={onEditAccount ? () => onEditAccount(account) : undefined}
+                    renameLabel={t("common.edit")}
                     onRefresh={
                       pluginReady ? () => handleRefreshAccount(account, true) : undefined
                     }

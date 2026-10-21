@@ -8,6 +8,7 @@ import { unwrapCommand } from "../../../ipc/result";
 import { safeTauriUnlisten } from "../../../lib/safeTauriUnlisten";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { applyTerminalTheme, getTerminalTheme, resolveActiveAppTheme, subscribeTerminalPalette } from "../../../modules/terminal/terminalTheme";
+import { bindPtyFit } from "./ptyFit";
 
 function toBytes(data: string): number[] {
   return Array.from(new TextEncoder().encode(data));
@@ -50,7 +51,6 @@ export function useDockerHostShellTerminal(
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(mount);
-    fitAddon.fit();
     applyTerminalTheme(term);
 
     // 主题变化时动态更新终端主题
@@ -68,13 +68,11 @@ export function useDockerHostShellTerminal(
       void commands.dockerExecWrite(sessionId, toBytes(data));
     });
 
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+    const ptyFit = bindPtyFit(term, fitAddon, mount, (cols, rows) => {
       const sessionId = backendSessionRef.current;
       if (!sessionId) return;
-      void commands.dockerExecResize(sessionId, term.cols, term.rows);
+      void commands.dockerExecResize(sessionId, cols, rows);
     });
-    resizeObserver.observe(mount);
 
     void (async () => {
       try {
@@ -86,6 +84,7 @@ export function useDockerHostShellTerminal(
           return;
         }
         backendSessionRef.current = sessionId;
+        ptyFit.publishCurrentSize();
 
         outputUnlisten = await listen<{ session_id?: string; data?: string }>(
           TERMINAL_OUTPUT,
@@ -114,7 +113,7 @@ export function useDockerHostShellTerminal(
       unsubTheme();
       cancelled = true;
       dataDisposable.dispose();
-      resizeObserver.disconnect();
+      ptyFit.dispose();
       const sessionId = backendSessionRef.current;
       backendSessionRef.current = null;
       if (sessionId) {
@@ -154,7 +153,6 @@ export function useLocalDockerShellTerminal(
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(mount);
-    fitAddon.fit();
     applyTerminalTheme(term);
 
     // 主题变化时动态更新终端主题
@@ -172,13 +170,11 @@ export function useLocalDockerShellTerminal(
       void commands.writeTerminal(sessionId, toBytes(data));
     });
 
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
+    const ptyFit = bindPtyFit(term, fitAddon, mount, (cols, rows) => {
       const sessionId = backendSessionRef.current;
       if (!sessionId) return;
-      void commands.resizeTerminal(sessionId, term.cols, term.rows);
+      void commands.resizeTerminal(sessionId, cols, rows);
     });
-    resizeObserver.observe(mount);
 
     void (async () => {
       try {
@@ -188,6 +184,7 @@ export function useLocalDockerShellTerminal(
           return;
         }
         backendSessionRef.current = sessionId;
+        ptyFit.publishCurrentSize();
 
         outputUnlisten = await listen<{ session_id?: string; data?: string }>(
           TERMINAL_OUTPUT,
@@ -216,7 +213,7 @@ export function useLocalDockerShellTerminal(
       unsubTheme();
       cancelled = true;
       dataDisposable.dispose();
-      resizeObserver.disconnect();
+      ptyFit.dispose();
       const sessionId = backendSessionRef.current;
       backendSessionRef.current = null;
       if (sessionId) {

@@ -1,11 +1,9 @@
-//! 系统探测：字体枚举、Agent 发现、AI 服务健康检查。
+//! 系统探测：字体枚举、AI 服务健康检查。
 
 use std::collections::BTreeSet;
 
 use omnipanel_error::OmniError;
 use serde::Serialize;
-
-use crate::agents_detect::{AgentInstallStatus, AgentKind, detect_all_agents_sync};
 
 fn collect_system_font_families(monospace_only: bool) -> Vec<String> {
     let mut db = fontdb::Database::new();
@@ -30,37 +28,6 @@ pub async fn list_system_fonts(monospace_only: Option<bool>) -> Result<Vec<Strin
     tokio::task::spawn_blocking(move || collect_system_font_families(mono))
         .await
         .map_err(|e| OmniError::internal(format!("字体枚举失败: {e}")))
-}
-
-pub async fn detect_all_agents() -> Vec<AgentInstallStatus> {
-    detect_all_agents_sync()
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenCodeInstallStatus {
-    pub installed: bool,
-    pub path: Option<String>,
-    pub version: Option<String>,
-}
-
-pub async fn detect_opencode_install() -> Result<OpenCodeInstallStatus, OmniError> {
-    let agents = detect_all_agents_sync();
-    let opencode = agents
-        .into_iter()
-        .find(|a| a.kind == AgentKind::Opencode)
-        .unwrap_or(AgentInstallStatus {
-            kind: AgentKind::Opencode,
-            installed: false,
-            executable_path: None,
-            version: None,
-            launch_args: Vec::new(),
-        });
-    Ok(OpenCodeInstallStatus {
-        installed: opencode.installed,
-        path: opencode.executable_path,
-        version: opencode.version,
-    })
 }
 
 #[derive(Debug, Clone, Serialize)]

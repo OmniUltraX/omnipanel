@@ -109,15 +109,9 @@ export function TerminalView({
   );
 
   useEffect(() => {
-    if (!terminalBackend) return;
-    if (!active) {
-      onSenderChange(sessionId, null);
-      return;
-    }
+    if (!terminalBackend || !active || !sendRef.current) return;
+    // 失焦不摘掉发送器。它表示「写进这个 PTY」，摘掉后同主机的命令会掉进先打开的标签。
     onSenderChange(sessionId, sendRef.current);
-    return () => {
-      onSenderChange(sessionId, null);
-    };
   }, [active, onSenderChange, paneStatus, sessionId, terminalBackend]);
 
   const startupKey = startup.join("\0");

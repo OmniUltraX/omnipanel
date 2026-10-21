@@ -71,6 +71,8 @@ export function PluginsPanel() {
   const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
   const selected = Boolean(center.selectedInstalled || center.selectedMarket);
+  const updatesBusy =
+    center.installingMarketId != null || center.installing || center.busyId != null;
   const { updateIds, latestById } = useMemo(() => {
     const ids = new Set<string>();
     const latest = new Map<string, string>();
@@ -253,6 +255,9 @@ export function PluginsPanel() {
               devIds={center.devIds}
               installing={center.installing}
               onInstallFile={() => void center.installFromFile()}
+              updateAllCount={updateIds.size}
+              updateAllBusy={updatesBusy}
+              onUpdateAll={() => void center.updatePlugins(null)}
             />
             <PluginsMarketPane
               kindFilter={center.kindFilter}

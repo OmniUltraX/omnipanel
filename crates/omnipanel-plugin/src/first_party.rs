@@ -1,7 +1,13 @@
 use crate::manifest::PluginManifest;
 
 pub const PLUGIN_ID_THEME_DEFAULT: &str = "omni.theme.default";
+pub const PLUGIN_ID_AGENT_WORKBUDDY: &str = "omni.agent.workbuddy";
+pub const PLUGIN_ID_AGENT_CURSOR: &str = "omni.agent.cursor";
+pub const PLUGIN_ID_AGENT_TRAE: &str = "omni.agent.trae";
+pub const PLUGIN_ID_AGENT_TRAE_GLOBAL: &str = "omni.agent.trae-global";
+pub const PLUGIN_ID_AGENT_OPENCODE_GO: &str = "omni.agent.opencode-go";
 pub const PLUGIN_ID_ADDON_EVERYTHING: &str = "omni.addon.everything";
+pub const PLUGIN_ID_ADDON_RESOURCE_DEDUPE: &str = "omni.addon.resource-dedupe";
 pub const PLUGIN_ID_CLOUD_ALIYUN: &str = "omni.cloud.aliyun";
 pub const PLUGIN_ID_CLOUD_TENCENT: &str = "omni.cloud.tencent";
 pub const PLUGIN_ID_CLOUD_HUAWEI: &str = "omni.cloud.huawei";
@@ -43,8 +49,32 @@ pub fn theme_default() -> PluginManifest {
     first_party_manifest!("theme-default")
 }
 
+pub fn agent_workbuddy() -> PluginManifest {
+    first_party_manifest!("agent-workbuddy")
+}
+
+pub fn agent_cursor() -> PluginManifest {
+    first_party_manifest!("agent-cursor")
+}
+
+pub fn agent_trae() -> PluginManifest {
+    first_party_manifest!("agent-trae")
+}
+
+pub fn agent_trae_global() -> PluginManifest {
+    first_party_manifest!("agent-trae-global")
+}
+
+pub fn agent_opencode_go() -> PluginManifest {
+    first_party_manifest!("agent-opencode-go")
+}
+
 pub fn addon_everything() -> PluginManifest {
     first_party_manifest!("addon-everything")
+}
+
+pub fn addon_resource_dedupe() -> PluginManifest {
+    first_party_manifest!("addon-resource-dedupe")
 }
 
 /// download-only：仅供测试读清单，不进 `first_party_manifests`。
@@ -155,6 +185,14 @@ pub fn addon_warpgate() -> PluginManifest {
 pub fn first_party_logic_bytes(plugin_id: &str, logic_rel: &str) -> Option<Vec<u8>> {
     let rel = logic_rel.trim().replace('\\', "/");
     match (plugin_id, rel.as_str()) {
+        (PLUGIN_ID_ADDON_RESOURCE_DEDUPE, "logic.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/addon-resource-dedupe/logic.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
         (PLUGIN_ID_PANEL_HESTIA, "logic.js") => Some(
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -186,6 +224,30 @@ pub fn first_party_asset_bytes(plugin_id: &str, rel: &str) -> Option<Vec<u8>> {
             .as_bytes()
             .to_vec(),
         ),
+        (PLUGIN_ID_ADDON_RESOURCE_DEDUPE, "icon.svg") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/addon-resource-dedupe/icon.svg"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_ADDON_RESOURCE_DEDUPE, "ui/index.html") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/addon-resource-dedupe/ui/index.html"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
+        (PLUGIN_ID_ADDON_RESOURCE_DEDUPE, "ui/main.js") => Some(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/addon-resource-dedupe/ui/main.js"
+            ))
+            .as_bytes()
+            .to_vec(),
+        ),
         (PLUGIN_ID_THEME_DEFAULT, "tokens.json") => Some(
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -202,6 +264,11 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
     vec![
         theme_default(),
         addon_everything(),
+        agent_workbuddy(),
+        agent_cursor(),
+        agent_trae(),
+        agent_trae_global(),
+        agent_opencode_go(),
         // 全部云厂商 / Warpgate → download-only（安装后经 Runtime 装载）
         panel_1panel(),
         panel_bt(),
@@ -215,6 +282,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
         engine_sqlite(),
         engine_sqlserver(),
         importer_docker_db(),
+        addon_resource_dedupe(),
     ]
 }
 
@@ -225,7 +293,22 @@ mod tests {
     #[test]
     fn plugin_id_constants_match_json() {
         assert_eq!(theme_default().id, PLUGIN_ID_THEME_DEFAULT);
+        assert_eq!(agent_workbuddy().id, PLUGIN_ID_AGENT_WORKBUDDY);
+        assert_eq!(agent_workbuddy().kind, crate::kind::PluginKind::Agent);
+        assert_eq!(agent_cursor().id, PLUGIN_ID_AGENT_CURSOR);
+        assert_eq!(agent_cursor().kind, crate::kind::PluginKind::Agent);
+        assert_eq!(agent_trae().id, PLUGIN_ID_AGENT_TRAE);
+        assert_eq!(agent_trae().kind, crate::kind::PluginKind::Agent);
+        assert_eq!(agent_trae_global().id, PLUGIN_ID_AGENT_TRAE_GLOBAL);
+        assert_eq!(agent_trae_global().kind, crate::kind::PluginKind::Agent);
+        assert_eq!(agent_opencode_go().id, PLUGIN_ID_AGENT_OPENCODE_GO);
+        assert_eq!(agent_opencode_go().kind, crate::kind::PluginKind::Agent);
         assert_eq!(addon_everything().id, PLUGIN_ID_ADDON_EVERYTHING);
+        assert_eq!(addon_resource_dedupe().id, PLUGIN_ID_ADDON_RESOURCE_DEDUPE);
+        assert_eq!(addon_resource_dedupe().logic_entry(), Some("logic.js"));
+        addon_resource_dedupe()
+            .validate()
+            .expect("清理重复资源插件清单应通过校验");
         assert_eq!(cloud_aliyun().id, PLUGIN_ID_CLOUD_ALIYUN);
         assert_eq!(cloud_aliyun().logic_entry(), Some("logic.js"));
         assert_eq!(cloud_tencent().id, PLUGIN_ID_CLOUD_TENCENT);

@@ -21,7 +21,7 @@ import {
   pluginMatchesQuery,
   sanitizeExternalId,
   shouldConfirmInstallPlan,
-  updatesFromMarketplace,
+  updatesFromMarketItems,
   withLocalStats,
   type ExternalCategory,
   type KindFilter,
@@ -140,27 +140,6 @@ export function usePluginCenter() {
     };
   }, [reloadInstalled]);
 
-  const visibleUpdates = useMemo(() => {
-    // 横幅以目录 updateAvailable 为准（与行按钮同源）；checkUpdates 仅补充 changelog。
-    const byId = new Map<string, PluginUpdateInfo>();
-    for (const row of updatesFromMarketplace(marketCatalog)) {
-      if (devIds.has(row.id)) continue;
-      byId.set(row.id, row);
-    }
-    for (const row of updates) {
-      if (devIds.has(row.id)) continue;
-      const prev = byId.get(row.id);
-      if (!prev) {
-        byId.set(row.id, row);
-        continue;
-      }
-      if (!prev.changelog && row.changelog) {
-        byId.set(row.id, { ...prev, changelog: row.changelog });
-      }
-    }
-    return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
-  }, [marketCatalog, updates, devIds]);
-
   // Rubick 源开关：种子合并、自动拉全量、npm 按钮一律跟随（默认关）
   const rubickEnabled = useMemo(
     () => sources.some((s) => s.id === "rubick" && s.enabled),
@@ -258,6 +237,26 @@ export function usePluginCenter() {
       };
     });
   }, [marketCatalog, catalog, npmSearch, t, statsById]);
+
+  const visibleUpdates = useMemo(() => {
+    const byId = new Map<string, PluginUpdateInfo>();
+    for (const row of updatesFromMarketItems(marketItems)) {
+      if (devIds.has(row.id)) continue;
+      byId.set(row.id, row);
+    }
+    for (const row of updates) {
+      if (devIds.has(row.id)) continue;
+      const prev = byId.get(row.id);
+      if (!prev) {
+        byId.set(row.id, row);
+        continue;
+      }
+      if (!prev.changelog && row.changelog) {
+        byId.set(row.id, { ...prev, changelog: row.changelog });
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }, [marketItems, updates, devIds]);
 
   const displayNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -390,6 +389,7 @@ export function usePluginCenter() {
       theme: 0,
       addon: 0,
       knowledge: 0,
+      agent: 0,
     };
     const seen = new Set<string>();
     const add = (id: string, name: string, kind: PluginListItem["kind"]) => {
@@ -614,19 +614,44 @@ export function usePluginCenter() {
   };
 
   const updatePlugins = async (ids: string[] | null) => {
-    setInstallingMarketId(ids?.length === 1 ? ids[0] : "__all__");
+    const targets = marketItems.filter((item) => {
+      if (!item.needsUpdate || !item.installed || devIds.has(item.id) || item.externalNpm) {
+        return false;
+      }
+      const installedVersion = item.installedVersion?.trim() ?? "";
+      if (!installedVersion) return false;
+      if (ids == null) return true;
+      return ids.includes(item.id);
+    });
+    if (targets.length === 0) return;
+
+    setInstallingMarketId(ids?.length === 1 ? ids[0]! : "__all__");
+    const failed: string[] = [];
+    const registryIds: string[] = [];
     try {
-      const results = await unwrapCommand(commands.pluginUpdateAll(ids));
-      const failed = results.filter((row) => !row.ok);
-      setError(
-        failed.length
-          ? failed
-              .map((row) =>
-                t("plugins.center.updateFailed", { id: row.id, error: row.error ?? "" }),
-              )
-              .join("\n")
-          : null,
-      );
+      for (const item of targets) {
+        if (item.dbxKey) {
+          try {
+            await unwrapCommand(commands.pluginDbxInstall(item.dbxKey));
+            recordInstall(item.id);
+          } catch (err) {
+            failed.push(
+              t("plugins.center.updateFailed", { id: item.id, error: String(err) }),
+            );
+          }
+        } else {
+          registryIds.push(item.id);
+        }
+      }
+      if (registryIds.length > 0) {
+        const results = await unwrapCommand(commands.pluginUpdateAll(registryIds));
+        for (const row of results.filter((r) => !r.ok)) {
+          failed.push(
+            t("plugins.center.updateFailed", { id: row.id, error: row.error ?? "" }),
+          );
+        }
+      }
+      setError(failed.length ? failed.join("\n") : null);
       await reloadInstalled();
       await reloadMarket(true);
     } catch (err) {

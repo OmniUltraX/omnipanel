@@ -54,11 +54,17 @@
 
 /* 来源/类型徽标：与知识库既有 import-badge 同视觉，全模块统一类名。 */
 .sidebar-tag-chip {
+    display: inline-flex;
+    align-items: center;
     font-size: 11px;
+    font-weight: 400;
+    letter-spacing: normal;
+    line-height: 16px;
     color: var(--meta);
-    padding: 2px 8px;
+    padding: 1px 8px;
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
+    background: transparent;
     white-space: nowrap;
     flex-shrink: 0;
 }

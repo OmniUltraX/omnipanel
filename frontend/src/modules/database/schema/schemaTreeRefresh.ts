@@ -9,6 +9,8 @@ import { useDbSchemaCacheStore } from "../../../stores/dbSchemaCacheStore";
 import { mergeConnectionSchemaCacheEntry, mergeDatabaseSchemaCacheEntry } from "./schemaCache";
 import type { SchemaCacheConnectionEntry, SchemaCacheDatabaseEntry } from "./schemaCache";
 import type { SchemaTreeItem } from "./schemaTreeItem";
+import { buildConnectionTreeItem, buildDatabaseTreeItem } from "./schemaTreeItem";
+import type { SqlSchemaRefreshPlan } from "../sqlIntel/sqlSchemaRefreshPlan";
 import {
   parseDatabaseNodeId,
   parseTableNodeId,
@@ -318,6 +320,20 @@ export async function applySchemaNodeDeleteToCache(
   await store.patchConnection(connId, next);
   hooks?.onConnectionPatched?.(connId, next);
   return next;
+}
+
+export async function refreshSchemaPlansAfterSql(
+  connection: DbConnectionConfig,
+  plans: SqlSchemaRefreshPlan[],
+  hooks?: SchemaTreeRefreshHooks,
+): Promise<void> {
+  for (const plan of plans) {
+    const item =
+      plan.level === "connection"
+        ? buildConnectionTreeItem(connection.id, connection.name, connection.db_type)
+        : buildDatabaseTreeItem(connection.id, plan.dbName);
+    await refreshAndApplySchemaTreeNode(connection, item, hooks);
+  }
 }
 
 export async function refreshAndApplySchemaTreeNode(

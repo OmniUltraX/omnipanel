@@ -134,6 +134,14 @@ pub trait PluginHostBridge: Send + Sync {
     fn ssh_exec(&self, _spec_json: &str) -> Result<String, String> {
         Err("ssh.exec 未装配".into())
     }
+    /// 扫描重复资源。需 `connections:write`。返回分组 JSON，不含凭据明文。
+    fn resources_scan(&self) -> Result<String, String> {
+        Err("resources.scan 未装配".into())
+    }
+    /// 按 `{ groups: [{ keepId, dropIds }] }` 合并引用并删除重复项。需 `connections:write`。
+    fn resources_apply(&self, _plan_json: &str) -> Result<String, String> {
+        Err("resources.apply 未装配".into())
+    }
 }
 
 /// 按逻辑包类型路由到对应引擎的组合执行器。

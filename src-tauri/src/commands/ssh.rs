@@ -193,9 +193,18 @@ pub async fn ssh_connect_connection(
     if conn.kind != ConnectionKind::Ssh {
         return Err(OmniError::new(ErrorCode::InvalidInput, "连接不是 SSH 类型"));
     }
+    let tags = conn.tags.clone();
     let config = crate::commands::connection::resolve_ssh_config(&conn)?;
     drop(storage);
-    ssh_connect(state, config, cols, rows, pane_id).await
+    let host = config.host.clone();
+    let port = config.port;
+    crate::mesh_relay::ssh_connect_rewritten(
+        &host,
+        port,
+        &tags,
+        ssh_connect(state, config, cols, rows, pane_id),
+    )
+    .await?
 }
 
 /// 写入远端 shell。

@@ -12,7 +12,7 @@
 | `version` | string | ✅ | SemVer；覆盖升级用 |
 | `displayName` | string | — | 侧栏 / 插件中心显示名；缺省回退宿主 i18n 或 id |
 | `icon` | string \| `{ light, dark }` | — | 插件品牌图标（包内 `.svg` / `.png`，禁止 URL / `..`）。字符串为明暗共用；对象则按主题分别取 `light` / `dark`。插件中心与首页优先使用；未声明时可回退 `ui.home.icon` |
-| `kind` | enum | ✅ | 八选一：`engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon` / `knowledge`（知识源适配器，见下） |
+| `kind` | enum | ✅ | 九选一：`engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon` / `knowledge` / `agent`（知识源、Agent 来源见下） |
 | `permissions` | string[] | — | 声明所需权限；缺权调用即失败（见 [permissions-and-levels](./permissions-and-levels.md)） |
 | `methods` | object[] | — | L2 网关白名单：`{ name, permissions[] }`；未声明的 method 一律 `UnknownMethod` |
 | `entry.logic` | string | — | L2 逻辑包相对路径，仅 `.wasm` / `.js`；禁止 `..` 与绝对路径 |
@@ -41,6 +41,7 @@
 | `discovery[]` | panel/module | 发现 probe 归属声明 `{ probeId }` |
 | `importers[]` | importer | `{ id, title, hint?, sourceKind?: instances\|dockerConnections, fetchMethod?, scanners?, defaultGroup?, resourceKinds?, defaultTag?, sshAuth?, note?, fields[…], entry? }`。`instances`（默认）由宿主画实例表单，L2 `fetchMethod` 拉目标；`dockerConnections` 左侧列出已有 Docker 连接，宿主按 `scanners[]` 扫描。`resourceKinds` 声明会写入的资源类型，设置里按类型各选分组。样板：`plugins/importer-warpgate`、`plugins/importer-docker-db` |
 | `knowledgeSources[]` | knowledge | 只读数据源适配器：`{ id（全局唯一）, title?, hint?, formats?[], listMethod, listDocumentsMethod, getMethod, searchMethod?, fields[…] }`。插件只管列目录/取文档/解析 Markdown（L2 methods，必须配 `entry.logic`），落库、命名空间隔离、增量、调度由宿主管线负责。样板：`plugins-samples/knowledge-starter` |
+| `agentSources[]` | agent | Agent 来源：`{ id（全局唯一）, title?, hint?, statusMethod, catalogMethod, completeMethod }`。`runtime=sidecar` + `entry.driver`。进程提供登录态、目录和一轮对话；编排、工具、审批留在宿主。token 只留在 sidecar 进程内存。协议见 [sidecar-agent.md](./sidecar-agent.md) |
 | `themes.tokens` | theme | 公开 token 合同；**theme 禁止 JS**，permissions 必须为空 |
 | `ai.tools[]` | 任意 | `{ name, description, execKind, moduleKey, crossModule, externalExposed, inputSchema }` |
 | `configuration` | 任意 | 插件设置（插件中心「设置」SubWindow）。`{ title?, properties?: { [key]: { type, default?, description?, enum?, format?, order?, secret? } }, fields?: importerField[], panel? }`。`properties` / `fields` / `panel` 至少其一；`secret`/`format:password` 写 vault，其余写 plugin state |

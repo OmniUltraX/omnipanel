@@ -1,168 +1,125 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
-import { formatTeamError, fetchTeamMembers, fetchTeams } from "../../lib/auth/teamApi";
-import { shareToTeamMembers } from "../../lib/auth/shareApi";
+import { formatTeamError, fetchTeams } from "../../lib/auth/teamApi";
 import { isAuthSessionError } from "../../lib/auth/loginApi";
 import {
   shareResourceKindLabelKey,
   type ResourceShareSnapshot,
+  type ShareDialogPayload,
 } from "../../modules/share/resourceShare";
+import { commands } from "../../ipc/bindings";
+import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
-import { useUserProfileStore } from "../../stores/userProfileStore";
-import { useShareUiStore, type SharePayload } from "../../stores/shareUiStore";
+import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
+import { useShareUiStore } from "../../stores/shareUiStore";
 import { showToast } from "../../stores/toastStore";
-import { Button } from "../ui/Button";
 import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { IconClose } from "../ui/icons/Icons";
 import { Modal } from "../ui/overlay/Modal";
 
-type ShareMemberRow = {
-  key: string;
-  teamId: number;
-  teamName: string;
-  unionId: string;
-  displayName: string;
+type ShareTeamRow = {
+  id: number;
+  name: string;
 };
 
-function memberKey(teamId: number, email: string): string {
-  return `${teamId}:${email.toLowerCase()}`;
+function resourceIdOf(snapshot: ResourceShareSnapshot): string {
+  switch (snapshot.kind) {
+    case "ssh-connection":
+      return snapshot.connection.id;
+    case "database-connection":
+      return snapshot.connection.id;
+    case "knowledge-entry":
+      return snapshot.entry.id;
+    case "http-request":
+      return snapshot.request.id;
+    case "custom-panel":
+      return "";
+  }
 }
 
 export interface TeamShareDialogProps {
   open: boolean;
-  payload: SharePayload | null;
+  payload: ShareDialogPayload | null;
   onClose: () => void;
 }
 
 export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps) {
   const { t } = useI18n();
   const token = useAuthStore((s) => s.token);
-  const myEmail = useUserProfileStore((s) => s.email);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [members, setMembers] = useState<ShareMemberRow[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [teams, setTeams] = useState<ShareTeamRow[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sharing, setSharing] = useState(false);
 
   const hasShareTarget = payload !== null;
   const resourceLabel = hasShareTarget ? t(shareResourceKindLabelKey(payload.kind)) : "";
   const resourceTitle = hasShareTarget ? payload.label : "";
+  const selected = useMemo(
+    () => teams.find((team) => team.id === selectedId) ?? null,
+    [selectedId, teams],
+  );
 
-  const loadMembers = useCallback(async () => {
+  const loadTeams = useCallback(async () => {
     if (!token || !open) return;
     setLoading(true);
     setError(null);
-    setSelected(new Set());
+    setSelectedId(null);
     try {
-      const teams = await fetchTeams(token, { quiet: true });
-      const rows: ShareMemberRow[] = [];
-      // 团队 id 缺失（null）时无法分享，直接跳过
-      const shareable = teams.filter(
-        (team): team is typeof team & { id: number } => typeof team.id === "number",
-      );
-      await Promise.all(
-        shareable.map(async (team) => {
-          const teamMembers = await fetchTeamMembers(token, team.id, { quiet: true });
-          for (const member of teamMembers) {
-            const email = member.email.trim();
-            if (!email) continue;
-            if (myEmail && email.toLowerCase() === myEmail.trim().toLowerCase()) continue;
-            rows.push({
-              key: memberKey(team.id, email),
-              teamId: team.id,
-              teamName: team.name,
-              unionId: email,
-              displayName:
-                member.userTeamName.trim() ||
-                email ||
-                t("share.unnamedMember"),
-            });
-          }
-        }),
-      );
-      rows.sort((a, b) => {
-        const teamCmp = a.teamName.localeCompare(b.teamName, undefined, { sensitivity: "base" });
-        if (teamCmp !== 0) return teamCmp;
-        return a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" });
-      });
-      setMembers(rows);
+      const currentId = getCurrentSyncTeamId();
+      const list = await fetchTeams(token, { quiet: true });
+      const rows = list
+        .filter((team): team is typeof team & { id: number } => typeof team.id === "number")
+        .filter((team) => team.id !== currentId)
+        .map((team) => ({ id: team.id, name: team.name.trim() || String(team.id) }));
+      setTeams(rows);
+      setSelectedId(rows[0]?.id ?? null);
     } catch (e) {
       if (isAuthSessionError(e)) {
         setError(t("share.sessionExpired"));
       } else {
         setError(formatTeamError(e));
       }
-      setMembers([]);
+      setTeams([]);
     } finally {
       setLoading(false);
     }
-  }, [myEmail, open, t, token]);
+  }, [open, t, token]);
 
   useEffect(() => {
     if (!open) {
-      setMembers([]);
-      setSelected(new Set());
+      setTeams([]);
+      setSelectedId(null);
       setError(null);
       return;
     }
-    void loadMembers();
-  }, [loadMembers, open]);
+    void loadTeams();
+  }, [loadTeams, open]);
 
-  const selectableKeys = useMemo(() => members.map((m) => m.key), [members]);
-  const allSelected =
-    selectableKeys.length > 0 && selectableKeys.every((key) => selected.has(key));
-  const selectedCount = selected.size;
-
-  const toggleMember = (key: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    if (allSelected) {
-      setSelected(new Set());
-      return;
-    }
-    setSelected(new Set(selectableKeys));
-  };
-
-  const handleShare = async () => {
-    if (!payload || sharing || selectedCount === 0) {
-      return;
-    }
-    const snapshot: ResourceShareSnapshot = payload.snapshot;
-
-    const targets = members
-      .filter((row) => selected.has(row.key))
-      .map((row) => ({
-        teamId: row.teamId,
-        teamName: row.teamName,
-        unionId: row.unionId,
-        displayName: row.displayName,
-      }));
-
+  const handleShare = useCallback(async () => {
+    if (!payload || !token || !selected) return;
     setSharing(true);
     try {
-      if (!token) {
-        showToast(t("share.sessionExpired"));
-        return;
-      }
-      await shareToTeamMembers(token, { targets, snapshot });
-      showToast(t("share.sent", { count: targets.length, panel: payload.label }));
+      await unwrapCommand(
+        commands.teamCopyResourceToTeam({
+          token,
+          targetTeamId: selected.id,
+          kind: payload.kind,
+          resourceId: resourceIdOf(payload.snapshot),
+          snapshotJson: payload.kind === "custom-panel" ? JSON.stringify(payload.snapshot) : null,
+        }),
+      );
+      showToast(t("share.sentTeam", { team: selected.name }));
       onClose();
     } catch (e) {
       showToast(e instanceof Error ? e.message : t("share.failed"));
     } finally {
       setSharing(false);
     }
-  };
+  }, [onClose, payload, selected, t, token]);
 
-  const canShare = hasShareTarget && selectedCount > 0 && !loading && !sharing;
+  const canShare = hasShareTarget && selected !== null && !loading && !sharing;
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -199,52 +156,29 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
         {!hasShareTarget ? (
           <p className="team-share-dialog__warn">{t("share.needPanelContext")}</p>
         ) : null}
-
         {error ? <p className="team-share-dialog__error">{error}</p> : null}
-
-        <div className="team-share-dialog__toolbar">
-          <span className="team-share-dialog__count">
-            {t("share.selectedCount", { count: selectedCount, total: members.length })}
-          </span>
-          <div className="team-share-dialog__toolbar-actions">
-            <Button type="button" variant="ghost" size="sm" onClick={() => void loadMembers()} disabled={loading}>
-              {t("share.refresh")}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={toggleAll}
-              disabled={loading || members.length === 0}
-            >
-              {allSelected ? t("share.deselectAll") : t("share.selectAll")}
-            </Button>
-          </div>
-        </div>
 
         <div className="team-share-dialog__list">
           {loading ? (
-            <p className="team-share-dialog__empty">{t("share.loading")}</p>
-          ) : members.length === 0 ? (
-            <p className="team-share-dialog__empty">{t("share.emptyMembers")}</p>
+            <p className="team-share-dialog__empty">{t("share.loadingTeams")}</p>
+          ) : teams.length === 0 ? (
+            <p className="team-share-dialog__empty">{t("share.emptyTeams")}</p>
           ) : (
             <ul>
-              {members.map((row) => {
-                const checked = selected.has(row.key);
+              {teams.map((team) => {
+                const checked = team.id === selectedId;
                 return (
-                  <li key={row.key}>
+                  <li key={team.id}>
                     <label className={`team-share-dialog__item${checked ? " is-selected" : ""}`}>
                       <input
-                        type="checkbox"
+                        type="radio"
+                        name="share-target-team"
                         checked={checked}
                         disabled={!hasShareTarget || sharing}
-                        onChange={() => toggleMember(row.key)}
+                        onChange={() => setSelectedId(team.id)}
                       />
                       <span className="team-share-dialog__item-body">
-                        <span className="team-share-dialog__item-name">{row.displayName}</span>
-                        <span className="team-share-dialog__item-meta">
-                          {row.teamName} · {row.displayName}
-                        </span>
+                        <span className="team-share-dialog__item-name">{team.name}</span>
                       </span>
                     </label>
                   </li>
@@ -255,14 +189,18 @@ export function TeamShareDialog({ open, payload, onClose }: TeamShareDialogProps
         </div>
 
         <div className="team-share-dialog__actions">
+          <WorkbenchActionButton onClick={() => void loadTeams()} disabled={loading || sharing}>
+            {t("share.refresh")}
+          </WorkbenchActionButton>
           <WorkbenchActionButton onClick={onClose} disabled={sharing}>
             {t("share.cancel")}
           </WorkbenchActionButton>
-          <WorkbenchActionButton
-            disabled={!canShare}
-            onClick={() => void handleShare()}
-          >
-            {sharing ? t("share.sending") : t("share.confirm", { count: selectedCount })}
+          <WorkbenchActionButton disabled={!canShare} onClick={() => void handleShare()}>
+            {sharing
+              ? t("share.sending")
+              : selected
+                ? t("share.confirmTeam", { team: selected.name })
+                : t("share.title")}
           </WorkbenchActionButton>
         </div>
       </div>

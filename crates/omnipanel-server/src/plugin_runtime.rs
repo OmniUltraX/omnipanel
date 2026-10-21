@@ -61,10 +61,10 @@ impl ProdConfirmer for WebProdConfirmer {
         let bus = self.bus.clone();
         let rid = request_id.clone();
         Box::pin(async move {
-            pending.lock().await.insert(
-                rid.clone(),
-                PendingPluginConfirm { tx, grant_target },
-            );
+            pending
+                .lock()
+                .await
+                .insert(rid.clone(), PendingPluginConfirm { tx, grant_target });
             bus.emit(
                 PLUGIN_CONFIRM_REQUEST_EVENT,
                 serde_json::to_value(&payload).unwrap_or(Value::Null),
@@ -171,17 +171,16 @@ pub struct PluginRuntime {
     pub gateway: Arc<InvokeGateway>,
     pub packages_dir: Option<PathBuf>,
     pub executor: Arc<dyn PluginLogicExecutor>,
-    pub instances: Arc<
-        std::sync::Mutex<
-            HashMap<String, Arc<std::sync::Mutex<Box<dyn PluginLogicInstance>>>>,
-        >,
-    >,
+    pub instances:
+        Arc<std::sync::Mutex<HashMap<String, Arc<std::sync::Mutex<Box<dyn PluginLogicInstance>>>>>>,
     pub pending_confirms: Arc<Mutex<HashMap<String, PendingPluginConfirm>>>,
     pub http: reqwest::Client,
     pub storage: Arc<Mutex<Storage>>,
     pub ssh: Arc<dyn SshExec>,
     pub confirmer: Arc<dyn ProdConfirmer>,
     pub presence: Arc<omnipanel_presence::TokenStore>,
+    pub databases: Arc<omnipanel_store::DatabaseConnectionStore>,
+    bus: EventBus,
 }
 
 impl PluginRuntime {
@@ -191,6 +190,7 @@ impl PluginRuntime {
         ssh_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
         docker_ssh_sessions: Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>,
         presence: Arc<omnipanel_presence::TokenStore>,
+        databases: Arc<omnipanel_store::DatabaseConnectionStore>,
     ) -> Self {
         let packages_dir = user_plugins_dir();
         if let Some(root) = packages_dir.as_deref() {
@@ -212,7 +212,7 @@ impl PluginRuntime {
             storage: Arc::clone(&storage),
         });
         let confirmer: Arc<dyn ProdConfirmer> = Arc::new(WebProdConfirmer {
-            bus,
+            bus: bus.clone(),
             pending: Arc::clone(&pending_confirms),
         });
         let runtime = Self {
@@ -227,6 +227,8 @@ impl PluginRuntime {
             ssh,
             confirmer,
             presence,
+            databases,
+            bus: bus.clone(),
         };
         runtime.sync_logic_blocking();
         runtime
@@ -243,19 +245,17 @@ impl PluginRuntime {
                 .into_iter()
                 .filter(|item| item.activated)
                 .filter_map(|item| {
-                    registry
-                        .get(&item.id)
-                        .and_then(|entry| entry.manifest.logic_entry().map(|p| (item.id, p.to_string())))
+                    registry.get(&item.id).and_then(|entry| {
+                        entry
+                            .manifest
+                            .logic_entry()
+                            .map(|p| (item.id, p.to_string()))
+                    })
                 })
                 .collect()
         };
         for (plugin_id, logic_rel) in wanted {
-            if self
-                .instances
-                .lock()
-                .unwrap()
-                .contains_key(&plugin_id)
-            {
+            if self.instances.lock().unwrap().contains_key(&plugin_id) {
                 continue;
             }
             let disk = self
@@ -278,10 +278,10 @@ impl PluginRuntime {
             let package = omnipanel_plugin::LogicPackage::from_entry_bytes(&logic_rel, bytes);
             match self.executor.instantiate(&plugin_id, &package, bridge) {
                 Ok(instance) => {
-                    self.instances.lock().unwrap().insert(
-                        plugin_id,
-                        Arc::new(std::sync::Mutex::new(instance)),
-                    );
+                    self.instances
+                        .lock()
+                        .unwrap()
+                        .insert(plugin_id, Arc::new(std::sync::Mutex::new(instance)));
                 }
                 Err(err) => eprintln!("[plugin-logic] Web 实例化失败 {plugin_id}: {err}"),
             }
@@ -294,13 +294,19 @@ impl PluginRuntime {
             registry: Arc::clone(&self.registry),
             storage: Arc::clone(&self.storage),
             gateway: Arc::clone(&self.gateway),
-            fs_root: self
-                .packages_dir
-                .as_ref()
-                .map(|root| root.join(plugin_id)),
+            fs_root: self.packages_dir.as_ref().map(|root| root.join(plugin_id)),
             http: self.http.clone(),
             confirmer: Arc::clone(&self.confirmer),
             ssh: Arc::clone(&self.ssh),
+            databases: Some(Arc::clone(&self.databases)),
+            on_resources_applied: Some(Arc::new({
+                let bus = self.bus.clone();
+                move |payload: String| {
+                    if let Ok(value) = serde_json::from_str::<Value>(&payload) {
+                        bus.emit("resource-dedupe-applied", value);
+                    }
+                }
+            })),
         }
     }
 
@@ -338,16 +344,14 @@ impl PluginRuntime {
                 .unwrap_or("");
             omnipanel_presence::require_grant(&self.presence, token, action, target)?;
         }
-        let native = self
-            .gateway
-            .invoke(&plugin_id, &method, args.clone())
-            .await;
+        let native = self.gateway.invoke(&plugin_id, &method, args.clone()).await;
         let result = match native {
             Err(omnipanel_plugin::PluginError::UnknownMethod { .. }) => {
                 let instance = self.instances.lock().unwrap().get(&plugin_id).cloned();
                 match instance {
                     Some(instance) => {
-                        let args_json = serde_json::to_string(&args).unwrap_or_else(|_| "{}".into());
+                        let args_json =
+                            serde_json::to_string(&args).unwrap_or_else(|_| "{}".into());
                         let method = method.clone();
                         let injected = args
                             .get("connectionId")
@@ -363,7 +367,9 @@ impl PluginRuntime {
                         .map_err(|e| OmniError::internal(e.to_string()))?
                         .and_then(|text| {
                             serde_json::from_str::<Value>(&text).map_err(|e| {
-                                omnipanel_plugin::PluginError::Invoke(format!("L2 结果非 JSON: {e}"))
+                                omnipanel_plugin::PluginError::Invoke(format!(
+                                    "L2 结果非 JSON: {e}"
+                                ))
                             })
                         })
                     }

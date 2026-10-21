@@ -176,6 +176,17 @@ pub fn set_plugin_engine_claims(entries: impl IntoIterator<Item = (String, Optio
 #[cfg(test)]
 static PLUGIN_ENGINE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+/// `OMNIPANEL_DBX_JAVA` 是进程环境变量，并行测试会互相清掉。
+#[cfg(test)]
+static DBX_JAVA_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+fn lock_dbx_java_env() -> std::sync::MutexGuard<'static, ()> {
+    DBX_JAVA_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+}
+
 /// 测试互斥：claims / launches 是进程全局状态，并行用例会互相清空。
 #[cfg(test)]
 pub fn lock_plugin_engine_for_test() -> std::sync::MutexGuard<'static, ()> {
@@ -614,6 +625,7 @@ mod tests {
 
     #[test]
     fn bundled_jre_walks_nested_dbx_jre_dir() {
+        let _java_env = lock_dbx_java_env();
         let root = std::env::temp_dir().join(format!(
             "omni-jre-nested-{}-{}",
             std::process::id(),
@@ -658,6 +670,7 @@ mod tests {
 
     #[test]
     fn jar_without_jre_returns_explicit_error() {
+        let _java_env = lock_dbx_java_env();
         let root = std::env::temp_dir().join(format!(
             "omni-jre-missing-{}-{}",
             std::process::id(),
@@ -688,6 +701,7 @@ mod tests {
 
     #[test]
     fn jar_launch_injects_utf8_file_encoding() {
+        let _java_env = lock_dbx_java_env();
         let root = std::env::temp_dir().join(format!(
             "omni-jar-utf8-{}-{}",
             std::process::id(),

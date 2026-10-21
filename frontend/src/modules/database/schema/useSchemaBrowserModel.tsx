@@ -714,16 +714,6 @@ export function useSchemaBrowserModel({
     [deleteLayoutFolder, handleDeleteLayoutFolder, t],
   );
 
-  const sidebarHotkeysArmedRef = useRef(false);
-
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      sidebarHotkeysArmedRef.current = Boolean(sidebarRef.current?.contains(event.target as Node));
-    };
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => window.removeEventListener("pointerdown", onPointerDown, true);
-  }, []);
-
   const handleHotkeyDelete = useCallback(
     async (selected: ReadonlySet<string>): Promise<boolean> => {
       if (selected.size === 0) return false;
@@ -1696,7 +1686,6 @@ export function useSchemaBrowserModel({
     setSchemaCtxMenu,
     selectableNodeIds,
     handleSelectedIdsChange,
-    sidebarHotkeysArmedRef,
     handleHotkeyDelete,
     sidebarScrollTargetId,
     useTreeVirtualization,

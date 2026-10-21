@@ -74,7 +74,7 @@ export function AuthProfileSync() {
         useAuthStore.getState().logout({ skipRemote: true });
       },
     });
-    // 本机已有团队同步密钥时，自动中继 pending 传钥请求
+    // 本机持有团队同步密钥时，听中继通知并在断线后低频补拉
     startSyncKeyRelayAutoWrap({
       getToken: () => useAuthStore.getState().token,
     });

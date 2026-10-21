@@ -21,8 +21,7 @@ import { unwrapCommand } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { sidebarTreeSearchMatches } from "@/lib/sidebarTreeSearch";
 import { showToast } from "../../stores/toastStore";
-import { useDockerSidebarCacheStore } from "../../stores/dockerSidebarCacheStore";
-import { peekDockerSidebarCache } from "./dockerSidebarCacheSeed";
+import { peekDockerSidebarCache, publishDockerSidebarCategory } from "./dockerSidebarCacheSeed";
 import {
   DOCKER_QUIET_IPC,
   handleDockerAutoFetchFailure,
@@ -205,12 +204,6 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
   const [pendingClearIds, setPendingClearIds] = useState<Record<string, true>>({});
 
-  const refreshSidebarContainers = useCallback(() => {
-    void useDockerSidebarCacheStore
-      .getState()
-      .refreshScope({ kind: "category", connectionId: connection.connectionId, category: "containers" });
-  }, [connection.connectionId]);
-
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -223,6 +216,7 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
           const nextLogs = await fetchLogInfos(connection.connectionId).catch(
             () => [] as DockerContainerLogInfo[],
           );
+          publishDockerSidebarCategory(connection.connectionId, "containers", nextContainers);
           startTransition(() => {
             setContainers(nextContainers);
             setLogById(buildLogInfoByContainerId(nextLogs));
@@ -230,7 +224,6 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
         },
         connection.boundSshConnectionId,
       );
-      refreshSidebarContainers();
     } catch (err) {
       if (
         err &&
@@ -246,7 +239,7 @@ export function DockerContainerPanel({ connection, isActive = false }: DockerCon
     } finally {
       setLoading(false);
     }
-  }, [connection.boundSshConnectionId, connection.connectionId, refreshSidebarContainers]);
+  }, [connection.boundSshConnectionId, connection.connectionId]);
 
   useEffect(() => {
     const cached = peekDockerSidebarCache(connection.connectionId);

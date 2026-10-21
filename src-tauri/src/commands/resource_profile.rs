@@ -9,12 +9,11 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use omnipanel_db::{DbDriver, DbParams, connect as db_connect};
+use omnipanel_db::{DbDriver, connect as db_connect};
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use omnipanel_ssh::SshSession;
 use omnipanel_store::{
-    DbConnectionConfig, KnowledgeEntry, ResourceObservation, ResourceProfileSummary,
-    load_database_connections,
+    KnowledgeEntry, ResourceObservation, ResourceProfileSummary, load_database_connections,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -54,20 +53,6 @@ fn obs_id(resource_type: &str) -> String {
         .unwrap_or_default()
         .as_nanos();
     format!("obs_{resource_type}_{t}")
-}
-
-fn to_db_params(c: &DbConnectionConfig) -> DbParams {
-    DbParams {
-        db_type: c.db_type.clone(),
-        host: c.host.clone(),
-        port: c.port,
-        user: c.user.clone(),
-        password: c.password.clone(),
-        database: c.database.clone(),
-        ssl: c.ssl,
-        sid: c.sid.clone(),
-        sysdba: c.sysdba,
-    }
 }
 
 /// 采集结果：成功保存的观测种类列表 + 失败子任务的错误信息。
@@ -293,7 +278,9 @@ pub async fn resource_collect_database_snapshot(
         ));
     }
 
-    let params = to_db_params(&conn);
+    let params = crate::commands::database::relay_params(&conn)
+        .await
+        .map_err(|e| OmniError::database(e))?;
     let driver = db_connect(&params).await?;
 
     let mut saved_kinds: Vec<String> = Vec::new();

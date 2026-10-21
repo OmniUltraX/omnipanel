@@ -2,7 +2,7 @@
 /**
  * create-plugin — 第三方插件脚手架。
  *
- * 用法：node scripts/create-plugin.mjs <plugin-name> [engine|engine-sidecar|theme|module|cloud|panel|importer|addon]
+ * 用法：node scripts/create-plugin.mjs <plugin-name> [engine|engine-sidecar|theme|module|cloud|panel|importer|addon|knowledge|model]
  *
  * 产出 plugins-custom/<plugin-name>/：
  *   - plugin.json   清单
@@ -34,6 +34,7 @@ const KINDS = [
   "importer",
   "addon",
   "knowledge",
+  "agent",
   "js-logic",
   "l3-overlay",
   "wasm-stub",
@@ -316,6 +317,32 @@ if (kind === "wasm-stub") {
     permissions: [],
     contributes: {
       launcher: { prefix: name },
+    },
+  };
+} else if (kind === "agent") {
+  manifest = {
+    id,
+    version: "0.1.0",
+    displayName: name,
+    kind: "agent",
+    runtime: "sidecar",
+    permissions: ["net:connect"],
+    entry: { driver: "bin/agent.mjs" },
+    methods: [
+      { name: "status", permissions: [] },
+      { name: "catalog", permissions: ["net:connect"] },
+      { name: "complete", permissions: ["net:connect"] },
+    ],
+    contributes: {
+      agentSources: [
+        {
+          id: name,
+          title: name,
+          statusMethod: "status",
+          catalogMethod: "catalog",
+          completeMethod: "complete",
+        },
+      ],
     },
   };
 } else if (kind === "knowledge") {
@@ -631,6 +658,54 @@ globalThis.call = call;
   );
 }
 
+if (kind === "agent") {
+  mkdirSync(path.join(dir, "bin"), { recursive: true });
+  writeFileSync(
+    path.join(dir, "bin", "agent.mjs"),
+    `#!/usr/bin/env node
+/** Agent sidecar 桩。协议见 docs/plugins/sidecar-agent.md */
+import readline from "node:readline";
+const SOURCE_ID = ${JSON.stringify(name)};
+function send(value) { process.stdout.write(JSON.stringify(value) + "\\n"); }
+function card() {
+  return {
+    id: SOURCE_ID, title: SOURCE_ID, signedIn: false, account: null,
+    tokenExpiresAtMs: null, catalogSource: "none", error: "尚未接入上游",
+    models: []
+  };
+}
+function onLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+  let msg;
+  try { msg = JSON.parse(trimmed); }
+  catch (err) {
+    send({ jsonrpc: "2.0", id: 0, error: { code: -32700, message: "非法 JSON" } });
+    return;
+  }
+  const id = Number.isInteger(msg.id) ? msg.id : 0;
+  const method = String(msg.method || "");
+  if (method === "handshake") {
+    send({ jsonrpc: "2.0", id, result: { protocolVersion: 1, engine: SOURCE_ID, capabilities: ["status", "catalog", "chat"] } });
+    return;
+  }
+  if (method === "status" || method === "catalog") {
+    send({ jsonrpc: "2.0", id, result: card() });
+    return;
+  }
+  if (method === "chat") {
+    send({ jsonrpc: "2.0", method: "chat_event", params: { id, event: { type: "content_delta", text: "" } } });
+    send({ jsonrpc: "2.0", method: "chat_event", params: { id, event: { type: "done", stop_reason: "end_turn" } } });
+    send({ jsonrpc: "2.0", id, result: { ok: true } });
+    return;
+  }
+  send({ jsonrpc: "2.0", id, error: { code: -32601, message: "未知方法: " + method } });
+}
+readline.createInterface({ input: process.stdin }).on("line", onLine);
+`,
+  );
+}
+
 if (kind === "knowledge") {
   writeFileSync(
     path.join(dir, "logic.js"),
@@ -888,6 +963,7 @@ cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/${name} ${name}.o
 
 - 与内置同 id 的包会被拒绝覆盖。
 - engine-sidecar：\`bin/agent.mjs\` 开箱可跑（\`node scripts/check-dbx-agent.mjs plugins-custom/${name}/bin/agent.mjs\` 先变绿，再换真实驱动）；Rust 版在 \`src-agent-rs/\`，\`cargo build --release\` 后把产物拷为 \`bin/${name}\`（Windows 为 \`bin/${name}.exe\`）并把 \`entry.driver\` 改过去。协议见 \`docs/plugins/sidecar-dbx.md\`。多平台发布时每个平台打各自的包（\`platforms\` 声明对应平台）。
+- agent：\`bin/agent.mjs\` 是 sidecar 桩（\`node scripts/check-agent-sidecar.mjs plugins-custom/${name}/bin/agent.mjs --source ${name}\`）。协议见 \`docs/plugins/sidecar-agent.md\`。官方示例是 \`plugins/agent-cursor\` 与 \`plugins/agent-workbuddy\`。
 - module：启用后侧栏出现入口；实现 \`listItems({ capabilityId, ... })\`，用 \`detail\` 选通用壳（none / editor / form / kv / children / logs / metrics / facts / tree）。
 - cloud：启用后出现在云账户对话框；实现 \`testAccount\` / \`listResources\` 等即可走宿主云工作台。签厂商 API 用 \`host.hmac(JSON.stringify({ alg, key, data, encoding }))\`。
 - panel：启用后出现在服务器「添加面板」；\`testConnection\` 必做。点名 \`panelTabs\` 时实现对应 \`list*\`；overview 要实现 \`getDashboard\`。声明 create 必须带 formFields，Host 用通用表单。

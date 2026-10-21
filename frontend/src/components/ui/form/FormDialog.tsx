@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Modal } from "../overlay/Modal";
-import { Button } from "../primitives/Button";
 import { WorkbenchActionButton } from "../primitives/WorkbenchActionButton";
 import { useI18n } from "../../../i18n";
 
@@ -108,14 +107,6 @@ export function FormDialog({
   const defaultFooter =
     showCancel || status || (actions && actions.length > 0) || primaryAction ? (
       <div className="modal-footer">
-        {showCancel && (
-          <WorkbenchActionButton
-            onClick={handleCancel}
-            disabled={cancelDisabled}
-          >
-            {resolvedCancelLabel}
-          </WorkbenchActionButton>
-        )}
         {status ? (
           <span
             className={`modal-footer-status modal-footer-status--${status.kind}`}
@@ -126,13 +117,21 @@ export function FormDialog({
         ) : (
           <div className="modal-footer-spacer" />
         )}
+        {showCancel && (
+          <WorkbenchActionButton
+            onClick={handleCancel}
+            disabled={cancelDisabled}
+          >
+            {resolvedCancelLabel}
+          </WorkbenchActionButton>
+        )}
         {actions?.map((action, index) => renderAction(action, `action-${index}`))}
         {primaryAction && renderAction(primaryAction, "primary")}
       </div>
     ) : null;
 
   return (
-    <Modal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose} dismissOnOverlay={false}>
       <div
         className={dialogClass}
         onClick={(e) => e.stopPropagation()}
@@ -147,16 +146,15 @@ export function FormDialog({
           </div>
           {headerExtra}
           {showCloseButton ? (
-            <Button
+            <WorkbenchActionButton
+              icon
               type="button"
-              variant="ghost"
-              size="icon-sm"
               onClick={onClose}
               disabled={closeDisabled}
               aria-label={t("shell.topbar.close")}
             >
               {CLOSE_ICON}
-            </Button>
+            </WorkbenchActionButton>
           ) : null}
         </div>
 

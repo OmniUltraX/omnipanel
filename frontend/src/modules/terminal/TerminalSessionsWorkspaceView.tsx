@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { TerminalSessionSidebar } from "./TerminalSessionSidebar";
 import { TerminalSessionsChromeProvider } from "./TerminalSessionsChromeContext";
-import { usePanelLayoutStore } from "../../stores/panelLayoutStore";
+import { usePanelLayoutStore, getModuleLeftSidebarCollapsed } from "../../stores/panelLayoutStore";
 import { useI18n } from "../../i18n";
 import type { WorkspaceInfo } from "../../stores/workspaceStore";
 import {
@@ -43,7 +43,9 @@ export function TerminalSessionsWorkspaceView({
   children,
 }: TerminalSessionsWorkspaceViewProps) {
   const { t } = useI18n();
-  const sidebarCollapsed = usePanelLayoutStore((s) => s.moduleLeftSidebarCollapsed);
+  const sidebarCollapsed = usePanelLayoutStore((s) =>
+    getModuleLeftSidebarCollapsed(s.moduleLeftSidebarCollapsedByKey, "terminal"),
+  );
 
   const sessionSidebar = useMemo(
     () => (

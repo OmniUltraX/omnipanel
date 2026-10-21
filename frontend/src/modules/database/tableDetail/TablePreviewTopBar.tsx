@@ -311,7 +311,9 @@ export function TablePreviewTopBar({
   const { t } = useI18n();
   const [copiedHint, setCopiedHint] = useState<"qualified" | "table" | "database" | null>(null);
   const settingsAnchorRef = useRef<HTMLSpanElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [narrow, setNarrow] = useState(false);
   const databaseTableGridFontSize = useSettingsStore((s) => s.databaseTableGridFontSize);
   const setDatabaseSettings = useSettingsStore((s) => s.setDatabaseSettings);
   const qualifiedTableName =
@@ -359,8 +361,22 @@ export function TablePreviewTopBar({
   const showIdentity =
     Boolean(tableName) || Boolean(databaseName) || (columnCount != null && columnCount >= 0);
 
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const apply = () => setNarrow(el.clientWidth < 520);
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const rootClass = ["db-table-topbar", className, narrow ? "db-table-topbar--narrow" : ""]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={className ? `db-table-topbar ${className}` : "db-table-topbar"}>
+    <div ref={rootRef} className={rootClass}>
       <div className="db-table-topbar-group">
         <Button
           variant={!colSidebarCollapsed ? "default" : "ghost"}
@@ -437,7 +453,7 @@ export function TablePreviewTopBar({
           >
             {pageSizeOptions.map((size) => (
               <option key={size} value={size}>
-                {t("database.results.pageSizeOption", { count: size })}
+                {narrow ? String(size) : t("database.results.pageSizeOption", { count: size })}
               </option>
             ))}
           </select>

@@ -671,14 +671,9 @@ pub fn routing_policy() -> &'static str {
     DEFAULT_ROUTING_POLICY
 }
 
-/// ACP Client Tools 协议层提示词。
+/// 协议层提示词。
 pub fn system_prompt() -> String {
     load_system_prompt()
-}
-
-/// 兼容旧调用名。
-pub fn client_tools_preamble() -> String {
-    system_prompt()
 }
 
 #[cfg(test)]

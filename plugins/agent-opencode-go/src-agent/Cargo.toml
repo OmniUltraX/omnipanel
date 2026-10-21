@@ -1,0 +1,18 @@
+[package]
+name = "omnipanel-agent-opencode-go"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+futures = "0.3"
+omnipanel-agent-session = { path = "../../../crates/omnipanel-agent-session" }
+omnipanel-ai = { path = "../../../crates/omnipanel-ai" }
+omnipanel-store = { path = "../../../crates/omnipanel-store" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-stream = "0.1"
+uuid = { version = "1", features = ["v4"] }

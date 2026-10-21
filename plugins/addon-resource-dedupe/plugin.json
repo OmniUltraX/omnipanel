@@ -1,0 +1,34 @@
+{
+  "id": "omni.addon.resource-dedupe",
+  "version": "0.1.0",
+  "displayName": "清理重复资源",
+  "icon": "icon.svg",
+  "kind": "addon",
+  "permissions": ["connections:write"],
+  "methods": [
+    { "name": "scan", "permissions": ["connections:write"] },
+    { "name": "apply", "permissions": ["connections:write"] }
+  ],
+  "entry": {
+    "logic": "logic.js",
+    "ui": "ui/main.js"
+  },
+  "minHostApi": 1,
+  "contributes": {
+    "overlays": [
+      {
+        "id": "dedupe",
+        "title": "清理重复资源",
+        "entry": "ui/index.html"
+      }
+    ],
+    "ui": {
+      "home": {
+        "show": true,
+        "title": "清理重复资源",
+        "icon": "icon.svg",
+        "open": { "kind": "overlay", "id": "dedupe" }
+      }
+    }
+  }
+}

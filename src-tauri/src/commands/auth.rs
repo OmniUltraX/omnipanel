@@ -762,6 +762,16 @@ pub(crate) fn current_device_name() -> String {
     local_hostname()
 }
 
+/// 当前设备 id（供资源创建时打 `origin:` 标签）。
+pub(crate) fn current_device_id() -> Result<String, OmniError> {
+    let id = load_or_create_device_identity()?.device_id;
+    let id = id.trim().to_string();
+    if id.is_empty() {
+        return Err(OmniError::new(ErrorCode::Internal, "本机设备 id 为空"));
+    }
+    Ok(id)
+}
+
 /// 获取当前用户设备列表。
 #[tauri::command]
 #[specta::specta]

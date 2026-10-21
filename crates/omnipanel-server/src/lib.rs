@@ -10,8 +10,6 @@
 //! P0 范围：本地终端链路；P1 范围：DB / SSH / Docker 核心只读 + 会话链路 + API Key 鉴权。
 //! 详见 `docs/web-p1.md`。
 
-pub mod acp_cmds;
-pub mod agents_detect;
 pub mod ai;
 pub mod ai_tools;
 pub mod assistant_cmds;
@@ -42,8 +40,8 @@ pub mod files_conn;
 pub mod http_client;
 pub mod ipc;
 pub mod knowledge_cmds;
-pub mod ks_cmds;
 pub mod knowledge_vector_cmds;
+pub mod ks_cmds;
 pub mod local_runtime_cmds;
 pub mod log_search;
 pub mod log_tail;

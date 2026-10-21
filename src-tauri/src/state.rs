@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
 
-use crate::agent::AgentRegistry;
 use omnipanel_core::terminal::Terminal;
 use omnipanel_db::DbDriver;
 use omnipanel_docker::DockerExecSession;
@@ -67,7 +66,7 @@ pub struct AppState {
     pub current_provider: Arc<Mutex<Option<String>>>,
     #[allow(dead_code)]
     pub current_model: Arc<Mutex<Option<String>>>,
-    pub db_connections: DatabaseConnectionStore,
+    pub db_connections: Arc<DatabaseConnectionStore>,
     /// 本地元数据存储（连接、审计等）。
     pub storage: Arc<Mutex<Storage>>,
     /// 动作执行引擎（按 kind 分发到各 Executor）。
@@ -116,12 +115,8 @@ pub struct AppState {
     pub proxy_config: Arc<Mutex<ProxyConfig>>,
     /// MCP 服务管理器（内置 OmniMCP + 用户自定义服务）。
     pub mcp_manager: SharedMcpManager,
-    /// ACP agent 连接与会话管理。
-    pub acp_state: Arc<Mutex<crate::commands::acp::AcpState>>,
     /// Internal AI chat 取消标记（conversation_id → cancel flag）。
     pub internal_chat_cancel_flags: crate::commands::ai_chat::InternalChatCancelFlags,
-    /// 外部 Agent（ACP）多 profile 注册表。
-    pub agent_registry: Arc<AgentRegistry>,
     /// 全局后台任务线程池（对比分析等 CPU/IO 密集型任务）。
     pub worker_pool: Arc<BackgroundWorkerPool>,
     /// Internal AI UiDelegated 工具审批/执行等待（conversation_id:tool_call_id → oneshot）。
@@ -165,8 +160,8 @@ pub struct AppState {
             >,
         >,
     >,
-    /// 团队 mesh（tailscale-rs Device）；登出 / 切团队时停止。
-    pub mesh: Arc<Mutex<Option<crate::commands::mesh::MeshHandle>>>,
+    /// 团队 mesh：每个已加入的团队一台 tailscale-rs Device。登出时全部停止。
+    pub mesh: Arc<Mutex<HashMap<i64, crate::commands::mesh::MeshHandle>>>,
     /// 终端 tmux 模式偏好：auto / always / never，由前端设置同步。
     pub terminal_tmux_mode: Arc<std::sync::Mutex<String>>,
 }
@@ -180,6 +175,7 @@ impl AppState {
         db_connections: DatabaseConnectionStore,
         mcp_manager: SharedMcpManager,
     ) -> Self {
+        let db_connections = Arc::new(db_connections);
         let log_store = LogStore::new(500);
         let ssh_pool_sessions = Arc::new(Mutex::new(HashMap::new()));
         let ssh_pool = Arc::new(SshPool::new(
@@ -290,9 +286,7 @@ impl AppState {
             ),
             proxy_config: Arc::new(Mutex::new(ProxyConfig::default())),
             mcp_manager,
-            acp_state: Arc::new(Mutex::new(crate::commands::acp::AcpState::default())),
             internal_chat_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
-            agent_registry: Arc::new(AgentRegistry::default()),
             worker_pool: Arc::new(BackgroundWorkerPool::new(default_worker_count(), storage)),
             pending_internal_tool_results: Arc::new(Mutex::new(HashMap::new())),
             gateway_handle: Arc::new(Mutex::new(None)),
@@ -313,7 +307,7 @@ impl AppState {
                 .unwrap_or_else(|_| reqwest::Client::new()),
             plugin_logic_executor: crate::commands::plugin::make_logic_executor(),
             plugin_logic_instances: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            mesh: Arc::new(Mutex::new(None)),
+            mesh: Arc::new(Mutex::new(HashMap::new())),
             terminal_tmux_mode: Arc::new(std::sync::Mutex::new("auto".to_string())),
         }
     }

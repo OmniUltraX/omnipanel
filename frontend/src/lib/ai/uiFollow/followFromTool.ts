@@ -15,6 +15,7 @@
  * - omni_knowledge_create(result.id) → openDocument(id)
  */
 import { followAiIntent, followAiIntents } from "./index";
+import { isTerminalPtyExecTool } from "../terminalExecTool";
 import type { UiFollowIntent } from "./types";
 
 function str(v: unknown): string | null {
@@ -221,8 +222,19 @@ export function followIntentsForTool(
     return intents;
   }
 
+  // === 终端 PTY：跟随到刚执行命令的会话 ===
+  if (isTerminalPtyExecTool(toolName)) {
+    const sessionId = str(parsedResult?.terminalSessionId) ?? str(args.session_id);
+    if (sessionId) return [{ type: "revealTerminal", sessionId }];
+    return [{ type: "focusModule", module: "terminal" }];
+  }
+
   // === SSH 工具 ===
   if (toolName.startsWith("omni_ssh_")) {
+    const terminalSessionId = str(parsedResult?.terminalSessionId);
+    if (toolName === "omni_ssh_exec" && terminalSessionId) {
+      return [{ type: "revealTerminal", sessionId: terminalSessionId }];
+    }
     const intents: UiFollowIntent[] = [{ type: "focusModule", module: "ssh" }];
     if (!connectionId) return intents;
 

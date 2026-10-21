@@ -29,6 +29,7 @@ interface ProtocolTreeNodeProps {
   onSelect?: (event: TreeRowMouseEvent) => void;
   /** 双击：打开 / 升格为常驻面板 */
   onActivate?: (event: TreeRowMouseEvent) => void;
+  onRename?: () => void;
   onPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
 }
@@ -51,6 +52,7 @@ export function ProtocolTreeNode({
   onToggle,
   onSelect,
   onActivate,
+  onRename,
   onPointerDown,
   onContextMenu,
 }: ProtocolTreeNodeProps) {
@@ -92,6 +94,7 @@ export function ProtocolTreeNode({
           : undefined
       }
       onActivate={onActivate}
+      onRename={onRename}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
     />

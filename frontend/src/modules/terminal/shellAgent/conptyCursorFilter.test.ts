@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   hasConptyScreenReset,
+  isConptyViewportReplay,
+  noteConptyResize,
+  shouldDropConptyResizeReplay,
   stripConptyCursorRestore,
   type ConptyCursorRewriteContext,
 } from "./conptyCursorFilter";
@@ -101,6 +104,27 @@ describe("stripConptyCursorRestore 按卡片底拦截", () => {
 
   it("1J 擦上方会清掉卡片行，直接丢掉", () => {
     expect(stripConptyCursorRestore("\x1b[1Jtext", belowCards)).toBe("text");
+  });
+
+  it("resize 后的整屏重绘要丢掉，单行 PSReadLine 刷新留下", () => {
+    const homeAndPad =
+      "\x1b[H\x1b[J" + "\r\n".repeat(20) + "PS C:\\Users\\chaoj> Get-Date\r\n2026-10-09\r\n";
+    expect(isConptyViewportReplay(homeAndPad)).toBe(true);
+    expect(isConptyViewportReplay("\x1b[3;1H\x1b[KPS>\r\n\x1b[4;1H\x1b[KGet-Date")).toBe(
+      true,
+    );
+    expect(isConptyViewportReplay("\x1b[12;1Hpwd")).toBe(false);
+    expect(isConptyViewportReplay("\x1b[2J\x1b[H")).toBe(false);
+
+    const sid = "resize-replay";
+    const now = 1_000;
+    expect(shouldDropConptyResizeReplay(sid, homeAndPad, now)).toBe(false);
+    noteConptyResize(sid, now);
+    expect(shouldDropConptyResizeReplay(sid, homeAndPad, now + 10)).toBe(true);
+    expect(shouldDropConptyResizeReplay(sid, "\x1b[8;1H\x1b[KPS>", now + 20)).toBe(true);
+    expect(shouldDropConptyResizeReplay(sid, "\r\n\r\n\r\n", now + 30)).toBe(true);
+    expect(shouldDropConptyResizeReplay(sid, "hello from a command", now + 40)).toBe(false);
+    expect(shouldDropConptyResizeReplay(sid, homeAndPad, now + 900)).toBe(false);
   });
 
   it("卡片已滚进 scrollback 时视口内 CUP 全部放行", () => {

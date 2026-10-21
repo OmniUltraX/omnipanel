@@ -248,7 +248,9 @@ pub async fn db_drop_table(
         if !object.database.trim().is_empty() {
             conn.database = object.database.clone();
         }
-        let params = crate::commands::database::to_params(&conn);
+        let params = crate::commands::database::relay_params(&conn)
+            .await
+            .map_err(|e| OmniError::database(e))?;
         let driver = omnipanel_db::connect(&params)
             .await
             .map_err(|e| OmniError::database(e.to_string()))?;
@@ -299,7 +301,9 @@ pub async fn db_drop_database(
 
     for name in &names {
         let sql = build_drop_database_sql(&connection.db_type, name)?;
-        let params = crate::commands::database::to_params(&connection);
+        let params = crate::commands::database::relay_params(&connection)
+            .await
+            .map_err(OmniError::database)?;
         let driver = omnipanel_db::connect(&params)
             .await
             .map_err(|e| OmniError::database(e.to_string()))?;

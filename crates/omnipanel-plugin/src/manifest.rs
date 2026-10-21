@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::contribution::{validate_package_icon_path, PluginContributes};
+use crate::contribution::{PluginContributes, validate_package_icon_path};
 use crate::error::PluginError;
 use crate::kind::PluginKind;
 use crate::permission::PluginPermission;
@@ -15,10 +15,7 @@ pub const HOST_API_VERSION: u32 = 2;
 #[serde(untagged)]
 pub enum PluginIconDecl {
     Single(String),
-    Themed {
-        light: String,
-        dark: String,
-    },
+    Themed { light: String, dark: String },
 }
 
 impl PluginIconDecl {
@@ -37,7 +34,10 @@ impl PluginIconDecl {
     pub fn path_for_theme(&self, dark: bool) -> &str {
         match self {
             Self::Single(path) => path.as_str(),
-            Self::Themed { light, dark: dark_path } => {
+            Self::Themed {
+                light,
+                dark: dark_path,
+            } => {
                 if dark {
                     dark_path.as_str()
                 } else {

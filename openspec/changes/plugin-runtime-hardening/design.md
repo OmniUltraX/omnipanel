@@ -3,7 +3,7 @@
 `plugin-host-sdk` 变更已落地插件主链路：crate `omnipanel-plugin`（清单/权限/注册表/网关）、
 `src-tauri/src/commands/plugin.rs`（plugin_list / plugin_set_enabled / plugin_invoke / plugin_require_permission /
 discovery_run）、前端 `pluginRuntimeStore` + 各贡献点消费方。走查确认四个 P0 缺陷与一批 P1 问题
-（见 proposal 背景表）。本设计只修缺陷与合同，不改变七种 kind、权限枚举、清单 schema 与既有 IPC 命令签名
+（见 proposal 背景表）。本设计只修缺陷与合同，不改变 kind 枚举、权限枚举、清单 schema 与既有 IPC 命令签名
 （bindings 由 tauri-specta 重新生成，命令集合不变，仅 discovery_run 内部行为收敛）。
 
 关键现状约束：

@@ -26,9 +26,18 @@ function stripLeadingComments(sql: string): string {
 export function isConnectionLevelSql(sql: string): boolean {
   const head = stripLeadingComments(sql);
   if (!head) return false;
-  return /^(SHOW|FLUSH|SET|KILL|USE|RESET|GRANT|REVOKE|BINLOG|CHANGE\s+MASTER|START\s+SLAVE|STOP\s+SLAVE|PURGE)\b/i.test(
-    head,
-  );
+  if (
+    /^(SHOW|FLUSH|SET|KILL|USE|RESET|GRANT|REVOKE|BINLOG|CHANGE\s+MASTER|START\s+SLAVE|STOP\s+SLAVE|PURGE)\b/i.test(
+      head,
+    )
+  ) {
+    return true;
+  }
+  // 库/模式级 DDL：在实例连接上执行，不依赖 SQL 页签当前选中的库
+  if (/^(CREATE|DROP|ALTER)\s+(DATABASE|SCHEMA)\b/i.test(head)) {
+    return true;
+  }
+  return false;
 }
 
 /** 执行前是否必须先选中数据库（多语句时任一语句需要库上下文即返回 true）。 */

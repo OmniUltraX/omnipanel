@@ -1,0 +1,29 @@
+{
+  "id": "omni.agent.cursor",
+  "version": "0.1.0",
+  "displayName": "Cursor",
+  "kind": "agent",
+  "runtime": "sidecar",
+  "platforms": ["windows", "macos", "linux"],
+  "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/omnipanel-agent-cursor"
+  },
+  "methods": [
+    { "name": "status", "permissions": [] },
+    { "name": "catalog", "permissions": [] },
+    { "name": "complete", "permissions": [] }
+  ],
+  "contributes": {
+    "agentSources": [
+      {
+        "id": "cursor",
+        "title": "Cursor",
+        "hint": "读取本机 Cursor 桌面登录，模型进入对话选择器。对话、工具与审批留在 OmniPanel。",
+        "statusMethod": "status",
+        "catalogMethod": "catalog",
+        "completeMethod": "complete"
+      }
+    ]
+  }
+}

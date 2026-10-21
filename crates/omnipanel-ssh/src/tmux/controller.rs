@@ -151,6 +151,14 @@ impl TmuxController {
         self.state().registry.contains(session_id)
     }
 
+    /// 这个 pane 当前登记给哪个前端会话。空表示还没人占用。
+    pub fn pane_owner(&self, pane: PaneId) -> Option<String> {
+        self.state()
+            .registry
+            .session_of_pane(pane)
+            .map(str::to_string)
+    }
+
     /// 处理一行入站数据。调用方负责按 `\n` 切行并剥离行尾 `\r`。
     pub fn dispatch_line(&self, line: &[u8]) {
         match parse_line(line) {

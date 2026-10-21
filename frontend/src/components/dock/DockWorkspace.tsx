@@ -45,6 +45,8 @@ interface DockWorkspaceProps {
   leftHandleClassName?: string;
   /** 用户按下左侧分隔条时触发（用于拖拽期间冻结主区宽度，避免右侧重排） */
   onLeftHandlePointerDown?: () => void;
+  /** 左侧分隔条键盘调宽（捕获阶段，早于库的方向键处理） */
+  onLeftHandleKeyDown?: () => void;
   rightPreset?: DockRailPreset;
   rightSizePx?: number;
   rightMinPx?: number;
@@ -88,6 +90,7 @@ export function DockWorkspace({
   leftPanelRef,
   leftHandleClassName,
   onLeftHandlePointerDown,
+  onLeftHandleKeyDown,
   rightPreset = "default",
   rightSizePx,
   rightMinPx,
@@ -196,6 +199,7 @@ export function DockWorkspace({
             <DockHandle
               className={leftHandleClassName}
               onPointerDown={onLeftHandlePointerDown}
+              onKeyDownCapture={onLeftHandleKeyDown}
             />
           </>
         )}

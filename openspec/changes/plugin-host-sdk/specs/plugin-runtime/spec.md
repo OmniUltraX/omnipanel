@@ -1,12 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: 七种插件身份
+### Requirement: 插件身份
 
-系统 SHALL 仅识别以下插件 kind：`engine`、`panel`、`importer`、`cloud`、`module`、`theme`、`addon`。系统 MUST NOT 为单一产品（翻译、Nacos、CDN、计算器）新增第 8 种 kind。
+系统 SHALL 识别 `crates/omnipanel-plugin/src/kind.rs` 中的 kind：`engine`、`panel`、`importer`、`cloud`、`module`、`theme`、`addon`、`knowledge`、`agent`。新增 kind 只接受平台级、多家来源共用一条宿主管线的能力。系统 MUST NOT 为单一产品（翻译、Nacos、CDN、计算器、某一家笔记应用）新增 kind。`agent` 只提供登录态、目录和补全，对话留在宿主，不是把整轮交给外部 CLI。
 
 #### Scenario: 未知 kind 拒绝装载
 
-- **WHEN** 清单中的 `kind` 不属于上述七种
+- **WHEN** 清单中的 `kind` 不在上述枚举内
 - **THEN** Runtime MUST 拒绝激活该插件
 - **AND** 向用户展示可理解错误（走 i18n）
 

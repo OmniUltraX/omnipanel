@@ -883,6 +883,7 @@ export function TaskCenterPanel() {
     <div className="task-center-panel">
       <ModuleWorkspaceLayout
         className="task-center-workspace"
+        layoutKey="tasks"
         leftColumnTitle={t("routes.tasks")}
         leftIconRail={
           <ModuleModeIconRail

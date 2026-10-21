@@ -63,6 +63,7 @@ import { KNOWLEDGE_TAG_KINDS } from "../tags/tagKinds";
 import { useModuleTagFilter } from "../tags/useModuleTagFilter";
 import {
   SidebarTreeNode,
+  SidebarTreeRoot,
   SidebarTreeSelectionProvider,
   resolveSidebarTreeDeleteTargets,
   useSidebarTreeSelection,
@@ -319,7 +320,10 @@ export function KnowledgeSidebar() {
 
   const handleSelectedIdsChange = useCallback((ids: ReadonlySet<string>) => {
     selectedIdsRef.current = ids;
-  }, []);
+    if (ids.size !== 1) return;
+    const only = ids.values().next().value;
+    if (typeof only === "string") setSelectedEntry(only);
+  }, [setSelectedEntry]);
 
   const markVectorized = useCallback((entryId: string, on: boolean) => {
     setVectorizedIds((prev) => {
@@ -940,6 +944,7 @@ export function KnowledgeSidebar() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.target as HTMLElement | null)?.closest?.(".knowledge-sidebar")) return;
       if (!selectedEntryId) return;
       const entry = entries.find((x) => x.id === selectedEntryId);
       if (!entry) return;
@@ -1188,6 +1193,7 @@ export function KnowledgeSidebar() {
                 orderedKeys={orderedKeys}
                 onSelectedIdsChange={handleSelectedIdsChange}
               >
+                <SidebarTreeRoot stickyAncestors={false}>
                 <div className="knowledge-sidebar-sections">
                   <ModuleSidebarSection
                     title={t("routes.knowledge")}
@@ -1207,6 +1213,7 @@ export function KnowledgeSidebar() {
                     {renderTree()}
                   </ModuleSidebarSection>
                 </div>
+                </SidebarTreeRoot>
               </SidebarTreeSelectionProvider>
             )}
           </ScopedSearch>

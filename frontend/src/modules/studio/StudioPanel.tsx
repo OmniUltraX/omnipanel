@@ -28,7 +28,7 @@ import {
 } from "./studioFileEvents";
 import { StudioSubmitDialog } from "./StudioSubmitDialog";
 
-/** 与 PluginKind 身份对齐（含 knowledge 知识源）。 */
+/** 与 PluginKind 身份对齐（含 knowledge 知识源、agent Agent 来源）。 */
 const PLUGIN_KINDS = [
   "engine",
   "panel",
@@ -38,6 +38,7 @@ const PLUGIN_KINDS = [
   "theme",
   "addon",
   "knowledge",
+  "agent",
 ] as const;
 
 const ENV_CORE = ["node", "cargo"] as const;

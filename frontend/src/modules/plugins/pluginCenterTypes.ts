@@ -72,6 +72,7 @@ export const KIND_FILTERS: KindFilter[] = [
   "theme",
   "addon",
   "knowledge",
+  "agent",
 ];
 
 export const KIND_ORDER: PluginKind[] = [
@@ -83,6 +84,7 @@ export const KIND_ORDER: PluginKind[] = [
   "theme",
   "addon",
   "knowledge",
+  "agent",
 ];
 
 export type MarketItem = {
@@ -220,7 +222,35 @@ export function marketplaceToMarketItem(item: MarketplaceItem, name: string): Ma
   };
 }
 
-/** 从市场目录条目抽出可更新列表（与行上「更新」按钮同源，避免横幅漏提示）。 */
+/** 从合并后的市场行抽出可更新列表（含 DBX 目录；与侧栏「更新」按钮同源）。 */
+export function updatesFromMarketItems(
+  items: MarketItem[],
+): Array<{
+  id: string;
+  installedVersion: string;
+  latestVersion: string;
+  changelog: string | null;
+  sourceId: string;
+}> {
+  return items
+    .filter(
+      (item) =>
+        item.needsUpdate &&
+        item.installed &&
+        typeof item.installedVersion === "string" &&
+        item.installedVersion.trim() !== "",
+    )
+    .map((item) => ({
+      id: item.id,
+      installedVersion: item.installedVersion!.trim(),
+      latestVersion: item.version,
+      changelog: item.changelog ?? null,
+      sourceId: item.sourceId ?? "",
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** 从官方/注册表市场目录抽出可更新列表（不含仅 DBX 目录项）。 */
 export function updatesFromMarketplace(
   items: MarketplaceItem[],
 ): Array<{

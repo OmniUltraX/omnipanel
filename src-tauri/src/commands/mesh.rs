@@ -5,6 +5,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::net::TcpStream;
+
 use omnipanel_error::{ErrorCode, OmniError};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -124,13 +126,14 @@ pub async fn mesh_start(
 
     {
         let guard = state.mesh.lock().await;
-        if let Some(cur) = guard.as_ref() {
-            if cur.team_id == team_id && cur.hostname == hostname {
+        if let Some(cur) = guard.get(&team_id) {
+            if cur.hostname == hostname {
                 return Ok(status_from(cur));
             }
         }
     }
-    mesh_stop_inner(&state).await;
+    // 同一团队重新入网时只替换这一张网，其他团队保持在线。
+    mesh_stop_team_inner(&state, team_id).await;
 
     ensure_tailscale_experiment();
 
@@ -184,8 +187,9 @@ pub async fn mesh_start(
     let device = Arc::new(device);
     let listen_device = device.clone();
     let listen_team = team_id;
+    let listen_app = state.app_handle.clone();
     let listen_task = tokio::spawn(async move {
-        if let Err(e) = serve_sync_key(listen_device, listen_team).await {
+        if let Err(e) = serve_sync_key(listen_device, listen_team, listen_app).await {
             warn!(error = %e, team_id = listen_team, "mesh TCP 监听退出");
         }
     });
@@ -199,31 +203,66 @@ pub async fn mesh_start(
         listen_task,
     };
     let status = status_from(&handle);
-    *state.mesh.lock().await = Some(handle);
+    crate::mesh_relay::register_mesh_device(team_id, handle.device.clone()).await;
+    let replaced = {
+        let mut guard = state.mesh.lock().await;
+        guard.insert(team_id, handle)
+    };
+    if let Some(previous) = replaced {
+        shutdown_handle(previous).await;
+    }
     Ok(status)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn mesh_stop(state: State<'_, AppState>) -> Result<(), OmniError> {
-    mesh_stop_inner(&state).await;
+    mesh_stop_all_inner(&state).await;
+    Ok(())
+}
+
+/// 退出某支团队时只拆这张网。
+#[tauri::command]
+#[specta::specta]
+pub async fn mesh_stop_team(state: State<'_, AppState>, team_id: i64) -> Result<(), OmniError> {
+    if team_id <= 0 {
+        return Err(OmniError::invalid_input("团队 ID 无效"));
+    }
+    mesh_stop_team_inner(&state, team_id).await;
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn mesh_status(state: State<'_, AppState>) -> Result<MeshStatus, OmniError> {
+pub async fn mesh_status(
+    state: State<'_, AppState>,
+    team_id: Option<i64>,
+) -> Result<MeshStatus, OmniError> {
     let guard = state.mesh.lock().await;
-    match guard.as_ref() {
-        Some(cur) => Ok(status_from(cur)),
-        None => Ok(MeshStatus {
-            online: false,
-            team_id: 0,
-            hostname: String::new(),
-            ipv4: String::new(),
-            listen_port: MESH_LISTEN_PORT,
-        }),
+    if let Some(id) = team_id.filter(|id| *id > 0) {
+        return Ok(guard
+            .get(&id)
+            .map(status_from)
+            .unwrap_or_else(|| offline_status(id)));
     }
+    if guard.len() == 1 {
+        return Ok(guard
+            .values()
+            .next()
+            .map(status_from)
+            .unwrap_or_else(|| offline_status(0)));
+    }
+    Ok(offline_status(0))
+}
+
+/// 当前进程里已在线的团队 mesh。
+#[tauri::command]
+#[specta::specta]
+pub async fn mesh_list(state: State<'_, AppState>) -> Result<Vec<MeshStatus>, OmniError> {
+    let guard = state.mesh.lock().await;
+    let mut list: Vec<MeshStatus> = guard.values().map(status_from).collect();
+    list.sort_by_key(|item| item.team_id);
+    Ok(list)
 }
 
 /// 向对端 hostname 请求封装后的团队同步密钥。
@@ -245,19 +284,7 @@ pub async fn mesh_request_sync_key(
         return Err(OmniError::invalid_input("对端 hostname 无效"));
     }
 
-    let device = {
-        let guard = state.mesh.lock().await;
-        let cur = guard
-            .as_ref()
-            .ok_or_else(|| OmniError::new(ErrorCode::Connection, "本机尚未加入团队 mesh"))?;
-        if cur.team_id != team_id {
-            return Err(OmniError::new(
-                ErrorCode::InvalidInput,
-                "当前 mesh 团队与请求不一致",
-            ));
-        }
-        cur.device.clone()
-    };
+    let device = mesh_device(&state, team_id).await?;
 
     let peer = device
         .peer_by_name(&peer_hostname)
@@ -316,19 +343,7 @@ pub async fn mesh_peer_ips(
     if team_id <= 0 {
         return Err(OmniError::invalid_input("团队 ID 无效"));
     }
-    let device = {
-        let guard = state.mesh.lock().await;
-        let cur = guard
-            .as_ref()
-            .ok_or_else(|| OmniError::new(ErrorCode::Connection, "本机尚未加入团队 mesh"))?;
-        if cur.team_id != team_id {
-            return Err(OmniError::new(
-                ErrorCode::InvalidInput,
-                "当前 mesh 团队与请求不一致",
-            ));
-        }
-        cur.device.clone()
-    };
+    let device = mesh_device(&state, team_id).await?;
 
     let self_node = device.self_node().await.ok();
 
@@ -361,10 +376,47 @@ async fn peer_ipv4(device: &tailscale::Device, hostname: &str) -> String {
     }
 }
 
-async fn mesh_stop_inner(state: &AppState) {
-    let Some(handle) = state.mesh.lock().await.take() else {
-        return;
+fn offline_status(team_id: i64) -> MeshStatus {
+    MeshStatus {
+        online: false,
+        team_id,
+        hostname: String::new(),
+        ipv4: String::new(),
+        listen_port: MESH_LISTEN_PORT,
+    }
+}
+
+async fn mesh_device(state: &AppState, team_id: i64) -> Result<Arc<tailscale::Device>, OmniError> {
+    let guard = state.mesh.lock().await;
+    let cur = guard
+        .get(&team_id)
+        .ok_or_else(|| OmniError::new(ErrorCode::Connection, "本机尚未加入该团队 mesh"))?;
+    Ok(cur.device.clone())
+}
+
+async fn mesh_stop_team_inner(state: &AppState, team_id: i64) {
+    crate::mesh_relay::unregister_mesh_device(team_id).await;
+    let handle = {
+        let mut guard = state.mesh.lock().await;
+        guard.remove(&team_id)
     };
+    if let Some(handle) = handle {
+        shutdown_handle(handle).await;
+    }
+}
+
+async fn mesh_stop_all_inner(state: &AppState) {
+    crate::mesh_relay::clear_mesh_devices().await;
+    let handles: Vec<MeshHandle> = {
+        let mut guard = state.mesh.lock().await;
+        guard.drain().map(|(_, handle)| handle).collect()
+    };
+    for handle in handles {
+        shutdown_handle(handle).await;
+    }
+}
+
+async fn shutdown_handle(handle: MeshHandle) {
     handle.listen_task.abort();
     let MeshHandle {
         device,
@@ -432,7 +484,11 @@ fn parse_wrapped_key(resp: &str) -> Result<String, OmniError> {
     ))
 }
 
-async fn serve_sync_key(device: Arc<tailscale::Device>, team_id: i64) -> Result<(), OmniError> {
+async fn serve_sync_key(
+    device: Arc<tailscale::Device>,
+    team_id: i64,
+    app: tauri::AppHandle,
+) -> Result<(), OmniError> {
     let ip = device.ipv4_addr().await.map_err(|e| {
         OmniError::new(ErrorCode::Connection, "等待 mesh IPv4 失败").with_cause(e.to_string())
     })?;
@@ -444,8 +500,9 @@ async fn serve_sync_key(device: Arc<tailscale::Device>, team_id: i64) -> Result<
     loop {
         match listener.accept().await {
             Ok(stream) => {
+                let app = app.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_sync_key_conn(stream, team_id).await {
+                    if let Err(e) = handle_sync_key_conn(stream, team_id, app).await {
                         warn!(error = %e, "mesh 传钥连接失败");
                     }
                 });
@@ -461,6 +518,7 @@ async fn serve_sync_key(device: Arc<tailscale::Device>, team_id: i64) -> Result<
 async fn handle_sync_key_conn(
     mut stream: tailscale::netstack::TcpStream,
     expected_team_id: i64,
+    app: tauri::AppHandle,
 ) -> Result<(), OmniError> {
     let req = tokio::time::timeout(Duration::from_secs(10), async {
         let mut reader = BufReader::new(&mut stream);
@@ -472,7 +530,37 @@ async fn handle_sync_key_conn(
     .map_err(|_| OmniError::new(ErrorCode::Timeout, "读取 mesh 请求超时"))?
     .map_err(|e| OmniError::new(ErrorCode::Io, "读取 mesh 请求失败").with_cause(e.to_string()))?;
 
-    let parsed: MeshSyncKeyRequest = match serde_json::from_str(req.trim()) {
+    let value: serde_json::Value = match serde_json::from_str(req.trim()) {
+        Ok(v) => v,
+        Err(e) => {
+            write_json_line(
+                &mut stream,
+                &MeshSyncKeyErr {
+                    ok: false,
+                    error: format!("invalid json: {e}"),
+                },
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+    let op = value
+        .get("op")
+        .and_then(|v| v.as_str())
+        .unwrap_or("sync-key");
+    if op == "tcp-relay" {
+        return handle_tcp_relay(stream, expected_team_id, &value).await;
+    }
+    if op == "docker-share-status" || op == "docker-proxy" {
+        return crate::docker_team_share::handle_docker_mesh_op(
+            &app,
+            stream,
+            expected_team_id,
+            &value,
+        )
+        .await;
+    }
+    let parsed: MeshSyncKeyRequest = match serde_json::from_value(value) {
         Ok(v) => v,
         Err(e) => {
             write_json_line(
@@ -548,6 +636,79 @@ async fn handle_sync_key_conn(
             .await?;
         }
     }
+    Ok(())
+}
+
+async fn handle_tcp_relay(
+    mut stream: tailscale::netstack::TcpStream,
+    expected_team_id: i64,
+    value: &serde_json::Value,
+) -> Result<(), OmniError> {
+    let team_id = value.get("teamId").and_then(|v| v.as_i64()).unwrap_or(0);
+    let host = value
+        .get("host")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let port = value.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+    if team_id != expected_team_id {
+        write_json_line(
+            &mut stream,
+            &MeshSyncKeyErr {
+                ok: false,
+                error: "team mismatch".into(),
+            },
+        )
+        .await?;
+        return Ok(());
+    }
+    if port == 0 || !crate::mesh_relay::is_intranet_host(&host) {
+        write_json_line(
+            &mut stream,
+            &MeshSyncKeyErr {
+                ok: false,
+                error: "relay target must be an intranet address".into(),
+            },
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let outbound = match tokio::time::timeout(
+        Duration::from_secs(8),
+        TcpStream::connect((host.as_str(), port)),
+    )
+    .await
+    {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(e)) => {
+            write_json_line(
+                &mut stream,
+                &MeshSyncKeyErr {
+                    ok: false,
+                    error: format!("dial failed: {e}"),
+                },
+            )
+            .await?;
+            return Ok(());
+        }
+        Err(_) => {
+            write_json_line(
+                &mut stream,
+                &MeshSyncKeyErr {
+                    ok: false,
+                    error: "dial timeout".into(),
+                },
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+
+    write_json_line(&mut stream, &serde_json::json!({ "ok": true })).await?;
+    let mut outbound = outbound;
+    let _ = tokio::io::copy_bidirectional(&mut stream, &mut outbound).await;
     Ok(())
 }
 

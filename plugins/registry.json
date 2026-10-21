@@ -19,6 +19,22 @@
       "updatedAt": "2026-08-24T08:08:19+08:00"
     },
     {
+      "id": "omni.addon.resource-dedupe",
+      "kind": "addon",
+      "name": "清理重复资源",
+      "description": "扫描端点相同的连接、密钥和 HTTP 请求，由用户选择保留项后合并引用并清理。",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "connections:write"
+      ],
+      "createdAt": "2026-10-21T10:00:00+08:00",
+      "updatedAt": "2026-10-21T10:00:00+08:00"
+    },
+    {
       "id": "omni.addon.translator",
       "kind": "addon",
       "name": "Selection translator",
@@ -48,6 +64,77 @@
             "sha256": "",
             "size": 8234
           }
+        }
+      ],
+      "permissions": [
+        "net:connect",
+        "vault:read"
+      ]
+    },
+    {
+      "id": "omni.agent.cursor",
+      "kind": "agent",
+      "name": "Cursor",
+      "description": "Read the local Cursor desktop login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.agent.trae",
+      "kind": "agent",
+      "name": "Trae",
+      "description": "Read the local Trae (China) login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.agent.trae-global",
+      "kind": "agent",
+      "name": "Trae International",
+      "description": "Read the local Trae international login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.agent.workbuddy",
+      "kind": "agent",
+      "name": "WorkBuddy",
+      "description": "Read the local WorkBuddy desktop login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ]
+    },
+    {
+      "id": "omni.agent.opencode-go",
+      "kind": "agent",
+      "name": "OpenCode Go",
+      "description": "Connect OpenCode Go subscription models with an API key; sync catalog and usage from the gateway.",
+      "versions": [
+        {
+          "version": "0.1.0"
         }
       ],
       "permissions": [

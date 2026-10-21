@@ -28,7 +28,8 @@ export function connectionSupportsSidebarResources(connection: DockerConnectionI
 
 /**
  * 读取单个 Docker 连接的侧栏资源缓存（后端持久化，前端仅内存 + UI 态）。
- * 只读缓存，不在展开/挂载时自动请求；仅点击刷新按钮时 refresh / refreshCategory 写缓存并更新 UI。
+ * 工作区拉到容器后会直接写入缓存；展开连接时若缓存缺失或过期也会补拉。
+ * 手动刷新仍走 refresh / refreshCategory。
  */
 export function useDockerConnectionResources(connection: DockerConnectionInfo | null) {
   const connectionId = connection?.connectionId ?? null;

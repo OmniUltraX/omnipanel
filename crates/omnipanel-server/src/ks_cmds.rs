@@ -1,9 +1,7 @@
 //! Web 知识源：`ks_test` / `ks_sync_now` / `ks_sync_rebuild` 走同一套 L2 执行器。
 
 use omnipanel_error::OmniError;
-use omnipanel_knowledge_source::{
-    KsReport, MethodCaller, PluginAdapter, SourceAdapter,
-};
+use omnipanel_knowledge_source::{KsReport, MethodCaller, PluginAdapter, SourceAdapter};
 use omnipanel_store::Storage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -116,7 +114,11 @@ fn find_source(
         let namespace = str_field(source, "id");
         let tag = {
             let tag = str_field(source, "tag");
-            if tag.is_empty() { namespace.clone() } else { tag }
+            if tag.is_empty() {
+                namespace.clone()
+            } else {
+                tag
+            }
         };
         let fields = source
             .get("fields")
@@ -151,25 +153,44 @@ fn find_source(
             file_patterns: source
                 .get("filePatterns")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
                 .unwrap_or_default(),
             id_prefix: {
                 let prefix = str_field(source, "idPrefix");
-                if prefix.is_empty() { "ks".into() } else { prefix }
+                if prefix.is_empty() {
+                    "ks".into()
+                } else {
+                    prefix
+                }
             },
             source_prefix: {
                 let prefix = str_field(source, "sourcePrefix");
-                if prefix.is_empty() { "import:ks".into() } else { prefix }
+                if prefix.is_empty() {
+                    "import:ks".into()
+                } else {
+                    prefix
+                }
             },
             tag,
             fields,
         };
         return Ok(resolved);
     }
-    Err(OmniError::not_found(format!("插件未声明该知识源: {source_id}")))
+    Err(OmniError::not_found(format!(
+        "插件未声明该知识源: {source_id}"
+    )))
 }
 
-fn extra_args_for(storage: &Storage, plugin_id: &str, source_id: &str, resolved: &ResolvedSource) -> Value {
+fn extra_args_for(
+    storage: &Storage,
+    plugin_id: &str,
+    source_id: &str,
+    resolved: &ResolvedSource,
+) -> Value {
     let mut out = serde_json::Map::new();
     let key = source_key_of(plugin_id, source_id);
     let (config_json, secret_map) = storage
@@ -203,7 +224,11 @@ fn extra_args_for(storage: &Storage, plugin_id: &str, source_id: &str, resolved:
     Value::Object(out)
 }
 
-async fn local_root_of(state: &ServerState, plugin_id: &str, source_id: &str) -> Result<std::path::PathBuf, OmniError> {
+async fn local_root_of(
+    state: &ServerState,
+    plugin_id: &str,
+    source_id: &str,
+) -> Result<std::path::PathBuf, OmniError> {
     let key = source_key_of(plugin_id, source_id);
     let root = {
         let storage = state.storage.lock().await;
@@ -219,11 +244,16 @@ async fn local_root_of(state: &ServerState, plugin_id: &str, source_id: &str) ->
             .unwrap_or_default()
     };
     if root.trim().is_empty() {
-        return Err(OmniError::invalid_input("请先在源配置里填写本地根目录（rootPath）".to_string()));
+        return Err(OmniError::invalid_input(
+            "请先在源配置里填写本地根目录（rootPath）".to_string(),
+        ));
     }
     let path = std::path::PathBuf::from(root.trim());
     if !path.is_dir() {
-        return Err(OmniError::invalid_input(format!("本地根目录不存在或不可读: {}", path.display())));
+        return Err(OmniError::invalid_input(format!(
+            "本地根目录不存在或不可读: {}",
+            path.display()
+        )));
     }
     Ok(path)
 }
@@ -240,7 +270,12 @@ async fn s3_config_of(
     })?;
     let values: Value = serde_json::from_str(&cfg.config_json).unwrap_or(Value::Null);
     let get = |k: &str| {
-        values.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string()
+        values
+            .get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
     };
     let secret_map: std::collections::HashMap<String, String> =
         serde_json::from_str(&cfg.secret_ref).unwrap_or_default();
@@ -260,19 +295,34 @@ async fn s3_config_of(
         repo_password: secret_of("repoPassword"),
         prefix: get("prefix"),
     };
-    if out.endpoint.trim().is_empty() || out.bucket.trim().is_empty() || out.access_key.trim().is_empty() {
-        return Err(OmniError::invalid_input("S3 配置不完整：请填写 Endpoint / Bucket / AccessKey".to_string()));
+    if out.endpoint.trim().is_empty()
+        || out.bucket.trim().is_empty()
+        || out.access_key.trim().is_empty()
+    {
+        return Err(OmniError::invalid_input(
+            "S3 配置不完整：请填写 Endpoint / Bucket / AccessKey".to_string(),
+        ));
     }
     if out.secret_key.is_empty() || out.repo_password.is_empty() {
-        return Err(OmniError::invalid_input("S3 密钥不完整：请填写 SecretKey 与数据仓库密钥".to_string()));
+        return Err(OmniError::invalid_input(
+            "S3 密钥不完整：请填写 SecretKey 与数据仓库密钥".to_string(),
+        ));
     }
     Ok(out)
 }
 
-fn test_counts(notebooks: Result<Vec<impl Sized>, String>, docs: Result<Vec<impl Sized>, String>, skipped: usize) -> KsTestResult {
+fn test_counts(
+    notebooks: Result<Vec<impl Sized>, String>,
+    docs: Result<Vec<impl Sized>, String>,
+    skipped: usize,
+) -> KsTestResult {
     match (notebooks, docs) {
         (Ok(notebooks), Ok(docs)) => {
-            let mut message = format!("检测到 {} 个笔记本/目录，共 {} 篇文档", notebooks.len(), docs.len());
+            let mut message = format!(
+                "检测到 {} 个笔记本/目录，共 {} 篇文档",
+                notebooks.len(),
+                docs.len()
+            );
             if skipped > 0 {
                 message.push_str(&format!("（{skipped} 个超大文件跳过）"));
             }
@@ -292,7 +342,11 @@ fn test_counts(notebooks: Result<Vec<impl Sized>, String>, docs: Result<Vec<impl
     }
 }
 
-pub async fn ks_test(state: &ServerState, plugin_id: String, source_id: String) -> Result<KsTestResult, OmniError> {
+pub async fn ks_test(
+    state: &ServerState,
+    plugin_id: String,
+    source_id: String,
+) -> Result<KsTestResult, OmniError> {
     let resolved = find_source(state, &plugin_id, &source_id)?;
     let caller = GatewayCaller { state };
     if resolved.local_files {
@@ -357,15 +411,28 @@ fn open_sync_storage() -> Result<Storage, OmniError> {
     Storage::open(&path, None).map_err(|e| OmniError::internal(format!("打开本地库失败: {e}")))
 }
 
-pub async fn ks_sync_now(state: &ServerState, plugin_id: String, source_id: String) -> Result<KsReport, OmniError> {
+pub async fn ks_sync_now(
+    state: &ServerState,
+    plugin_id: String,
+    source_id: String,
+) -> Result<KsReport, OmniError> {
     run_sync(state, &plugin_id, &source_id, false).await
 }
 
-pub async fn ks_sync_rebuild(state: &ServerState, plugin_id: String, source_id: String) -> Result<KsReport, OmniError> {
+pub async fn ks_sync_rebuild(
+    state: &ServerState,
+    plugin_id: String,
+    source_id: String,
+) -> Result<KsReport, OmniError> {
     run_sync(state, &plugin_id, &source_id, true).await
 }
 
-async fn run_sync(state: &ServerState, plugin_id: &str, source_id: &str, rebuild: bool) -> Result<KsReport, OmniError> {
+async fn run_sync(
+    state: &ServerState,
+    plugin_id: &str,
+    source_id: &str,
+    rebuild: bool,
+) -> Result<KsReport, OmniError> {
     let resolved = find_source(state, plugin_id, source_id)?;
     let storage = open_sync_storage()?;
     let options = omnipanel_knowledge_source::AdapterOptions {
@@ -379,9 +446,18 @@ async fn run_sync(state: &ServerState, plugin_id: &str, source_id: &str, rebuild
         let adapter = omnipanel_knowledge_source::PluginLocalAdapter::new(
             plugin_id,
             &resolved.namespace,
-            &options.id_prefix.clone().unwrap_or_else(|| "ks".to_string()),
-            &options.source_prefix.clone().unwrap_or_else(|| format!("import:ks:{}", resolved.namespace)),
-            &options.tag.clone().unwrap_or_else(|| resolved.namespace.clone()),
+            &options
+                .id_prefix
+                .clone()
+                .unwrap_or_else(|| "ks".to_string()),
+            &options
+                .source_prefix
+                .clone()
+                .unwrap_or_else(|| format!("import:ks:{}", resolved.namespace)),
+            &options
+                .tag
+                .clone()
+                .unwrap_or_else(|| resolved.namespace.clone()),
             &resolved.parse_method,
             root,
             resolved.file_patterns.clone(),

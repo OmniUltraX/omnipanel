@@ -8,21 +8,16 @@ import {
   type MouseEvent,
 } from "react";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
-import { ModuleSidebarSection, SidebarRefreshIcon } from "../../components/ui/module-sidebar";
-import {
-  useTreeClickDelay,
-  type TreeRowMouseEvent,
-} from "../../components/ui/sidebar-tree/useTreeClickDelay";
-import { SidebarTreeEmpty } from "../../components/ui/sidebar-tree";
+import { ModuleSidebarSection, SidebarRefreshIcon, SidebarStatusDot } from "../../components/ui/module-sidebar";
+import { type TreeRowMouseEvent } from "../../components/ui/sidebar-tree/useTreeClickDelay";
+import { SidebarTreeEmpty, SidebarTreeNode } from "../../components/ui/sidebar-tree";
 import "../../components/ui/sidebar-tree/sidebar-tree.css";
 import {
   usePersistedVerticalSplitSections,
   usePersistedVerticalSplitSizes,
   VerticalSplitSidebar,
-  VerticalSplitSidebarSection,
 } from "../../components/ui/sidebar/VerticalSplitSidebar";
 import { useI18n } from "../../i18n";
-import { StatusDot } from "../../components/ui/primitives/StatusDot";
 import { SidebarNoteKeys, useSidebarNote } from "../../lib/sidebarNotes";
 import type { FileManagerConnectionInfo } from "../../ipc/bindings";
 import type { FileFavorite } from "../../stores/filesFavoritesStore";
@@ -87,59 +82,48 @@ function ConnectionRow({
   onSelect: (conn: FileManagerConnectionInfo, e: TreeRowMouseEvent) => void;
 }) {
   const { t } = useI18n();
-  const { onRowClick, onRowDoubleClick } = useTreeClickDelay({
-    onClick: () => onPreview(conn),
-    onDoubleClick: () => onPin(conn),
-  });
   const online = conn.status === "online";
   const note = useSidebarNote(SidebarNoteKeys.filesConnection(conn.id));
 
   return (
-    <div
-      className={`fm-sidebar-row fm-conn-item${active ? " active" : ""}${selected ? " fm-conn-item--selected" : ""}${inTab && !active ? " fm-conn-item--in-tab" : ""}`}
-      onClick={(e) => {
-        const ev = e as TreeRowMouseEvent;
-        if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          onSelect(conn, ev);
-          return;
-        }
-        onSelect(conn, ev);
-        onRowClick(ev);
+    <SidebarTreeNode
+      module="files"
+      nodeType="connection"
+      depth={0}
+      treeKey={conn.id}
+      expanded={false}
+      hasChildren={false}
+      active={active}
+      selected={selected}
+      className={inTab && !active ? "tree-node--in-tab" : ""}
+      icon={<ConnProtocolIcon protocol={conn.protocol} />}
+      prefix={
+        <SidebarStatusDot
+          status={online ? "online" : "idle"}
+          title={online ? t("common.statusOnline") : t("common.statusIdle")}
+        />
+      }
+      label={conn.name}
+      note={note ?? undefined}
+      onToggle={() => {}}
+      onSelect={(event) => {
+        onSelect(conn, event);
+        if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+        onPreview(conn);
       }}
-      onDoubleClick={(e) => onRowDoubleClick(e as TreeRowMouseEvent)}
-      onContextMenu={(e) => {
-        if (!selected) {
-          onSelect(conn, e as TreeRowMouseEvent);
-        }
-        onContextMenu(e, conn);
+      onActivate={() => onPin(conn)}
+      onContextMenu={(event) => {
+        if (!selected) onSelect(conn, event);
+        onContextMenu(event, conn);
       }}
-    >
-      <ConnProtocolIcon protocol={conn.protocol} />
-      <StatusDot
-        status={online ? "online" : "idle"}
-        title={online ? t("common.statusOnline") : t("common.statusIdle")}
-        className="fm-conn-item__status"
-      />
-      {note ? (
-        <span className="sidebar-tree-label-stack">
-          <span className="conn-name">{conn.name}</span>
-          <span className="sidebar-tree-note" title={note}>
-            {note}
-          </span>
-        </span>
-      ) : (
-        <span className="conn-name">{conn.name}</span>
-      )}
-    </div>
+    />
   );
 }
 
-type SidebarDotStatus = "online" | "idle" | "unknown";
+type SidebarDotStatus = "online" | "idle";
 
 function connectionDotStatus(conn?: FileManagerConnectionInfo): SidebarDotStatus {
-  if (!conn) return "unknown";
+  if (!conn) return "idle";
   return conn.status === "online" ? "online" : "idle";
 }
 
@@ -173,68 +157,66 @@ function FavoriteRow({
   onSelect: (favorite: FileFavorite, e: TreeRowMouseEvent) => void;
 }) {
   const pinned = favorite.pinned === true;
-  const { onRowClick, onRowDoubleClick } = useTreeClickDelay({
-    onClick: () => onOpen(favorite, "preview"),
-    onDoubleClick: () => onOpen(favorite, "permanent"),
-  });
 
   return (
-    <div
-      className={`fm-sidebar-row fm-quick-item fm-favorite-item${pinned ? " fm-favorite-item--pinned" : ""}${selected ? " fm-favorite-item--selected" : ""}`}
-      title={favorite.path || "/"}
-      onClick={(e) => {
-        const ev = e as TreeRowMouseEvent;
-        if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          onSelect(favorite, ev);
-          return;
-        }
-        onSelect(favorite, ev);
-        onRowClick(ev);
+    <SidebarTreeNode
+      module="files"
+      nodeType="favorite"
+      depth={0}
+      treeKey={favorite.id}
+      expanded={false}
+      hasChildren={false}
+      selected={selected}
+      className={pinned ? "fm-favorite-item--pinned" : ""}
+      icon={
+        protocol ? (
+          <ConnProtocolIcon protocol={protocol} />
+        ) : (
+          <span className="conn-icon conn-icon--missing" aria-hidden />
+        )
+      }
+      prefix={<SidebarStatusDot status={dotStatus ?? "idle"} title={dotTitle} />}
+      label={
+        <span className="tree-label-name" title={favorite.path || "/"}>
+          {displayLabel ?? favorite.label}
+        </span>
+      }
+      trailing={
+        showPin && onTogglePin ? (
+          <div className="tree-node-actions">
+            <button
+              type="button"
+              className={`tree-action-btn tree-action-btn--pin${pinned ? " tree-action-btn--active" : ""}`}
+              title={pinned ? unpinTitle : pinTitle}
+              aria-label={pinned ? unpinTitle : pinTitle}
+              aria-pressed={pinned}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onTogglePin(favorite);
+              }}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            >
+              <PinIcon />
+            </button>
+          </div>
+        ) : null
+      }
+      onToggle={() => {}}
+      onSelect={(event) => {
+        onSelect(favorite, event);
+        if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+        onOpen(favorite, "preview");
       }}
-      onDoubleClick={(e) => onRowDoubleClick(e as TreeRowMouseEvent)}
-      onContextMenu={(e) => {
-        if (!selected) {
-          onSelect(favorite, e as TreeRowMouseEvent);
-        }
-        onContextMenu(e, favorite);
+      onActivate={() => onOpen(favorite, "permanent")}
+      onContextMenu={(event) => {
+        if (!selected) onSelect(favorite, event);
+        onContextMenu(event, favorite);
       }}
-    >
-      {protocol ? (
-        <ConnProtocolIcon protocol={protocol} />
-      ) : (
-        <span className="conn-icon conn-icon--missing" aria-hidden />
-      )}
-      <StatusDot
-        status={dotStatus ?? "unknown"}
-        title={dotTitle}
-        className="fm-favorite-item__status"
-      />
-      <span className="fm-favorite-label">{displayLabel ?? favorite.label}</span>
-      {showPin && onTogglePin ? (
-        <div className="tree-node-actions">
-          <button
-            type="button"
-            className={`tree-action-btn tree-action-btn--pin${pinned ? " tree-action-btn--active" : ""}`}
-            title={pinned ? unpinTitle : pinTitle}
-            aria-label={pinned ? unpinTitle : pinTitle}
-            aria-pressed={pinned}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onTogglePin(favorite);
-            }}
-            onDoubleClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          >
-            <PinIcon />
-          </button>
-        </div>
-      ) : null}
-    </div>
+    />
   );
 }
 
@@ -300,8 +282,7 @@ export function FilesSidebar({
   const dotTitleFor = (conn?: FileManagerConnectionInfo) => {
     const status = connectionDotStatus(conn);
     if (status === "online") return t("common.statusOnline");
-    if (status === "idle") return t("common.statusIdle");
-    return t("common.statusUnknown");
+    return t("common.statusIdle");
   };
   const normalFavorites = useMemo(
     () => favorites.filter((fav) => fav.connectionId === activeId),
@@ -368,7 +349,6 @@ export function FilesSidebar({
   }, [anchorId, globalFavorites, normalFavorites]);
 
   useEffect(() => {
-    if (!onDeleteConnections && !onDeleteFavorites) return;
     const onKey = (e: KeyboardEvent) => {
       if (!hoveredRef.current) return;
       const target = e.target as HTMLElement | null;
@@ -377,21 +357,67 @@ export function FilesSidebar({
       }
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      const connIds = sortedConnections.map((item) => item.id);
+      const favIds = [...normalFavorites, ...globalFavorites].map((item) => item.id);
+      const order = [...connIds, ...favIds];
+
+      if (!mod && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Home" || e.key === "End")) {
+        if (order.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const current = anchorId != null ? order.indexOf(anchorId) : -1;
+        const nextIndex = e.key === "Home"
+          ? 0
+          : e.key === "End"
+            ? order.length - 1
+            : e.key === "ArrowDown"
+              ? Math.min(order.length - 1, current + 1)
+              : Math.max(0, current < 0 ? 0 : current - 1);
+        const nextId = order[nextIndex];
+        if (!nextId) return;
+        if (e.shiftKey && current >= 0) {
+          const from = Math.min(current, nextIndex);
+          const to = Math.max(current, nextIndex);
+          setSelectedIds(new Set(order.slice(from, to + 1)));
+        } else if (!e.shiftKey) {
+          setSelectedIds(new Set([nextId]));
+          setAnchorId(nextId);
+        }
+        return;
+      }
+
+      if (e.key === "Enter" && !mod && anchorId) {
+        const conn = sortedConnections.find((item) => item.id === anchorId);
+        if (conn) {
+          e.preventDefault();
+          e.stopPropagation();
+          onPreviewConnection(conn);
+          return;
+        }
+        const fav = favorites.find((item) => item.id === anchorId);
+        if (fav) {
+          e.preventDefault();
+          e.stopPropagation();
+          onFavoriteOpen(fav, "preview");
+        }
+        return;
+      }
+
       if (mod && key === "a") {
         e.preventDefault();
         e.stopImmediatePropagation();
         const allIds = new Set<string>();
-        sortedConnections.forEach((c) => { if (c.id !== LOCAL_CONNECTION_ID) allIds.add(c.id); });
-        favorites.forEach((f) => allIds.add(f.id));
+        sortedConnections.forEach((item) => { if (item.id !== LOCAL_CONNECTION_ID) allIds.add(item.id); });
+        favorites.forEach((item) => allIds.add(item.id));
         setSelectedIds(allIds);
         setAnchorId(null);
         return;
       }
-      if (e.key === "Delete" && selectedIds.size > 0) {
+      if (e.key === "Delete" && selectedIds.size > 0 && (onDeleteConnections || onDeleteFavorites)) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const conns = sortedConnections.filter((c) => selectedIds.has(c.id));
-        const favs = favorites.filter((f) => selectedIds.has(f.id));
+        const conns = sortedConnections.filter((item) => selectedIds.has(item.id));
+        const favs = favorites.filter((item) => selectedIds.has(item.id));
         setSelectedIds(new Set());
         setAnchorId(null);
         if (conns.length > 0 && onDeleteConnections) onDeleteConnections(conns);
@@ -400,7 +426,18 @@ export function FilesSidebar({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [sortedConnections, favorites, selectedIds, onDeleteConnections, onDeleteFavorites]);
+  }, [
+    anchorId,
+    favorites,
+    globalFavorites,
+    normalFavorites,
+    onDeleteConnections,
+    onDeleteFavorites,
+    onFavoriteOpen,
+    onPreviewConnection,
+    selectedIds,
+    sortedConnections,
+  ]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -497,8 +534,9 @@ export function FilesSidebar({
         )}
       </ModuleSidebarSection>
 
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("files.sidebar.quickPaths")}
+        count={isLocalActive && quickPaths ? 4 : 0}
         expanded={sections.quickPaths}
         onToggle={() => toggleSection("quickPaths")}
         bodyHeightPx={sections.quickPaths ? quickBodyHeight : undefined}
@@ -520,29 +558,32 @@ export function FilesSidebar({
                   { label: t("files.quick.documents"), path: quickPaths.documents, icon: <IconQuickDocuments /> },
                   { label: t("files.quick.downloads"), path: quickPaths.downloads, icon: <IconQuickDownloads /> },
                 ].map((item) => (
-                  <div
+                  <SidebarTreeNode
                     key={item.label}
-                    className="fm-sidebar-row fm-quick-item"
-                    onClick={() => onQuickNavigate(item.path)}
-                  >
-                    <span className="fm-quick-icon" aria-hidden>
-                      {item.icon}
-                    </span>
-                    <span className="fm-favorite-label">{item.label}</span>
-                  </div>
+                    module="files"
+                    nodeType="quick-path"
+                    depth={0}
+                    expanded={false}
+                    hasChildren={false}
+                    icon={<span className="fm-quick-icon">{item.icon}</span>}
+                    label={item.label}
+                    onToggle={() => {}}
+                    onSelect={() => onQuickNavigate(item.path)}
+                  />
                 ))
               ) : (
-                <p className="fm-quick-section-hint">{t("files.sidebar.quickPathsLoading")}</p>
+                <SidebarTreeEmpty>{t("files.sidebar.quickPathsLoading")}</SidebarTreeEmpty>
               )}
             </div>
           ) : (
-            <p className="fm-quick-section-hint">{t("files.sidebar.quickPathsHint")}</p>
+            <SidebarTreeEmpty>{t("files.sidebar.quickPathsHint")}</SidebarTreeEmpty>
           )}
         </div>
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("files.sidebar.normalFavorites")}
+        count={normalFavorites.length}
         expanded={sections.favorites}
         onToggle={() => toggleSection("favorites")}
         bodyHeightPx={sections.favorites ? favBodyHeight : undefined}
@@ -582,10 +623,11 @@ export function FilesSidebar({
             </div>
           )}
         </div>
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
 
-      <VerticalSplitSidebarSection
+      <ModuleSidebarSection
         title={t("files.sidebar.globalFavorites")}
+        count={globalFavorites.length}
         expanded={sections.globalFavorites}
         onToggle={() => toggleSection("globalFavorites")}
         bodyHeightPx={sections.globalFavorites ? globalFavBodyHeight : undefined}
@@ -627,7 +669,7 @@ export function FilesSidebar({
             </div>
           )}
         </div>
-      </VerticalSplitSidebarSection>
+      </ModuleSidebarSection>
     </VerticalSplitSidebar>
     </div>
   );

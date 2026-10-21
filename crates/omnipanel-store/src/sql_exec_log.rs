@@ -177,7 +177,12 @@ pub fn list_sql_executions(
          FROM sql_executions e WHERE 1=1",
     );
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-    push_eq(&mut sql, &mut params, "connection_id", filter.connection_id.as_deref());
+    push_eq(
+        &mut sql,
+        &mut params,
+        "connection_id",
+        filter.connection_id.as_deref(),
+    );
     if let Some(file_id) = filter.sql_file_id.as_deref() {
         if let Some(tab_id) = filter.tab_id.as_deref().filter(|s| !s.is_empty()) {
             sql.push_str(" AND (sql_file_id = ? OR (sql_file_id IS NULL AND tab_id = ?))");
@@ -191,7 +196,12 @@ pub fn list_sql_executions(
         sql.push_str(" AND sql_file_id IS NULL AND tab_id = ?");
         params.push(Box::new(tab_id.to_string()));
     }
-    push_eq(&mut sql, &mut params, "database_name", filter.database_name.as_deref());
+    push_eq(
+        &mut sql,
+        &mut params,
+        "database_name",
+        filter.database_name.as_deref(),
+    );
     push_eq(&mut sql, &mut params, "status", filter.status.as_deref());
     if let Some(kind) = filter.kind.as_deref().filter(|s| !s.is_empty()) {
         match kind {
@@ -202,13 +212,23 @@ pub fn list_sql_executions(
             _ => {}
         }
     }
-    if let Some(keyword) = filter.keyword.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(keyword) = filter
+        .keyword
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         sql.push_str(" AND (sql LIKE ? OR display_name LIKE ?)");
         let like = format!("%{keyword}%");
         params.push(Box::new(like.clone()));
         params.push(Box::new(like));
     }
-    if let Some(table) = filter.table_name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(table) = filter
+        .table_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         sql.push_str(" AND normalized_sql LIKE ?");
         params.push(Box::new(format!("%{table}%")));
     }
@@ -327,7 +347,12 @@ fn pack_result(input: &SqlExecAppend, status: &str) -> (Option<String>, bool, us
     if full_json.len() <= cap {
         return (Some(full_json), false, input.rows.len());
     }
-    let kept = input.rows.iter().take(PREVIEW_ROWS).cloned().collect::<Vec<_>>();
+    let kept = input
+        .rows
+        .iter()
+        .take(PREVIEW_ROWS)
+        .cloned()
+        .collect::<Vec<_>>();
     let preview = StoredPage {
         columns: input.columns.clone(),
         rows: kept,
@@ -339,25 +364,33 @@ fn pack_result(input: &SqlExecAppend, status: &str) -> (Option<String>, bool, us
 }
 
 fn prune_caps(storage: &Storage, sql_file_id: Option<&str>, tab_id: &str) -> OmniResult<()> {
-    let (file_clause, file_param): (String, String) = if let Some(id) = sql_file_id.filter(|s| !s.is_empty()) {
-        ("sql_file_id = ?1".to_string(), id.to_string())
-    } else {
-        ("sql_file_id IS NULL AND tab_id = ?1".to_string(), tab_id.to_string())
-    };
+    let (file_clause, file_param): (String, String) =
+        if let Some(id) = sql_file_id.filter(|s| !s.is_empty()) {
+            ("sql_file_id = ?1".to_string(), id.to_string())
+        } else {
+            (
+                "sql_file_id IS NULL AND tab_id = ?1".to_string(),
+                tab_id.to_string(),
+            )
+        };
     delete_overflow(
         storage,
-        &format!("DELETE FROM sql_executions WHERE id IN (
+        &format!(
+            "DELETE FROM sql_executions WHERE id IN (
             SELECT id FROM sql_executions WHERE {file_clause} AND pinned = 0
             ORDER BY executed_at DESC, id DESC LIMIT -1 OFFSET {FILE_UNPINNED_CAP}
-        )"),
+        )"
+        ),
         &file_param,
     )?;
     delete_overflow(
         storage,
-        &format!("DELETE FROM sql_executions WHERE id IN (
+        &format!(
+            "DELETE FROM sql_executions WHERE id IN (
             SELECT id FROM sql_executions WHERE {file_clause} AND pinned = 1
             ORDER BY executed_at DESC, id DESC LIMIT -1 OFFSET {FILE_PINNED_CAP}
-        )"),
+        )"
+        ),
         &file_param,
     )?;
     storage
@@ -386,10 +419,7 @@ fn prune_caps(storage: &Storage, sql_file_id: Option<&str>, tab_id: &str) -> Omn
 }
 
 fn delete_overflow(storage: &Storage, sql: &str, param: &str) -> OmniResult<()> {
-    storage
-        .conn()
-        .execute(sql, [param])
-        .map_err(map_sqlite)?;
+    storage.conn().execute(sql, [param]).map_err(map_sqlite)?;
     Ok(())
 }
 

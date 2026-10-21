@@ -114,7 +114,7 @@ export function DatabasePanel() {
       leftColumnTitle={t("routes.database")}
       leftPreset="schema"
       tagModuleKey="database"
-      leftHeaderActions={<ModuleLeftHeaderActions moduleKey="database" />}
+      leftHeaderActions={<ModuleLeftHeaderActions />}
       leftIconRail={
         <div className="module-mode-icon-rail">
           <button

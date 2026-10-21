@@ -19,6 +19,7 @@ import { AiDockView } from "./components/ai/AiDockView";
 import { AiDockviewResizeHandle } from "./components/ai/AiDockviewResizeHandle";
 import { AiRuntimeProvider } from "./components/ai/assistant-ui/AiRuntimeProvider";
 import { ApprovalDialog } from "./components/ai/ApprovalDialog";
+import { AiBackgroundTerminalHost } from "./modules/terminal/AiBackgroundTerminalHost";
 import { SettingsWindow } from "./components/settings/SettingsWindow";
 import { ModuleVisibilityProvider } from "./lib/moduleVisibility";
 import { MODULE_PATHS, moduleKeyFromPath, type ModuleKey } from "./lib/paths";
@@ -34,6 +35,7 @@ import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initAppModuleStore } from "./stores/appModuleStore";
 import { initPluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { warmDbxCatalogCache } from "./stores/dbxCatalogStore";
+import { initResourceDedupeListener } from "./lib/resourceDedupeRewrite";
 import { useAiStore } from "./stores/aiStore";
 import { useAiDrawerShortcut } from "./hooks/useAiDrawerShortcut";
 import { useSettingsShortcut } from "./hooks/useSettingsShortcut";
@@ -187,6 +189,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
   }, [dockOpen, dockWidth]);
 
   useEffect(() => {
+    void initResourceDedupeListener();
     dismissHtmlBootSplash();
     document.documentElement.classList.add("module-window-root");
     document.body.classList.add("module-window-body");
@@ -332,6 +335,7 @@ function ModuleWindowBoot({ moduleKey }: ModuleWindowRootProps) {
           </div>
           {!aiDockview ? <AiDrawer /> : null}
           <ApprovalDialog />
+          <AiBackgroundTerminalHost />
           <SettingsWindow />
           <SubWindowMinimizedStack />
           <WindowResize />

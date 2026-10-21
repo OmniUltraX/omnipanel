@@ -6,13 +6,14 @@ import {
   useState,
   type CSSProperties,
   type DragEventHandler,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { useI18n } from "@/i18n";
 import { type TreeRowMouseEvent } from "./useTreeClickDelay";
-import { useSidebarTreeNodeSelection } from "./SidebarTreeSelectionProvider";
+import { useSidebarTreeNodeSelection, useSidebarTreeSelection } from "./SidebarTreeSelectionProvider";
 import { buildSidebarTreeContextMenuItems } from "./buildSidebarTreeContextMenuItems";
 import type { SidebarTreeModule } from "./sidebarTreeTypes";
 import { bindSidebarStickyRow, refreshSidebarStickyRoot } from "./sidebarTreeStickyLayout";
@@ -127,6 +128,7 @@ export type SidebarTreeNodeProps = {
   /** 自定义右键逻辑（在内置菜单之前触发） */
   onContextMenu?: (event: TreeRowMouseEvent) => void;
   onPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
   /** 透传 data-* 属性 */
   dataAttrs?: Record<string, string>;
   /** 在 SidebarTreeSelectionProvider 内登记 key，自动接入 Shift/Ctrl 多选 */
@@ -178,6 +180,7 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
   contextMenuDisabled = false,
   onContextMenu,
   onPointerDown,
+  onKeyDown,
   dataAttrs,
   treeKey,
 }: SidebarTreeNodeProps) {
@@ -186,20 +189,59 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
   const selection = useSidebarTreeNodeSelection(treeKey);
   const resolvedSelected =
     selected || Boolean(treeKey && selection?.isSelected(treeKey));
-  const selectHandler =
-    onSelect ??
-    onClick ??
-    (treeKey && selection
-      ? (event: TreeRowMouseEvent) => selection.handleSelect(treeKey, event)
-      : undefined);
+  const userSelect = onSelect ?? onClick;
   const activateHandler = onActivate ?? onDoubleClick;
+  const keyboardTree = Boolean(treeKey && selection);
+  const keyboardFocused = Boolean(treeKey && selection?.focusId === treeKey);
 
   const resolveShouldIgnoreClick = shouldIgnoreClick ?? defaultShouldIgnoreClick;
 
-  const handleClick = selectHandler
+  const snapshotRef = useRef({
+    depth,
+    hasChildren,
+    expanded,
+    onToggle: undefined as (() => void) | undefined,
+    onActivate: undefined as (() => void) | undefined,
+    onRename: undefined as (() => void) | undefined,
+    onDelete: undefined as (() => void) | undefined,
+    onRefresh: undefined as (() => void) | undefined,
+  });
+  snapshotRef.current = {
+    depth,
+    hasChildren,
+    expanded,
+    onToggle: hasChildren ? onToggle : undefined,
+    onActivate: activateHandler
+      ? () => {
+          activateHandler({
+            ctrlKey: false,
+            metaKey: false,
+            shiftKey: false,
+            altKey: false,
+            preventDefault() {},
+            stopPropagation() {},
+          } as TreeRowMouseEvent);
+        }
+      : undefined,
+    onRename: onRename && !renameDisabled ? onRename : undefined,
+    onDelete: onDelete && !deleteDisabled ? onDelete : undefined,
+    onRefresh,
+  };
+  const registerNode = selection?.registerNode;
+  useLayoutEffect(() => {
+    if (!treeKey || !registerNode) return;
+    return registerNode(treeKey, () => snapshotRef.current);
+  }, [registerNode, treeKey]);
+
+  const handleClick = (userSelect || (treeKey && selection))
     ? (event: TreeRowMouseEvent) => {
         if (resolveShouldIgnoreClick(event.target)) return;
-        selectHandler(event);
+        if (treeKey && selection) {
+          selection.handleSelect(treeKey, event);
+          event.currentTarget.focus({ preventScroll: true });
+          if (event.ctrlKey || event.metaKey || event.shiftKey) return;
+        }
+        userSelect?.(event);
       }
     : undefined;
 
@@ -235,7 +277,8 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
     ],
   );
 
-  const hasBuiltInContextMenu = builtInContextMenuItems.length > 0 && !contextMenuDisabled;
+  const hasBuiltInContextMenu =
+    builtInContextMenuItems.length > 0 && !contextMenuDisabled && !onContextMenu;
 
   const pinAncestor = Boolean(expanded && hasChildren);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -246,6 +289,17 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
     // 吸住态和真实行高都在这里登记，热更新后会重新绑。
     return bindSidebarStickyRow(row);
   }, [pinAncestor, depth]);
+  useLayoutEffect(() => {
+    if (!keyboardFocused) return;
+    const row = rowRef.current;
+    if (!row) return;
+    const root = row.closest("[data-sidebar-tree-keyboard]");
+    const active = document.activeElement;
+    if (active && root && !root.contains(active) && active !== document.body) return;
+    if (active === row) return;
+    row.focus({ preventScroll: true });
+    row.scrollIntoView({ block: "nearest" });
+  }, [keyboardFocused]);
   const nodeStyle: CSSProperties = {
     paddingLeft: depth * indentStep + indentBase,
     ["--tree-depth" as string]: String(depth),
@@ -329,6 +383,12 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
         onDragEnd={onDragEnd}
         onContextMenu={handleContextMenu}
         onPointerDown={onPointerDown}
+        onKeyDown={onKeyDown}
+        tabIndex={keyboardTree ? (keyboardFocused ? 0 : -1) : onKeyDown ? 0 : undefined}
+        role={keyboardTree ? "treeitem" : onKeyDown ? "button" : undefined}
+        aria-selected={keyboardTree ? resolvedSelected : undefined}
+        aria-expanded={keyboardTree && hasChildren ? expanded : undefined}
+        data-sidebar-tree-key={treeKey}
         {...mergedDataAttrs}
       >
         <span
@@ -375,11 +435,18 @@ export function SidebarTreeRoot({
   stickyAncestors?: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const selection = useSidebarTreeSelection();
+  const bindKeyboardRoot = selection?.bindKeyboardRoot;
   useLayoutEffect(() => {
     const el = rootRef.current;
     if (!el || !stickyAncestors) return;
     refreshSidebarStickyRoot(el);
   }, [stickyAncestors]);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el || !bindKeyboardRoot) return;
+    return bindKeyboardRoot(el);
+  }, [bindKeyboardRoot]);
   return (
     <div
       ref={rootRef}
@@ -390,6 +457,8 @@ export function SidebarTreeRoot({
       ]
         .filter(Boolean)
         .join(" ")}
+      role={selection ? "tree" : undefined}
+      tabIndex={selection ? (selection.focusId ? -1 : 0) : undefined}
     >
       {children}
     </div>

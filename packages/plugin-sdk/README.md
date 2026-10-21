@@ -20,7 +20,7 @@ npm install @omnipanel/plugin-sdk
 | L2 | `entry.logic` 指向 `logic.js`（QuickJS）或 `logic.wasm` | 按 `methods[].permissions` |
 | L3 | `overlays[].entry` 指向 HTML，进沙箱 iframe | 按桥消息逐条过闸 |
 
-七种 `kind`：`engine` / `panel` / `cloud` / `module` / `importer` / `theme` / `addon`。
+九种 `kind`：`engine` / `panel` / `importer` / `cloud` / `module` / `theme` / `addon` / `knowledge` / `agent`。枚举以 `crates/omnipanel-plugin/src/kind.rs` 为准。新 kind 只给多家来源共用一条宿主管线的平台能力，不为单一产品开口；`knowledge` 与 `agent` 都是这种开口。
 
 ## 校验清单（构建期 / CI）
 

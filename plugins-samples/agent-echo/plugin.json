@@ -1,0 +1,28 @@
+{
+  "id": "omni.sample.agent-echo",
+  "version": "0.1.0",
+  "displayName": "Agent sidecar 样板",
+  "kind": "agent",
+  "runtime": "sidecar",
+  "permissions": ["net:connect"],
+  "entry": {
+    "driver": "bin/agent.mjs"
+  },
+  "methods": [
+    { "name": "status", "permissions": [] },
+    { "name": "catalog", "permissions": ["net:connect"] },
+    { "name": "complete", "permissions": ["net:connect"] }
+  ],
+  "contributes": {
+    "agentSources": [
+      {
+        "id": "echo",
+        "title": "Echo",
+        "hint": "协议样板。不连接真实上游。",
+        "statusMethod": "status",
+        "catalogMethod": "catalog",
+        "completeMethod": "complete"
+      }
+    ]
+  }
+}

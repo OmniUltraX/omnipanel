@@ -18,6 +18,8 @@ export interface SidebarWorkspaceProps {
   sidebarMinPx?: number;
   /** 侧栏最大宽度（px 或百分比字符串） */
   sidebarMaxPx?: number | string;
+  /** 本表面自己的侧栏宽度 key。设置窗口与各功能模块分开记。 */
+  layoutKey?: string;
   className?: string;
 }
 
@@ -25,7 +27,7 @@ export interface SidebarWorkspaceProps {
  * 模块工作区布局：左侧可调整/可折叠边栏 + 主内容。
  * 基于 DockWorkspace，供设置窗口等复用。
  *
- * 左侧面板宽度与折叠状态在所有模块间共用并持久化。
+ * 左侧面板宽度按 layoutKey 分别持久化，折叠状态也按同一 key 分开。
  */
 export function SidebarWorkspace({
   sidebar,
@@ -33,18 +35,22 @@ export function SidebarWorkspace({
   sidebarSizePx: propSidebarSizePx,
   sidebarMinPx = MODULE_LEFT_SIDEBAR_MIN_PX,
   sidebarMaxPx = MODULE_LEFT_SIDEBAR_MAX_SIZE,
+  layoutKey = "settings",
   className,
 }: SidebarWorkspaceProps) {
   const leftPanelRef = useRef<PanelImperativeHandle | null>(null);
 
   const {
-    leftSizePx,
+    leftDefaultSizePx,
     moduleLeftSidebarCollapsed,
     handleLeftResize,
     handleLeftLayoutChanged,
+    handleLeftHandlePointerDown,
+    handleLeftHandleKeyDown,
   } = useSharedModuleLeftSidebar({
     leftPanelRef,
     propSizePx: propSidebarSizePx,
+    layoutKey,
   });
 
   const rootClass = [
@@ -58,12 +64,14 @@ export function SidebarWorkspace({
     <DockWorkspace
       left={sidebar}
       main={children}
-      leftSizePx={leftSizePx}
+      leftSizePx={leftDefaultSizePx}
       leftMinPx={sidebarMinPx}
       leftMaxPx={sidebarMaxPx}
       leftPanelRef={leftPanelRef}
       onLeftResize={handleLeftResize}
       onLeftLayoutChanged={handleLeftLayoutChanged}
+      onLeftHandlePointerDown={handleLeftHandlePointerDown}
+      onLeftHandleKeyDown={handleLeftHandleKeyDown}
       className={rootClass}
     />
   );
