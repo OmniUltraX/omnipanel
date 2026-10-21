@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - "website/**"
+      - "plugins/registry.json"
       - ".github/workflows/deploy-website.yml"
   workflow_dispatch:
 

@@ -50,20 +50,37 @@ GITHUB_PAGES_BASE=/ npm run build   # 根路径部署
 - 联系区块：`#contact`（企业邮箱 + 微信公众号二维码）
 - 首次引导历史索引：`node scripts/bootstrap-oss-versions.mjs --out ./versions.json`
 
+## 插件市场 / 开发文档
+
+- 市场页：`plugins.html`（构建前 `sync:plugins` 把仓库 `plugins/registry.json` 镜像到 `public/plugins/`）
+- 开发文档：`plugins/docs.html`（站内摘要 + 链到 GitHub `docs/plugins/`）
+
+```bash
+npm run sync:plugins
+```
+
 ## 目录结构
 
 ```
 website/
-├── index.html          # 单页官网
+├── index.html              # 首页
+├── plugins.html            # 插件市场
+├── plugins/docs.html       # 插件开发文档
 ├── src/
-│   ├── main.ts         # 入口
-│   ├── download.ts     # 下载区块
-│   ├── releases.ts     # OSS 清单解析
-│   ├── site.ts         # 公共导航 / 主题 / i18n
-│   └── styles/main.css # 样式
+│   ├── main.ts             # 首页入口
+│   ├── pluginsPage.ts      # 市场页
+│   ├── pluginsDocsPage.ts  # 文档页
+│   ├── download.ts         # 下载区块
+│   ├── releases.ts         # OSS 清单解析
+│   ├── site.ts             # 公共导航 / 主题 / i18n
+│   └── styles/main.css     # 样式
+├── scripts/
+│   ├── sync-releases.mjs
+│   └── sync-plugins.mjs
 ├── public/
 │   ├── .nojekyll
 │   ├── logo/
+│   ├── plugins/            # 构建生成 registry.json
 │   └── examples/
-└── vite.config.ts
+└── vite.config.ts          # MPA：index + plugins + docs
 ```

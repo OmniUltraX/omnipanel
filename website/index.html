@@ -88,6 +88,9 @@
           <a href="#showcase" data-i18n="nav.showcase">实机界面</a>
           <a href="#highlights" data-i18n="nav.highlights">近期亮点</a>
           <a href="#modules" data-i18n="nav.modules">核心模块</a>
+          <a href="./plugins.html" data-site-path="plugins.html" data-nav-key="plugins" data-i18n="nav.plugins"
+            >插件</a
+          >
           <a href="#ai" data-i18n="nav.ai">AI 原生</a>
           <a href="#architecture" data-i18n="nav.architecture">技术架构</a>
           <a href="#deploy" data-i18n="nav.deploy">部署</a>
@@ -224,14 +227,14 @@
             <p class="eyebrow" data-i18n="highlights.eyebrow">Highlights</p>
             <h2 class="h2 text-fx" data-i18n="highlights.title" data-split="words">近期亮点</h2>
             <p class="lead" data-i18n="highlights.lead">
-              v0.8.15：云厂商 + 模块插件工作台、在场验证（presence）、sidecar 数据库引擎与安全能力全面落地。
+              v0.8.43：官网插件市场与开发文档；京东云 / 七牛 / Warpgate；Dock stickyVisit LRU。
             </p>
           </div>
           <div class="grid-3">
             <article class="card use-card" data-reveal>
-              <h3 data-i18n="highlights.web.h">插件平台</h3>
+              <h3 data-i18n="highlights.web.h">官网插件站</h3>
               <p data-i18n="highlights.web.p">
-                插件中心：官方目录 + 第三方 DBX；签名 .omni-plugin；L2 / L3 沙箱
+                独立插件市场 + 开发文档子页；读官方 registry；中英切换
               </p>
             </article>
             <article class="card use-card" data-reveal>
@@ -263,10 +266,32 @@
           <div class="section-head" data-reveal>
             <p class="eyebrow" data-i18n="modules.eyebrow">Core Modules</p>
             <h2 class="h2 text-fx" data-i18n="modules.title" data-split="words">
-              九大模块，覆盖日常开发运维完整闭环
+              核心模块与插件，覆盖日常开发运维完整闭环
             </h2>
           </div>
           <div class="grid-3">
+            <article class="module-card module-card--plugins" data-reveal>
+              <div class="module-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </div>
+              <h3 data-i18n="mod.plugins.h">Plugins</h3>
+              <p data-i18n="mod.plugins.p">
+                插件市场与开发平台：云 / 引擎 / 面板 / 模块可扩展；签名包 + L1/L2/L3 沙箱。
+              </p>
+              <div class="tag-list">
+                <span class="tag">L1 / L2 / L3</span>
+                <span class="tag">.omni-plugin</span>
+                <span class="tag">marketplace</span>
+              </div>
+              <p class="module-card-cta">
+                <a href="./plugins.html" data-site-path="plugins.html" data-i18n="mod.plugins.cta"
+                  >进入插件市场</a
+                >
+              </p>
+            </article>
             <article class="module-card" data-reveal>
               <div class="module-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -789,6 +814,7 @@
         <span>OmniPanel © <span data-year>2026</span></span>
         <span data-i18n="foot.tagline">All in One · 小而全而优而美</span>
         <div class="pagefoot-links">
+          <a href="./plugins.html" data-site-path="plugins.html" data-i18n="nav.plugins">插件</a>
           <a href="#download" data-i18n="nav.download">下载</a>
           <a href="#contact" data-i18n="nav.contact">联系我们</a>
           <a href="mailto:service@omnipanel.cn">service@omnipanel.cn</a>

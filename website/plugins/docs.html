@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN" data-i18n-desc="meta.pluginsDocsDesc">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n-title="meta.pluginsDocsTitle">插件开发文档 — OmniPanel</title>
+    <meta
+      name="description"
+      content="OmniPanel 插件开发指南：八种 kind、L1/L2/L3、脚手架、打包签名与发布。"
+    />
+    <meta name="theme-color" content="#0c1118" />
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem("omnipanel-theme") || "system";
+          var dark =
+            pref === "dark" ||
+            (pref !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.dataset.themePref = pref;
+          var lang = localStorage.getItem("omnipanel-lang");
+          if (lang !== "zh" && lang !== "en") {
+            lang = navigator.language.toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+          }
+          document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+          document.documentElement.dataset.lang = lang;
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="../logo/omni.png" />
+  </head>
+  <body>
+    <div class="bg-fx" aria-hidden="true"></div>
+    <a
+      class="github-star"
+      data-repo-link
+      data-github-stars
+      href="https://github.com/OmniUltraX/omnipanel"
+      target="_blank"
+      rel="noopener noreferrer"
+      data-i18n-aria="nav.github"
+    >
+      <svg class="github-star-icon" viewBox="0 0 16 16" aria-hidden="true" width="16" height="16">
+        <path
+          fill="currentColor"
+          d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
+        />
+      </svg>
+      <svg class="github-star-mark" viewBox="0 0 16 16" aria-hidden="true" width="14" height="14">
+        <path
+          fill="currentColor"
+          d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"
+        />
+      </svg>
+      <span class="github-star-count" data-star-count>…</span>
+    </a>
+    <header class="topnav">
+      <div class="container topnav-inner">
+        <a class="brand" href="../" data-site-path="" data-nav-key="home" data-i18n-aria="nav.home">
+          <img src="../logo/omni.png" width="28" height="28" alt="" />
+          <span>OmniPanel</span>
+        </a>
+        <button
+          class="nav-toggle"
+          type="button"
+          data-nav-toggle
+          aria-expanded="false"
+          aria-controls="site-nav"
+          data-i18n-aria="nav.menu"
+        >
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <nav id="site-nav" data-nav-menu>
+          <a href="../#showcase" data-site-path="#showcase" data-i18n="nav.showcase">实机界面</a>
+          <a href="../#modules" data-site-path="#modules" data-i18n="nav.modules">核心模块</a>
+          <a href="../plugins.html" data-site-path="plugins.html" data-nav-key="plugins" data-i18n="nav.plugins"
+            >插件</a
+          >
+          <a
+            href="./docs.html"
+            data-site-path="plugins/docs.html"
+            data-nav-key="plugins-docs"
+            data-i18n="nav.pluginsDocs"
+            >开发文档</a
+          >
+          <a href="../#download" data-site-path="#download" data-i18n="nav.download">下载</a>
+          <a href="../#contact" data-site-path="#contact" data-i18n="nav.contact">联系我们</a>
+        </nav>
+        <div class="prefs">
+          <button type="button" class="pref-btn" data-lang-toggle aria-label="Language">EN</button>
+          <button type="button" class="pref-btn" data-theme-toggle data-i18n-aria="pref.theme">
+            <span data-theme-label>Auto</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="plugins-docs-page">
+      <section class="section section-tight">
+        <div class="container" data-reveal>
+          <div class="section-head">
+            <p class="eyebrow" data-i18n="pluginsDocs.eyebrow">Developer Docs</p>
+            <h1 class="h2 text-fx" data-i18n="pluginsDocs.title" data-split="words">插件开发文档</h1>
+            <p class="lead" data-i18n="pluginsDocs.lead">
+              第三方按 plugin.json 声明能力，Host 用固定壳渲染——不按插件 ID 特判。以下为站内摘要；完整字段表与协议见仓库
+              docs/plugins。
+            </p>
+            <div class="hero-cta">
+              <a
+                class="btn btn-primary"
+                href="../plugins.html"
+                data-site-path="plugins.html"
+                data-i18n="pluginsDocs.ctaMarket"
+                >浏览插件市场</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container docs-layout">
+          <aside class="docs-toc" data-docs-toc data-reveal>
+            <p class="docs-toc-title" data-i18n="pluginsDocs.toc">目录</p>
+            <a href="#overview" data-i18n="pluginsDocs.s1">概述</a>
+            <a href="#kinds" data-i18n="pluginsDocs.s2">八种身份（kind）</a>
+            <a href="#levels" data-i18n="pluginsDocs.s3">三级开放（L1 / L2 / L3）</a>
+            <a href="#scaffold" data-i18n="pluginsDocs.s4">脚手架与打包</a>
+            <a href="#security" data-i18n="pluginsDocs.s5">权限与安全</a>
+            <a href="#reference" data-i18n="pluginsDocs.s6">完整参考</a>
+          </aside>
+
+          <div class="docs-body" data-reveal>
+            <article class="docs-section card" id="overview">
+              <h2 data-i18n="pluginsDocs.s1">概述</h2>
+              <p data-i18n="pluginsDocs.s1.p">
+                插件以签名的 .omni-plugin 包分发。云厂商与 Nacos 等为官方市场可下载插件（download-only），不随客户端
+                bundled。字段枚举与 schema 单源：@omnipanel/plugin-sdk。
+              </p>
+            </article>
+
+            <article class="docs-section card" id="kinds">
+              <h2 data-i18n="pluginsDocs.s2">八种身份（kind）</h2>
+              <ul class="docs-kind-list">
+                <li><code>engine</code> — <span data-i18n="pluginsDocs.s2.engine">数据库工作台</span></li>
+                <li><code>module</code> — <span data-i18n="pluginsDocs.s2.module">模块工作台</span></li>
+                <li><code>cloud</code> — <span data-i18n="pluginsDocs.s2.cloud">云工作台</span></li>
+                <li><code>panel</code> — <span data-i18n="pluginsDocs.s2.panel">服务器面板</span></li>
+                <li><code>importer</code> — <span data-i18n="pluginsDocs.s2.importer">导入向导</span></li>
+                <li><code>theme</code> — <span data-i18n="pluginsDocs.s2.theme">主题</span></li>
+                <li><code>addon</code> — <span data-i18n="pluginsDocs.s2.addon">扩展</span></li>
+                <li><code>knowledge</code> — <span data-i18n="pluginsDocs.s2.knowledge">知识源</span></li>
+              </ul>
+            </article>
+
+            <article class="docs-section card" id="levels">
+              <h2 data-i18n="pluginsDocs.s3">三级开放（L1 / L2 / L3）</h2>
+              <ul class="docs-level-list">
+                <li data-i18n="pluginsDocs.s3.l1">L1：只写 plugin.json。</li>
+                <li data-i18n="pluginsDocs.s3.l2">L2：call + host.*。</li>
+                <li data-i18n="pluginsDocs.s3.l3">L3：Overlay iframe。</li>
+              </ul>
+            </article>
+
+            <article class="docs-section card" id="scaffold">
+              <h2 data-i18n="pluginsDocs.s4">脚手架与打包</h2>
+              <p data-i18n="pluginsDocs.s4.p">仓库根目录用 create-plugin 脚手架，再 pack 成签名包：</p>
+              <pre class="docs-code" tabindex="0"><code>node scripts/create-plugin.mjs &lt;name&gt; engine
+node scripts/create-plugin.mjs &lt;name&gt; module
+node scripts/create-plugin.mjs &lt;name&gt; cloud
+node scripts/create-plugin.mjs &lt;name&gt; js-logic
+cargo run -p omnipanel-plugin-pkg --bin pack -- plugins-custom/&lt;name&gt; &lt;name&gt;.omni-plugin</code></pre>
+              <p data-i18n="pluginsDocs.s4.install">
+                安装：设置 → 插件 →「安装本地插件」。与内置同 id 的包会被拒绝覆盖。
+              </p>
+            </article>
+
+            <article class="docs-section card" id="security">
+              <h2 data-i18n="pluginsDocs.s5">权限与安全</h2>
+              <p data-i18n="pluginsDocs.s5.p">
+                写操作若清单带 dangerAction，前端会走确认令牌；插件不能自签。Host 注入凭据，插件 vault 仅
+                plugin:{id}:* 命名空间。
+              </p>
+            </article>
+
+            <article class="docs-section card" id="reference">
+              <h2 data-i18n="pluginsDocs.s6">完整参考</h2>
+              <p data-i18n="pluginsDocs.s6.p">以下文档在 GitHub 持续更新，与代码同步：</p>
+              <ul class="docs-ref-list">
+                <li>
+                  <a data-docs-plugins-link="README.md" href="#" data-i18n="pluginsDocs.link.readme"
+                    >开发指南总览</a
+                  >
+                </li>
+                <li>
+                  <a
+                    data-docs-plugins-link="manifest-reference.md"
+                    href="#"
+                    data-i18n="pluginsDocs.link.manifest"
+                    >manifest 字段表</a
+                  >
+                </li>
+                <li>
+                  <a
+                    data-docs-plugins-link="permissions-and-levels.md"
+                    href="#"
+                    data-i18n="pluginsDocs.link.permissions"
+                    >权限与 L1/L2/L3</a
+                  >
+                </li>
+                <li>
+                  <a
+                    data-docs-plugins-link="packaging-and-install.md"
+                    href="#"
+                    data-i18n="pluginsDocs.link.packaging"
+                    >打包、签名、安装</a
+                  >
+                </li>
+                <li>
+                  <a
+                    data-docs-plugins-link="publishing.md"
+                    href="#"
+                    data-i18n="pluginsDocs.link.publishing"
+                    >托管源与 publish CLI</a
+                  >
+                </li>
+                <li>
+                  <a
+                    data-docs-plugins-link="sidecar-dbx.md"
+                    href="#"
+                    data-i18n="pluginsDocs.link.sidecar"
+                    >Engine sidecar / DBX</a
+                  >
+                </li>
+                <li>
+                  <a
+                    data-docs-plugins-link="debugging.md"
+                    href="#"
+                    data-i18n="pluginsDocs.link.debugging"
+                    >排错与日志</a
+                  >
+                </li>
+                <li>
+                  <a data-docs-plugins-link="sdk-release.md" href="#" data-i18n="pluginsDocs.link.sdk"
+                    >plugin-sdk 发版</a
+                  >
+                </li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="pagefoot">
+      <div class="container pagefoot-inner">
+        <span>OmniPanel © <span data-year>2026</span></span>
+        <span data-i18n="foot.tagline">All in One · 小而全而优而美</span>
+        <div class="pagefoot-links">
+          <a href="../plugins.html" data-site-path="plugins.html" data-i18n="nav.plugins">插件</a>
+          <a href="../#download" data-site-path="#download" data-i18n="nav.download">下载</a>
+          <a href="../#contact" data-site-path="#contact" data-i18n="nav.contact">联系我们</a>
+          <a href="mailto:service@omnipanel.cn">service@omnipanel.cn</a>
+          <a data-repo-link href="#">GitHub</a>
+          <a data-license-link href="#">MIT License</a>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="/src/pluginsDocsPage.ts"></script>
+  </body>
+</html>
