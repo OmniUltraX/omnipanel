@@ -27,7 +27,7 @@
 
 > One window to manage servers, databases, containers, and workflows. One AI that understands your entire engineering context.
 
-**Website:** [https://omnipanel.cn/](https://omnipanel.cn/) · **Releases:** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
+**Website:** [https://omnipanel.cn/](https://omnipanel.cn/) · **Plugin marketplace:** [plugins.html](https://omnipanel.cn/plugins.html) · **Releases:** [GitHub Releases](https://github.com/OmniUltraX/omnipanel/releases)
 
 ### 📸 Screenshots
 
@@ -77,7 +77,7 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 
 | Area | Highlights |
 |------|------------|
-| **Plugin platform** | Signed `.omni-plugin` install; Plugin Center + studio pack/install; official verify & submissions; L1 / L2 / L3 |
+| **Plugin platform** | Signed `.omni-plugin` install; Plugin Center + studio; website [marketplace](https://omnipanel.cn/plugins.html) + [dev docs](https://omnipanel.cn/plugins/docs.html); L1 / L2 / L3 |
 | **Cloud vendors** | Capability workbench (account → capability → instance); eight vendors as **download-only** L2 plugins from Plugin Center (Aliyun / Tencent / Huawei / AWS / Azure / GCP / DigitalOcean / BandwagonHost); Aliyun SG delete + EIP / SLB / RDS / Redis / disk / DNS |
 | **Module plugins** | Nacos (download-only): namespace switch, service online/offline, resizable split, Ctrl+F config search |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |

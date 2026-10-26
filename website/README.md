@@ -25,11 +25,16 @@ npm run preview
 
 1. 在仓库 **Settings → Pages** 中，Source 选择 **GitHub Actions**
 2. 推送 `website/` 目录变更到 `master` 分支，或手动运行 **Deploy Website** workflow
-3. 站点地址：`https://omnipanel.cn/`（`website/public/CNAME`，构建 base 为 `/`）
+3. 站点地址：`https://omniultrax.github.io/omnipanel/`
 
 ### 自定义域名
 
-`website/public/CNAME` 内容为 `omnipanel.cn`。GitHub Actions 部署以产物里的这个文件为准，Pages 设置里手填的域名会被下一次部署覆盖。流水线已把 `GITHUB_PAGES_BASE` 设为 `/`。
+在 `website/public/` 下添加 `CNAME` 文件，内容为你的域名；并在仓库 Pages 设置中填写同一域名。构建时将 `GITHUB_PAGES_BASE` 设为 `/`：
+
+```yaml
+env:
+  GITHUB_PAGES_BASE: /
+```
 
 ### 修改 base 路径
 
@@ -41,24 +46,44 @@ GITHUB_PAGES_BASE=/ npm run build   # 根路径部署
 
 ## 下载与联系
 
-- 下载区块：`#download`（OSS `latest.json` / `versions.json`，构建时镜像到 `public/releases/`）
-- 联系区块：`#contact`（企业邮箱 + 微信公众号二维码）
+- 下载页：`download.html`（OSS `latest.json` / `versions.json`，构建时镜像到 `public/releases/`）
+- 联系区块：首页 `#contact`（企业邮箱 + 微信公众号二维码）
 - 首次引导历史索引：`node scripts/bootstrap-oss-versions.mjs --out ./versions.json`
+
+## 插件市场 / 开发文档
+
+- 市场页：`plugins.html`（构建前 `sync:plugins` 把仓库 `plugins/registry.json` 镜像到 `public/plugins/`）
+- 开发文档：`plugins/docs.html`（站内摘要 + 链到 GitHub `docs/plugins/`）
+
+```bash
+npm run sync:plugins
+```
 
 ## 目录结构
 
 ```
 website/
-├── index.html          # 单页官网
+├── index.html              # 首页
+├── plugins.html            # 插件市场
+├── plugins/docs.html       # 插件开发文档
+├── download.html           # 下载页
 ├── src/
-│   ├── main.ts         # 入口
-│   ├── download.ts     # 下载区块
-│   ├── releases.ts     # OSS 清单解析
-│   ├── site.ts         # 公共导航 / 主题 / i18n
-│   └── styles/main.css # 样式
+│   ├── main.ts             # 首页入口
+│   ├── pluginsPage.ts      # 市场页
+│   ├── pluginsDocsPage.ts  # 文档页
+│   ├── downloadPage.ts     # 下载页入口
+│   ├── download.ts         # 下载区块逻辑
+│   ├── releases.ts         # OSS 清单解析
+│   ├── site.ts             # 公共导航 / 主题 / i18n
+│   └── styles/main.css     # 样式
+├── scripts/
+│   ├── sync-releases.mjs
+│   └── sync-plugins.mjs
 ├── public/
 │   ├── .nojekyll
 │   ├── logo/
+│   ├── plugins/            # 构建生成 registry.json
 │   └── examples/
-└── vite.config.ts
+└── vite.config.ts          # MPA：index + plugins + docs + download
 ```
+

@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "sync:releases": "node scripts/sync-releases.mjs",
-    "predev": "node scripts/sync-releases.mjs",
-    "prebuild": "node scripts/sync-releases.mjs",
+    "sync:plugins": "node scripts/sync-plugins.mjs",
+    "predev": "node scripts/sync-releases.mjs && node scripts/sync-plugins.mjs",
+    "prebuild": "node scripts/sync-releases.mjs && node scripts/sync-plugins.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
