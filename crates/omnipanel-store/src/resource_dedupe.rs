@@ -13,8 +13,8 @@ use serde_json::{Value, json};
 
 use crate::connection::{Connection, ConnectionKind};
 use crate::database::{
-    BUILTIN_FILE_INDEX_CONN_ID, BUILTIN_META_DB_CONN_ID, DatabaseConnectionStore, DbConnectionConfig,
-    load_database_connections, save_database_connections,
+    BUILTIN_FILE_INDEX_CONN_ID, BUILTIN_META_DB_CONN_ID, DatabaseConnectionStore,
+    DbConnectionConfig, load_database_connections, save_database_connections,
 };
 use crate::ssh_keys::{ssh_key_passphrase_ref, ssh_key_private_ref};
 use crate::ssh_vault::{db_password_ref, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref};
@@ -266,13 +266,10 @@ fn apply_sqlite(
     let pairs: Vec<(String, String, String)> = groups
         .iter()
         .flat_map(|group| {
-            group.drop_ids.iter().map(|drop_id| {
-                (
-                    drop_id.clone(),
-                    group.keep_id.clone(),
-                    group.store.clone(),
-                )
-            })
+            group
+                .drop_ids
+                .iter()
+                .map(|drop_id| (drop_id.clone(), group.keep_id.clone(), group.store.clone()))
         })
         .collect();
     let copied_secrets = copy_secrets_for_groups(storage, groups)?;
@@ -319,10 +316,7 @@ fn apply_sqlite(
         Ok(())
     })();
     match applied {
-        Ok(()) => storage
-            .conn()
-            .execute_batch("COMMIT")
-            .map_err(map_sqlite)?,
+        Ok(()) => storage.conn().execute_batch("COMMIT").map_err(map_sqlite)?,
         Err(err) => {
             let _ = storage.conn().execute_batch("ROLLBACK");
             return Err(err);
@@ -449,7 +443,9 @@ fn resolve_plan(scan: &DedupeScan, plan: &DedupePlan) -> OmniResult<Vec<PlannedG
                 continue;
             }
             if !id_ok(drop_id) {
-                return Err(OmniError::invalid_input(format!("待删除 id 非法: {drop_id}")));
+                return Err(OmniError::invalid_input(format!(
+                    "待删除 id 非法: {drop_id}"
+                )));
             }
             let Some((drop_group, member)) = by_id.get(drop_id) else {
                 return Err(OmniError::invalid_input(format!(
@@ -749,9 +745,7 @@ fn mark_preferred(members: &mut [DedupeMember]) {
             Some(prev) => {
                 let other = &members[prev];
                 member.protected && !other.protected
-                    || member.protected == other.protected
-                        && member.has_secret
-                        && !other.has_secret
+                    || member.protected == other.protected && member.has_secret && !other.has_secret
                     || member.protected == other.protected
                         && member.has_secret == other.has_secret
                         && member.updated_at > other.updated_at
@@ -774,7 +768,10 @@ fn mark_preferred(members: &mut [DedupeMember]) {
 }
 
 fn members_kind(connections: &[Connection], members: &[DedupeMember]) -> &'static str {
-    let id = members.first().map(|member| member.id.as_str()).unwrap_or("");
+    let id = members
+        .first()
+        .map(|member| member.id.as_str())
+        .unwrap_or("");
     connections
         .iter()
         .find(|conn| conn.id == id)
@@ -900,7 +897,10 @@ fn db_parts(
     ))
 }
 
-fn docker_fingerprint(cfg: &Value, ssh_endpoint: &HashMap<String, String>) -> Option<(String, String)> {
+fn docker_fingerprint(
+    cfg: &Value,
+    ssh_endpoint: &HashMap<String, String>,
+) -> Option<(String, String)> {
     let source = str_field(cfg, &["source"])
         .unwrap_or("local-engine")
         .trim()
@@ -939,7 +939,10 @@ fn docker_fingerprint(cfg: &Value, ssh_endpoint: &HashMap<String, String>) -> Op
     }
 }
 
-fn file_fingerprint(cfg: &Value, ssh_endpoint: &HashMap<String, String>) -> Option<(String, String)> {
+fn file_fingerprint(
+    cfg: &Value,
+    ssh_endpoint: &HashMap<String, String>,
+) -> Option<(String, String)> {
     let protocol = str_field(cfg, &["protocol"])
         .unwrap_or("file")
         .to_ascii_lowercase();
@@ -971,7 +974,10 @@ fn protocol_fingerprint(cfg: &Value) -> Option<(String, String)> {
         if label.is_empty() {
             return None;
         }
-        return Some((format!("protocol|{kind}|{label}"), format!("{kind} {label}")));
+        return Some((
+            format!("protocol|{kind}|{label}"),
+            format!("{kind} {label}"),
+        ));
     }
     let host = norm_host(&str_field(cfg, &["host"])?);
     if host.is_empty() {
@@ -991,10 +997,7 @@ fn http_fingerprint(method: &str, url: &str, body: &str, auth_type: &str) -> Opt
     }
     let method = method.trim().to_ascii_uppercase();
     let auth = auth_type.trim().to_ascii_lowercase();
-    Some(format!(
-        "http|{method}|{url}|{auth}|{}",
-        body.trim()
-    ))
+    Some(format!("http|{method}|{url}|{auth}|{}", body.trim()))
 }
 
 fn ssh_endpoint_index(connections: &[Connection]) -> HashMap<String, String> {
@@ -1029,11 +1032,7 @@ fn tag_paths(storage: &Storage, id: &str) -> Vec<String> {
         .collect()
 }
 
-fn move_tag_links_raw(
-    conn: &rusqlite::Connection,
-    from: &str,
-    to: &str,
-) -> OmniResult<u32> {
+fn move_tag_links_raw(conn: &rusqlite::Connection, from: &str, to: &str) -> OmniResult<u32> {
     if !table_exists(conn, "resource_tag_links") {
         return Ok(0);
     }
@@ -1086,7 +1085,8 @@ fn rewrite_json_column(
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(map_sqlite)?;
-        let pending: Vec<(i64, String)> = rows.collect::<Result<Vec<_>, _>>().map_err(map_sqlite)?;
+        let pending: Vec<(i64, String)> =
+            rows.collect::<Result<Vec<_>, _>>().map_err(map_sqlite)?;
         drop(stmt);
         for (rowid, text) in pending {
             let Some(next) = replace_quoted(&text, pairs) else {
@@ -1390,7 +1390,12 @@ mod tests {
         let scan = scan_resource_duplicates(&storage, &[]).unwrap();
         assert_eq!(scan.groups.len(), 1);
         assert_eq!(scan.groups[0].kind, "ssh");
-        assert!(scan.groups[0].members.iter().any(|member| member.id == "ssh-drop" && member.preferred));
+        assert!(
+            scan.groups[0]
+                .members
+                .iter()
+                .any(|member| member.id == "ssh-drop" && member.preferred)
+        );
 
         let report = apply_resource_dedupe(
             &storage,
