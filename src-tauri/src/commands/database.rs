@@ -14,11 +14,12 @@ use omnipanel_error::OmniError;
 pub use omnipanel_store::{
     DbConnectionConfig, SchemaCacheColumn, SchemaCacheConnection, SchemaCacheDatabase,
     SchemaCacheIndex, SchemaCacheRoutine, SchemaCacheSnapshot, SchemaCacheTable, SchemaCacheUser,
-    SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, ensure_creator_tag, ensure_origin_tag,
-    load_schema_cache, load_schema_filters, load_schema_tree_expanded,
-    patch_schema_cache_connection, prune_connection_cache, prune_connection_expanded,
-    prune_connection_filters, save_schema_cache, save_schema_filters, save_schema_tree_expanded,
+    SchemaFiltersSnapshot, SchemaTreeExpandedSnapshot, load_schema_cache, load_schema_filters,
+    load_schema_tree_expanded, patch_schema_cache_connection, prune_connection_cache,
+    prune_connection_expanded, prune_connection_filters, save_schema_cache, save_schema_filters,
+    save_schema_tree_expanded,
 };
+use omnipanel_store::{creator_device_name, origin_device_id, reconcile_device_tags};
 use serde::{Deserialize, Serialize};
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -145,12 +146,42 @@ pub(crate) fn to_params(c: &DbConnectionConfig) -> DbParams {
 /// 拨号前改写内网地址。指纹和 sidecar 身份仍用原来的 host。
 pub(crate) async fn relay_params(c: &DbConnectionConfig) -> Result<DbParams, String> {
     let mut params = to_params(c);
-    let (host, port) = crate::mesh_relay::rewrite_dial(&params.host, params.port, &c.tags)
+    let tags = dial_tags(c);
+    let (host, port) = crate::mesh_relay::rewrite_dial(&params.host, params.port, &tags)
         .await
         .map_err(|e| e.user_message())?;
     params.host = host;
     params.port = port;
     Ok(params)
+}
+
+static DB_CONN_STORE: OnceLock<Arc<omnipanel_store::DatabaseConnectionStore>> = OnceLock::new();
+
+/// 启动时登记连接库，拨号才能按 id 补回被表单丢掉的创建设备标记。
+pub(crate) fn install_db_connection_store(store: Arc<omnipanel_store::DatabaseConnectionStore>) {
+    let _ = DB_CONN_STORE.set(store);
+}
+
+/// 表单和部分调用方不带 `origin:` / `creator:`。已保存的连接仍按库里的标记转发。
+fn dial_tags(c: &DbConnectionConfig) -> Vec<String> {
+    if origin_device_id(&c.tags).is_some() || creator_device_name(&c.tags).is_some() {
+        return c.tags.clone();
+    }
+    let id = c.id.trim();
+    if id.is_empty() {
+        return c.tags.clone();
+    }
+    let Some(store) = DB_CONN_STORE.get() else {
+        return c.tags.clone();
+    };
+    match store.tags_of(id) {
+        Ok(Some(saved))
+            if origin_device_id(&saved).is_some() || creator_device_name(&saved).is_some() =>
+        {
+            saved
+        }
+        _ => c.tags.clone(),
+    }
 }
 
 async fn relay_connection(c: DbConnectionConfig) -> Result<DbConnectionConfig, String> {
@@ -339,23 +370,20 @@ pub async fn db_save_connection(
     state: State<'_, AppState>,
     mut connection: DbConnectionConfig,
 ) -> Result<DbConnectionConfig, String> {
-    let mut existed = false;
+    let mut previous_tags = None;
     if !connection.id.trim().is_empty() {
         if let Ok(Some(old)) = state.db_connections.get_with_secret(&connection.id) {
-            existed = true;
+            previous_tags = Some(old.tags.clone());
             evict_sidecar_agent(&old).await;
         }
     }
-    // 新建连接时打 creator 标签，标记创建设备
-    if !existed {
-        ensure_creator_tag(
-            &mut connection.tags,
-            &crate::commands::auth::current_device_name(),
-        );
-        if let Ok(device_id) = crate::commands::auth::current_device_id() {
-            ensure_origin_tag(&mut connection.tags, &device_id);
-        }
-    }
+    let device_id = crate::commands::auth::current_device_id().unwrap_or_default();
+    reconcile_device_tags(
+        &mut connection.tags,
+        previous_tags.as_deref(),
+        &crate::commands::auth::current_device_name(),
+        &device_id,
+    );
     state
         .db_connections
         .save(connection)

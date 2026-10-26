@@ -9,7 +9,16 @@ export const PROTOCOL_TAG_KINDS = [
   "http_environment",
 ] as const;
 
-const SYSTEM_TAG_KEYS = new Set(["os", "kernel", "arch", "db", "engine", "panel"]);
+const SYSTEM_TAG_KEYS = new Set([
+  "os",
+  "kernel",
+  "arch",
+  "db",
+  "engine",
+  "panel",
+  "creator",
+  "origin",
+]);
 
 /** 系统采集标签（不在用户编辑器中展示） */
 export function isSystemConnectionTag(tag: string): boolean {

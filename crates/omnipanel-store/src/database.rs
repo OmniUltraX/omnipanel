@@ -229,6 +229,12 @@ impl DatabaseConnectionStore {
         Ok(list)
     }
 
+    /// 只读创建设备标记，拨号时补回被表单丢掉的 `origin:` / `creator:`。
+    pub fn tags_of(&self, id: &str) -> OmniResult<Option<Vec<String>>> {
+        let store = self.inner.lock().map_err(|_| lock_err())?;
+        Ok(store.get(id).map(|conn| conn.tags.clone()))
+    }
+
     /// 取连接并注入 Vault 密码（供后端建连）。
     pub fn get_with_secret(&self, id: &str) -> OmniResult<Option<DbConnectionConfig>> {
         let store = self.inner.lock().map_err(|_| lock_err())?;

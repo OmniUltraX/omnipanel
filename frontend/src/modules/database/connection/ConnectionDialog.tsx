@@ -274,7 +274,9 @@ export function ConnectionDialog({
     setSaving(true);
     setStatus(null);
     try {
-      const saved = await saveConnection(formToConnection(form, initialConnection?.id ?? ""));
+      const saved = await saveConnection(
+        formToConnection(form, initialConnection?.id ?? "", initialConnection?.tags),
+      );
       await unwrapCommand(commands.resourceSetTags("connection", saved.id, tags));
       void submitSchemaCacheRefresh([saved.id], schemaCacheReporter);
 
@@ -300,7 +302,9 @@ export function ConnectionDialog({
     setTesting(true);
     setStatus({ kind: "info", message: t("database.dialog.testing") });
     try {
-      const version = await testConnection(formToConnection(form));
+      const version = await testConnection(
+        formToConnection(form, initialConnection?.id ?? "", initialConnection?.tags),
+      );
       setStatus({
         kind: "success",
         message: t("database.dialog.testSuccess", { version }),

@@ -142,6 +142,49 @@ pub fn ensure_origin_tag(tags: &mut Vec<String>, device_id: &str) {
     tags.push(format!("{ORIGIN_TAG_KEY}:{id}"));
 }
 
+/// 更新资源时补回已有的创建设备标记。
+///
+/// 编辑表单经常不回传 `origin:` / `creator:`。直接覆盖会让内网跳板失去目标设备。
+pub fn preserve_device_tags(tags: &mut Vec<String>, previous: &[String]) {
+    if origin_device_id(tags).is_none() {
+        if let Some(origin) = origin_device_id(previous) {
+            tags.push(format!("{ORIGIN_TAG_KEY}:{origin}"));
+        }
+    }
+    if creator_device_name(tags).is_none() {
+        if let Some(creator) = creator_device_name(previous) {
+            tags.push(format!("{CREATOR_TAG_KEY}:{creator}"));
+        }
+    }
+}
+
+/// 保存连接时维护创建设备标记。
+///
+/// - 已有 `origin:`（含从旧记录补回的）保持不变。
+/// - 标记属于其他设备且还没有 `origin:` 时不抢占。
+/// - 新建，或创建者就是本机但还没绑定设备 id：补上本机 `creator:` 与 `origin:`。
+pub fn reconcile_device_tags(
+    tags: &mut Vec<String>,
+    previous: Option<&[String]>,
+    device_name: &str,
+    device_id: &str,
+) {
+    if let Some(previous) = previous {
+        preserve_device_tags(tags, previous);
+    }
+    if origin_device_id(tags).is_some() {
+        return;
+    }
+    let mine = device_name.trim();
+    if let Some(creator) = creator_device_name(tags) {
+        if mine.is_empty() || !creator.eq_ignore_ascii_case(mine) {
+            return;
+        }
+    }
+    ensure_creator_tag(tags, device_name);
+    ensure_origin_tag(tags, device_id);
+}
+
 /// 创建设备名就是本机时，补上 `origin:`，便于其他成员跳板。
 pub fn ensure_origin_for_creator(tags: &mut Vec<String>, device_id: &str, device_name: &str) {
     let device_name = device_name.trim();
@@ -1664,6 +1707,56 @@ fn legacy_connection_tag_to_path(tag: &str) -> (Option<String>, TagSource) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserve_device_tags_restores_missing_markers() {
+        let mut tags = vec!["prod".to_string()];
+        preserve_device_tags(
+            &mut tags,
+            &["origin:dev-a".to_string(), "creator:Laptop".to_string()],
+        );
+        assert_eq!(origin_device_id(&tags).as_deref(), Some("dev-a"));
+        assert_eq!(creator_device_name(&tags).as_deref(), Some("Laptop"));
+    }
+
+    #[test]
+    fn preserve_device_tags_does_not_override_incoming_origin() {
+        let mut tags = vec!["origin:dev-b".to_string()];
+        preserve_device_tags(&mut tags, &["origin:dev-a".to_string()]);
+        assert_eq!(origin_device_id(&tags).as_deref(), Some("dev-b"));
+    }
+
+    #[test]
+    fn reconcile_stamps_local_device_on_create() {
+        let mut tags = vec!["prod".to_string()];
+        reconcile_device_tags(&mut tags, None, "Laptop", "dev-a");
+        assert_eq!(creator_device_name(&tags).as_deref(), Some("Laptop"));
+        assert_eq!(origin_device_id(&tags).as_deref(), Some("dev-a"));
+    }
+
+    #[test]
+    fn reconcile_keeps_other_device_and_binds_local_creator() {
+        let mut foreign = vec!["creator:Other".to_string()];
+        reconcile_device_tags(&mut foreign, None, "Laptop", "dev-a");
+        assert!(origin_device_id(&foreign).is_none());
+
+        let mut local = vec!["creator:Laptop".to_string()];
+        reconcile_device_tags(&mut local, None, "Laptop", "dev-a");
+        assert_eq!(origin_device_id(&local).as_deref(), Some("dev-a"));
+    }
+
+    #[test]
+    fn reconcile_restores_markers_wiped_by_edit_form() {
+        let previous = vec![
+            "origin:dev-b".to_string(),
+            "creator:Other".to_string(),
+            "prod".to_string(),
+        ];
+        let mut tags = vec!["prod".to_string()];
+        reconcile_device_tags(&mut tags, Some(&previous), "Laptop", "dev-a");
+        assert_eq!(origin_device_id(&tags).as_deref(), Some("dev-b"));
+        assert_eq!(creator_device_name(&tags).as_deref(), Some("Other"));
+    }
 
     #[test]
     fn migrate_device_tags_replaces_device_name_with_creator() {

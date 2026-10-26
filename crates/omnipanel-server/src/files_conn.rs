@@ -3,7 +3,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omnipanel_error::{ErrorCode, OmniError};
-use omnipanel_store::{Connection, ConnectionKind, Vault, ensure_creator_tag};
+use omnipanel_store::{Connection, ConnectionKind, Vault, reconcile_device_tags};
 
 use crate::files::{
     LOCAL_CONNECTION_ID, ftp_connect_sync, load_file_connection, local_home, parse_file_config,
@@ -114,13 +114,15 @@ pub async fn file_save_connection(
     bind_file_connection_secret(&mut connection, secret)?;
     connection.updated_at = unix_secs(SystemTime::now());
     let storage = state.storage.lock().await;
-    // 新建连接时打 creator 标签，标记创建设备
-    if storage.get_connection(&connection.id)?.is_none() {
-        ensure_creator_tag(
-            &mut connection.tags,
-            &crate::auth_cmds::current_device_name(),
-        );
-    }
+    let previous_tags = storage
+        .get_connection(&connection.id)?
+        .map(|existing| existing.tags);
+    reconcile_device_tags(
+        &mut connection.tags,
+        previous_tags.as_deref(),
+        &crate::auth_cmds::current_device_name(),
+        &crate::auth_cmds::current_device_id(),
+    );
     storage.save_connection(&connection)?;
     Ok(connection)
 }

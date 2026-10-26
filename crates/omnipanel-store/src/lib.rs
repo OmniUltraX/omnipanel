@@ -75,10 +75,6 @@ pub use builtin_tool_spec::{
     builtin_tool_spec,
 };
 pub use connection::{Connection, ConnectionKind};
-pub use resource_dedupe::{
-    DedupeApplyReport, DedupeGroup, DedupeMember, DedupeScan, apply_resource_dedupe,
-    scan_resource_duplicates,
-};
 pub use database::{
     BUILTIN_FILE_INDEX_CONN_ID, BUILTIN_META_DB_CONN_ID, DatabaseConnectionStore,
     DbConnectionConfig, ensure_builtin_demo_connections, fill_db_password_from_vault,
@@ -121,6 +117,10 @@ pub use paths::{
     docker_sidebar_cache_path, http_proxy_config_path, knowledge_assets_root,
     knowledge_entry_assets_dir, mcp_services_path, meta_db_path, module_dir, omnipd_root,
     prompts_root, skills_root, web_search_config_path,
+};
+pub use resource_dedupe::{
+    DedupeApplyReport, DedupeGroup, DedupeMember, DedupeScan, apply_resource_dedupe,
+    scan_resource_duplicates,
 };
 pub use resource_profile::{ResourceObservation, ResourceProfileSummary};
 pub use schema_cache::{
@@ -191,7 +191,8 @@ pub use tag::{
     CREATOR_TAG_KEY, ORIGIN_TAG_KEY, ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode,
     TagSource, TaggableKind, TaggedResourceSummary, creator_device_name, ensure_creator_tag,
     ensure_origin_for_creator, ensure_origin_tag, migrate_device_tags_to_creator,
-    normalize_tag_path, normalize_tag_segment, origin_device_id,
+    normalize_tag_path, normalize_tag_segment, origin_device_id, preserve_device_tags,
+    reconcile_device_tags,
 };
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use task_events::{TaskEventFilter, TaskEventRecord};

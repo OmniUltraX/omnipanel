@@ -13,7 +13,7 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
     AppModule, AppModuleStatus, BuiltinToolCatalogEntry, BuiltinToolRecord, Connection,
     ConnectionKind, HttpCollection, HttpEnvironment, HttpHistoryEntry, SavedHttpRequest, Vault,
-    ai_provider_key_ref, ensure_creator_tag,
+    ai_provider_key_ref, ensure_creator_tag, reconcile_device_tags,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -40,13 +40,15 @@ pub async fn conn_save(
     }
     connection.updated_at = now;
     let storage = state.storage.lock().await;
-    // 新建连接时打 creator 标签，标记创建设备（多设备同步时区分来源）
-    if storage.get_connection(&connection.id)?.is_none() {
-        ensure_creator_tag(
-            &mut connection.tags,
-            &crate::auth_cmds::current_device_name(),
-        );
-    }
+    let previous_tags = storage
+        .get_connection(&connection.id)?
+        .map(|existing| existing.tags);
+    reconcile_device_tags(
+        &mut connection.tags,
+        previous_tags.as_deref(),
+        &crate::auth_cmds::current_device_name(),
+        &crate::auth_cmds::current_device_id(),
+    );
     storage.save_connection(&connection)?;
     Ok(connection)
 }

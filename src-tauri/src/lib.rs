@@ -905,6 +905,7 @@ fn build_and_run_tauri() {
                 db_connections,
                 mcp_manager,
             ));
+            commands::database::install_db_connection_store(app_state.db_connections.clone());
             let pool_storage = app_state.storage.clone();
             let ssh_pool = app_state.ssh_pool.clone();
             let ai_registry = app_state.ai_registry.clone();

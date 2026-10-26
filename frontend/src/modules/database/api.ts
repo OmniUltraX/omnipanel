@@ -46,6 +46,8 @@ export interface DbConnectionConfig {
   enabled?: boolean;
   /** 钥匙串中是否已保存密码（列表不返回明文） */
   has_password?: boolean;
+  /** 创建设备等系统标记；新建测试时可为空，保存时由后端补上 */
+  tags?: string[];
 }
 
 /** 未显式设为 `false` 时视为启用（兼容旧配置）。 */
@@ -72,7 +74,11 @@ function formText(value: string | null | undefined): string {
   return value ?? "";
 }
 
-export function formToConnection(form: ConnectionFormData, id = ""): DbConnectionConfig {
+export function formToConnection(
+  form: ConnectionFormData,
+  id = "",
+  tags?: string[],
+): DbConnectionConfig {
   const parsed = Number.parseInt(form.port, 10);
   const port =
     Number.isFinite(parsed) && parsed > 0
@@ -102,6 +108,7 @@ export function formToConnection(form: ConnectionFormData, id = ""): DbConnectio
     group: form.group.trim() || "默认",
     status: "unknown",
     enabled: true,
+    tags: tags ?? [],
   };
 }
 

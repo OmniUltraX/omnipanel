@@ -1,9 +1,11 @@
 //! 内网资源经添加设备转发。
 //!
-//! 公网地址直接拨。内网地址（RFC1918、回环、链路本地、IPv6 ULA）不先直连：
-//! 两个局域网可以有同一个 192.168.1.10。成员连到添加设备的 tailnet 地址，
-//! 由那台设备拨真正的目标。Tailscale 不负责网段路由。
+//! 公网地址直接拨。已标记由其他设备添加的内网地址（RFC1918、回环、链路本地、
+//! IPv6 ULA）不先直连：两个局域网可以有同一个 192.168.1.10。成员连到添加设备的
+//! tailnet 地址，由那台设备拨真正的目标。Tailscale 不负责网段路由。
 //! 添加设备离线或已离开该内网时，资源不可达，不改找其他成员。
+//! 还没有任何创建设备标记的拨号（新建、测试连接、旧数据）由本机直连：
+//! 此时不知道该转给哪台设备。
 
 use std::collections::HashMap;
 use std::io;
@@ -98,6 +100,32 @@ fn active_team_id() -> Option<i64> {
     scope.parse::<i64>().ok().filter(|id| *id > 0)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IntranetDial {
+    Direct,
+    Relay(String),
+    /// 知道是其他设备添加的，但还没有可转发的设备 id。
+    UnboundOrigin,
+}
+
+/// 内网地址怎么拨。没有创建设备标记时直连：新建和测试连接发生在本机，
+/// 也无从知道该转给哪一台设备。
+fn intranet_dial(tags: &[String], self_id: &str, self_name: &str) -> IntranetDial {
+    if let Some(origin) = origin_device_id(tags) {
+        if !self_id.is_empty() && origin == self_id {
+            return IntranetDial::Direct;
+        }
+        return IntranetDial::Relay(origin);
+    }
+    if let Some(creator) = creator_device_name(tags) {
+        if creator.eq_ignore_ascii_case(self_name.trim()) {
+            return IntranetDial::Direct;
+        }
+        return IntranetDial::UnboundOrigin;
+    }
+    IntranetDial::Direct
+}
+
 /// 决定实际拨号地址。直接拨时返回原来的 host/port。
 pub(crate) async fn rewrite_dial(
     host: &str,
@@ -113,28 +141,17 @@ pub(crate) async fn rewrite_dial(
     };
 
     let self_id = current_device_id().unwrap_or_default();
-    if let Some(origin) = origin_device_id(tags) {
-        if !self_id.is_empty() && origin == self_id {
-            return Ok((host.to_string(), port));
+    match intranet_dial(tags, &self_id, &current_device_name()) {
+        IntranetDial::Direct => Ok((host.to_string(), port)),
+        IntranetDial::Relay(origin) => {
+            let local_port = ensure_forward(team_id, &origin, host, port).await?;
+            Ok(("127.0.0.1".to_string(), local_port))
         }
-        let local_port = ensure_forward(team_id, &origin, host, port).await?;
-        return Ok(("127.0.0.1".to_string(), local_port));
-    }
-
-    if let Some(creator) = creator_device_name(tags) {
-        if creator.eq_ignore_ascii_case(current_device_name().trim()) {
-            return Ok((host.to_string(), port));
-        }
-        return Err(OmniError::new(
+        IntranetDial::UnboundOrigin => Err(OmniError::new(
             ErrorCode::Connection,
             "内网资源还没有绑定创建设备，请在添加它的那台设备上重新保存一次",
-        ));
+        )),
     }
-
-    Err(OmniError::new(
-        ErrorCode::Connection,
-        "内网资源缺少创建设备标记，无法经添加设备转发",
-    ))
 }
 
 /// SSH 拨号：逻辑主机名不变，TCP 走跳板监听。
@@ -336,7 +353,7 @@ async fn read_line_exact<R: AsyncReadExt + Unpin>(stream: &mut R) -> io::Result<
 
 #[cfg(test)]
 mod tests {
-    use super::is_intranet_host;
+    use super::{IntranetDial, intranet_dial, is_intranet_host};
 
     #[test]
     fn classifies_intranet_without_cgnat() {
@@ -354,5 +371,34 @@ mod tests {
         assert!(is_intranet_host("fd00::1"));
         assert!(is_intranet_host("fe80::1"));
         assert!(!is_intranet_host("2001:4860:4860::8888"));
+    }
+
+    #[test]
+    fn unmarked_intranet_dials_from_this_device() {
+        assert_eq!(intranet_dial(&[], "dev-a", "laptop"), IntranetDial::Direct);
+        assert_eq!(
+            intranet_dial(&["prod".into()], "dev-a", "laptop"),
+            IntranetDial::Direct
+        );
+    }
+
+    #[test]
+    fn own_marker_dials_direct_and_other_device_relays() {
+        assert_eq!(
+            intranet_dial(&["origin:dev-a".into()], "dev-a", "laptop"),
+            IntranetDial::Direct
+        );
+        assert_eq!(
+            intranet_dial(&["creator:Laptop".into()], "dev-a", "laptop"),
+            IntranetDial::Direct
+        );
+        assert_eq!(
+            intranet_dial(&["origin:dev-b".into()], "dev-a", "laptop"),
+            IntranetDial::Relay("dev-b".into())
+        );
+        assert_eq!(
+            intranet_dial(&["creator:Other".into()], "dev-a", "laptop"),
+            IntranetDial::UnboundOrigin
+        );
     }
 }

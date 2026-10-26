@@ -685,6 +685,13 @@ pub fn current_device_name() -> String {
     local_hostname()
 }
 
+/// 当前设备 id（同步读取，供资源创建时打 `origin:` 标签）。
+pub fn current_device_id() -> String {
+    load_or_create_device_identity()
+        .map(|identity| identity.device_id.trim().to_string())
+        .unwrap_or_default()
+}
+
 /// 获取当前用户设备列表。
 pub async fn auth_list_devices(token: String) -> Result<Vec<AuthDevice>, OmniError> {
     let token = token.trim().to_string();

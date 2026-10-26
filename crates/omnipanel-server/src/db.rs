@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use omnipanel_db::{DbParams, QueryResult};
-use omnipanel_store::{DbConnectionConfig, ensure_creator_tag, fill_db_password_from_vault};
+use omnipanel_store::{DbConnectionConfig, fill_db_password_from_vault, reconcile_device_tags};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -113,19 +113,21 @@ pub async fn db_save_connection(
     state: &ServerState,
     mut connection: DbConnectionConfig,
 ) -> Result<DbConnectionConfig, String> {
-    // 新建连接时打 creator 标签，标记创建设备
-    let existed = !connection.id.trim().is_empty()
-        && state
+    let previous_tags = if connection.id.trim().is_empty() {
+        None
+    } else {
+        state
             .db_connections
             .get_with_secret(&connection.id)
             .map_err(|e| e.to_string())?
-            .is_some();
-    if !existed {
-        ensure_creator_tag(
-            &mut connection.tags,
-            &crate::auth_cmds::current_device_name(),
-        );
-    }
+            .map(|old| old.tags)
+    };
+    reconcile_device_tags(
+        &mut connection.tags,
+        previous_tags.as_deref(),
+        &crate::auth_cmds::current_device_name(),
+        &crate::auth_cmds::current_device_id(),
+    );
     state
         .db_connections
         .save(connection)
