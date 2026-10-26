@@ -94,17 +94,6 @@ export function useResizableTableColumns(
   }, [columnWidths, options?.storageKey]);
 
   useEffect(() => {
-    const table = tableRef.current;
-    if (!table) {
-      return;
-    }
-    for (const column of columns) {
-      const width = columnWidths[column.id] ?? column.defaultWidth;
-      applyColumnWidth(table, column.id, width, constrainMaxWidth);
-    }
-  }, [columnWidths, columns, constrainMaxWidth]);
-
-  useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
       const drag = dragRef.current;
       const table = tableRef.current;

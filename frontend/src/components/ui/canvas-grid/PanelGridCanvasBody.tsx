@@ -245,6 +245,8 @@ export const PanelGridCanvasBody = forwardRef(function PanelGridCanvasBody<T>(
     const canvas = canvasRef.current;
     const wrap = scrollElementRef.current;
     if (!canvas || !wrap) return;
+    // 面板 display:none 时不要把画布收成 1px，否则切回 tab 时行会先窄后宽闪一下。
+    if (wrap.clientWidth <= 0 || wrap.clientHeight <= 0) return;
 
     // 仅结构变化时 rebuild + 重测表头高度（避免每次滚动都 N 次 getBoundingClientRect）
     let snapshot: CanvasGridSnapshot;

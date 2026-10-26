@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -309,10 +310,16 @@ export function DbTablesPanelGrid<T>({
     constrainMaxWidth: false,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const update = () => setHostWidth(host.clientWidth);
+    const update = () => {
+      const next = host.clientWidth;
+      // 库详情 tab 不可见时是 display:none，clientWidth 为 0。
+      // 若写回 0，表名列会先按默认宽度画一帧，切回来再撑满，造成闪烁。
+      if (next <= 0) return;
+      setHostWidth((prev) => (prev === next ? prev : next));
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(host);

@@ -1135,69 +1135,8 @@ export function DatabaseTablesPanel({
       },
     ];
 
-    cols.push({
-      id: "actions",
-      variant: "actions",
-      header: null,
-      headerAriaLabel: t("database.tablesPanel.actions"),
-      defaultWidth: canOpenTableData && canDesign ? 108 : canOpenTableData || canDesign ? 84 : 48,
-      minWidth: 48,
-      render: (tableName) => (
-        <div className="db-tables-panel-row-actions">
-          <button
-            type="button"
-            className="btn-icon db-tables-panel-ddl-btn"
-            title={t("database.contextMenu.viewDdl")}
-            aria-label={t("database.contextMenu.viewDdl")}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleOpenDdlDrawer(tableName);
-            }}
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-              <path d="M4 3h8M4 8h8M4 13h5" />
-            </svg>
-          </button>
-          {canOpenTableData ? (
-            <button
-              type="button"
-              className="btn-icon db-tables-panel-data-btn"
-              title={t("database.contextMenu.viewTableData")}
-              aria-label={t("database.contextMenu.viewTableData")}
-              onClick={(event) => {
-                event.stopPropagation();
-                handleOpenTableData(tableName);
-              }}
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-                <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-                <path d="M2.5 6h11M2.5 9.5h11M6 2.5v11M10 2.5v11" />
-              </svg>
-            </button>
-          ) : null}
-          {canDesign ? (
-            <button
-              type="button"
-              className="btn-icon db-tables-panel-design-btn"
-              title={t("database.contextMenu.designTable")}
-              aria-label={t("database.contextMenu.designTable")}
-              onClick={(event) => {
-                event.stopPropagation();
-                handleDesignTable(tableName);
-              }}
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="14" height="14" aria-hidden>
-                <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
-                <path d="M5 8h6M8 5v6" />
-              </svg>
-            </button>
-          ) : null}
-        </div>
-      ),
-    });
-
     return cols;
-  }, [canDesign, canOpenTableData, detailsByTable, handleDesignTable, handleOpenDdlDrawer, handleOpenTableData, loadingLabel, t, tableComments]);
+  }, [detailsByTable, loadingLabel, t, tableComments]);
 
   return (
     <div ref={panelRef} className="db-tables-panel db-tables-panel--dock">
@@ -1353,6 +1292,7 @@ export function DatabaseTablesPanel({
             )}
             {cacheReady && tableCount > 0 && (
               <DbTablesPanelGrid
+                variant="processlist"
                 columns={tableColumns}
                 rows={sortedTables}
                 rowKey={(tableName) => tableName}
