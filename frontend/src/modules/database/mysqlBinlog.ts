@@ -21,9 +21,18 @@ function ipcConn(connection: DbConnectionConfig): BindingsDbConnectionConfig {
   return connection as BindingsDbConnectionConfig;
 }
 
-/** 官方 my2sql Linux x86_64 二进制（仓库内置，无 GitHub Releases）。 */
-export const MY2SQL_DOWNLOAD_URL =
-  "https://raw.githubusercontent.com/liuhr/my2sql/master/releases/centOS_release_7.x/my2sql";
+/**
+ * 官方 my2sql Linux x86_64 二进制（仓库内置，无 GitHub Releases）。
+ * 顺序与 `capabilities.rs` 的 `MY2SQL_DOWNLOAD_CANDIDATES` 保持一致：
+ * 官方源连不上时改走 jsDelivr。
+ */
+export const MY2SQL_DOWNLOAD_URLS = [
+  "https://raw.githubusercontent.com/liuhr/my2sql/master/releases/centOS_release_7.x/my2sql",
+  "https://cdn.jsdelivr.net/gh/liuhr/my2sql@master/releases/centOS_release_7.x/my2sql",
+  "https://fastly.jsdelivr.net/gh/liuhr/my2sql@master/releases/centOS_release_7.x/my2sql",
+] as const;
+
+export const MY2SQL_DOWNLOAD_URL = MY2SQL_DOWNLOAD_URLS[0];
 
 /** 默认安装路径（用户目录，无需 sudo）。 */
 export const MY2SQL_REMOTE_INSTALL_PATH = "~/.omnipanel/bin/my2sql";
@@ -433,8 +442,9 @@ export async function resolveFlashbackTool(
   return { status: "need_install", remoteOs, remoteArch };
 }
 
-/** 本机下载 my2sql 并 SFTP 安装；失败则远端 curl 回退。 */
+/** 本机按官方源和镜像依次下载并 SFTP 安装；全部失败则让远端自己再试一遍。 */
 export async function installRemoteMy2sql(sshConnectionId: string): Promise<string> {
+  let localErr: unknown;
   try {
     return await unwrapCommand(
       commands.sshPoolDownloadInstallBinary(
@@ -443,24 +453,35 @@ export async function installRemoteMy2sql(sshConnectionId: string): Promise<stri
         MY2SQL_REMOTE_INSTALL_PATH,
       ),
     );
-  } catch (localErr) {
-    const quotedUrl = shellQuote(MY2SQL_DOWNLOAD_URL);
-    const installCmd = [
-      `mkdir -p "$HOME/.omnipanel/bin"`,
-      `&& (curl -fsSL ${quotedUrl} -o "$HOME/.omnipanel/bin/my2sql" || wget -qO "$HOME/.omnipanel/bin/my2sql" ${quotedUrl})`,
-      `&& chmod 755 "$HOME/.omnipanel/bin/my2sql"`,
-      `&& printf %s "$HOME/.omnipanel/bin/my2sql"`,
-    ].join(" ");
-    const res = await sshExec(sshConnectionId, installCmd);
-    const path = res.stdout.trim().split(/\r?\n/).pop()?.trim() ?? "";
-    if (res.exitCode !== 0 || !path) {
-      const detail =
-        res.stderr.trim() ||
-        (localErr instanceof Error ? localErr.message : String(localErr));
-      throw new Error(`安装 my2sql 失败：${detail}`);
-    }
-    return path;
+  } catch (err) {
+    localErr = err;
   }
+
+  const dest = `"$HOME/.omnipanel/bin/my2sql"`;
+  const attempts = MY2SQL_DOWNLOAD_URLS.map((url) => {
+    const quoted = shellQuote(url);
+    return [
+      `{ curl -fsSL ${quoted} -o ${dest} || wget -qO ${dest} ${quoted}; }`,
+      `&& magic=$(od -An -t x1 -N 4 ${dest} | tr -d '[:space:]')`,
+      `&& [ "$magic" = 7f454c46 ]`,
+    ].join(" ");
+  }).join(" || ");
+  const installCmd = [
+    `mkdir -p "$HOME/.omnipanel/bin"`,
+    `&& rm -f ${dest}`,
+    `&& (${attempts})`,
+    `&& chmod 755 ${dest}`,
+    `&& printf %s "$HOME/.omnipanel/bin/my2sql"`,
+  ].join(" ");
+  const res = await sshExec(sshConnectionId, installCmd);
+  const path = res.stdout.trim().split(/\r?\n/).pop()?.trim() ?? "";
+  if (res.exitCode !== 0 || !path) {
+    const remoteDetail = res.stderr.trim();
+    const localDetail = localErr instanceof Error ? localErr.message : String(localErr);
+    const detail = [localDetail, remoteDetail].filter(Boolean).join("；");
+    throw new Error(`安装 my2sql 失败：${detail}`);
+  }
+  return path;
 }
 
 function my2sqlConnectHost(

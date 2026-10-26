@@ -2681,10 +2681,32 @@ note:v2
 // 二进制下载安装
 // ============================================================================
 
+/// my2sql 官方文件在仓库里，没有 GitHub Releases。
+/// raw.githubusercontent.com 在部分网络会被连接重置，后面两个是同一文件的 jsDelivr 镜像。
+const MY2SQL_DOWNLOAD_CANDIDATES: &[&str] = &[
+    "https://raw.githubusercontent.com/liuhr/my2sql/master/releases/centOS_release_7.x/my2sql",
+    "https://cdn.jsdelivr.net/gh/liuhr/my2sql@master/releases/centOS_release_7.x/my2sql",
+    "https://fastly.jsdelivr.net/gh/liuhr/my2sql@master/releases/centOS_release_7.x/my2sql",
+];
+
+/// 请求的就是这份 my2sql 时，按官方源 → jsDelivr 依次尝试。
+fn download_url_candidates(url: &str) -> Vec<&str> {
+    if MY2SQL_DOWNLOAD_CANDIDATES.contains(&url) {
+        MY2SQL_DOWNLOAD_CANDIDATES.to_vec()
+    } else {
+        vec![url]
+    }
+}
+
+fn is_elf_binary(bytes: &[u8]) -> bool {
+    bytes.len() >= 4 && bytes.starts_with(b"\x7fELF")
+}
+
 /// 仅允许从白名单 URL 本机下载二进制（用于 my2sql 等独立 IPC 入口）。
 pub fn assert_allowed_binary_download_url(url: &str) -> Result<(), OmniError> {
     let ok = url.starts_with("https://raw.githubusercontent.com/liuhr/my2sql/")
-        || url.starts_with("https://github.com/liuhr/my2sql/");
+        || url.starts_with("https://github.com/liuhr/my2sql/")
+        || MY2SQL_DOWNLOAD_CANDIDATES.contains(&url);
     if ok {
         Ok(())
     } else {
@@ -2715,30 +2737,34 @@ pub async fn download_install_binary(
     }
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
+        .user_agent("omnipanel")
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(45))
         .build()
         .map_err(|e| OmniError::new(ErrorCode::Connection, format!("创建下载客户端失败: {e}")))?;
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Connection, format!("下载失败: {e}")))?;
-    if !response.status().is_success() {
+    let candidates = download_url_candidates(url);
+    let mut errors: Vec<String> = Vec::new();
+    let mut bytes: Option<Vec<u8>> = None;
+    for candidate in &candidates {
+        match fetch_elf_binary(&client, candidate).await {
+            Ok(body) => {
+                bytes = Some(body);
+                break;
+            }
+            Err(err) => errors.push(format!("{candidate}: {err}")),
+        }
+    }
+    let Some(bytes) = bytes else {
+        let detail = if errors.len() <= 1 {
+            errors.pop().unwrap_or_else(|| "未知错误".to_string())
+        } else {
+            format!("官方源与镜像都失败（{}）", errors.join("；"))
+        };
         return Err(OmniError::new(
             ErrorCode::Connection,
-            format!("下载失败，HTTP {}", response.status()),
+            format!("下载失败: {detail}"),
         ));
-    }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| OmniError::new(ErrorCode::Io, format!("读取下载内容失败: {e}")))?;
-    if bytes.len() < 1024 {
-        return Err(OmniError::new(
-            ErrorCode::InvalidInput,
-            "下载内容过小，可能不是有效二进制",
-        ));
-    }
+    };
 
     let abs_path = if remote_path.starts_with("~/") || remote_path == "~" {
         let home = session.exec_capture("printf %s \"$HOME\"").await?;
@@ -2781,4 +2807,49 @@ pub async fn download_install_binary(
     }
 
     Ok(abs_path)
+}
+
+async fn fetch_elf_binary(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取失败: {e}"))?;
+    if !is_elf_binary(&bytes) {
+        return Err("内容不是 ELF 二进制".to_string());
+    }
+    Ok(bytes.to_vec())
+}
+
+#[cfg(test)]
+mod download_url_tests {
+    use super::{MY2SQL_DOWNLOAD_CANDIDATES, download_url_candidates, is_elf_binary};
+
+    #[test]
+    fn my2sql_url_falls_back_to_jsdelivr() {
+        let urls = download_url_candidates(MY2SQL_DOWNLOAD_CANDIDATES[0]);
+        assert_eq!(urls.len(), 3);
+        assert!(urls[1].contains("cdn.jsdelivr.net"));
+        assert!(urls[2].contains("fastly.jsdelivr.net"));
+    }
+
+    #[test]
+    fn other_urls_are_not_rewritten() {
+        let urls = download_url_candidates("https://example.com/tool");
+        assert_eq!(urls, ["https://example.com/tool"]);
+    }
+
+    #[test]
+    fn elf_magic_rejects_html() {
+        assert!(is_elf_binary(b"\x7fELF\x02\x01"));
+        assert!(!is_elf_binary(b"<html>not a binary</html>"));
+        assert!(!is_elf_binary(b"\x7fEL"));
+    }
 }
