@@ -43,7 +43,10 @@ function tabMetaFingerprint(tabs: DockableTab[]): string {
 
 let lastPublishedTabMetaFingerprint = "";
 
+let allMetaSnapshot: ReadonlyMap<string, DockTabLiveMeta> = new Map();
+
 function emit() {
+  allMetaSnapshot = new Map(metaByTabId);
   for (const listener of listeners) {
     listener();
   }
@@ -162,5 +165,14 @@ export function useDockTabLiveMeta(tabId: string): DockTabLiveMeta {
     subscribe,
     () => getSnapshot(tabId),
     () => getSnapshot(tabId),
+  );
+}
+
+/** 溢出菜单等列表一次订阅全部 Tab 头快照。引用只在元数据变化时更换。 */
+export function useDockTabLiveMetaMap(): ReadonlyMap<string, DockTabLiveMeta> {
+  return useSyncExternalStore(
+    subscribe,
+    () => allMetaSnapshot,
+    () => allMetaSnapshot,
   );
 }

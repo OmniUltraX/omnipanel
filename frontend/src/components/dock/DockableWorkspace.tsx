@@ -63,6 +63,9 @@ import { MODULE_PATHS, DASHBOARD_PATH } from "../../lib/paths";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
 import { syncPanelTabParams, tabParamsFromDockableTab } from "./dockTabParams";
 import { publishDockTabMeta } from "./dockTabLiveMeta";
+import { useDockTabActiveIndicator } from "./useDockTabActiveIndicator";
+import { useDockTabOverflow } from "./useDockTabOverflow";
+import "./dockTabOverflow.css";
 import type { DockHeaderIconKind } from "./DockHeaderIcon";
 import type { DockTabPageType } from "./dockableTab";
 import type { DockWindowChromeMode } from "./dockWindowChromeActions";
@@ -1746,6 +1749,16 @@ export function DockableWorkspace({
     publishDockTabMeta(tabs);
   }, [tabs]);
 
+  const tabMruRef = useRef<string[]>([]);
+  useEffect(() => {
+    const ids = new Set(tabs.map((tab) => tab.id));
+    const kept = tabMruRef.current.filter((id) => ids.has(id));
+    tabMruRef.current =
+      activeTabId && ids.has(activeTabId)
+        ? [activeTabId, ...kept.filter((id) => id !== activeTabId)]
+        : kept;
+  }, [activeTabId, tabs]);
+
   // 同步 tab 栏隐藏（兜底：Tab 头未挂载 hook 时仍按 tabBarHidden 隐藏标签）
   useLayoutEffect(() => {
     const root = wrapperRef.current;
@@ -2406,6 +2419,17 @@ export function DockableWorkspace({
     windowControl,
   );
 
+  useDockTabActiveIndicator(wrapperRef, layoutReady);
+  const tabOverflowMenu = useDockTabOverflow({
+    rootRef: wrapperRef,
+    apiRef,
+    enabled: layoutReady && !disableTabsOverflowList,
+    tabs,
+    activeTabId,
+    mruRef: tabMruRef,
+    resolveTabGroupMeta,
+  });
+
   if (tabs.length === 0 && !keepDockviewMounted) {
     return (
       <div className={`dockable-workspace dock-header-${defaultHeaderPosition}${className ? ` ${className}` : ""}`}>
@@ -2450,6 +2474,7 @@ export function DockableWorkspace({
           />
         </DockTabHeaderRuntimeContext.Provider>
       </DockErrorBoundary>
+      {tabOverflowMenu}
     </div>
   );
 }
