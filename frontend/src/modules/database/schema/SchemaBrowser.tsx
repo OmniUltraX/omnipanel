@@ -114,7 +114,7 @@ export function SchemaBrowser({
     connectionsReady,
   });
 
-  const stickyAncestors = !search.trim();
+  const stickyAncestors = true;
   const flatRowsRef = useRef(flatRows);
   flatRowsRef.current = flatRows;
   const [stickyIndexes, setStickyIndexes] = useState<number[]>([]);

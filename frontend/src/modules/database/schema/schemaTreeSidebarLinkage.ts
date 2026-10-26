@@ -29,6 +29,36 @@ export function resolveSchemaTreeScrollTarget(params: {
   return null;
 }
 
+/**
+ * 搜索时要留在视口中间的当前上下文：连接，以及所在库（如果有）。
+ */
+export function resolveSchemaSearchContextIds(params: {
+  activeTableKey: string | null | undefined;
+  activeDatabaseKey: string | null | undefined;
+  activeConnId: string | null | undefined;
+}): string[] {
+  const objectId = params.activeTableKey;
+  const objectParsed = objectId
+    ? parseTableNodeId(objectId) ?? parseViewNodeId(objectId)
+    : null;
+  if (objectParsed) {
+    return [
+      connectionNodeId(objectParsed.connId),
+      makeDatabaseNodeId(objectParsed.connId, objectParsed.dbName),
+    ];
+  }
+  if (params.activeDatabaseKey) {
+    const databaseParsed = parseDatabaseNodeId(params.activeDatabaseKey);
+    if (databaseParsed) {
+      return [connectionNodeId(databaseParsed.connId), params.activeDatabaseKey];
+    }
+  }
+  if (params.activeConnId) {
+    return [connectionNodeId(params.activeConnId)];
+  }
+  return [];
+}
+
 export function collectExpandedIdsForScrollTarget(targetId: string): string[] {
   const ids: string[] = [];
 

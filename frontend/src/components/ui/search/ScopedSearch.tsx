@@ -213,7 +213,8 @@ export const ScopedSearch = forwardRef<ScopedSearchHandle, ScopedSearchProps>(fu
         cancelAnimationFrame(scrollRafId);
         scrollRafId = requestAnimationFrame(() => {
           const scrollHost = findScopedSearchScrollHost(root);
-          if (scrollHost.scrollTop > 4) {
+          // schema 树自己把当前上级留在视口里，这里再滚到首个匹配会把它拽走。
+          if (scrollHost.classList.contains("schema-tree") || scrollHost.scrollTop > 4) {
             lastScrolledQueryRef.current = needle;
             return;
           }

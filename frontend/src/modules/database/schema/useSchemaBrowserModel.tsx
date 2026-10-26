@@ -72,6 +72,7 @@ import {
 } from "./schemaTreeNodeActions";
 import {
   collectExpandedIdsForScrollTarget,
+  resolveSchemaSearchContextIds,
   resolveSchemaTreeScrollTarget,
 } from "./schemaTreeSidebarLinkage";
 import { mergeConnectionsWithCache, type CachedConnection } from "./schemaCacheMerge";
@@ -102,6 +103,7 @@ import {
   findSchemaFlatRowIndexByNodeId,
   isSchemaFlatRowIndexInViewport,
   scrollSchemaFlatRowIntoView,
+  scrollSchemaRowsToCenter,
   SCHEMA_TREE_NODE_ROW_HEIGHT,
   SCHEMA_TREE_VIRTUALIZE_THRESHOLD,
   type SchemaFlatRow,
@@ -1295,12 +1297,6 @@ export function useSchemaBrowserModel({
     ],
   );
 
-  useEffect(() => {
-    if (schemaTreeRef.current) {
-      schemaTreeRef.current.scrollTop = 0;
-    }
-  }, [search]);
-
   const selectableNodeIds = useMemo(
     () =>
       flatRows
@@ -1328,6 +1324,44 @@ export function useSchemaBrowserModel({
   });
   const rowVirtualizerRef = useRef(rowVirtualizer);
   rowVirtualizerRef.current = rowVirtualizer;
+  const searchAnchorQueryRef = useRef<string | null>(null);
+
+  // 搜索词变化时把当前连接和库滚到视口中间，不保留旧的滚动条位置。
+  useLayoutEffect(() => {
+    const query = search.trim();
+    if (!query) {
+      searchAnchorQueryRef.current = null;
+      return;
+    }
+    if (searchAnchorQueryRef.current === query) {
+      return;
+    }
+    const container = schemaTreeRef.current;
+    if (!container) {
+      return;
+    }
+    const contextIds = resolveSchemaSearchContextIds({
+      activeTableKey,
+      activeDatabaseKey,
+      activeConnId,
+    });
+    const rowIndexes = contextIds
+      .map((id) => findSchemaFlatRowIndexByNodeId(flatRows, id))
+      .filter((index) => index >= 0);
+    if (rowIndexes.length === 0) {
+      return;
+    }
+    searchAnchorQueryRef.current = query;
+    scrollSchemaRowsToCenter(
+      container,
+      flatRows,
+      rowIndexes,
+      useTreeVirtualization
+        ? (index) =>
+            rowVirtualizerRef.current.scrollToIndex(index, { align: "center", behavior: "auto" })
+        : undefined,
+    );
+  }, [search, flatRows, activeTableKey, activeDatabaseKey, activeConnId, useTreeVirtualization]);
 
   const virtualRows = useTreeVirtualization ? rowVirtualizer.getVirtualItems() : [];
 
