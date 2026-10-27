@@ -1,3 +1,5 @@
+import { SidebarNoteKeys } from "../../../lib/sidebarNotes";
+
 /** 侧栏单击预览、双击常驻。 */
 export type SchemaDockOpenMode = "preview" | "permanent";
 
@@ -560,4 +562,35 @@ export function findTabIdForTable(
       tab.dbName === dbName &&
       tab.tableName === tableName,
   )?.id;
+}
+
+/** 溢出列表的备注键和连接地址。SQL 草稿没有连接 id，不附带。 */
+export function databaseTabOverflowAside(
+  tab: DbWorkspaceTab,
+  connections: { id: string; host?: string; port?: number; database?: string }[],
+  sqlBinding?: { connId?: string; database?: string },
+): { noteKey?: string; detail?: string } {
+  const connId =
+    "connId" in tab && tab.connId ? tab.connId : sqlBinding?.connId?.trim() || "";
+  if (!connId) return {};
+  const conn = connections.find((item) => item.id === connId);
+  const host = conn?.host?.trim() ? `${conn.host}:${conn.port ?? ""}` : "";
+  const boundDatabase =
+    ("dbName" in tab ? tab.dbName?.trim() : "") ||
+    sqlBinding?.database?.trim() ||
+    conn?.database?.trim() ||
+    "";
+  const hostText = [host, boundDatabase].filter(Boolean).join(" · ");
+  const detail =
+    hostText && hostText !== tab.label && !tab.label.includes(hostText) ? hostText : undefined;
+  if (tab.kind === "table" || tab.kind === "designer") {
+    return {
+      noteKey: SidebarNoteKeys.databaseTable(tab.connId, tab.dbName, tab.tableName),
+      detail,
+    };
+  }
+  return {
+    noteKey: SidebarNoteKeys.databaseConnection(connId),
+    detail,
+  };
 }

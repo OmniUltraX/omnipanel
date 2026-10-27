@@ -11,10 +11,16 @@ import {
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
 import { clampMenuPosition } from "../../lib/contextMenuPosition";
+import {
+  getTextSearchMatchIndices,
+  splitTextByMatchIndices,
+} from "../../lib/textSearchMatch";
+import { useSidebarNoteStore } from "../../stores/sidebarNoteStore";
 import { DockHeaderIcon } from "./DockHeaderIcon";
 import {
   buildDockTabOverflowSections,
-  splitMatch,
+  dockTabOverflowSubtitle,
+  type DockTabOverflowMode,
   type DockTabOverflowTab,
 } from "./dockTabOverflowModel";
 
@@ -40,6 +46,58 @@ interface DockTabOverflowMenuProps {
 
 const MENU_WIDTH = 300;
 const VIEWPORT_GAP = 8;
+const MODE_STORAGE_KEY = "omnipanel.dock.tabOverflowMode";
+const OVERFLOW_MODES: DockTabOverflowMode[] = ["order", "group", "recent"];
+
+function OverflowModeIcon({ mode }: { mode: DockTabOverflowMode }) {
+  if (mode === "group") {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <path
+          stroke="currentColor"
+          strokeWidth="1.5"
+          d="M2.5 3h4.5v4H2.5zM9 3h4.5v4H9zM2.5 9.5h11v3.5h-11z"
+        />
+      </svg>
+    );
+  }
+  if (mode === "recent") {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <circle cx="8" cy="8" r="5.25" stroke="currentColor" strokeWidth="1.5" />
+        <path stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" d="M8 5.2V8.2l2.2 1.4" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" d="M2.5 4h11M2.5 8h11M2.5 12h7" />
+    </svg>
+  );
+}
+
+function readOverflowMode(): DockTabOverflowMode {
+  try {
+    const value = localStorage.getItem(MODE_STORAGE_KEY);
+    if (value === "order" || value === "group" || value === "recent") return value;
+  } catch {
+    /* 隐私模式写不了本地存储时保持默认 */
+  }
+  return "group";
+}
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  const parts = splitTextByMatchIndices(text, getTextSearchMatchIndices(text, query));
+  return parts.map((part, index) =>
+    part.matched ? (
+      <mark key={index} className="dock-tab-overflow__mark">
+        {part.text}
+      </mark>
+    ) : (
+      <span key={index}>{part.text}</span>
+    ),
+  );
+}
 
 function tabStatusClass(status?: string) {
   if (status === "connected" || status === "online") return "online";
@@ -77,17 +135,28 @@ export function DockTabOverflowMenu({
   onDismiss,
 }: DockTabOverflowMenuProps) {
   const { t } = useI18n();
+  const notes = useSidebarNoteStore((state) => state.notes);
   const listId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<DockTabOverflowMode>(readOverflowMode);
   const [highlight, setHighlight] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const [position, setPosition] = useState(() => placeMenu(anchor, 280));
 
+  const notedTabs = useMemo(
+    () =>
+      tabs.map((tab) => {
+        const note = tab.noteKey ? notes[tab.noteKey]?.trim() : undefined;
+        return note ? { ...tab, note } : tab;
+      }),
+    [notes, tabs],
+  );
+
   const sections = useMemo(
-    () => buildDockTabOverflowSections(tabs, query, mru, resolveGroupLabel),
-    [tabs, query, mru, resolveGroupLabel],
+    () => buildDockTabOverflowSections(notedTabs, query, mru, resolveGroupLabel, mode),
+    [mode, mru, notedTabs, query, resolveGroupLabel],
   );
   const flat = useMemo(() => sections.flatMap((section) => section.items), [sections]);
   const safeIndex = flat.length === 0 ? -1 : Math.min(highlight, flat.length - 1);
@@ -247,6 +316,7 @@ export function DockTabOverflowMenu({
                 cursor += 1;
                 const optionId = `${listId}-${index}`;
                 const highlighted = index === safeIndex;
+                const subtitle = dockTabOverflowSubtitle(item);
                 return (
                   <div
                     key={item.id}
@@ -261,7 +331,7 @@ export function DockTabOverflowMenu({
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    title={item.tooltip || item.label}
+                    title={subtitle ? `${item.label}\n${subtitle}` : item.tooltip || item.label}
                     onMouseEnter={() => setHighlight(index)}
                     onClick={() => onActivate(item.id)}
                     onPointerDown={(event) => {
@@ -281,18 +351,17 @@ export function DockTabOverflowMenu({
                     {item.status ? (
                       <span className={`topbar-tab-dot ${tabStatusClass(item.status)}`} />
                     ) : null}
-                    <span
-                      className={`dock-tab-overflow__label${item.preview ? " is-preview" : ""}`}
-                    >
-                      {splitMatch(item.label, query).map((part, partIndex) =>
-                        part.match ? (
-                          <mark key={partIndex} className="dock-tab-overflow__mark">
-                            {part.text}
-                          </mark>
-                        ) : (
-                          <span key={partIndex}>{part.text}</span>
-                        ),
-                      )}
+                    <span className="dock-tab-overflow__text">
+                      <span
+                        className={`dock-tab-overflow__label${item.preview ? " is-preview" : ""}`}
+                      >
+                        <HighlightedText text={item.label} query={query} />
+                      </span>
+                      {subtitle ? (
+                        <span className="dock-tab-overflow__detail">
+                          <HighlightedText text={subtitle} query={query} />
+                        </span>
+                      ) : null}
                     </span>
                     {item.dirty ? <span className="dock-tab-dirty" aria-label="未保存" /> : null}
                     {!item.dirty && item.saved ? (
@@ -320,7 +389,41 @@ export function DockTabOverflowMenu({
           ))}
         </div>
       )}
-      <div className="dock-tab-overflow__hint">{t("shell.tabOverflow.hint")}</div>
+      <div className="dock-tab-overflow__footer">
+        <div className="dock-tab-overflow__hint">{t("shell.tabOverflow.hint")}</div>
+        <div className="dock-tab-overflow__modes" role="group" aria-label={t("shell.tabOverflow.label")}>
+          {OVERFLOW_MODES.map((item) => {
+            const label =
+              item === "order"
+                ? t("shell.tabOverflow.modeOrder")
+                : item === "group"
+                  ? t("shell.tabOverflow.modeGroup")
+                  : t("shell.tabOverflow.modeRecent");
+            return (
+              <button
+                key={item}
+                type="button"
+                className={`dock-tab-overflow__mode${mode === item ? " is-active" : ""}`}
+                aria-pressed={mode === item}
+                aria-label={label}
+                title={label}
+                onClick={() => {
+                  setMode(item);
+                  setHighlight(0);
+                  try {
+                    localStorage.setItem(MODE_STORAGE_KEY, item);
+                  } catch {
+                    /* 忽略写入失败 */
+                  }
+                  inputRef.current?.focus();
+                }}
+              >
+                <OverflowModeIcon mode={item} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>,
     document.body,
   );

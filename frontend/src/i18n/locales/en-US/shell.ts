@@ -106,6 +106,9 @@ export default {
       empty: "No matching tabs",
       closeTab: "Close tab",
       hint: "↑↓ Select · Enter Open · Middle-click Close",
+      modeOrder: "Order",
+      modeGroup: "Group",
+      modeRecent: "Recent",
     },
     statusbar: {
       backendLogs: "Backend Logs",

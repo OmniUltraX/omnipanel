@@ -15,6 +15,8 @@ import { ProtocolSessionPanel } from "./ProtocolSessionPanel";
 import { useProtocolAddMenu } from "./useProtocolAddMenu";
 import { ProtocolNewTabDialogHost } from "./ProtocolNewTabDialog";
 import { ProtocolHttpProvider, useProtocolHttpOptional } from "./ProtocolHttpContext";
+import { SidebarNoteKeys } from "../../lib/sidebarNotes";
+import { resolveHttpRequestUrl } from "./httpEnvironment";
 
 function ProtocolPanelInner() {
   const { t } = useI18n();
@@ -119,15 +121,26 @@ function ProtocolPanelInner() {
 
   const dockTabs = useMemo(
     () =>
-      tabs.map((tab) => ({
-        id: tab.id,
-        label: tab.label,
-        closable: true,
-        panelType: `protocol-${tab.protocol}`,
-        tooltip: tab.label,
-        preview: tab.preview,
-      })),
-    [tabs],
+      tabs.map((tab) => {
+        const req = tab.resourceId
+          ? savedRequests.find((entry) => entry.id === tab.resourceId)
+          : undefined;
+        const fullUrl = req
+          ? resolveHttpRequestUrl(req.url, req.environmentId ?? null, http?.environments ?? [])
+          : "";
+        const url = fullUrl?.trim() ?? "";
+        return {
+          id: tab.id,
+          label: tab.label,
+          closable: true,
+          panelType: `protocol-${tab.protocol}`,
+          tooltip: tab.label,
+          preview: tab.preview,
+          noteKey: tab.resourceId ? SidebarNoteKeys.protocolEntry(tab.resourceId) : undefined,
+          detail: url && url !== tab.label ? url : undefined,
+        };
+      }),
+    [http?.environments, savedRequests, tabs],
   );
 
   const handleDockTabDoubleClick = useCallback(

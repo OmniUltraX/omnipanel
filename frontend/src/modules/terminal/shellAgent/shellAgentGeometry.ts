@@ -436,7 +436,11 @@ function resolveFrozenHtml(
         toolId: last?.toolId,
         agreedLabel: label,
       });
-      if (transformed) return transformed;
+      // 快路径里确认卡往往只画到表头，变换结果没有命令行。改用完整已同意卡，避免冻成「将在主机执行」。
+      const commandShown =
+        !last?.command?.trim() ||
+        (transformed?.includes("term-shell-agent-card__code") ?? false);
+      if (transformed && commandShown) return transformed;
       if (last?.command) {
         return buildAgreedCmdFrozenHtml({
           sessionId,

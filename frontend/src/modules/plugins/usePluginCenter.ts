@@ -6,6 +6,7 @@ import { commands, type ExternalVerdictDto, type MarketplaceItem, type PluginLis
 import { unwrapCommand } from "../../ipc/result";
 import { PLUGIN_OFFICIAL_CATALOG_UPDATED } from "../../ipc/events";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { showToast } from "../../stores/toastStore";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { useDbxCatalogStore } from "../../stores/dbxCatalogStore";
 import { usePluginHomePinStore } from "../../stores/pluginHomePinStore";
@@ -58,6 +59,7 @@ export function usePluginCenter() {
     manifest: PluginManifest;
   } | null>(null);
   const [installingMarketId, setInstallingMarketId] = useState<string | null>(null);
+  const [marketRefreshing, setMarketRefreshing] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [marketFilter, setMarketFilter] = useState<MarketFilter>("all");
   const [search, setSearch] = useState("");
@@ -91,29 +93,43 @@ export function usePluginCenter() {
     }
   }, [syncRuntime]);
 
+  const reportInstallError = useCallback(
+    (err: unknown) => {
+      const message = t("plugins.center.installFailed", { error: String(err) });
+      setError(message);
+      showToast(message, 5200);
+    },
+    [t],
+  );
+
   const reloadOfficial = useCallback(async (force = false) => {
+    setMarketRefreshing(true);
     try {
-      // 先拉目录（force 时写 cache），再查更新——二者并行会读到旧 cache，发版后横幅空白。
+      // 目录自己刷新 cache。更新查询再用 force 会把 GitHub 再拉一遍。
       const list = await unwrapCommand(commands.pluginMarketCatalog(force), { quiet: true });
       setMarketCatalog(list);
       const [nextUpdates, nextSources] = await Promise.all([
-        unwrapCommand(commands.pluginCheckUpdates(force), { quiet: true }),
+        unwrapCommand(commands.pluginCheckUpdates(false), { quiet: true }),
         unwrapCommand(commands.pluginRegistrySourcesList()),
       ]);
       setUpdates(nextUpdates);
       setSources(nextSources);
+      return true;
     } catch (err) {
-      setError(String(err));
+      const message = String(err);
+      setError(message);
+      showToast(message, 5200);
+      return false;
+    } finally {
+      setMarketRefreshing(false);
     }
   }, []);
 
   const reloadMarket = useCallback(async (force = false) => {
-    try {
-      await Promise.all([reloadOfficial(force), refreshDbx()]);
-      setError(null);
-    } catch (err) {
-      setError(String(err));
-    }
+    const catalogOk = await Promise.all([reloadOfficial(force), refreshDbx()]).then(
+      ([ok]) => ok,
+    );
+    if (catalogOk) setError(null);
   }, [reloadOfficial, refreshDbx]);
 
   useEffect(() => {
@@ -451,7 +467,7 @@ export function usePluginCenter() {
       await reloadMarket();
       setError(null);
     } catch (err) {
-      setError(String(err));
+      reportInstallError(err);
     } finally {
       setInstallingMarketId(null);
     }
@@ -586,22 +602,16 @@ export function usePluginCenter() {
       await startExternalAnalyze(item);
       return;
     }
-    if (item.dbxKey) {
-      setInstallingMarketId(item.id);
-      try {
+    setInstallingMarketId(item.id);
+    try {
+      if (item.dbxKey) {
         await unwrapCommand(commands.pluginDbxInstall(item.dbxKey));
         recordInstall(item.id);
         await reloadInstalled();
         await reloadMarket();
         setError(null);
-      } catch (err) {
-        setError(String(err));
-      } finally {
-        setInstallingMarketId(null);
+        return;
       }
-      return;
-    }
-    try {
       const plan = await unwrapCommand(commands.pluginResolvePlan(item.id, `=${item.version}`));
       if (shouldConfirmInstallPlan(plan, item.id)) {
         setPendingPlan({ targetId: item.id, plan });
@@ -609,7 +619,9 @@ export function usePluginCenter() {
       }
       await executeInstallPlan(plan, item.id);
     } catch (err) {
-      setError(String(err));
+      reportInstallError(err);
+    } finally {
+      setInstallingMarketId(null);
     }
   };
 
@@ -748,6 +760,7 @@ export function usePluginCenter() {
     cancelPendingInstall,
     confirmPendingInstall,
     installingMarketId,
+    marketRefreshing,
     kindFilter,
     setKindFilter,
     kindCounts,

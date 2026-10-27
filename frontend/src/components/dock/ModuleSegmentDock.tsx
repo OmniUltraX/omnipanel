@@ -30,6 +30,10 @@ export interface ModuleSegmentTab {
   label: string;
   icon?: DockHeaderIconKind;
   tooltip?: string;
+  /** 列表副标题：地址、库名、URL 等 */
+  detail?: string;
+  /** 侧栏备注键，溢出列表展示对应备注 */
+  noteKey?: string;
   closable?: boolean;
   status?: TopbarTabDef["status"];
   panelType?: string;
@@ -230,6 +234,8 @@ export const ModuleSegmentDock = memo(function ModuleSegmentDock({
         closable: tab.closable ?? false,
         icon: tab.icon,
         tooltip: tab.tooltip ?? tab.label,
+        detail: tab.detail,
+        noteKey: tab.noteKey,
         status: tab.status,
         tabBarHidden: tab.tabBarHidden,
         type: tab.type,

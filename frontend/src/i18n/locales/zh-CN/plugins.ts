@@ -349,6 +349,8 @@ export default {
       installedCount: "已安装 ({count})",
       marketCount: "市场 ({count})",
       refresh: "刷新市场",
+      refreshing: "正在刷新…",
+      installFailed: "安装失败：{error}",
       get: "获取",
       currentVersion: "当前版本",
       latestVersion: "最新版本",

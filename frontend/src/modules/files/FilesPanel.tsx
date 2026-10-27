@@ -387,6 +387,7 @@ function FilesBrowserView() {
         tooltip: conn.name,
         closable: true,
         preview: previewConnId === connId,
+        noteKey: SidebarNoteKeys.filesConnection(connId),
       });
     }
     return tabs;

@@ -26,6 +26,7 @@ import { SshSidebarLinkageProvider } from "./ssh/SshSidebarLinkageContext";
 import { HostDetailPanel } from "./ssh/components/HostDetailPanel";
 import { useSshHostWorkspace } from "./ssh/hooks/useSshHostWorkspace";
 import { useSshHostResources } from "../../stores/connectionStore";
+import { SidebarNoteKeys } from "../../lib/sidebarNotes";
 import { useSshSelectionStore } from "./ssh/stores/sshSelectionStore";
 import { useSshActiveHostStore } from "./ssh/stores/sshActiveHostStore";
 import { useSshPanelDockStore } from "../../stores/sshPanelDockStore";
@@ -141,14 +142,18 @@ export function SshPanel() {
         .map((tab) => {
           const resource = resourceById.get(tab.hostId);
           if (!resource) return null;
+          const label = resource.name || tab.label;
+          const address = resource.subtitle?.trim();
           return {
             id: tab.id,
-            label: resource.name || tab.label,
+            label,
             panelType: "ssh-host",
             icon: "server" as const,
             closable: true,
             preview: tab.preview,
             tooltip: resource.subtitle ?? resource.name,
+            noteKey: SidebarNoteKeys.sshHost(tab.hostId),
+            detail: address && address !== label ? address : undefined,
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),

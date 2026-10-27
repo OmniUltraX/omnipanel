@@ -21,6 +21,7 @@ import {
   peekHistoryStateField,
 } from "../../lib/historyLocationState";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { SidebarNoteKeys } from "../../lib/sidebarNotes";
 import {
   importDockerFromSshSelections,
   type DockerImportSshSelection,
@@ -81,6 +82,14 @@ const DockerComposePanel = lazy(() =>
 const DockerConnectionDialog = lazy(() =>
   import("./DockerConnectionDialog").then((mod) => ({ default: mod.DockerConnectionDialog })),
 );
+
+function dockerOverflowDetail(label: string, name: string, hostLabel?: string): string | undefined {
+  const parts = [name, hostLabel]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value) && value !== label);
+  const text = [...new Set(parts)].join(" · ");
+  return text || undefined;
+}
 
 function DockerPanelLoadingFallback() {
   return <div className="docker-panel-loading-fallback" aria-hidden />;
@@ -529,6 +538,11 @@ export function DockerPanel() {
               closable: true,
               preview: tab.preview,
               tooltip: `${connection.name} · ${containerName}`,
+              noteKey: SidebarNoteKeys.dockerContainer(
+                tab.connectionId,
+                container?.id ?? tab.containerId,
+              ),
+              detail: dockerOverflowDetail(containerName, connection.name, connection.hostLabel),
             };
           }
 
@@ -541,6 +555,8 @@ export function DockerPanel() {
               closable: true,
               preview: tab.preview,
               tooltip: `${connection.name} · ${tab.composeProject}`,
+              noteKey: SidebarNoteKeys.dockerCompose(tab.connectionId, tab.composeProject),
+              detail: dockerOverflowDetail(tab.composeProject, connection.name, connection.hostLabel),
             };
           }
 
@@ -552,6 +568,8 @@ export function DockerPanel() {
             closable: true,
             preview: tab.preview,
             tooltip: connection.hostLabel ?? connection.name,
+            noteKey: SidebarNoteKeys.dockerConnection(tab.connectionId),
+            detail: dockerOverflowDetail(connection.name, connection.name, connection.hostLabel),
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),

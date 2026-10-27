@@ -101,12 +101,16 @@ fn convert_tools_for_responses(tools: &[ToolDef]) -> Vec<Value> {
 struct ResponsesSseParser {
     /// 当前 function_call 是否已经吃过 arguments delta，避免 done 再拼一遍。
     saw_arg_delta: bool,
+    saw_text: bool,
+    saw_tool: bool,
 }
 
 impl ResponsesSseParser {
     fn new() -> Self {
         Self {
             saw_arg_delta: false,
+            saw_text: false,
+            saw_tool: false,
         }
     }
 
@@ -147,9 +151,23 @@ impl ResponsesSseParser {
         };
         let event_type = evt.get("type").and_then(Value::as_str).unwrap_or("");
         match event_type {
+            "response.output_text.done" => {
+                if self.saw_text {
+                    return;
+                }
+                if let Some(text) = evt.get("text").and_then(Value::as_str) {
+                    if !text.is_empty() {
+                        self.saw_text = true;
+                        events.push(Ok(StreamEvent::ContentDelta {
+                            text: text.to_string(),
+                        }));
+                    }
+                }
+            }
             "response.output_text.delta" => {
                 if let Some(delta) = evt.get("delta").and_then(Value::as_str) {
                     if !delta.is_empty() {
+                        self.saw_text = true;
                         events.push(Ok(StreamEvent::ContentDelta {
                             text: delta.to_string(),
                         }));
@@ -166,22 +184,39 @@ impl ResponsesSseParser {
                 }
             }
             "response.completed" => {
-                if let Some(usage) = evt.get("response").and_then(|r| r.get("usage")) {
-                    let input = usage
-                        .get("input_tokens")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0) as u32;
-                    let output = usage
-                        .get("output_tokens")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0) as u32;
-                    events.push(Ok(StreamEvent::Usage {
-                        input_tokens: input,
-                        output_tokens: output,
-                    }));
+                if let Some(response) = evt.get("response") {
+                    if let Some(usage) = response.get("usage") {
+                        let input = usage
+                            .get("input_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0) as u32;
+                        let output = usage
+                            .get("output_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0) as u32;
+                        events.push(Ok(StreamEvent::Usage {
+                            input_tokens: input,
+                            output_tokens: output,
+                        }));
+                    }
+                    // 有的模型不推 delta，整段正文只放在 completed.output 里。
+                    if !self.saw_text || !self.saw_tool {
+                        let (got_text, got_tools) = push_responses_output(
+                            response.get("output").unwrap_or(&Value::Null),
+                            events,
+                            !self.saw_text,
+                            !self.saw_tool,
+                        );
+                        self.saw_text |= got_text;
+                        self.saw_tool |= got_tools;
+                    }
                 }
                 events.push(Ok(StreamEvent::Done {
-                    stop_reason: StopReason::EndTurn,
+                    stop_reason: if self.saw_tool {
+                        StopReason::ToolUse
+                    } else {
+                        StopReason::EndTurn
+                    },
                 }));
             }
             "error" => {
@@ -208,6 +243,7 @@ impl ResponsesSseParser {
                     .or_else(|| item.get("id").and_then(Value::as_str))
                     .unwrap_or("");
                 self.saw_arg_delta = false;
+                self.saw_tool = true;
                 self.push_tool(id, name, "", events);
             }
             "response.function_call_arguments.delta" => {
@@ -409,7 +445,202 @@ impl AnthropicLiteParser {
     }
 }
 
+/// 从 Responses `output` 数组抽出正文和 function_call。返回是否写了文本、是否写了工具。
+fn push_responses_output(
+    output: &Value,
+    events: &mut Vec<Result<StreamEvent>>,
+    texts: bool,
+    tools: bool,
+) -> (bool, bool) {
+    let Some(items) = output.as_array() else {
+        return (false, false);
+    };
+    let mut got_text = false;
+    let mut got_tools = false;
+    for item in items {
+        match item.get("type").and_then(Value::as_str).unwrap_or("") {
+            "message" if texts => {
+                let Some(parts) = item.get("content").and_then(Value::as_array) else {
+                    continue;
+                };
+                for part in parts {
+                    let kind = part.get("type").and_then(Value::as_str).unwrap_or("");
+                    if kind != "output_text" && kind != "text" {
+                        continue;
+                    }
+                    if let Some(text) = part.get("text").and_then(Value::as_str) {
+                        if !text.is_empty() {
+                            got_text = true;
+                            events.push(Ok(StreamEvent::ContentDelta {
+                                text: text.to_string(),
+                            }));
+                        }
+                    }
+                }
+            }
+            "function_call" if tools => {
+                let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+                if name.is_empty() {
+                    continue;
+                }
+                let id = item
+                    .get("call_id")
+                    .or_else(|| item.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let arguments = item
+                    .get("arguments")
+                    .map(|value| match value {
+                        Value::String(text) => text.clone(),
+                        Value::Null => String::new(),
+                        other => other.to_string(),
+                    })
+                    .unwrap_or_default();
+                got_tools = true;
+                events.push(Ok(StreamEvent::ToolCall {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    arguments,
+                }));
+            }
+            _ => {}
+        }
+    }
+    (got_text, got_tools)
+}
+
+fn is_event_stream(response: &reqwest::Response) -> bool {
+    response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_none_or(|content_type| content_type.contains("text/event-stream"))
+}
+
+/// 网关忽略 `stream: true`、直接回整包 JSON 时，转成和 SSE 一样的事件。
+pub fn events_from_body(text: &str) -> Vec<Result<StreamEvent>> {
+    let text = text.trim();
+    if !text.starts_with('{') {
+        return Vec::new();
+    }
+    let val: Value = match serde_json::from_str(text) {
+        Ok(val) => val,
+        Err(err) => {
+            return vec![Ok(StreamEvent::Error {
+                message: format!("OpenCode Go 响应不是 JSON: {err}"),
+            })];
+        }
+    };
+    if let Some(message) = val
+        .get("error")
+        .and_then(|err| err.get("message").or_else(|| err.as_str().map(|_| err)))
+        .and_then(Value::as_str)
+    {
+        return vec![Ok(StreamEvent::Error {
+            message: message.to_string(),
+        })];
+    }
+    let mut events = Vec::new();
+    if val.get("choices").is_some() {
+        // Chat Completions 整包走和 SSE 同一套解析。
+        crate::wire_chat::parse_completion_line(text, &mut events);
+        if events.is_empty() {
+            events.push(Ok(StreamEvent::Done {
+                stop_reason: StopReason::EndTurn,
+            }));
+        }
+        return events;
+    }
+    let output = val.get("output").or_else(|| {
+        val.get("response")
+            .and_then(|response| response.get("output"))
+    });
+    if let Some(output) = output {
+        let (got_text, got_tools) = push_responses_output(output, &mut events, true, true);
+        if got_text || got_tools {
+            events.push(Ok(StreamEvent::Done {
+                stop_reason: if got_tools {
+                    StopReason::ToolUse
+                } else {
+                    StopReason::EndTurn
+                },
+            }));
+            return events;
+        }
+    }
+    if let Some(blocks) = val.get("content").and_then(Value::as_array) {
+        let mut got_tools = false;
+        for block in blocks {
+            match block.get("type").and_then(Value::as_str).unwrap_or("") {
+                "text" => {
+                    if let Some(text) = block.get("text").and_then(Value::as_str) {
+                        if !text.is_empty() {
+                            events.push(Ok(StreamEvent::ContentDelta {
+                                text: text.to_string(),
+                            }));
+                        }
+                    }
+                }
+                "tool_use" => {
+                    let name = block.get("name").and_then(Value::as_str).unwrap_or("");
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let id = block.get("id").and_then(Value::as_str).unwrap_or("");
+                    let arguments = block
+                        .get("input")
+                        .map(|input| input.to_string())
+                        .unwrap_or_else(|| "{}".into());
+                    got_tools = true;
+                    events.push(Ok(StreamEvent::ToolCall {
+                        id: id.to_string(),
+                        name: name.to_string(),
+                        arguments,
+                    }));
+                }
+                _ => {}
+            }
+        }
+        if !events.is_empty() {
+            let stop = val.get("stop_reason").and_then(Value::as_str);
+            let stop_reason = if got_tools || stop == Some("tool_use") {
+                StopReason::ToolUse
+            } else if stop == Some("max_tokens") {
+                StopReason::MaxTokens
+            } else {
+                StopReason::EndTurn
+            };
+            events.push(Ok(StreamEvent::Done { stop_reason }));
+            return events;
+        }
+    }
+    events.push(Ok(StreamEvent::Error {
+        message: "OpenCode Go 响应里没有可显示的内容".into(),
+    }));
+    events
+}
+
+fn parse_completion_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
+    omnipanel_ai::providers::openai::parse_sse_line(line, events);
+}
+
 type ParseLineFn = Arc<dyn Fn(&str, &mut Vec<Result<StreamEvent>>) + Send + Sync>;
+
+pub async fn response_to_stream(
+    response: reqwest::Response,
+    parse_line: ParseLineFn,
+) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        bail!("OpenCode Go 对话失败 {status}: {text}");
+    }
+    if !is_event_stream(&response) {
+        let text = response.text().await.unwrap_or_default();
+        return Ok(Box::pin(futures::stream::iter(events_from_body(&text))));
+    }
+    Ok(sse_bytes_stream(response, parse_line))
+}
 
 fn sse_bytes_stream(
     response: reqwest::Response,
@@ -480,18 +711,14 @@ pub async fn chat_stream_wire(
                 .json(&body)
                 .send()
                 .await?;
-            if !response.status().is_success() {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                bail!("OpenCode Go 对话失败 {status}: {text}");
-            }
             let parser = Arc::new(Mutex::new(ResponsesSseParser::new()));
-            Ok(sse_bytes_stream(
+            response_to_stream(
                 response,
                 Arc::new(move |line, events| {
                     parser.lock().unwrap().parse_line(line, events);
                 }),
-            ))
+            )
+            .await
         }
         WireApi::AnthropicMessages => {
             let url = format!("{base}/messages");
@@ -507,19 +734,14 @@ pub async fn chat_stream_wire(
                 .json(&body)
                 .send()
                 .await?;
-            if !response.status().is_success() {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                bail!("OpenCode Go 对话失败 {status}: {text}");
-            }
             let parser = Arc::new(Mutex::new(AnthropicLiteParser::new()));
-            Ok(sse_bytes_stream(
+            response_to_stream(
                 response,
                 Arc::new(move |line, events| {
-                    let mut p = parser.lock().unwrap();
-                    p.parse_line(line, events);
+                    parser.lock().unwrap().parse_line(line, events);
                 }),
-            ))
+            )
+            .await
         }
     }
 }
@@ -639,5 +861,44 @@ mod tests {
                 (String::new(), String::new(), "{}".into()),
             ]
         );
+        let texts: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                Ok(StreamEvent::ContentDelta { text }) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, vec!["正在查询"]);
+    }
+
+    #[test]
+    fn completed_output_fills_text_when_no_deltas() {
+        let mut parser = ResponsesSseParser::new();
+        let mut events = Vec::new();
+        parser.parse_line(
+            r#"data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"历史上的今天"}]}]}}"#,
+            &mut events,
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Ok(StreamEvent::ContentDelta { text }) if text == "历史上的今天"
+        )));
+    }
+
+    #[test]
+    fn json_body_keeps_responses_tool_call() {
+        let events = events_from_body(
+            r#"{"output":[{"type":"function_call","call_id":"call_9","name":"omni_plan_create","arguments":"{\"title\":\"t\"}"}]}"#,
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Ok(StreamEvent::ToolCall { id, name, .. }) if id == "call_9" && name == "omni_plan_create"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Ok(StreamEvent::Done {
+                stop_reason: StopReason::ToolUse
+            })
+        )));
     }
 }

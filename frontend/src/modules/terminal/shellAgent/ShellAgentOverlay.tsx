@@ -408,14 +408,28 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
 
   const geoSnapRef = useRef("");
   useEffect(() => {
-    return subscribeShellAgentGeometry((sid) => {
+    let raf = 0;
+    let pendingSnap = "";
+    const unsub = subscribeShellAgentGeometry((sid) => {
       if (sid !== sessionId) return;
       const g = getShellAgentGeometry(sessionId);
-      const snap = `${g?.version ?? ""}|${g?.cardKind ?? ""}|${g?.rows ?? ""}|${g?.anchorLine ?? ""}`;
+      const snap = `${g?.version ?? ""}|${g?.cardKind ?? ""}|${g?.rows ?? ""}|${g?.anchorLine ?? ""}|${g?.mode ?? ""}`;
       if (geoSnapRef.current === snap) return;
-      geoSnapRef.current = snap;
-      setGeoVersion((v) => v + 1);
+      // 钉卡会在 effect 里同步改几何。当场 setState 会让 effect 再跑，
+      // 嵌套超过约 50 次就是 Maximum update depth。拖到下一帧再提交。
+      pendingSnap = snap;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (!pendingSnap || geoSnapRef.current === pendingSnap) return;
+        geoSnapRef.current = pendingSnap;
+        setGeoVersion((v) => v + 1);
+      });
     });
+    return () => {
+      unsub();
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [sessionId]);
 
   const geometry = useMemo(
@@ -540,6 +554,8 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   );
 
   const phase = agent?.phase ?? "idle";
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
 
   const interpretRaw = useMemo(() => currentTurnResultText(turnThread), [turnThread]);
   const [latchedInterpret, setLatchedInterpret] = useState("");
@@ -547,26 +563,27 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const pinSigRef = useRef("");
   const afterToolsSigRef = useRef("");
   const promotedSlotRef = useRef("");
-  const thinkingSlotKey = `${geometry?.cardKind ?? ""}:${geometry?.anchorLine ?? -1}`;
-  const thinkingSlotSeenRef = useRef(thinkingSlotKey);
+  const cardKindRef = useRef(geometry?.cardKind);
 
   useEffect(() => {
     pinSigRef.current = "";
     afterToolsSigRef.current = "";
     promotedSlotRef.current = "";
-    thinkingSlotSeenRef.current = "";
+    cardKindRef.current = undefined;
     setLatchedInterpret("");
     setLatchedThinking("");
     clearShellAgentThinkingFull(sessionId);
   }, [sessionId, geometry?.query]);
 
   useEffect(() => {
-    if (thinkingSlotSeenRef.current === thinkingSlotKey) return;
-    thinkingSlotSeenRef.current = thinkingSlotKey;
-    if (geometry?.cardKind === "thinking") {
-      setLatchedThinking((prev) => (prev ? "" : prev));
+    const prev = cardKindRef.current;
+    cardKindRef.current = geometry?.cardKind;
+    // 只在「进入」思考卡时清预览。锚点变化（重钉同一张卡）不能清，
+    // 否则 latch 写回会再次触发升级，和重锚对打。
+    if (geometry?.cardKind === "thinking" && prev !== "thinking") {
+      setLatchedThinking((p) => (p ? "" : p));
     }
-  }, [thinkingSlotKey, geometry?.cardKind]);
+  }, [geometry?.cardKind]);
 
   useEffect(() => {
     if (!interpretRaw.trim()) return;
@@ -608,7 +625,10 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
   const thinkingFull = useMemo(() => currentTurnThinkingText(turnThread), [turnThread]);
 
   useEffect(() => {
-    if (geometry?.cardKind !== "thinking") return;
+    if (geometry?.cardKind !== "thinking") {
+      if (geometry?.cardKind !== "final") promotedSlotRef.current = "";
+      return;
+    }
     if (pendingTool) return;
     // 仅当搜索等工具仍在跑时挡住思考→结果；已完成的工具条不能让思考卡卡死
     if (displayToolsBusy) return;
@@ -616,35 +636,39 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
       return;
     }
     // 只用本轮结果正文。上一轮 latch 会把空思考卡误升成「正在理解意图」结果卡。
-    if (!interpretRaw.trim()) return;
+    if (!interpretRaw.trim()) {
+      promotedSlotRef.current = "";
+      return;
+    }
     const thinkingText =
       mergeThinkingText(latchedThinking, thinkingFull).trim() ||
       getShellAgentThinkingFull(sessionId).trim();
     // 最后一轮必须先有思考正文再升结果，否则会把思考卡同槽换成结果卡
     if (!thinkingText) return;
+    // 读 ref：after-tools 会 setPhase("observing")。phase 若留在依赖里，
+    // 这次 setState 会把本 effect 再跑一遍，和重锚对打。
+    const phaseNow = phaseRef.current;
     if (
-      phase !== "streaming" &&
-      phase !== "observing" &&
-      phase !== "awaiting_approval"
+      phaseNow !== "streaming" &&
+      phaseNow !== "observing" &&
+      phaseNow !== "awaiting_approval"
     ) {
       return;
     }
-    if (promotedSlotRef.current === thinkingSlotKey) return;
-    promotedSlotRef.current = thinkingSlotKey;
+    // 不把锚点放进签名：升级会重锚，锚点一变又会再升级。
+    if (promotedSlotRef.current === "done") return;
+    promotedSlotRef.current = "done";
     setShellAgentThinkingFull(sessionId, thinkingText);
     notifyShellAgentPromoteToFinal(sessionId);
   }, [
     geometry?.cardKind,
     interpretRaw,
-    phase,
     sessionId,
     pendingTool?.id,
     displayToolsBusy,
     displayToolIdsKey,
-    thinkingSlotKey,
     archivedToolIdsKey,
     thinkingFull,
-    latchedThinking,
   ]);
   const leftoverFragment = useMemo(
     () => toolBoundaryLeftoverFragment(turnThread),
@@ -726,7 +750,6 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     sessionId,
     turnPending,
     thinkingFull,
-    latchedThinking,
     interpretRaw,
   ]);
 
@@ -967,6 +990,8 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     };
   }, [detail, sessionId]);
 
+  const fitTextEpoch = `${Math.floor(displayThinking.length / 64)}:${Math.floor(interpretText.length / 64)}:${Math.floor(thinkingPreviewLine.length / 64)}:${Math.floor(pendingDesc.length / 64)}`;
+
   useLayoutEffect(() => {
     if (!inlineActive) return;
 
@@ -1029,12 +1054,9 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     inlineActive,
     sessionId,
     geometry?.cardKind,
-    geometry?.version,
-    phase,
-    thinkingPreviewLine,
-    displayThinking,
-    interpretText,
-    pendingDesc,
+    // 按长度分桶，而不是整段流式正文。每个 token 都进依赖会让 fit 在 effect 里
+    // 反复改几何，再把 React 更新嵌套进下一轮 effect。
+    fitTextEpoch,
     pendingTool?.id,
     pendingTool?.status,
     execTools.length,
@@ -1043,7 +1065,6 @@ export function ShellAgentOverlay({ sessionId }: ShellAgentOverlayProps) {
     editing,
     draft,
     agent?.pendingAskFormId,
-    phase,
   ]);
 
   const detailTool = useMemo(() => {

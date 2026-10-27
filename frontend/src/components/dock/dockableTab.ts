@@ -16,6 +16,10 @@ export interface DockableTab {
   icon?: DockHeaderIconKind;
   /** 悬停提示；默认使用 label */
   tooltip?: string;
+  /** 列表副标题：地址、库名、URL 等，和标题不同才展示 */
+  detail?: string;
+  /** 侧栏备注键。溢出列表里有备注时显示在副标题 */
+  noteKey?: string;
   /** topbar 风格 tab：连接状态点 */
   status?: TopbarTabDef["status"];
   /** SQL 查询文件等内容尚未落盘（Tab 上显示未保存标记） */

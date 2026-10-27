@@ -12,6 +12,7 @@ import { KnowledgeDocumentPanel } from "./KnowledgeDocumentPanel";
 import { KnowledgeChunksPanel } from "./KnowledgeChunksPanel";
 import { KnowledgeSidebar } from "./KnowledgeSidebar";
 import { isKnowledgeImported } from "./knowledgeTree";
+import { SidebarNoteKeys } from "../../lib/sidebarNotes";
 import { useKnowledgeOpenEntry } from "./useKnowledgeOpenEntry";
 
 type KnowledgeModuleTab = "library";
@@ -295,6 +296,8 @@ export function KnowledgePanel() {
         tooltip: tab.label,
         closable: true,
         preview: Boolean(tab.preview),
+        noteKey:
+          !isFolder && tab.entryId ? SidebarNoteKeys.knowledgeEntry(tab.entryId) : undefined,
         ...(!imported && !isChunks && !isFolder ? { type: "file" as const } : {}),
       };
     });

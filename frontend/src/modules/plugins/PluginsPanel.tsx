@@ -269,7 +269,7 @@ export function PluginsPanel() {
               selectedId={center.selectedId}
               onSelect={center.setSelectedId}
               installingMarketId={center.installingMarketId}
-              catalogRefreshing={center.catalogRefreshing}
+              catalogRefreshing={center.catalogRefreshing || center.marketRefreshing}
               onInstallMarket={(item) => void center.installMarket(item)}
               onUninstall={(item) => void center.uninstall(item)}
               busyId={center.busyId}

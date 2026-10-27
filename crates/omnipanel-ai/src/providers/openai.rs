@@ -447,6 +447,99 @@ fn extract_plain_reasoning(val: &serde_json::Value) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// 非流式 Chat Completions：`choices[0].message` 而不是 `delta`。
+/// OpenCode Go 在没按 SSE 返回时是这种整包 JSON。
+fn push_chat_completion_message(
+    val: &serde_json::Value,
+    events: &mut Vec<Result<StreamEvent>>,
+) -> bool {
+    let Some(choice) = val.get("choices").and_then(|c| c.get(0)) else {
+        return false;
+    };
+    let Some(message) = choice.get("message") else {
+        return false;
+    };
+    let mut pushed = false;
+    if let Some(reasoning) = message
+        .get("reasoning_content")
+        .or_else(|| message.get("reasoning"))
+        .and_then(|t| t.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        events.push(Ok(StreamEvent::ReasoningDelta {
+            text: reasoning.to_string(),
+        }));
+        pushed = true;
+    }
+    if let Some(text) = message_text(message.get("content")) {
+        if !text.is_empty() {
+            events.push(Ok(StreamEvent::ContentDelta { text }));
+            pushed = true;
+        }
+    }
+    if let Some(calls) = message.get("tool_calls").and_then(|v| v.as_array()) {
+        for call in calls {
+            let name = call
+                .get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("");
+            if name.is_empty() {
+                continue;
+            }
+            let id = call
+                .get("id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("call_0");
+            let arguments = call
+                .get("function")
+                .and_then(|f| f.get("arguments"))
+                .map(json_arg_string)
+                .unwrap_or_default();
+            events.push(Ok(StreamEvent::ToolCall {
+                id: id.to_string(),
+                name: name.to_string(),
+                arguments,
+            }));
+            pushed = true;
+        }
+    }
+    if !pushed {
+        return false;
+    }
+    let stop_reason = choice
+        .get("finish_reason")
+        .and_then(|f| f.as_str())
+        .map(stop_reason_from_finish)
+        .unwrap_or(StopReason::EndTurn);
+    events.push(Ok(StreamEvent::Done { stop_reason }));
+    true
+}
+
+fn message_text(content: Option<&serde_json::Value>) -> Option<String> {
+    let content = content?;
+    if let Some(text) = content.as_str() {
+        return Some(text.to_string());
+    }
+    let parts = content.as_array()?;
+    let mut out = String::new();
+    for part in parts {
+        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+            out.push_str(text);
+        }
+    }
+    Some(out)
+}
+
+fn json_arg_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
 fn push_plain_text_completion(
     val: &serde_json::Value,
     events: &mut Vec<Result<StreamEvent>>,
@@ -504,6 +597,9 @@ pub fn parse_sse_line(line: &str, events: &mut Vec<Result<StreamEvent>>) {
                     return;
                 }
                 if push_plain_text_completion(&val, events) {
+                    return;
+                }
+                if push_chat_completion_message(&val, events) {
                     return;
                 }
             }
@@ -602,6 +698,29 @@ mod tests {
             }) => {}
             other => panic!("expected Done EndTurn, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_nonstream_chat_completion_keeps_tools() {
+        let mut events = Vec::new();
+        parse_sse_line(
+            r#"{"choices":[{"message":{"role":"assistant","content":"先查一下","tool_calls":[{"id":"call_1","type":"function","function":{"name":"omni_plan_create","arguments":"{\"title\":\"t\"}"}}]},"finish_reason":"tool_calls"}]}"#,
+            &mut events,
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Ok(StreamEvent::ContentDelta { text }) if text == "先查一下"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Ok(StreamEvent::ToolCall { name, .. }) if name == "omni_plan_create"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Ok(StreamEvent::Done {
+                stop_reason: StopReason::ToolUse
+            })
+        )));
     }
 
     #[test]

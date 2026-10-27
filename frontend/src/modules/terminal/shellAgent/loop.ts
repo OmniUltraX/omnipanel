@@ -37,6 +37,8 @@ import {
   reanchorShellAgentCard,
   setShellAgentCardKind,
   ensureMinCardRows,
+  minCardRowsFor,
+  resizeShellAgentCard,
   type ShellAgentCardKind,
 } from "./shellAgentGeometry";
 import { useShellAgentStore } from "./shellAgentStore";
@@ -1483,23 +1485,17 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
     return;
   }
 
-  // 同意后：把确认卡封成「已同意」留在 scrollback
+  // 同意后：把确认卡封成「已同意」留在 scrollback。
+  // 跑命令不另钉工具条：确认卡就是调用卡，命令在卡下真实执行。
   const geo = getShellAgentGeometry(sessionId);
   if (geo?.mode === "inline" && geo.cardKind === "cmd" && geo.decoration) {
-    const live =
-      geo.decoration.element?.innerHTML ??
-      "";
-    // 已在工具条上：禁止再次 mark+reanchor，否则会多冻一张「已同意」
+    const live = geo.decoration.element?.innerHTML ?? "";
+    // 已在工具条上：禁止再冻成「已同意」
     if (live.includes("term-shell-agent-tool")) {
       snapshotExecOutputFloor(sessionId);
       return;
     }
-    markShellAgentConfirmFreeze(sessionId, "agreed");
-
-    // 跑命令不另钉工具条：确认卡（已同意）就是调用卡。命令在卡下真实执行。
-    snapshotExecOutputFloor(sessionId);
-    archiveActiveInlineCard(sessionId);
-    ensureCursorBelowCards(sessionId);
+    archiveAgreedCmdCard(sessionId, "agreed");
     return;
   }
   snapshotExecOutputFloor(sessionId);
@@ -1511,8 +1507,25 @@ export function notifyShellAgentExecuting(sessionId: string, executing: boolean)
  */
 export function notifyShellAgentDisplayTool(sessionId: string): boolean {
   pushShellAgentDebugEvent("displayTool", "pin strip slot");
+  // 命令还在确认或回显：搜索条插进来会挡在命令前面。等命令落地后再钉。
+  if (hostCommandOwnsCursor(sessionId)) {
+    pushShellAgentDebugEvent("displayTool", "wait command output");
+    return false;
+  }
   const geo = getShellAgentGeometry(sessionId);
   if (geo?.cardKind === "ask") return true;
+  // 结果卡已经在展示：已完成的搜索不要再把结果卡拽回工具条，否则两边对钉死循环。
+  if (geo?.cardKind === "final") {
+    const busy = collectDisplayToolCalls(scopedAiThread(sessionId)).some(
+      (tc) =>
+        (tc.status === "pending" || tc.status === "running") &&
+        !getArchivedDisplayToolIds(sessionId).has(tc.id),
+    );
+    if (!busy) {
+      pushShellAgentDebugEvent("displayTool", "keep final");
+      return true;
+    }
+  }
   if (suppressStripPin.has(sessionId) && geo?.cardKind === "thinking") {
     const incomingBusy = collectDisplayToolCalls(scopedAiThread(sessionId)).some(
       (tc) =>
@@ -1546,6 +1559,10 @@ export function notifyShellAgentDisplayTool(sessionId: string): boolean {
       getLastFrozenThinking(sessionId).trim() &&
       !freshThought
     ) {
+      if (!allowShellAgentPin()) {
+        pushShellAgentDebugEvent("displayTool", "storm brake");
+        return false;
+      }
       setShellAgentCardKind(sessionId, "cmd");
       return true;
     }
@@ -1579,6 +1596,10 @@ export function notifyShellAgentDisplayTool(sessionId: string): boolean {
     if (incoming.every((tc) => shown.includes(tc.id))) return true;
   }
 
+  if (!allowShellAgentPin()) {
+    pushShellAgentDebugEvent("displayTool", "storm brake");
+    return false;
+  }
   abortFinalSettle(sessionId);
   postExecThinking.delete(sessionId);
   suppressStripPin.delete(sessionId);
@@ -1616,6 +1637,10 @@ function pinFollowupCardNow(sessionId: string, kind?: "thinking" | "final"): voi
  * 禁止走 scheduleFinalCardAfterExec（那是给命令回显用的，会干等再一次性倒出全文）。
  */
 export function notifyShellAgentAfterDisplayTools(sessionId: string): void {
+  if (hostCommandOwnsCursor(sessionId)) {
+    pushShellAgentDebugEvent("afterDisplayTools", "wait command output");
+    return;
+  }
   patchEnterGateFlags(sessionId, { agentExecuting: false });
   const store = useShellAgentStore.getState();
   if (store.get(sessionId)?.phase !== "observing") {
@@ -1645,6 +1670,10 @@ export function notifyShellAgentAfterDisplayTools(sessionId: string): void {
       return;
     }
     pushShellAgentDebugEvent("afterDisplayTools", "pin thinking now");
+    if (!allowShellAgentPin()) {
+      pushShellAgentDebugEvent("afterDisplayTools", "storm brake");
+      return;
+    }
     abortFinalSettle(sessionId);
     suppressStripPin.add(sessionId);
     pinFollowupCardNow(sessionId, "thinking");
@@ -1657,6 +1686,10 @@ export function notifyShellAgentAfterDisplayTools(sessionId: string): void {
   }
   if (result) {
     pushShellAgentDebugEvent("afterDisplayTools", "pin final now");
+    if (!allowShellAgentPin()) {
+      pushShellAgentDebugEvent("afterDisplayTools", "storm brake");
+      return;
+    }
     abortFinalSettle(sessionId);
     pinFollowupCardNow(sessionId, "final");
     return;
@@ -1671,10 +1704,18 @@ export function notifyShellAgentPromoteToFinal(sessionId: string): void {
   if (geo?.cardKind === "thinking" && geo.decoration) {
     captureThinkingBeforeArchive(sessionId);
     if (getShellAgentThinkingFull(sessionId).trim()) {
+      if (!allowShellAgentPin()) {
+        pushShellAgentDebugEvent("promoteToFinal", "storm brake");
+        return;
+      }
       pushShellAgentDebugEvent("promoteToFinal", "archive thinking + pin final");
       reanchorShellAgentCard(sessionId, "final");
       return;
     }
+  }
+  if (!allowShellAgentPin()) {
+    pushShellAgentDebugEvent("promoteToFinal", "storm brake");
+    return;
   }
   setShellAgentCardKind(sessionId, "final");
 }
@@ -1819,6 +1860,69 @@ function releaseShellAgentToPrompt(sessionId: string): void {
     });
 }
 
+/**
+ * 同一轮钉卡互相触发时刹车。
+ * 微任务里清零会赶在 React 下一轮 effect 之前，限制等于没有。
+ * 安静约 80ms 再清，嵌套更新到不了 50 次。
+ */
+let pinStorm = 0;
+let pinStormTimer: ReturnType<typeof setTimeout> | undefined;
+
+function allowShellAgentPin(): boolean {
+  if (pinStorm >= 12) return false;
+  pinStorm += 1;
+  if (pinStormTimer !== undefined) clearTimeout(pinStormTimer);
+  pinStormTimer = setTimeout(() => {
+    pinStorm = 0;
+    pinStormTimer = undefined;
+  }, 80);
+  return true;
+}
+
+/** 确认卡或命令回显还占着光标时，搜索/抓取条先别钉，否则会插到命令前面。 */
+function hostCommandOwnsCursor(sessionId: string): boolean {
+  if (isAgentBusyExecuting(sessionId)) return true;
+  return useShellAgentStore.getState().get(sessionId)?.phase === "awaiting_approval";
+}
+
+/**
+ * 把当前确认卡封成已同意。槽还是思考卡那么矮时先撑到确认卡高度再归档，
+ * 否则命令行被 overflow 裁掉，只剩「将在主机执行」。
+ */
+function archiveAgreedCmdCard(
+  sessionId: string,
+  kind: "agreed" | "auto-agreed",
+): void {
+  const finish = (): void => {
+    const cur = getShellAgentGeometry(sessionId);
+    if (cur?.mode === "inline" && cur.cardKind === "cmd" && cur.decoration) {
+      const html = cur.decoration.element?.innerHTML ?? "";
+      if (!html.includes("term-shell-agent-tool")) {
+        markShellAgentConfirmFreeze(sessionId, kind);
+        archiveActiveInlineCard(sessionId);
+      }
+    }
+    snapshotExecOutputFloor(sessionId);
+    ensureCursorBelowCards(sessionId);
+  };
+
+  const geo = getShellAgentGeometry(sessionId);
+  const command = getShellAgentLastCmd(sessionId)?.command?.trim() ?? "";
+  const live = geo?.decoration?.element?.innerHTML ?? "";
+  if (
+    geo?.mode === "inline" &&
+    geo.cardKind === "cmd" &&
+    geo.decoration &&
+    command &&
+    geo.rows < minCardRowsFor("cmd") &&
+    !live.includes("term-shell-agent-tool")
+  ) {
+    resizeShellAgentCard(sessionId, minCardRowsFor("cmd"), finish);
+    return;
+  }
+  finish();
+}
+
 function pinFrozenAgreedCmdCard(sessionId: string): void {
   cmdAfterSettle.delete(sessionId);
   markShellAgentConfirmFreeze(sessionId, "auto-agreed");
@@ -1836,10 +1940,7 @@ function pinFrozenAgreedCmdCard(sessionId: string): void {
       snapshotExecOutputFloor(sessionId);
       return;
     }
-    markShellAgentConfirmFreeze(sessionId, "auto-agreed");
-    archiveActiveInlineCard(sessionId);
-    snapshotExecOutputFloor(sessionId);
-    ensureCursorBelowCards(sessionId);
+    archiveAgreedCmdCard(sessionId, "auto-agreed");
     return;
   }
 

@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { DockableTab } from "./dockableTab";
 import {
   buildDockTabOverflowSections,
+  dockTabOverflowSubtitle,
   isTabFullyVisible,
   measureGroupTabs,
   presentDockOverflowTab,
-  splitMatch,
 } from "./dockTabOverflowModel";
 import type { DockTabOverflowTab } from "./dockTabOverflowModel";
 
@@ -40,7 +40,7 @@ describe("buildDockTabOverflowSections", () => {
     expect(sections[1]?.items.map((item) => item.id)).toEqual(["b"]);
   });
 
-  it("多种类型全部被裁切时按出现顺序分组，组内按最近使用", () => {
+  it("分组模式按出现顺序分组，组内保持标签栏顺序", () => {
     const sections = buildDockTabOverflowSections(
       [
         tab({ id: "t1", panelType: "terminal", label: "甲", overflowed: true }),
@@ -50,11 +50,46 @@ describe("buildDockTabOverflowSections", () => {
       "",
       ["t2", "d1", "t1"],
       identity,
+      "group",
     );
     expect(sections.map((section) => section.groupLabel)).toEqual(["terminal", "database"]);
     expect(sections.every((section) => section.bucket == null)).toBe(true);
-    expect(sections[0]?.items.map((item) => item.id)).toEqual(["t2", "t1"]);
+    expect(sections[0]?.items.map((item) => item.id)).toEqual(["t1", "t2"]);
     expect(sections[1]?.items.map((item) => item.id)).toEqual(["d1"]);
+  });
+
+  it("最近使用模式排成一列，不分组", () => {
+    const sections = buildDockTabOverflowSections(
+      [
+        tab({ id: "t1", panelType: "terminal", label: "甲", overflowed: true }),
+        tab({ id: "d1", panelType: "database", label: "库", overflowed: false }),
+        tab({ id: "t2", panelType: "terminal", label: "乙", overflowed: true }),
+      ],
+      "",
+      ["t2", "d1", "t1"],
+      identity,
+      "recent",
+    );
+    expect(sections).toHaveLength(1);
+    expect(sections[0]?.groupLabel).toBeUndefined();
+    expect(sections[0]?.bucket).toBeUndefined();
+    expect(sections[0]?.items.map((item) => item.id)).toEqual(["t2", "d1", "t1"]);
+  });
+
+  it("顺序模式不分组，仍按是否露出分段", () => {
+    const sections = buildDockTabOverflowSections(
+      [
+        tab({ id: "a", panelType: "terminal", label: "甲", overflowed: true }),
+        tab({ id: "b", panelType: "database", label: "库", overflowed: false }),
+      ],
+      "",
+      [],
+      identity,
+      "order",
+    );
+    expect(sections.map((section) => section.groupLabel)).toEqual([undefined, undefined]);
+    expect(sections[0]?.items.map((item) => item.id)).toEqual(["a"]);
+    expect(sections[1]?.items.map((item) => item.id)).toEqual(["b"]);
   });
 
   it("搜索命中标题、提示或分组名，并取消未显示分段", () => {
@@ -77,6 +112,7 @@ describe("buildDockTabOverflowSections", () => {
       "SQL",
       [],
       (panelType) => (panelType === "database-sql" ? "SQL 查询" : panelType),
+      "group",
     );
     expect(sections).toHaveLength(1);
     expect(sections[0]?.bucket).toBeUndefined();
@@ -91,8 +127,31 @@ describe("buildDockTabOverflowSections", () => {
         "zzz",
         [],
         identity,
+        "group",
       ),
     ).toEqual([]);
+  });
+
+  it("拼音能命中中文标题和备注", () => {
+    const sections = buildDockTabOverflowSections(
+      [
+        tab({
+          id: "q",
+          panelType: "database-sql",
+          label: "订单查询",
+          note: "生产库",
+          overflowed: true,
+        }),
+      ],
+      "sc",
+      [],
+      identity,
+      "order",
+    );
+    expect(sections[0]?.items.map((item) => item.id)).toEqual(["q"]);
+    expect(
+      dockTabOverflowSubtitle({ label: "订单查询", note: "生产库", detail: "10.0.0.1:3306" }),
+    ).toBe("生产库 · 10.0.0.1:3306");
   });
 });
 
@@ -122,15 +181,6 @@ describe("presentDockOverflowTab", () => {
     expect(presented.saved).toBe(false);
     expect(presented.preview).toBe(true);
     expect(presented.overflowed).toBe(true);
-  });
-});
-
-describe("splitMatch", () => {
-  it("按查询切出命中片段，大小写不敏感", () => {
-    expect(splitMatch("Query@CS", "cs")).toEqual([
-      { text: "Query@", match: false },
-      { text: "CS", match: true },
-    ]);
   });
 });
 

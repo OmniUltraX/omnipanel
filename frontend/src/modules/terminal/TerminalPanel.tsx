@@ -65,6 +65,7 @@ import { formatTerminalTabLabel } from "./terminalSessionDisplay";
 import { followUiIntent } from "../../lib/ai/uiFollow";
 import { TerminalFilePreviewSubWindow } from "./TerminalFilePreviewSubWindow";
 import { getTerminalSessionService } from "./terminalSessionService";
+import { SidebarNoteKeys } from "../../lib/sidebarNotes";
 
 function tabLabel(tab: TerminalTab, fallbackName?: string) {
   return formatTerminalTabLabel(
@@ -461,6 +462,7 @@ export function TerminalPanel() {
         panelType: "terminal-session",
         closable: true,
         status: topbarTabStatus(tab.status),
+        noteKey: SidebarNoteKeys.terminalSession(tab.sessionId),
       })),
     [visibleTabs],
   );

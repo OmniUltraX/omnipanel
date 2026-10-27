@@ -9,6 +9,7 @@ import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useServerPanelCacheStore } from "../../stores/serverPanelCacheStore";
 import { useI18n } from "../../i18n";
+import { SidebarNoteKeys } from "../../lib/sidebarNotes";
 import { appConfirm } from "../../lib/appConfirm";
 import { ServerConnectionDialog } from "./panel/ServerConnectionDialog";
 import { ServerPanelSidebar } from "./panel/ServerPanelSidebar";
@@ -250,14 +251,18 @@ export function ServerPanel() {
                   : tab.kind === "databases"
                     ? "databases"
                     : panelBrand ?? "server";
+          const label = `${featureLabel}@${server.name}`;
+          const address = server.address?.trim();
           return {
             id: tab.id,
-            label: `${featureLabel}@${server.name}`,
+            label,
             panelType: "server-panel",
             icon,
             closable: true,
             preview: tab.preview,
             tooltip: server.address,
+            noteKey: SidebarNoteKeys.server(tab.serverId),
+            detail: address && address !== label && !label.includes(address) ? address : undefined,
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),

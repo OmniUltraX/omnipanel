@@ -151,16 +151,32 @@ class SqlLintRunGutterMarker extends GutterMarker {
   }
 
   toDOM(_view: EditorViewType): HTMLElement {
-    const wrap = document.createElement("div");
-    wrap.className = "cm-sql-lint-run-cell";
-    if (this.run) {
-      wrap.appendChild(this.run.toDOM());
-    }
-    if (this.lint) {
-      wrap.appendChild(this.lint.toDOM());
-    }
-    return wrap;
+    return createLintRunCell(this.run, this.lint);
   }
+}
+
+/** 运行按钮与诊断图标各占一格，空位也保留，避免图标出现/消失时 gutter 变宽。 */
+function createRunSlot(run: RunButtonMarker | null): HTMLElement {
+  if (run) return run.toDOM();
+  const slot = document.createElement("span");
+  slot.className = "cm-sql-run-slot";
+  slot.setAttribute("aria-hidden", "true");
+  return slot;
+}
+
+function createLintSlot(lint: SqlLintGutterMarker | null): HTMLElement {
+  if (lint) return lint.toDOM();
+  const slot = document.createElement("span");
+  slot.className = "cm-sql-lint-slot";
+  slot.setAttribute("aria-hidden", "true");
+  return slot;
+}
+
+function createLintRunCell(run: RunButtonMarker | null, lint: SqlLintGutterMarker | null): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "cm-sql-lint-run-cell";
+  wrap.append(createRunSlot(run), createLintSlot(lint));
+  return wrap;
 }
 
 class SqlLintRunGutterSpacer extends GutterMarker {
@@ -169,11 +185,7 @@ class SqlLintRunGutterSpacer extends GutterMarker {
   }
 
   toDOM(): HTMLElement {
-    const span = document.createElement("span");
-    span.className = "cm-sql-run-gutter-spacer";
-    span.setAttribute("aria-hidden", "true");
-    span.innerHTML = RUN_BUTTON_SVG;
-    return span;
+    return createLintRunCell(null, null);
   }
 }
 
@@ -273,10 +285,28 @@ function createSqlLintRunGutterMarkersField(
 }
 
 const sqlLintMarkerTheme = EditorView.baseTheme({
+  ".cm-sql-lint-run-cell": {
+    display: "inline-flex",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: "2px",
+    width: "38px",
+    flex: "0 0 38px",
+  },
+  ".cm-sql-run-slot": {
+    width: "22px",
+    height: "22px",
+    flex: "0 0 22px",
+  },
+  ".cm-sql-lint-slot": {
+    width: "14px",
+    height: "14px",
+    flex: "0 0 14px",
+  },
   ".cm-lint-marker": {
-    width: "1em",
-    height: "1em",
-    flexShrink: "0",
+    width: "14px",
+    height: "14px",
+    flex: "0 0 14px",
   },
   ".cm-lint-marker-info": {
     content: `url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><path fill="%23aaf" stroke="%2377e" stroke-width="6" stroke-linejoin="round" d="M5 5L35 5L35 35L5 35Z"/></svg>')`,
@@ -291,7 +321,7 @@ const sqlLintMarkerTheme = EditorView.baseTheme({
 
 /**
  * 合并 lint gutter 与 SQL 运行按钮：在 cm-gutter-lint 列显示 lint 标记与 ▶ 按钮。
- * 使用 renderEmptyElements 确保无 lint 的行也有 gutter 单元格可挂载运行按钮。
+ * 两格宽度固定（运行按钮 + 诊断图标），诊断出现或消失时列宽不变。
  */
 export function createSqlLintRunGutter(
   getOnRun: () => ((sql: string) => void) | undefined,

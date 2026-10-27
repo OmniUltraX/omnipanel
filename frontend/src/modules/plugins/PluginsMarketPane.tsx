@@ -291,7 +291,7 @@ export function PluginsMarketPane({
           {t("plugins.sources.title")}
         </WorkbenchActionButton>
         <WorkbenchActionButton disabled={catalogRefreshing} onClick={onRefreshMarket}>
-          {t("plugins.center.refresh")}
+          {catalogRefreshing ? t("plugins.center.refreshing") : t("plugins.center.refresh")}
         </WorkbenchActionButton>
         {rubickEnabled ? (
           npmActive ? (

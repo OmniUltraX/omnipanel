@@ -190,6 +190,31 @@ async function copyErrorsToClipboard(button: HTMLButtonElement): Promise<void> {
   }, 1500);
 }
 
+/** React 的这条 console.error 本身不带组件栈；调用点的 Error.stack 能落到 setState。 */
+function updateDepthStack(): string {
+  const stack = new Error().stack ?? "";
+  const frames = stack
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("at ") || line.startsWith("at\t"));
+  const app = frames.filter(
+    (line) =>
+      (line.includes("/src/") || line.includes("\\src\\")) &&
+      !line.includes("node_modules") &&
+      !line.includes("productionDiagnostics"),
+  );
+  const picked = (app.length > 0 ? app : frames).filter(
+    (line) => !line.includes("node_modules\\react") && !line.includes("node_modules/react"),
+  );
+  const out: string[] = [];
+  for (const line of picked) {
+    if (out[out.length - 1] === line) continue;
+    out.push(line);
+    if (out.length >= 12) break;
+  }
+  return out.join("\n");
+}
+
 function pushError(message: string) {
   errors.unshift(message);
   if (errors.length > MAX_ERRORS) {
@@ -235,6 +260,11 @@ export function initProductionDiagnostics(): void {
     originalConsoleError(...args);
     const message = args.map((a) => formatError(a)).join(" ");
     if (isBenignResizeObserverNoise(message)) return;
+    if (message.includes("Maximum update depth exceeded")) {
+      const stack = updateDepthStack();
+      pushError(`[console.error] ${message}${stack ? `\n${stack}` : ""}`);
+      return;
+    }
     pushError(`[console.error] ${message}`);
   };
 

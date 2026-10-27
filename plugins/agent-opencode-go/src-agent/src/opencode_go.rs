@@ -13,11 +13,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use omnipanel_ai::providers::openai::parse_sse_line;
 use omnipanel_ai::{
     AgentSource, AgentSourceCard, AgentSourceCreditPackage, AgentSourceCredits, AgentSourceModel,
-    AiProvider, ChatMessage, ChatRequest, ChatResponse, ModelInfo, Role, StopReason, StreamEvent,
-    Usage,
+    AiProvider, ChatMessage, ChatRequest, ChatResponse, ModelInfo, Role, StreamEvent, Usage,
 };
 use omnipanel_store::{Storage, Vault, meta_db_path, plugin_secret_ref};
 
@@ -25,7 +23,7 @@ use std::collections::HashMap;
 
 use crate::local_opencode::{load_from_local_cli, local_opencode_present};
 use crate::model_metadata::{WireApi, fetch_opencode_go_wire_apis};
-use crate::wire_chat::{chat_stream_wire, resolve_wire_api};
+use crate::wire_chat::{chat_stream_wire, resolve_wire_api, response_to_stream};
 
 pub const SOURCE_ID: &str = "opencode-go";
 const TITLE: &str = "OpenCode Go";
@@ -132,16 +130,25 @@ fn load_runtime_config() -> Result<RuntimeConfig, String> {
     }
 }
 
-fn auth_headers(api_key: &str, session_id: &str) -> reqwest::header::HeaderMap {
+fn auth_headers(
+    api_key: &str,
+    session_id: &str,
+    accept: &'static str,
+) -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::AUTHORIZATION,
         format!("Bearer {api_key}").parse().expect("authorization"),
     );
-    headers.insert(
-        reqwest::header::ACCEPT,
-        "application/json".parse().expect("accept"),
-    );
+    headers.insert(reqwest::header::ACCEPT, accept.parse().expect("accept"));
+    // 对话必须声明 event-stream，并拒绝 gzip。否则网关会把整段 SSE 缓冲完再返回，
+    // 界面上就像不是流式，工具调用也要等生成结束才开始。
+    if accept.contains("text/event-stream") {
+        headers.insert(
+            reqwest::header::ACCEPT_ENCODING,
+            "identity".parse().expect("accept-encoding"),
+        );
+    }
     headers.insert(
         reqwest::header::USER_AGENT,
         USER_AGENT.parse().expect("user-agent"),
@@ -176,7 +183,7 @@ fn fetch_models(client: &Client, cfg: &RuntimeConfig) -> Result<Vec<AgentSourceM
         .block_on(async move {
             let response = client
                 .get(&url)
-                .headers(auth_headers(&api_key, &session))
+                .headers(auth_headers(&api_key, &session, "application/json"))
                 .timeout(Duration::from_secs(30))
                 .send()
                 .await
@@ -269,7 +276,7 @@ fn fetch_usage(client: &Client, cfg: &RuntimeConfig) -> AgentSourceCredits {
     let envelope: UsageEnvelope = match runtime.block_on(async {
         let response = client
             .get(&url)
-            .headers(auth_headers(&api_key, &session))
+            .headers(auth_headers(&api_key, &session, "application/json"))
             .timeout(Duration::from_secs(15))
             .send()
             .await
@@ -508,7 +515,11 @@ impl AiProvider for OpencodeGoProvider {
         &self,
         request: ChatRequest,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
-        let headers = auth_headers(&self.cfg.api_key, &self.session_id);
+        let headers = auth_headers(
+            &self.cfg.api_key,
+            &self.session_id,
+            "text/event-stream, application/json",
+        );
         if self.wire != WireApi::OpenAiCompletions {
             return chat_stream_wire(
                 self.wire,
@@ -538,50 +549,12 @@ impl AiProvider for OpencodeGoProvider {
             .json(&body)
             .send()
             .await?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            bail!("OpenCode Go 对话失败 {status}: {text}");
-        }
-        let stream = response.bytes_stream();
-        let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-        let flush_buffer = buffer.clone();
-        let event_stream = stream
-            .flat_map(move |chunk| {
-                let events = match chunk {
-                    Ok(bytes) => {
-                        let mut buf = buffer.lock().unwrap();
-                        buf.push_str(&String::from_utf8_lossy(&bytes));
-                        let mut events = Vec::new();
-                        while let Some(pos) = buf.find('\n') {
-                            let line: String = buf.drain(..=pos).collect();
-                            parse_sse_line(line.trim(), &mut events);
-                        }
-                        events
-                    }
-                    Err(err) => vec![Err(anyhow::anyhow!("流读取失败: {err}"))],
-                };
-                futures::stream::iter(events)
-            })
-            .chain(
-                futures::stream::once(async move {
-                    let mut buf = flush_buffer.lock().unwrap();
-                    std::mem::take(&mut *buf)
-                })
-                .flat_map(|leftover| {
-                    let mut events = Vec::new();
-                    let trimmed = leftover.trim();
-                    if !trimmed.is_empty() {
-                        parse_sse_line(trimmed, &mut events);
-                    }
-                    if events.is_empty() {
-                        events.push(Ok(StreamEvent::Done {
-                            stop_reason: StopReason::EndTurn,
-                        }));
-                    }
-                    futures::stream::iter(events)
-                }),
-            );
-        Ok(Box::pin(event_stream))
+        response_to_stream(
+            response,
+            std::sync::Arc::new(|line, events| {
+                omnipanel_ai::providers::openai::parse_sse_line(line, events);
+            }),
+        )
+        .await
     }
 }

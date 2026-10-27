@@ -10,6 +10,7 @@ import { useProtocolTopbarStore } from "../../stores/protocolTopbarStore";
 import { HttpPanel } from "./HttpPanel";
 import { useProtocolHttp } from "./ProtocolHttpContext";
 import { resolveHttpRequestUrl } from "./httpEnvironment";
+import { SidebarNoteKeys } from "../../lib/sidebarNotes";
 
 function ProtocolHttpTopbarBridge() {
   const requestNewRequestPicker = useProtocolTopbarStore((s) => s.requestNewRequestPicker);
@@ -106,12 +107,16 @@ export function HttpRequestPanel({
         const fullUrl = req
           ? resolveHttpRequestUrl(req.url, req.environmentId ?? null, http.environments)
           : null;
+        const label = req?.name ?? t("protocol.sidebar.defaultRequestName");
+        const url = fullUrl?.trim() || req?.url?.trim() || "";
         return {
           id,
-          label: req?.name ?? t("protocol.sidebar.defaultRequestName"),
+          label,
           panelType: "http-request",
           closable: true,
-          tooltip: fullUrl?.trim() || req?.url?.trim() || req?.name,
+          tooltip: url || req?.name,
+          noteKey: SidebarNoteKeys.protocolEntry(id),
+          detail: url && url !== label ? url : undefined,
         };
       }),
     [openTabIds, http.savedRequests, http.environments, t],

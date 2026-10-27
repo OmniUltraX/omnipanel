@@ -254,6 +254,20 @@ describe("notifyShellAgentStreaming", () => {
     expect(getShellAgentGeometry(SID)?.cardKind).not.toBe("thinking");
     expect(useShellAgentStore.getState().get(SID)?.phase).toBe("executing");
   });
+
+  it("命令执行中不把搜索条钉到回显前面", () => {
+    useShellAgentStore.getState().ensure(SID);
+    useShellAgentStore.getState().setPhase(SID, "executing");
+    beginShellAgentCard(SID, {
+      kind: "cmd",
+      promptIndentCols: 2,
+      promptPrefix: "$ ",
+      query: "历史上的昨天",
+    });
+
+    expect(notifyShellAgentDisplayTool(SID)).toBe(false);
+    expect(getShellAgentGeometry(SID)?.cardKind).toBe("cmd");
+  });
 });
 
 describe("startOrContinueShellAgent busy follow-up", () => {

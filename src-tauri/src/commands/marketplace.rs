@@ -1,6 +1,8 @@
 //! marketplace part 1/3: DTOs, internal model, fetch/merge/install helpers.
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use omnipanel_error::OmniError;
 use omnipanel_plugin::{
@@ -12,21 +14,29 @@ use omnipanel_plugin_pkg::{
     RegistryVersion, hex_to_verifying_key, parse_registry, verify_registry,
     verify_registry_allow_unsigned,
 };
+use omnipanel_protocol::proxy::build_http_client_for_url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use specta::Type;
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::commands::external::{RUBICK_SOURCE_ID, refuse_external_artifact};
-use crate::commands::official_catalog::PluginDistribution;
+use crate::commands::official_catalog::{OFFICIAL_CATALOG_UPDATED_EVENT, PluginDistribution};
 use crate::commands::plugin::install_plugin_from_path;
 use crate::state::AppState;
 
 pub(crate) const OFFICIAL_SOURCE_ID: &str = "official";
 pub(crate) const OFFICIAL_REGISTRY_URL: &str =
     "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/plugin-registry.json";
-const FETCH_TIMEOUT_SECS: u64 = 30;
-const DOWNLOAD_TIMEOUT_SECS: u64 = 180;
+const FETCH_TIMEOUT_SECS: u64 = 8;
+const DOWNLOAD_TIMEOUT_SECS: u64 = 45;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// 官方目录未签名，镜像只用于制品字节；装上前仍按目录里的 sha256 校验。
+const GITHUB_MIRRORS: &[&str] = &[
+    "https://ghfast.top/",
+    "https://gh-proxy.com/",
+    "https://mirror.ghproxy.com/",
+];
 /// 官方目录本地 cache 最长复用时间；超时后即使 force=false 也会重新拉取，避免发版后长期看不到更新。
 const REGISTRY_CACHE_MAX_AGE_SECS: u64 = 120;
 
@@ -117,6 +127,7 @@ pub struct SourceTestResult {
     pub error: Option<String>,
 }
 
+#[derive(Clone)]
 struct SourceCfg {
     id: String,
     url: String,
@@ -648,29 +659,177 @@ fn installed_map(
     (raw, parsed)
 }
 
-async fn download_bytes(
+fn refresh_inflight() -> &'static Mutex<HashSet<String>> {
+    static BUSY: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    BUSY.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn error_chain(err: &dyn std::error::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut src = err.source();
+    while let Some(next) = src {
+        let text = next.to_string();
+        if !parts.iter().any(|item| item == &text) {
+            parts.push(text);
+        }
+        src = next.source();
+        if parts.len() >= 4 {
+            break;
+        }
+    }
+    parts.join(": ")
+}
+
+/// 直连失败时才走镜像。第三方源和 npm 包不改写 URL。
+fn is_github_download_url(url: &str) -> bool {
+    let Some(rest) = url
+        .trim()
+        .strip_prefix("https://")
+        .or_else(|| url.trim().strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let host = rest.split('/').next().unwrap_or("");
+    let host = host.split('@').next_back().unwrap_or(host);
+    let host = host.split(':').next().unwrap_or(host);
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "github.com"
+            | "www.github.com"
+            | "objects.githubusercontent.com"
+            | "release-assets.githubusercontent.com"
+            | "github-releases.githubusercontent.com"
+    )
+}
+
+fn artifact_url_candidates(url: &str) -> Vec<String> {
+    let url = url.trim().to_string();
+    let mut out = vec![url.clone()];
+    if !is_github_download_url(&url) {
+        return out;
+    }
+    for prefix in GITHUB_MIRRORS {
+        let mirrored = format!("{prefix}{url}");
+        if !out.iter().any(|item| item == &mirrored) {
+            out.push(mirrored);
+        }
+    }
+    out
+}
+
+async fn marketplace_client(state: &crate::state::AppState) -> reqwest::Client {
+    let proxy = state.proxy_config.lock().await.clone();
+    if proxy.enabled && !proxy.host.is_empty() {
+        if let Ok(client) = build_http_client_for_url(
+            "https://github.com",
+            &proxy,
+            Duration::from_secs(DOWNLOAD_TIMEOUT_SECS),
+        ) {
+            return client;
+        }
+    }
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .unwrap_or_else(|_| state.plugin_http.clone())
+}
+
+enum ArtifactFetchError {
+    /// 连接、DNS、超时：可以换镜像再试。
+    Transport(OmniError),
+    /// 已经拿到 HTTP 状态：直连 4xx/5xx 不再猜镜像。
+    Status(OmniError),
+}
+
+async fn fetch_artifact(
     client: &reqwest::Client,
     url: &str,
     plugin_id: &str,
-) -> Result<Vec<u8>, OmniError> {
+) -> Result<Vec<u8>, ArtifactFetchError> {
     let response = client
         .get(url)
         .header("User-Agent", "OmniPanel-marketplace")
-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
         .send()
         .await
-        .map_err(|e| OmniError::connection(format!("download {plugin_id} failed: {e}")))?;
+        .map_err(|e| {
+            ArtifactFetchError::Transport(OmniError::connection(format!(
+                "download {plugin_id} failed: {}",
+                error_chain(&e)
+            )))
+        })?;
     if !response.status().is_success() {
-        return Err(OmniError::connection(format!(
+        return Err(ArtifactFetchError::Status(OmniError::connection(format!(
             "download HTTP {} {plugin_id}",
             response.status()
-        )));
+        ))));
     }
-    response
-        .bytes()
-        .await
-        .map(|b| b.to_vec())
-        .map_err(|e| OmniError::connection(format!("read download {plugin_id} failed: {e}")))
+    response.bytes().await.map(|b| b.to_vec()).map_err(|e| {
+        ArtifactFetchError::Transport(OmniError::connection(format!(
+            "read download {plugin_id} failed: {}",
+            error_chain(&e)
+        )))
+    })
+}
+
+async fn download_bytes(
+    state: &crate::state::AppState,
+    url: &str,
+    plugin_id: &str,
+) -> Result<Vec<u8>, OmniError> {
+    let client = marketplace_client(state).await;
+    let urls = artifact_url_candidates(url);
+    let mut transport = Vec::new();
+    for (index, candidate) in urls.iter().enumerate() {
+        match fetch_artifact(&client, candidate, plugin_id).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(ArtifactFetchError::Status(err)) if index == 0 => return Err(err),
+            Err(ArtifactFetchError::Status(err)) => transport.push(err.to_string()),
+            Err(ArtifactFetchError::Transport(err)) => {
+                if urls.len() == 1 {
+                    return Err(err);
+                }
+                transport.push(err.to_string());
+            }
+        }
+    }
+    Err(OmniError::connection(format!(
+        "{}。GitHub 连不上，已尝试镜像；若仍失败，请到设置里配置 HTTP 代理后再试",
+        transport.join("; ")
+    )))
+}
+
+fn schedule_source_refresh(
+    client: reqwest::Client,
+    cfg: SourceCfg,
+    plugins_root: Option<PathBuf>,
+    app: tauri::AppHandle,
+) {
+    {
+        let mut guard = refresh_inflight()
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        if !guard.insert(cfg.id.clone()) {
+            return;
+        }
+    }
+    let id = cfg.id.clone();
+    tokio::spawn(async move {
+        match fetch_source(&client, &cfg, plugins_root.as_deref()).await {
+            Ok(_) => {
+                let _ = app.emit(OFFICIAL_CATALOG_UPDATED_EVENT, ());
+            }
+            Err(err) => {
+                tracing::warn!("plugin catalog refresh {id} failed: {err}");
+            }
+        }
+        refresh_inflight()
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .remove(&id);
+    });
 }
 
 /// 下载制品完整性校验：`integrity`（npm `dist.integrity`，`<alg>-<base64>`）
@@ -749,7 +908,7 @@ async fn install_merged_version(
             plugin.id, entry.min_host_api
         )));
     }
-    let bytes = download_bytes(&state.plugin_http, entry.url.trim(), &plugin.id).await?;
+    let bytes = download_bytes(state.inner(), entry.url.trim(), &plugin.id).await?;
     verify_download_bytes(
         &bytes,
         &plugin.id,
@@ -807,6 +966,7 @@ async fn merged_view(
         let storage = state.storage.lock().await;
         load_source_cfgs(&storage, true)?
     };
+    let client = marketplace_client(state.inner()).await;
     let mut files: Vec<(String, RegistryFile)> = Vec::new();
     let mut errors = Vec::new();
     for cfg in cfgs.iter().filter(|c| c.enabled) {
@@ -815,14 +975,22 @@ async fn merged_view(
             continue;
         }
         let cached = read_source_cache(plugins_root.as_deref(), &cfg.id);
-        // force=false 且 cache 仍新鲜时才跳过网络；过期则静默重拉，保证发版后能提示更新。
-        if !refresh && cache_is_fresh(plugins_root.as_deref(), &cfg.id) {
+        // 有缓存就先返回，过期只在后台刷新。手动刷新（force）才阻塞等网络。
+        if !refresh {
             if let Some(file) = cached {
+                if !cache_is_fresh(plugins_root.as_deref(), &cfg.id) {
+                    schedule_source_refresh(
+                        client.clone(),
+                        cfg.clone(),
+                        plugins_root.clone(),
+                        state.app_handle.clone(),
+                    );
+                }
                 files.push((cfg.id.clone(), file));
                 continue;
             }
         }
-        match fetch_source(&state.plugin_http, cfg, plugins_root.as_deref()).await {
+        match fetch_source(&client, cfg, plugins_root.as_deref()).await {
             Ok((file, tofued)) => {
                 if let Some(key) = tofued {
                     let storage = state.storage.lock().await;
@@ -831,6 +999,7 @@ async fn merged_view(
                 files.push((cfg.id.clone(), file));
             }
             Err(err) => {
+                tracing::warn!("plugin source {} fetch failed: {err}", cfg.id);
                 if let Some(file) = read_source_cache(plugins_root.as_deref(), &cfg.id) {
                     files.push((cfg.id.clone(), file));
                 }
@@ -1043,7 +1212,8 @@ pub async fn plugin_registry_source_test(
             error: None,
         });
     }
-    match fetch_source(&state.plugin_http, &cfg, plugins_root.as_deref()).await {
+    let client = marketplace_client(state.inner()).await;
+    match fetch_source(&client, &cfg, plugins_root.as_deref()).await {
         Ok((file, tofued)) => {
             if let Some(key) = tofued {
                 let storage = state.storage.lock().await;
@@ -1535,6 +1705,25 @@ mod tests {
             marketplace_distribution(&plugin.versions[0]),
             PluginDistribution::Bundled
         );
+    }
+
+    #[test]
+    fn github_release_url_gets_mirrors() {
+        let url = "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-qiniu-0.1.0.omni-plugin";
+        let urls = artifact_url_candidates(url);
+        assert_eq!(urls[0], url);
+        assert!(urls.len() > 1);
+        assert!(urls[1].ends_with(url));
+        assert!(is_github_download_url(
+            "https://release-assets.githubusercontent.com/github-production-release-asset/x"
+        ));
+    }
+
+    #[test]
+    fn non_github_url_is_not_mirrored() {
+        let url = "https://registry.npmjs.org/left-pad/-/left-pad-1.0.0.tgz";
+        assert_eq!(artifact_url_candidates(url), vec![url.to_string()]);
+        assert!(!is_github_download_url(url));
     }
 
     #[test]

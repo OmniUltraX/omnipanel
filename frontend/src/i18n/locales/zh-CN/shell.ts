@@ -104,6 +104,9 @@ export default {
       empty: "没有匹配的标签",
       closeTab: "关闭标签",
       hint: "↑↓ 选择 · Enter 打开 · 中键关闭",
+      modeOrder: "顺序",
+      modeGroup: "分组",
+      modeRecent: "最近",
     },
     statusbar: {
       backendLogs: "后台日志",

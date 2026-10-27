@@ -58,6 +58,7 @@ import {
   type DbTreeChartFileNode } from "../../../stores/dbTreeChartFileStore";
 import { useDbScratchQueryStore } from "../../../stores/dbScratchQueryStore";
 import {
+  introspectSchema,
   introspectTable,
   listDatabases,
   isMysqlConnectionInfoCapable,
@@ -68,7 +69,13 @@ import {
   type DbConnectionConfig } from "../api";
 import { ensureCatalogEngines, ensureEngineForDbType } from "../ensureCatalogEngines";
 import { isEngineReady } from "../engineRegistry";
-import { buildDatabaseSchema, introspectToTableSchemas } from "../sqlEditor/language/completionItems";
+import { buildDatabaseSchema } from "../sqlEditor/language/completionItems";
+import {
+  cacheEntryWithIntrospectedColumns,
+  replaceSqlCompletionSchema,
+  sqlCompletionColumnsMissing,
+  sqlCompletionSchemaFromCacheEntry,
+} from "../sqlEditor/catalog/completionSchemaSync";
 import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
 import { collectSqlSchemaRefreshPlans } from "../sqlIntel/sqlSchemaRefreshPlan";
 import {
@@ -78,7 +85,7 @@ import {
 import { fetchAndApplyTableColumnMeta } from "../shared/columnMetaUtils";
 import { buildRedisColumnMeta } from "../redis/redisTableMeta";
 import { getCachedDatabaseNames, getCachedTableColumns } from "../schema/schemaCacheMerge";
-import type { SchemaCacheConnectionEntry } from "../schema/schemaCache";
+import { type SchemaCacheConnectionEntry } from "../schema/schemaCache";
 import { submitSchemaCacheRefresh, probeDbConnectionRuntime, isSchemaCacheEntryOk } from "../schema/schemaCacheBackgroundTasks";
 import { takeBootstrappedDbConnections } from "../schema/initDbSchemaUiStores";
 import { warmPrioritySchemaConnections } from "../schema/schemaWarmPriority";
@@ -135,6 +142,7 @@ import {
   type TableDesignerWorkspaceTab,
   type TablePreviewWorkspaceTab,
   type TreeChartWorkspaceTab,
+  databaseTabOverflowAside,
 } from "../workspace/workspaceTabs";
 import { TreeChartPanel } from "../treeChart/TreeChartPanel";
 import { DatabaseToolbox } from "../toolbox/DatabaseToolbox";
@@ -305,6 +313,10 @@ export function useDatabasePanelModel() {
   const [tableDesignerStates, setTableDesignerStates] = useState<Record<string, TableDesignerTabState>>({});
   const [databasesByConnId, setDatabasesByConnId] = useState<Record<string, string[]>>({});
   const [schemaByKey, setSchemaByKey] = useState<Record<string, DatabaseSchema>>({});
+  /** 当前库字段补全：进行中的整库反射，避免同一库并发打两次。 */
+  const sqlColumnWarmInflightRef = useRef(new Set<string>());
+  /** 已经反射过的「缺列集合」。列仍为空（空表）时不再打转。 */
+  const sqlColumnWarmDoneRef = useRef(new Set<string>());
   const [schemaLoadingKey] = useState<string | null>(null);
   const [rowEdit, setRowEdit] = useState<{
     tabId: string;
@@ -1035,40 +1047,109 @@ export function useDatabasePanelModel() {
       return;
     }
     const schemaSnapshot = useDbSchemaCacheStore.getState().snapshot;
+    setSchemaByKey((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const tab of workspaceTabs) {
+        if (tab.kind !== "sql") {
+          continue;
+        }
+        const conn = resolveSqlTabConnection(tab.id);
+        const database = useDbWorkspaceTabStore.getState().sqlTabStates[tab.id]?.database.trim() ?? "";
+        if (!conn || !database) {
+          continue;
+        }
+        const key = `${conn.id}:${database}`;
+        const dbEntry = schemaSnapshot.connections[conn.id]?.databases.find(
+          (entry) => entry.name === database,
+        );
+        if (!dbEntry) {
+          continue;
+        }
+        const built = sqlCompletionSchemaFromCacheEntry(database, dbEntry, {
+          connectionName: conn.name,
+          dbType: conn.db_type,
+        });
+        // 浅加载先写入空列后不能停住：列随后到达时必须换掉补全 schema。
+        if (!replaceSqlCompletionSchema(prev[key], built)) {
+          continue;
+        }
+        next[key] = built;
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [
+    workspaceTabs,
+    sqlTabPanelKeySeed,
+    resolveSqlTabConnection,
+    cacheHydrated,
+    schemaRevision,
+  ]);
+
+  useEffect(() => {
+    if (!cacheHydrated) {
+      return;
+    }
+    const schemaSnapshot = useDbSchemaCacheStore.getState().snapshot;
+    const seen = new Set<string>();
     for (const tab of workspaceTabs) {
       if (tab.kind !== "sql") {
         continue;
       }
       const conn = resolveSqlTabConnection(tab.id);
       const database = useDbWorkspaceTabStore.getState().sqlTabStates[tab.id]?.database.trim() ?? "";
-      if (!conn || !database) {
-        continue;
-      }
-      const key = `${conn.id}:${database}`;
-      if (schemaByKey[key]) {
+      if (!conn || !database || !isConnectionEnabled(conn) || isRedisConnection(conn)) {
         continue;
       }
       const dbEntry = schemaSnapshot.connections[conn.id]?.databases.find(
         (entry) => entry.name === database,
       );
-      if (!dbEntry) {
+      if (!sqlCompletionColumnsMissing(dbEntry)) {
         continue;
       }
-      const tables = [
-        ...introspectToTableSchemas(dbEntry.tables, "table"),
-        ...introspectToTableSchemas(dbEntry.views ?? [], "view"),
-      ];
-      setSchemaByKey((prev) => ({
-        ...prev,
-        [key]: buildDatabaseSchema(database, tables, {
-          connectionName: conn.name,
-          dbType: conn.db_type }) }));
+      const missing = [...(dbEntry?.tables ?? []), ...(dbEntry?.views ?? [])]
+        .filter((item) => (item.columns?.length ?? 0) === 0)
+        .map((item) => item.name)
+        .sort();
+      const warmKey = `${conn.id}:${database}:${missing.join(",") || "*"}`;
+      if (
+        seen.has(warmKey) ||
+        sqlColumnWarmInflightRef.current.has(warmKey) ||
+        sqlColumnWarmDoneRef.current.has(warmKey)
+      ) {
+        continue;
+      }
+      seen.add(warmKey);
+      sqlColumnWarmInflightRef.current.add(warmKey);
+      const connId = conn.id;
+      void introspectSchema(conn, database, { quiet: true })
+        .then(async (result) => {
+          const store = useDbSchemaCacheStore.getState();
+          const current = store.snapshot.connections[connId] ?? { databases: [] };
+          const previous = current.databases.find((entry) => entry.name === database);
+          const nextDb = cacheEntryWithIntrospectedColumns(previous, database, result);
+          const databases = previous
+            ? current.databases.map((entry) => (entry.name === database ? nextDb : entry))
+            : [...current.databases, nextDb];
+          await store.patchConnection(connId, {
+            ...current,
+            databases,
+            refreshedAt: Date.now(),
+          });
+          sqlColumnWarmDoneRef.current.add(warmKey);
+        })
+        .catch(() => {
+          // 连接未就绪时下次 schema 变更再试，不把失败记成完成。
+        })
+        .finally(() => {
+          sqlColumnWarmInflightRef.current.delete(warmKey);
+        });
     }
   }, [
     workspaceTabs,
     sqlTabPanelKeySeed,
     resolveSqlTabConnection,
-    schemaByKey,
     cacheHydrated,
     schemaRevision,
   ]);
@@ -2681,12 +2762,38 @@ export function useDatabasePanelModel() {
     };
   }, [referencedDatabaseTabIds, workspaceStateValue, activeTabContextValue, activeTableKey]);
 
+  const sqlOverflowBindingKey = useDbWorkspaceTabStore((state) => {
+    const parts: string[] = [];
+    for (const tab of workspaceTabs) {
+      if (tab.kind !== "sql") continue;
+      const connId = resolveSqlTabConnectionId(tab.id, state.sqlTabStates, state.tablePreviews);
+      const database = state.sqlTabStates[tab.id]?.database?.trim() ?? "";
+      if (connId || database) parts.push(`${tab.id}\0${connId}\0${database}`);
+    }
+    return parts.join("\n");
+  });
+
   const dockTabs = useMemo(
-    () =>
-      workspaceTabs
+    () => {
+      const tabStates = useDbWorkspaceTabStore.getState();
+      return workspaceTabs
         .filter((tab) => !tab.workspaceOnly)
         .map((tab) => {
           const preview = Boolean(tab.preview);
+          const aside = databaseTabOverflowAside(
+            tab,
+            connections,
+            tab.kind === "sql"
+              ? {
+                  connId: resolveSqlTabConnectionId(
+                    tab.id,
+                    tabStates.sqlTabStates,
+                    tabStates.tablePreviews,
+                  ),
+                  database: tabStates.sqlTabStates[tab.id]?.database,
+                }
+              : undefined,
+          );
           if (tab.kind === "database") {
             return {
               id: tab.id,
@@ -2695,7 +2802,8 @@ export function useDatabasePanelModel() {
               icon: "database" as const,
               tooltip: tab.label,
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           if (tab.kind === "connection") {
             return {
@@ -2705,7 +2813,8 @@ export function useDatabasePanelModel() {
               icon: "database" as const,
               tooltip: t("database.connectionInfo.subtitle"),
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           if (tab.kind === "redis-query") {
             return {
@@ -2715,7 +2824,8 @@ export function useDatabasePanelModel() {
               icon: "database" as const,
               tooltip: t("database.redisQuery.search"),
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           if (tab.kind === "slow-query") {
             return {
@@ -2725,7 +2835,8 @@ export function useDatabasePanelModel() {
               icon: "database" as const,
               tooltip: t("database.slowQueryLog.tabTooltip", { name: tab.label }),
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           if (tab.kind === "sql-exec-log") {
             return {
@@ -2735,7 +2846,8 @@ export function useDatabasePanelModel() {
               icon: "database" as const,
               tooltip: t("database.sqlExec.connLog"),
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           if (tab.kind === "binlog") {
             return {
@@ -2745,7 +2857,8 @@ export function useDatabasePanelModel() {
               icon: "database" as const,
               tooltip: t("database.binlog.tabTooltip", { name: tab.label }),
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           if (tab.kind === "toolbox") {
             return {
@@ -2755,7 +2868,8 @@ export function useDatabasePanelModel() {
               icon: tab.toolboxTab === "dataSync" ? ("table" as const) : ("database" as const),
               tooltip: tab.label,
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           if (tab.kind === "designer") {
             const dirty = isDesignerTabDirty(tab.id);
@@ -2769,7 +2883,8 @@ export function useDatabasePanelModel() {
               icon: "table" as const,
               tooltip: t("database.tableDesigner.tabTooltip", { label: tab.label }),
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           if (tab.kind === "tree-chart") {
             return {
@@ -2781,7 +2896,8 @@ export function useDatabasePanelModel() {
               icon: "database" as const,
               tooltip: t("database.treeChart.tabTooltip"),
               closable: true,
-              preview };
+              preview,
+              ...aside };
           }
           const isTableTab = tablePreviewTabIds.has(tab.id);
           const dirty = isTableTab ? false : dirtySqlWorkspaceTabIds.has(tab.id);
@@ -2796,9 +2912,12 @@ export function useDatabasePanelModel() {
             icon: isTableTab ? ("table" as const) : ("sql" as const),
             tooltip: tab.label,
             closable: true,
-            preview };
-        }),
-    [workspaceTabs, tablePreviewTabIds, dirtySqlWorkspaceTabIds, isDesignerTabDirty, t],
+            preview,
+            ...aside,
+          };
+        });
+    },
+    [workspaceTabs, tablePreviewTabIds, dirtySqlWorkspaceTabIds, isDesignerTabDirty, connections, sqlOverflowBindingKey, t],
   );
 
   const recentClosedActionItems = useMemo(

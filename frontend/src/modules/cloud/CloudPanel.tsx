@@ -9,6 +9,7 @@ import { ContextMenu, buildTabCloseMenuItems, type TabContextMenuAction } from "
 import { useModuleRouteActive } from "../../lib/useModuleRouteActive";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useI18n } from "../../i18n";
+import { SidebarNoteKeys } from "../../lib/sidebarNotes";
 import { appConfirm } from "../../lib/appConfirm";
 import { CloudConnectionDialog } from "./CloudConnectionDialog";
 import { CloudDockPanel } from "./CloudDockPanel";
@@ -262,6 +263,7 @@ export function CloudPanel() {
             closable: true,
             preview: tab.preview,
             tooltip: account.accessKeyId,
+            noteKey: SidebarNoteKeys.cloudAccount(tab.accountId),
           };
         })
         .filter((tab): tab is NonNullable<typeof tab> => tab != null),

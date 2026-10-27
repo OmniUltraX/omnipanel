@@ -345,20 +345,27 @@ function createDarkTheme(typography: SqlEditorTypography) {
       ".cm-editor": { position: "relative" },
       ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px 0 12px", minWidth: "2.5em" },
       ".cm-gutter-lint": {
-        minWidth: "2.2em",
+        width: "42px",
+        minWidth: "42px",
+        flexShrink: "0",
       },
       ".cm-gutter-lint .cm-gutterElement": {
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
-        gap: "2px",
+        justifyContent: "flex-start",
         padding: "0 2px",
       },
       ".cm-sql-lint-run-cell": {
         display: "inline-flex",
         alignItems: "center",
-        justifyContent: "center",
+        justifyContent: "flex-start",
+        flexWrap: "nowrap",
         gap: "2px",
+        width: "38px",
+        flex: "0 0 38px",
+      },
+      ".cm-sql-run-slot, .cm-sql-lint-slot": {
+        flexShrink: "0",
       },
       ".cm-sql-run-button": {
         display: "inline-flex",
@@ -373,15 +380,11 @@ function createDarkTheme(typography: SqlEditorTypography) {
         color: "var(--accent)",
         cursor: "pointer",
         opacity: "0.55",
+        flex: "0 0 22px",
       },
       ".cm-sql-run-button svg": {
         width: "16px",
         height: "16px",
-      },
-      ".cm-sql-run-gutter-spacer svg": {
-        width: "16px",
-        height: "16px",
-        visibility: "hidden",
       },
       ".cm-sql-run-button:hover": {
         opacity: "1",
@@ -476,20 +479,27 @@ function createLightTheme(typography: SqlEditorTypography) {
       ".cm-editor": { position: "relative" },
       ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px 0 12px", minWidth: "2.5em" },
       ".cm-gutter-lint": {
-        minWidth: "2.2em",
+        width: "42px",
+        minWidth: "42px",
+        flexShrink: "0",
       },
       ".cm-gutter-lint .cm-gutterElement": {
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
-        gap: "2px",
+        justifyContent: "flex-start",
         padding: "0 2px",
       },
       ".cm-sql-lint-run-cell": {
         display: "inline-flex",
         alignItems: "center",
-        justifyContent: "center",
+        justifyContent: "flex-start",
+        flexWrap: "nowrap",
         gap: "2px",
+        width: "38px",
+        flex: "0 0 38px",
+      },
+      ".cm-sql-run-slot, .cm-sql-lint-slot": {
+        flexShrink: "0",
       },
       ".cm-sql-run-button": {
         display: "inline-flex",
@@ -504,15 +514,11 @@ function createLightTheme(typography: SqlEditorTypography) {
         color: "var(--accent)",
         cursor: "pointer",
         opacity: "0.55",
+        flex: "0 0 22px",
       },
       ".cm-sql-run-button svg": {
         width: "16px",
         height: "16px",
-      },
-      ".cm-sql-run-gutter-spacer svg": {
-        width: "16px",
-        height: "16px",
-        visibility: "hidden",
       },
       ".cm-sql-run-button:hover": {
         opacity: "1",

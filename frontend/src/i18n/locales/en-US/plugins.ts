@@ -349,6 +349,8 @@ export default {
       installedCount: "Installed ({count})",
       marketCount: "Marketplace ({count})",
       refresh: "Refresh marketplace",
+      refreshing: "Refreshing…",
+      installFailed: "Install failed: {error}",
       get: "Get",
       currentVersion: "Current version",
       latestVersion: "Latest version",

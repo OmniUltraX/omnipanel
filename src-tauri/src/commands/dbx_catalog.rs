@@ -26,6 +26,8 @@ const REGISTRY_URL: &str =
 const GITHUB_RELEASE_API: &str =
     "https://api.github.com/repos/t8y2/dbx/releases/tags/agents-latest";
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
+/// 目录 JSON 很小。连不上 GitHub 时不要用下载大包的 180s 把插件中心列表卡住。
+const CATALOG_FETCH_TIMEOUT: Duration = Duration::from_secs(12);
 const GITHUB_STATS_TIMEOUT: Duration = Duration::from_secs(8);
 const GITHUB_STATS_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
@@ -447,7 +449,7 @@ async fn fetch_registry(client: &reqwest::Client) -> Result<RegistryFile, OmniEr
     let response = client
         .get(REGISTRY_URL)
         .header("User-Agent", "OmniPanel-dbx-catalog")
-        .timeout(DOWNLOAD_TIMEOUT)
+        .timeout(CATALOG_FETCH_TIMEOUT)
         .send()
         .await
         .map_err(|e| OmniError::connection(format!("无法拉取 DBX 目录: {e}")))?;

@@ -44,6 +44,7 @@ impl InternalOrchestrator {
             .as_ref()
             .is_some_and(|defs| defs.iter().any(|d| d.function.name == "omni_ask_user"));
         let mut succeeded_calls: Vec<(String, String)> = Vec::new();
+        let mut plan_open = false;
 
         loop {
             if cancel.load(Ordering::Relaxed) {
@@ -217,6 +218,9 @@ impl InternalOrchestrator {
                     if success {
                         succeeded_calls
                             .push((tc.function.name.clone(), tc.function.arguments.clone()));
+                        if is_plan_tool(&tc.function.name) {
+                            plan_open = true;
+                        }
                     }
 
                     messages.push(ChatMessage {
@@ -232,7 +236,7 @@ impl InternalOrchestrator {
                 if !called_ask_user {
                     messages.push(ChatMessage {
                         role: Role::User,
-                        content: tool_round_followup(has_ask_user),
+                        content: tool_round_followup(has_ask_user, plan_open),
                         tool_call_id: None,
                         tool_calls: None,
                         name: None,
@@ -281,14 +285,32 @@ fn same_tool_call(name_a: &str, args_a: &str, name_b: &str, args_b: &str) -> boo
     }
 }
 
-fn tool_round_followup(has_ask_user: bool) -> String {
-    let mut text = "\
+fn is_plan_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "omni_plan_create" | "omni_plan_add_step" | "omni_plan_update_step"
+    )
+}
+
+fn tool_round_followup(has_ask_user: bool, plan_open: bool) -> String {
+    let mut text = if plan_open {
+        "\
+[System — 计划仍在执行]\n\
+本回合已经创建或更新了会话计划。在每一步都标记为 completed 或 skipped 之前，不要把这一轮当成最终回答。\n\
+下一步继续调用工具：把当前步骤标成 in_progress，做这一步真正要做的事，再用 omni_plan_update_step 写成 completed 或 failed。\n\
+step_id 只能用 omni_plan_create 返回的值。禁止重复参数相同的已成功调用。\n\
+只有全部步骤都结束后，才用自然语言给出结论，并且不要再调用工具。\
+禁止把工具名、JSON 或「[工具 …]」内部记录写给用户。"
+            .to_string()
+    } else {
+        "\
 [System — 工具已执行完毕]\n\
 上方工具输出里已有真实结果。若已足够回答用户，用一两句自然语言直接给出结论，不要再调用工具。\
 禁止把工具名、JSON 或「[工具 …]」内部记录写给用户。\
 禁止重复刚才已经成功、参数相同的调用。\
 只有结果不够、且需要不同命令或不同参数时才继续调用。"
-        .to_string();
+            .to_string()
+    };
     if has_ask_user {
         text.push_str(
             "若需要用户选择下一步/主机/范围等，必须调用 omni_ask_user，\
@@ -478,6 +500,17 @@ mod tests {
                 .content
                 .contains("never pass to omni_terminal_exec")
         );
+    }
+
+    #[test]
+    fn plan_followup_does_not_tell_the_model_to_stop() {
+        let open = tool_round_followup(false, true);
+        assert!(open.contains("计划仍在执行"));
+        assert!(open.contains("omni_plan_update_step"));
+        assert!(!open.contains("若已足够回答用户"));
+        let idle = tool_round_followup(false, false);
+        assert!(idle.contains("若已足够回答用户"));
+        assert!(!idle.contains("计划仍在执行"));
     }
 
     #[test]
