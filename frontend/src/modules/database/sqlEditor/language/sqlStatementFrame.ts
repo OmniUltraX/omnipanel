@@ -224,6 +224,19 @@ interface LineBox {
   bottom: number;
 }
 
+/** 框和 SVG 的右缘停在滚动区可视宽度内，避免撑出横向滚动条。 */
+function frameRightLimit(view: EditorView): number {
+  return Math.floor(view.scrollDOM.scrollLeft + view.scrollDOM.clientWidth) - 1;
+}
+
+/** 折行后铺满的那一截右沿在内容区，不在逻辑行尾。 */
+function wrappedContentRight(view: EditorView, baseLeft: number): number {
+  const contentRect = view.contentDOM.getBoundingClientRect();
+  const lineElt = view.contentDOM.querySelector(".cm-line");
+  const padRight = lineElt ? Number.parseInt(window.getComputedStyle(lineElt).paddingRight, 10) || 0 : 0;
+  return contentRect.right - padRight - baseLeft + PAD;
+}
+
 function documentBase(view: EditorView): { left: number; top: number } {
   const rect = view.scrollDOM.getBoundingClientRect();
   const ltr = view.textDirection === Direction.LTR;
@@ -236,13 +249,28 @@ function documentBase(view: EditorView): { left: number; top: number } {
   };
 }
 
+/** 高亮范围收到结尾分号之后，光标在句中或分号后都同一套。 */
+function withTrailingSemicolon(text: string, stmt: SqlStatementPart, limit: number): SqlStatementPart {
+  let end = stmt.to;
+  while (end < limit && (text[end] === " " || text[end] === "\t" || text[end] === "\n" || text[end] === "\r")) end += 1;
+  if (end < limit && text[end] === ";") end += 1;
+  return end > stmt.to ? { ...stmt, to: end } : stmt;
+}
+
 function statementAtCursor(text: string, head: number): SqlStatementPart | null {
   const parts = splitSqlStatements(text);
-  for (const stmt of parts) {
-    if (head >= stmt.from && head < stmt.to) return stmt;
+  const limitOf = (index: number) => (index + 1 < parts.length ? parts[index + 1].from : text.length);
+  for (let i = 0; i < parts.length; i += 1) {
+    const stmt = parts[i];
+    if (head >= stmt.from && head < stmt.to) return withTrailingSemicolon(text, stmt, limitOf(i));
   }
-  if (parts.length > 0 && head === text.length && head === parts[parts.length - 1].to) {
-    return parts[parts.length - 1];
+  // 切分范围不含结尾分号。光标在分号上或分号后的空白里，仍高亮这一整条。
+  for (let i = 0; i < parts.length; i += 1) {
+    const stmt = parts[i];
+    const nextFrom = i + 1 < parts.length ? parts[i + 1].from : text.length + 1;
+    if (head < stmt.to || head >= nextFrom) continue;
+    if (!/^[\s;]*$/.test(text.slice(stmt.to, head))) continue;
+    return withTrailingSemicolon(text, stmt, limitOf(i));
   }
   return null;
 }
@@ -254,6 +282,9 @@ function lineBoxes(view: EditorView, stmt: SqlStatementPart, text: string): Line
   const first = view.state.doc.lineAt(start);
   const last = view.state.doc.lineAt(Math.max(start, stmt.to - 1));
   const boxes: LineBox[] = [];
+  let fullRight: number | null = null;
+  // 描边留 1px，右缘停在可视区内，文字仍包在框里。
+  const rightLimit = frameRightLimit(view) - 1;
   for (let n = first.number; n <= last.number; n += 1) {
     const line = view.state.doc.line(n);
     const from = Math.max(line.from, start);
@@ -263,7 +294,13 @@ function lineBoxes(view: EditorView, stmt: SqlStatementPart, text: string): Line
     const b = view.coordsAtPos(to, -1);
     if (!a || !b) continue;
     const left = Math.min(a.left, b.left) - base.left - PAD;
-    const right = Math.max(a.right, b.right) - base.left + PAD;
+    let right = Math.max(a.right, b.right) - base.left + PAD;
+    // 没折行时行尾就是右边界。折行后行尾在下一截，最大宽度要算到内容区右缘。
+    if (view.lineWrapping && Math.abs(a.top - b.top) > view.defaultLineHeight / 2) {
+      if (fullRight == null) fullRight = wrappedContentRight(view, base.left);
+      right = Math.max(right, fullRight);
+    }
+    right = Math.min(right, rightLimit);
     if (right - left < 2) continue;
     boxes.push({
       left,
@@ -353,6 +390,7 @@ class StatementFrameMarker implements LayerMarker {
     svg.style.top = "0";
     svg.style.width = `${this.width}px`;
     svg.style.height = `${this.height}px`;
+    svg.style.overflow = "hidden";
   }
 }
 
@@ -426,7 +464,7 @@ function statementMarkers(view: EditorView, onFix: () => void): readonly LayerMa
   const failedSql = view.state.field(sqlFrameErrorField, false);
   const failed = Boolean(failedSql && (sameSql(failedSql.sql, stmt.sql) || sameSql(failedSql.sql, text)));
   const markers: LayerMarker[] = [
-    new StatementFrameMarker(outlinePath(boxes), width + PAD, height + PAD, failed),
+    new StatementFrameMarker(outlinePath(boxes), Math.min(width + PAD, frameRightLimit(view)), height + PAD, failed),
   ];
   if (failed) {
     const edge = Math.max(...boxes.map((box) => box.right));

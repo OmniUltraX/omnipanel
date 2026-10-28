@@ -21269,6 +21269,13 @@ button.omni-btn-tool[aria-pressed="true"] {
     gap: 1px;
 }
 
+.icon-dropdown-button__menu--context {
+    background: var(--bg);
+    padding: 2px;
+    gap: 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
 .icon-dropdown-button__group {
     padding: var(--sp-2) var(--sp-3) var(--sp-1);
     font-size: 11px;
@@ -21415,6 +21422,28 @@ button.omni-btn-tool[aria-pressed="true"] {
 .icon-dropdown-button__item:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+}
+
+.icon-dropdown-button__item--danger {
+    color: var(--danger);
+}
+
+.icon-dropdown-button__item--danger .icon-dropdown-button__item-title {
+    color: var(--danger);
+}
+
+.icon-dropdown-button__item--danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.sql-exec-batch-menu {
+    flex-shrink: 0;
+}
+
+.sql-exec-batch-menu .icon-dropdown-button__trigger {
+    width: 28px;
+    height: 28px;
+    padding: 0;
 }
 
 .icon-dropdown-button__item-title {

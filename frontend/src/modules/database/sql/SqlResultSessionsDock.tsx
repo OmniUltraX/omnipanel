@@ -2,14 +2,19 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExterna
 import type { PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 import { Select } from "../../../components/ui/form/Select";
 import { ContextMenu, type ContextMenuItem } from "../../../components/ui/menu/ContextMenu";
-import { contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
+import { IconDropdownButton } from "../../../components/ui/menu/IconDropdownButton";
+import { ContextMenuIcon, contextMenuIcons } from "../../../components/ui/menu/contextMenuIcons";
 import { useI18n } from "../../../i18n";
+import { appConfirm } from "../../../lib/appConfirm";
+import { showToast } from "../../../stores/toastStore";
 import type { SqlResultSession } from "../workspace/dbWorkspaceState";
 import type { TableDataGridActiveCell, TableDataGridActions } from "../grid/TableDataGrid";
 import { SqlResultSessionPanel } from "./SqlResultSessionPanel";
 import type { MutableRefObject } from "react";
 import {
+  clearSqlExecUnreadMany,
   deleteSqlExecution,
+  deleteSqlExecutions,
   formatSqlExecRelativeTime,
   getSqlExecResult,
   sqlExecDisplayName,
@@ -57,6 +62,38 @@ export interface SqlResultSessionsDockProps {
 function statementKey(sql: string): string {
   return sql.trim().replace(/\s+/g, " ").toLowerCase();
 }
+
+function runningRecordIds(sessions: SqlResultSession[]): Set<string> {
+  const ids = new Set<string>();
+  for (const session of sessions) {
+    if (!session.running) continue;
+    ids.add(session.id);
+    if (session.executionId) ids.add(session.executionId);
+  }
+  return ids;
+}
+
+function deletableExecutions(
+  rows: readonly SqlExecRecord[],
+  includePinned: boolean,
+  runningIds: ReadonlySet<string>,
+): SqlExecRecord[] {
+  return rows.filter((row) => !runningIds.has(row.id) && (includePinned || !row.pinned));
+}
+
+const BATCH_MENU_ICON = (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+    <circle cx="3.5" cy="8" r="1.25" />
+    <circle cx="8" cy="8" r="1.25" />
+    <circle cx="12.5" cy="8" r="1.25" />
+  </svg>
+);
+
+const BATCH_READ_ICON = (
+  <ContextMenuIcon>
+    <path d="M3.5 8.2 6.4 11 12.5 4.8" strokeLinecap="round" strokeLinejoin="round" />
+  </ContextMenuIcon>
+);
 
 function liveRecord(session: SqlResultSession, seenAt: number): SqlExecRecord {
   return {
@@ -335,6 +372,192 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
     ];
   }, [connectionId, contextMenu?.id, items, onCloseSession, onInsertSql, onPinSession, t]);
 
+  const filterActive = Boolean(status || kind || keyword.trim());
+  const filteredDeletable = deletableExecutions(items, false, runningRecordIds(sessions));
+  const unreadHere = useMemo(() => {
+    const scope = new Set<string>();
+    for (const row of records) scope.add(row.id);
+    for (const row of items) scope.add(row.id);
+    return [...unreadIds].filter((id) => scope.has(id));
+  }, [items, records, unreadIds]);
+
+  const forgetDeleted = useCallback(
+    (ids: readonly string[]) => {
+      if (selectedId && ids.includes(selectedId)) {
+        setSelectedId(null);
+        setStoredView(null);
+      }
+      for (const id of ids) onCloseSession(id);
+    },
+    [onCloseSession, selectedId],
+  );
+
+  const purgeScope = useCallback(
+    async (includePinned: boolean) => {
+      const running = runningRecordIds(sessions);
+      for (let guard = 0; guard < 20; guard += 1) {
+        const page = await listSqlExecutions({
+          sqlFileId: sqlFileId ?? null,
+          tabId: sqlTabId,
+          limit: 500,
+        });
+        const targets = deletableExecutions(page, includePinned, running);
+        if (targets.length === 0) break;
+        const ids = targets.map((row) => row.id);
+        await deleteSqlExecutions(ids);
+        forgetDeleted(ids);
+        if (page.length < 500) break;
+      }
+    },
+    [forgetDeleted, sessions, sqlFileId, sqlTabId],
+  );
+
+  const confirmClearFiltered = useCallback(async () => {
+    const targets = deletableExecutions(items, false, runningRecordIds(sessions));
+    if (targets.length === 0) return;
+    const ok = await appConfirm(
+      t("database.sqlExec.batchClearFilteredConfirm", { count: targets.length }),
+      t("database.sqlExec.batchClearFiltered"),
+      { kind: "warning" },
+    );
+    if (!ok) return;
+    const ids = targets.map((row) => row.id);
+    await deleteSqlExecutions(ids);
+    forgetDeleted(ids);
+  }, [forgetDeleted, items, sessions, t]);
+
+  const confirmClearAll = useCallback(
+    async (includePinned: boolean) => {
+      const page = await listSqlExecutions({
+        sqlFileId: sqlFileId ?? null,
+        tabId: sqlTabId,
+        limit: 500,
+      });
+      const targets = deletableExecutions(page, includePinned, runningRecordIds(sessions));
+      if (targets.length === 0) return;
+      const more = page.length >= 500;
+      const title = t(
+        includePinned ? "database.sqlExec.batchClearPinned" : "database.sqlExec.batchClearAll",
+      );
+      const message = t(
+        includePinned
+          ? more
+            ? "database.sqlExec.batchClearPinnedConfirmMore"
+            : "database.sqlExec.batchClearPinnedConfirm"
+          : more
+            ? "database.sqlExec.batchClearAllConfirmMore"
+            : "database.sqlExec.batchClearAllConfirm",
+        { count: targets.length },
+      );
+      const ok = await appConfirm(message, title, { kind: "warning" });
+      if (!ok) return;
+      await purgeScope(includePinned);
+    },
+    [purgeScope, sessions, sqlFileId, sqlTabId, t],
+  );
+
+  const copyVisibleSql = useCallback(async () => {
+    const statements = items.map((row) => row.sql.trim()).filter(Boolean);
+    if (statements.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(statements.join("\n\n"));
+      showToast(t("database.sqlExec.batchCopyDone", { count: statements.length }));
+    } catch {
+      showToast(t("database.results.copyFailed"));
+    }
+  }, [items, t]);
+
+  const batchMenuItems = useMemo(
+    () => [
+      {
+        id: "clear-filtered",
+        group: "clear",
+        icon: contextMenuIcons.clear,
+        label: t("database.sqlExec.batchClearFiltered"),
+        shortcut:
+          filterActive && filteredDeletable.length > 0 ? String(filteredDeletable.length) : undefined,
+        subtitle: filterActive
+          ? t("database.sqlExec.batchClearFilteredHint", { count: filteredDeletable.length })
+          : t("database.sqlExec.batchClearFilteredNeedFilter"),
+        disabled: !filterActive || filteredDeletable.length === 0,
+        danger: true,
+        onSelect: () => {
+          void confirmClearFiltered();
+        },
+      },
+      {
+        id: "clear-all",
+        group: "clear",
+        icon: contextMenuIcons.delete,
+        label: t("database.sqlExec.batchClearAll"),
+        subtitle: t("database.sqlExec.batchClearAllHint"),
+        disabled: records.length === 0 && items.length === 0,
+        danger: true,
+        onSelect: () => {
+          void confirmClearAll(false);
+        },
+      },
+      {
+        id: "clear-pinned",
+        group: "clear",
+        icon: contextMenuIcons.unpin,
+        label: t("database.sqlExec.batchClearPinned"),
+        subtitle: t("database.sqlExec.batchClearPinnedHint"),
+        disabled: records.length === 0 && items.length === 0,
+        danger: true,
+        onSelect: () => {
+          void confirmClearAll(true);
+        },
+      },
+      {
+        id: "mark-read",
+        group: "other",
+        icon: BATCH_READ_ICON,
+        label: t("database.sqlExec.batchMarkRead"),
+        shortcut: unreadHere.length > 0 ? String(unreadHere.length) : undefined,
+        subtitle:
+          unreadHere.length > 0
+            ? t("database.sqlExec.batchMarkReadHint", { count: unreadHere.length })
+            : undefined,
+        disabled: unreadHere.length === 0,
+        onSelect: () => clearSqlExecUnreadMany(unreadHere),
+      },
+      {
+        id: "copy-sql",
+        group: "other",
+        icon: contextMenuIcons.copy,
+        label: t("database.sqlExec.batchCopySql"),
+        disabled: items.length === 0,
+        onSelect: () => {
+          void copyVisibleSql();
+        },
+      },
+      {
+        id: "reset-filters",
+        group: "other",
+        icon: contextMenuIcons.refresh,
+        label: t("database.sqlExec.batchResetFilters"),
+        disabled: !filterActive,
+        onSelect: () => {
+          setStatus("");
+          setKind("");
+          setKeyword("");
+        },
+      },
+    ],
+    [
+      confirmClearAll,
+      confirmClearFiltered,
+      copyVisibleSql,
+      filterActive,
+      filteredDeletable.length,
+      items.length,
+      records.length,
+      t,
+      unreadHere,
+    ],
+  );
+
   const renderRow = (record: SqlExecRecord, nested = false) => {
     const active = record.id === selected?.id;
     return (
@@ -429,6 +652,14 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
                 { value: "delete", label: "DELETE" },
                 { value: "ddl", label: "DDL" },
               ]}
+            />
+            <IconDropdownButton
+              className="sql-exec-batch-menu"
+              title={t("database.sqlExec.batchMenu")}
+              icon={BATCH_MENU_ICON}
+              items={batchMenuItems}
+              menuMinWidth={196}
+              menuStyle="context"
             />
           </div>
           <input

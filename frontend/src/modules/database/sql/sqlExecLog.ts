@@ -63,9 +63,18 @@ export function markSqlExecBatchUnread(ids: string[]) {
 }
 
 export function clearSqlExecUnread(id: string) {
-  if (!unreadIds.has(id)) return;
+  clearSqlExecUnreadMany([id]);
+}
+
+export function clearSqlExecUnreadMany(ids: readonly string[]) {
+  if (ids.length === 0) return;
   const next = new Set(unreadIds);
-  next.delete(id);
+  let changed = false;
+  for (const id of ids) {
+    if (!next.delete(id)) continue;
+    changed = true;
+  }
+  if (!changed) return;
   unreadIds = next;
   persistUnread();
   notifyUnread();
@@ -193,8 +202,19 @@ export async function setSqlExecPinned(id: string, pinned: boolean): Promise<voi
 }
 
 export async function deleteSqlExecution(id: string): Promise<void> {
-  await unwrapCommand(commands.dbSqlExecDelete(id));
-  clearSqlExecUnread(id);
+  await deleteSqlExecutions([id]);
+}
+
+/** 同一批只通知一次，避免清空列表时把历史面板刷爆。 */
+export async function deleteSqlExecutions(ids: readonly string[]): Promise<void> {
+  const unique = [...new Set(ids.filter((id) => id.trim()))];
+  if (unique.length === 0) return;
+  const chunkSize = 20;
+  for (let index = 0; index < unique.length; index += chunkSize) {
+    const chunk = unique.slice(index, index + chunkSize);
+    await Promise.all(chunk.map((id) => unwrapCommand(commands.dbSqlExecDelete(id))));
+  }
+  clearSqlExecUnreadMany(unique);
   notify();
 }
 

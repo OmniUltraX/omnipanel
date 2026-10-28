@@ -1,6 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { findStatementRangeAtOffset } from "./sqlLex";
+import { findStatementRangeAtOffset, splitSqlStatements } from "./sqlLex";
 import { formatSqlRange, formatStatement } from "./sqlFormat";
+
+describe("splitSqlStatements", () => {
+  it("漏写分号时，换行后的新 SELECT 单独成句", () => {
+    const sql = "SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 1\n\nSELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 1";
+    const parts = splitSqlStatements(sql);
+    expect(parts.map((part) => part.sql)).toEqual([
+      "SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 1",
+      "SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 1",
+    ]);
+    expect(parts.every((part) => !part.hadTrailingSemicolon)).toBe(true);
+  });
+
+  it("INSERT … SELECT 和 UNION 仍是一条", () => {
+    expect(splitSqlStatements("INSERT INTO t (a, b)\nSELECT 1, 2\nWHERE NOT EXISTS (\n  SELECT 1\n)").map((part) => part.sql)).toHaveLength(1);
+    expect(splitSqlStatements("SELECT 1 FROM t\nUNION ALL\nSELECT 2 FROM t").map((part) => part.sql)).toHaveLength(1);
+    expect(splitSqlStatements("UPDATE t\nSET a = 1\nWHERE id = 1").map((part) => part.sql)).toHaveLength(1);
+  });
+
+  it("光标落在第二条时只框住这一条", () => {
+    const sql = "SELECT 1 FROM t\nSELECT 2 FROM t";
+    const at = sql.indexOf("SELECT 2");
+    const range = findStatementRangeAtOffset(sql, at);
+    expect(sql.slice(range.from, range.to)).toBe("SELECT 2 FROM t");
+  });
+});
 
 describe("formatSqlRange", () => {
   it("保留当前语句前面的空行", () => {

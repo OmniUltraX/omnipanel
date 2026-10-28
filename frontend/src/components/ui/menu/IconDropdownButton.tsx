@@ -16,9 +16,13 @@ export interface IconDropdownButtonItem {
   id: string;
   label: string;
   subtitle?: string;
+  /** 右侧短提示，如条数。context 菜单里走快捷键槽 */
+  shortcut?: string;
+  icon?: ReactNode;
   /** 分组标题；与上一项不同时渲染分隔组头 */
   group?: string;
   disabled?: boolean;
+  danger?: boolean;
   onSelect: () => void;
 }
 
@@ -34,6 +38,11 @@ interface IconDropdownButtonProps {
   menuMinWidth?: number;
   /** 菜单相对按钮展开方向；页脚场景用 top */
   placement?: "bottom" | "top";
+  /**
+   * context：与右键菜单同一套单行（图标 + 标签 + 右侧提示，组与组之间用分隔线）。
+   * 默认仍是标题下挂说明的紧凑列表。
+   */
+  menuStyle?: "default" | "context";
 }
 
 /** 图标触发器 + 下拉菜单，适用于工具栏等紧凑场景 */
@@ -48,6 +57,7 @@ export function IconDropdownButton({
   className,
   menuMinWidth = 180,
   placement = "bottom",
+  menuStyle = "default",
 }: IconDropdownButtonProps) {
   const menuId = useId();
   const [open, setOpen] = useState(false);
@@ -145,7 +155,10 @@ export function IconDropdownButton({
               id={menuId}
               role="menu"
               ref={menuRef}
-              className="icon-dropdown-button__menu"
+              className={cn(
+                "icon-dropdown-button__menu",
+                menuStyle === "context" && "icon-dropdown-button__menu--context",
+              )}
               style={{
                 position: "fixed",
                 top: menuPosition?.top ?? 0,
@@ -159,17 +172,29 @@ export function IconDropdownButton({
               {items.map((item, index) => {
                 const prevGroup = index > 0 ? items[index - 1]?.group : undefined;
                 const showGroup = Boolean(item.group) && item.group !== prevGroup;
+                const contextRow = menuStyle === "context";
                 return (
                   <div key={item.id}>
                     {showGroup ? (
-                      <div className="icon-dropdown-button__group" role="presentation">
-                        {item.group}
-                      </div>
+                      contextRow ? (
+                        index > 0 ? <div className="context-menu-sep" role="separator" /> : null
+                      ) : (
+                        <div className="icon-dropdown-button__group" role="presentation">
+                          {item.group}
+                        </div>
+                      )
                     ) : null}
                     <button
                       type="button"
                       role="menuitem"
-                      className="icon-dropdown-button__item"
+                      title={item.subtitle}
+                      className={cn(
+                        contextRow ? "context-menu-item" : "icon-dropdown-button__item",
+                        item.danger &&
+                          (contextRow
+                            ? "context-menu-item--danger"
+                            : "icon-dropdown-button__item--danger"),
+                      )}
                       disabled={item.disabled}
                       onClick={() => {
                         if (item.disabled) {
@@ -179,8 +204,18 @@ export function IconDropdownButton({
                         setOpen(false);
                       }}
                     >
-                      <span className="icon-dropdown-button__item-title">{item.label}</span>
-                      {item.subtitle ? (
+                      {contextRow && item.icon ? (
+                        <span className="context-menu-item__icon">{item.icon}</span>
+                      ) : null}
+                      {contextRow ? (
+                        <span className="context-menu-item__label">{item.label}</span>
+                      ) : (
+                        <span className="icon-dropdown-button__item-title">{item.label}</span>
+                      )}
+                      {contextRow && item.shortcut ? (
+                        <span className="context-menu-item__shortcut">{item.shortcut}</span>
+                      ) : null}
+                      {!contextRow && item.subtitle ? (
                         <span className="icon-dropdown-button__item-desc">{item.subtitle}</span>
                       ) : null}
                     </button>
