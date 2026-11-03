@@ -194,7 +194,7 @@ pub fn seed_plugin_runtime(
     (registry, Arc::new(gateway))
 }
 
-/// 已安装 agent sidecar：登记进模型桥。第一方 Cursor / WorkBuddy 由宿主按官方二进制解析。
+/// 已安装且启用的 agent sidecar：登记进模型桥（含官方 Cursor / WorkBuddy / Trae）。
 fn sync_agent_sidecars(registry: &PluginRegistry, plugins_root: Option<&Path>) {
     let installed = plugins_root
         .map(|root| omnipanel_plugin::collect_activated_installed_agent_drivers(registry, root))

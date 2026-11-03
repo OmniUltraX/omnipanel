@@ -118,21 +118,17 @@
 
 Windows 上如果 driver 没有后缀，宿主还会再试同名 `.exe`。
 
-官方 Cursor / WorkBuddy 不在「已安装插件」目录里。开发时宿主按这个顺序找二进制：
+官方 Cursor / WorkBuddy / Trae / OpenCode Go 是 **download-only 插件**：正式版从插件中心按平台下载；开发态打开「AI 提供者」会自动 `cargo build` 并装进本地插件目录。
 
-1. `OMNIPANEL_AGENT_CURSOR_BIN` / `OMNIPANEL_AGENT_WORKBUDDY_BIN` / `OMNIPANEL_AGENT_TRAE_BIN` / `OMNIPANEL_AGENT_TRAE_GLOBAL_BIN`
-2. 正在运行的 `omnipanel-app` 同目录
-3. 仓库 `plugins/agent-*/<entry.driver>`（Windows 会补 `.exe`）
-4. 仓库 `target/debug`，其次 `target/release`（若当前程序路径里有 `release` 则反过来）
+开发手动编一次也可以：
 
 ```bash
-cargo build -p omnipanel-agent-cursor -p omnipanel-agent-workbuddy -p omnipanel-agent-trae
+node scripts/stage-agent-sidecars.mjs
+# 或
+cargo build -p omnipanel-agent-cursor -p omnipanel-agent-workbuddy -p omnipanel-agent-trae -p omnipanel-agent-opencode-go
 ```
 
-产物是 `target/debug/omnipanel-agent-cursor.exe`、`target/debug/omnipanel-agent-workbuddy.exe`，以及 Trae 的 `omnipanel-agent-trae.exe`（国内）和 `omnipanel-agent-trae-global.exe`（国际版）。Windows 下带 `.exe`。
-桌面开发版就在旁边，设置里刷新即可，不用先拷进 `bin/`。
-
-发给别人的包把对应平台的二进制放进 `bin/`，`entry.driver` 指过去。每个平台打自己的包。
+发版 CI 按目标三元组打 `{id}-{version}-{triple}.omni-plugin`，客户端下载时把 registry 里的通用 URL 改写成带 triple 的文件名。
 
 ## 4. 安全
 

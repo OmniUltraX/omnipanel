@@ -21,6 +21,12 @@ export const DOWNLOAD_ONLY_PLUGIN_DIRS = new Set([
   "cloud-qiniu",
   "cloud-jdcloud",
   "addon-warpgate",
+  // Agent sidecar：正式版按平台包下载；开发态由宿主懒编译后装进本地插件目录。
+  "agent-cursor",
+  "agent-workbuddy",
+  "agent-trae",
+  "agent-trae-global",
+  "agent-opencode-go",
 ]);
 
 

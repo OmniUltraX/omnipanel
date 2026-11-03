@@ -237,8 +237,9 @@ function AppShell() {
   }, []);
 
   // 启动后自动检测一次软件版本更新（角标 / 用户菜单「版本更新」）
+  // DEV 跳过：本地版本号是占位值，对线上会永远误报有更新。
   useEffect(() => {
-    if (!isTauriRuntime()) return;
+    if (!isTauriRuntime() || import.meta.env.DEV) return;
     void useAppUpdateStore.getState().checkOnce();
   }, []);
 

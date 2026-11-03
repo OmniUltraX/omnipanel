@@ -1088,7 +1088,10 @@ export default {
       packageCount: "{count} 个套餐",
       packageList: "套餐明细",
       packageRemainValue: "剩余 {remain} / {size}",
-      empty: "还没有可用的 AI 提供者",
+      empty: "还没有可用的 AI 提供者。请到「插件」从官方目录安装 Cursor / WorkBuddy / Trae 等。",
+      emptyDev: "还没有可用的 AI 提供者。开发态会自动编译 sidecar，也可点刷新重试。",
+      compiling: "编译中",
+      compilingHint: "正在本地编译 Agent sidecar 并装入插件目录，首次可能较久…",
       toggleSource: "启用 {name}",
     },
   } as const;

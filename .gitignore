@@ -16,6 +16,8 @@ dist/
 # 本地 stage 的 sidecar 二进制（.gitkeep 保留目录）
 src-tauri/binaries/*
 !src-tauri/binaries/.gitkeep
+# Agent sidecar 编译产物（stage-agent-sidecars / 发版 CI 写入）
+plugins/agent-*/bin/
 
 # IDE
 .idea/

@@ -33,8 +33,13 @@ function prefOf(prefs: Record<string, SourcePref>, id: string): SourcePref {
 interface AgentSourcesState {
   sources: AgentSourceCard[];
   refreshingId: string | null;
+  /** 开发态自动编译 sidecar 进行中 */
+  ensuringDev: boolean;
+  ensureDevError: string | null;
   prefs: Record<string, SourcePref>;
   load: () => Promise<void>;
+  /** 开发态：缺二进制时 cargo build 并装进本地插件目录 */
+  ensureDevSidecars: () => Promise<void>;
   refresh: (id: string) => Promise<void>;
   setSourceEnabled: (id: string, enabled: boolean) => void;
   setModelEnabled: (sourceId: string, modelId: string, enabled: boolean) => void;
@@ -44,6 +49,8 @@ interface AgentSourcesState {
 export const useAgentSourcesStore = create<AgentSourcesState>((set, get) => ({
   sources: [],
   refreshingId: null,
+  ensuringDev: false,
+  ensureDevError: null,
   prefs: loadPrefs(),
   setSourceEnabled: (id, enabled) => {
     const current = prefOf(get().prefs, id);
@@ -84,6 +91,38 @@ export const useAgentSourcesStore = create<AgentSourcesState>((set, get) => ({
       set({ sources: result.data });
     }
   },
+  ensureDevSidecars: async () => {
+    if (!canUseAiBackend() || !import.meta.env.DEV) return;
+    if (get().ensuringDev) return;
+    set({ ensuringDev: true, ensureDevError: null });
+    try {
+      const result = await commands.agentDevEnsureSidecars();
+      if (result.status === "error") {
+        set({
+          ensureDevError:
+            typeof result.error === "string"
+              ? result.error
+              : "自动编译 Agent sidecar 失败",
+        });
+        return;
+      }
+      const failed = result.data.items.filter((item) => item.status === "error");
+      if (failed.length > 0) {
+        set({
+          ensureDevError: failed
+            .map((item) => `${item.title}: ${item.detail ?? "失败"}`)
+            .join("；"),
+        });
+      }
+      await get().load();
+    } catch (e) {
+      set({
+        ensureDevError: e instanceof Error ? e.message : "自动编译 Agent sidecar 失败",
+      });
+    } finally {
+      set({ ensuringDev: false });
+    }
+  },
   refresh: async (id: string) => {
     if (!canUseAiBackend()) return;
     set({ refreshingId: id });
@@ -102,7 +141,11 @@ export const useAgentSourcesStore = create<AgentSourcesState>((set, get) => ({
 }));
 
 export async function initAgentSourcesStore(): Promise<void> {
-  await useAgentSourcesStore.getState().load();
+  if (import.meta.env.DEV) {
+    await useAgentSourcesStore.getState().ensureDevSidecars();
+  } else {
+    await useAgentSourcesStore.getState().load();
+  }
   const signedIn = useAgentSourcesStore
     .getState()
     .sources.filter((source) => source.signedIn);

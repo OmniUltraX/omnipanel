@@ -355,6 +355,7 @@ fn looks_official_download(id: &str) -> bool {
         || id.starts_with("omni.panel.")
         || id.starts_with("omni.knowledge.")
         || id.starts_with("omni.addon.")
+        || id.starts_with("omni.agent.")
 }
 
 fn is_catalog_miss(message: &str) -> bool {

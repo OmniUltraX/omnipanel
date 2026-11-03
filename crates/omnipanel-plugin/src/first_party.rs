@@ -49,24 +49,25 @@ pub fn theme_default() -> PluginManifest {
     first_party_manifest!("theme-default")
 }
 
+/// download-only：正式版从插件中心拉取平台包，不随客户端 bundled。
 pub fn agent_workbuddy() -> PluginManifest {
-    first_party_manifest!("agent-workbuddy")
+    download_only_manifest("agent-workbuddy")
 }
 
 pub fn agent_cursor() -> PluginManifest {
-    first_party_manifest!("agent-cursor")
+    download_only_manifest("agent-cursor")
 }
 
 pub fn agent_trae() -> PluginManifest {
-    first_party_manifest!("agent-trae")
+    download_only_manifest("agent-trae")
 }
 
 pub fn agent_trae_global() -> PluginManifest {
-    first_party_manifest!("agent-trae-global")
+    download_only_manifest("agent-trae-global")
 }
 
 pub fn agent_opencode_go() -> PluginManifest {
-    first_party_manifest!("agent-opencode-go")
+    download_only_manifest("agent-opencode-go")
 }
 
 pub fn addon_everything() -> PluginManifest {
@@ -264,12 +265,7 @@ pub fn first_party_manifests() -> Vec<PluginManifest> {
     vec![
         theme_default(),
         addon_everything(),
-        agent_workbuddy(),
-        agent_cursor(),
-        agent_trae(),
-        agent_trae_global(),
-        agent_opencode_go(),
-        // 全部云厂商 / Warpgate → download-only（安装后经 Runtime 装载）
+        // Agent / 云厂商 / Warpgate / Nacos → download-only（安装后经 Runtime 装载）
         panel_1panel(),
         panel_bt(),
         panel_hestia(),
@@ -325,7 +321,28 @@ mod tests {
         assert_eq!(cloud_gcp().logic_entry(), Some("logic.js"));
         assert_eq!(cloud_bandwagon().id, PLUGIN_ID_CLOUD_BANDWAGON);
         assert_eq!(cloud_bandwagon().logic_entry(), Some("logic.js"));
-        // 全部云厂商已 download-only：不进 first_party，也不嵌入 logic.js
+        // 云厂商 / Agent sidecar 已 download-only：不进 first_party
+        for id in [
+            PLUGIN_ID_CLOUD_ALIYUN,
+            PLUGIN_ID_CLOUD_TENCENT,
+            PLUGIN_ID_CLOUD_HUAWEI,
+            PLUGIN_ID_CLOUD_AWS,
+            PLUGIN_ID_CLOUD_AZURE,
+            PLUGIN_ID_CLOUD_DIGITALOCEAN,
+            PLUGIN_ID_CLOUD_GCP,
+            PLUGIN_ID_CLOUD_BANDWAGON,
+            "omni.cloud.qiniu",
+            PLUGIN_ID_AGENT_WORKBUDDY,
+            PLUGIN_ID_AGENT_CURSOR,
+            PLUGIN_ID_AGENT_TRAE,
+            PLUGIN_ID_AGENT_TRAE_GLOBAL,
+            PLUGIN_ID_AGENT_OPENCODE_GO,
+        ] {
+            assert!(
+                !first_party_manifests().iter().any(|m| m.id == id),
+                "{id} 不应在 first_party_manifests"
+            );
+        }
         for id in [
             PLUGIN_ID_CLOUD_ALIYUN,
             PLUGIN_ID_CLOUD_TENCENT,
@@ -337,10 +354,6 @@ mod tests {
             PLUGIN_ID_CLOUD_BANDWAGON,
             "omni.cloud.qiniu",
         ] {
-            assert!(
-                !first_party_manifests().iter().any(|m| m.id == id),
-                "{id} 不应在 first_party_manifests"
-            );
             assert!(first_party_logic_bytes(id, "logic.js").is_none());
         }
         assert_eq!(panel_1panel().id, PLUGIN_ID_PANEL_1PANEL);

@@ -203,6 +203,7 @@ impl SharedSession {
     }
 }
 
+#[allow(dead_code)]
 enum ProgramKind {
     Official {
         bin_name: &'static str,
@@ -225,6 +226,7 @@ pub struct SidecarSource {
 }
 
 impl SidecarSource {
+    #[allow(dead_code)]
     fn official(
         id: &'static str,
         title: &'static str,
@@ -252,6 +254,8 @@ impl SidecarSource {
         }
     }
 
+    // 旧 Official 解析路径保留备用（环境变量 / target/debug）；正式路径走已安装插件 Explicit。
+    #[allow(dead_code)]
     pub fn workbuddy() -> Self {
         Self::official(
             "workbuddy",
@@ -265,6 +269,7 @@ impl SidecarSource {
         )
     }
 
+    #[allow(dead_code)]
     pub fn cursor() -> Self {
         Self::official(
             "cursor",
@@ -278,6 +283,7 @@ impl SidecarSource {
         )
     }
 
+    #[allow(dead_code)]
     pub fn trae() -> Self {
         Self::official(
             "trae",
@@ -291,6 +297,7 @@ impl SidecarSource {
         )
     }
 
+    #[allow(dead_code)]
     pub fn trae_global() -> Self {
         Self::official(
             "trae-global",
@@ -304,6 +311,7 @@ impl SidecarSource {
         )
     }
 
+    #[allow(dead_code)]
     pub fn opencode_go() -> Self {
         Self::official(
             "opencode-go",
@@ -338,10 +346,17 @@ impl SidecarSource {
         match &self.program {
             ProgramKind::Explicit(path) => {
                 if path.is_file() {
-                    Ok(path.clone())
-                } else {
-                    Err(format!("未找到 {} sidecar: {}", self.title, path.display()))
+                    return Ok(path.clone());
                 }
+                #[cfg(windows)]
+                if path.extension().is_none() {
+                    let mut with_exe = path.clone();
+                    with_exe.set_extension("exe");
+                    if with_exe.is_file() {
+                        return Ok(with_exe);
+                    }
+                }
+                Err(format!("未找到 {} sidecar: {}", self.title, path.display()))
             }
             ProgramKind::Official {
                 bin_name,
@@ -557,6 +572,7 @@ pub fn sync_installed_agent_sidecars(installed: Vec<InstalledAgentSidecar>) {
     super::agent_source_registry().sync_unpinned(sources);
 }
 
+#[allow(dead_code)]
 fn resolve_official(
     bin_name: &str,
     package_name: &str,
@@ -585,6 +601,7 @@ fn resolve_official(
     ))
 }
 
+#[allow(dead_code)]
 fn official_candidates(bin_name: &str, plugin_dir: &str, driver: &str) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(exe) = std::env::current_exe() {

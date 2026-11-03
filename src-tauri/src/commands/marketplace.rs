@@ -702,16 +702,65 @@ fn is_github_download_url(url: &str) -> bool {
     )
 }
 
-fn artifact_url_candidates(url: &str) -> Vec<String> {
-    let url = url.trim().to_string();
-    let mut out = vec![url.clone()];
-    if !is_github_download_url(&url) {
-        return out;
+fn host_target_triple() -> &'static str {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        "x86_64-pc-windows-msvc"
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "aarch64-apple-darwin"
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        "x86_64-apple-darwin"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "x86_64-unknown-linux-gnu"
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        "aarch64-unknown-linux-gnu"
+    } else {
+        "unknown"
     }
-    for prefix in GITHUB_MIRRORS {
-        let mirrored = format!("{prefix}{url}");
-        if !out.iter().any(|item| item == &mirrored) {
-            out.push(mirrored);
+}
+
+/// Agent sidecar 按平台分包：`…-0.1.0.omni-plugin` → `…-0.1.0-{triple}.omni-plugin`。
+fn platform_specific_artifact_url(url: &str) -> Option<String> {
+    let url = url.trim();
+    let triple = host_target_triple();
+    if triple == "unknown" {
+        return None;
+    }
+    let Some(stem) = url.strip_suffix(".omni-plugin") else {
+        return None;
+    };
+    if stem.contains(triple) {
+        return None;
+    }
+    Some(format!("{stem}-{triple}.omni-plugin"))
+}
+
+#[cfg(test)]
+fn artifact_url_candidates(url: &str) -> Vec<String> {
+    artifact_url_candidates_for(url, None)
+}
+
+fn artifact_url_candidates_for(url: &str, plugin_id: Option<&str>) -> Vec<String> {
+    let url = url.trim().to_string();
+    let mut seeds = Vec::new();
+    if plugin_id.is_some_and(|id| id.starts_with("omni.agent.")) {
+        if let Some(platform_url) = platform_specific_artifact_url(&url) {
+            seeds.push(platform_url);
+        }
+    }
+    seeds.push(url.clone());
+    let mut out = Vec::new();
+    for seed in seeds {
+        if !out.iter().any(|item| item == &seed) {
+            out.push(seed.clone());
+        }
+        if !is_github_download_url(&seed) {
+            continue;
+        }
+        for prefix in GITHUB_MIRRORS {
+            let mirrored = format!("{prefix}{seed}");
+            if !out.iter().any(|item| item == &mirrored) {
+                out.push(mirrored);
+            }
         }
     }
     out
@@ -780,12 +829,14 @@ async fn download_bytes(
     plugin_id: &str,
 ) -> Result<Vec<u8>, OmniError> {
     let client = marketplace_client(state).await;
-    let urls = artifact_url_candidates(url);
+    let urls = artifact_url_candidates_for(url, Some(plugin_id));
     let mut transport = Vec::new();
+    let last = urls.len().saturating_sub(1);
     for (index, candidate) in urls.iter().enumerate() {
         match fetch_artifact(&client, candidate, plugin_id).await {
             Ok(bytes) => return Ok(bytes),
-            Err(ArtifactFetchError::Status(err)) if index == 0 => return Err(err),
+            // 平台专属包 404 时继续试通用名 / 镜像；只有最后一个候选失败才放弃。
+            Err(ArtifactFetchError::Status(err)) if index == last => return Err(err),
             Err(ArtifactFetchError::Status(err)) => transport.push(err.to_string()),
             Err(ArtifactFetchError::Transport(err)) => {
                 if urls.len() == 1 {
@@ -848,6 +899,13 @@ pub(crate) fn verify_download_bytes(
     }
     let sha256_hex = sha256_hex.trim();
     if sha256_hex.is_empty() {
+        // Agent 按平台分包时 registry 可能只留占位 sha；安装仍走包签名校验。
+        if plugin_id.starts_with("omni.agent.") {
+            tracing::warn!(
+                "agent download checksum missing, rely on package signature: {plugin_id}"
+            );
+            return Ok(());
+        }
         return Err(OmniError::invalid_input(format!(
             "download checksum missing: {plugin_id}"
         )));

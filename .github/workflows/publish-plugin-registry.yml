@@ -9,6 +9,8 @@ on:
       - "plugins/module-nacos/**"
       - "plugins/cloud-*/**"
       - "plugins/addon-warpgate/**"
+      - "plugins/agent-*/**"
+      - "scripts/stage-agent-sidecars.mjs"
       - "plugins-market/*/plugin.json"
       - "plugins-market/*/ui/**"
       - "plugins-market/*/logic.js"
@@ -69,6 +71,8 @@ jobs:
               }
             }
             for (const dir of DOWNLOAD_ONLY_PLUGIN_DIRS) {
+              // Agent sidecar 走矩阵任务按平台分包，这里跳过。
+              if (String(dir).startsWith("agent-")) continue;
               packOne("plugins", dir);
             }
             fs.writeFileSync("dist/market-assets.json", JSON.stringify(manifestByDir, null, 2));
@@ -104,6 +108,25 @@ jobs:
               }
               console.log(`[market-artifact] ${manifest.id} v${manifest.version} sha256/size 回填完成`);
             }
+            // Agent：registry 留平台无关 URL；客户端下载时改写为 -{triple}.omni-plugin
+            for (const dir of require("./scripts/plugin-download-only.mjs").DOWNLOAD_ONLY_PLUGIN_DIRS) {
+              if (!String(dir).startsWith("agent-")) continue;
+              const file = "plugins/" + dir + "/plugin.json";
+              if (!fs.existsSync(file)) continue;
+              const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+              const entry = registry.plugins.find((p) => p.id === manifest.id);
+              if (!entry) throw new Error("registry 缺少 agent " + manifest.id);
+              const asset = manifest.id.replace(/\./g, "-") + "-" + manifest.version + ".omni-plugin";
+              const url = `https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/${asset}`;
+              const artifact = { url, sha256: "", size: 8234 };
+              if (Array.isArray(entry.versions) && entry.versions.length) {
+                entry.versions[0].version = manifest.version;
+                entry.versions[0].artifact = artifact;
+              } else {
+                entry.versions = [{ version: manifest.version, artifact }];
+              }
+              console.log(`[market-artifact] ${manifest.id} platform-agnostic URL 占位`);
+            }
             fs.writeFileSync("plugin-registry.json", JSON.stringify(registry, null, 2) + "\n");
           '
           ls -la plugin-registry.json dist
@@ -116,6 +139,70 @@ jobs:
           files: |
             plugin-registry.json
             dist/*.omni-plugin
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  agent-sidecars:
+    name: Pack agent sidecars (${{ matrix.target }})
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Stage and pack agent sidecars
+        env:
+          OMNIPANEL_TARGET_TRIPLE: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/stage-agent-sidecars.mjs --release
+          mkdir -p dist
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const { execFileSync } = require("child_process");
+            const { DOWNLOAD_ONLY_PLUGIN_DIRS } = require("./scripts/plugin-download-only.mjs");
+            const triple = process.env.OMNIPANEL_TARGET_TRIPLE;
+            for (const dir of DOWNLOAD_ONLY_PLUGIN_DIRS) {
+              if (!String(dir).startsWith("agent-")) continue;
+              const manifestPath = path.join("plugins", dir, "plugin.json");
+              if (!fs.existsSync(manifestPath)) continue;
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+              const asset = manifest.id.replace(/\./g, "-") + "-" + manifest.version + "-" + triple + ".omni-plugin";
+              execFileSync(
+                "cargo",
+                ["run", "-q", "-p", "omnipanel-plugin-pkg", "--bin", "pack", "--",
+                 path.join("plugins", dir), path.join("dist", asset)],
+                { stdio: "inherit" },
+              );
+              console.log("packed", asset);
+            }
+          '
+          ls -la dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: plugins-latest
+          files: dist/*.omni-plugin
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

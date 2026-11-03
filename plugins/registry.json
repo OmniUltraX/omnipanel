@@ -21,18 +21,19 @@
     {
       "id": "omni.addon.resource-dedupe",
       "kind": "addon",
-      "name": "清理重复资源",
-      "description": "扫描端点相同的连接、密钥和 HTTP 请求，由用户选择保留项后合并引用并清理。",
+      "name": "omni.addon.resource-dedupe",
+      "description": "",
       "versions": [
         {
-          "version": "0.1.0"
+          "version": "0.1.0",
+          "minHostApi": 1
         }
       ],
       "permissions": [
         "connections:write"
       ],
-      "createdAt": "2026-10-21T10:00:00+08:00",
-      "updatedAt": "2026-10-21T10:00:00+08:00"
+      "createdAt": "2026-10-21T10:57:51+08:00",
+      "updatedAt": "2026-10-21T10:57:51+08:00"
     },
     {
       "id": "omni.addon.translator",
@@ -78,54 +79,19 @@
       "description": "Read the local Cursor desktop login and surface models in the chat picker.",
       "versions": [
         {
-          "version": "0.1.0"
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-agent-cursor-0.1.0.omni-plugin",
+            "sha256": "",
+            "size": 8234
+          }
         }
       ],
       "permissions": [
         "net:connect"
-      ]
-    },
-    {
-      "id": "omni.agent.trae",
-      "kind": "agent",
-      "name": "Trae",
-      "description": "Read the local Trae (China) login and surface models in the chat picker.",
-      "versions": [
-        {
-          "version": "0.1.0"
-        }
       ],
-      "permissions": [
-        "net:connect"
-      ]
-    },
-    {
-      "id": "omni.agent.trae-global",
-      "kind": "agent",
-      "name": "Trae International",
-      "description": "Read the local Trae international login and surface models in the chat picker.",
-      "versions": [
-        {
-          "version": "0.1.0"
-        }
-      ],
-      "permissions": [
-        "net:connect"
-      ]
-    },
-    {
-      "id": "omni.agent.workbuddy",
-      "kind": "agent",
-      "name": "WorkBuddy",
-      "description": "Read the local WorkBuddy desktop login and surface models in the chat picker.",
-      "versions": [
-        {
-          "version": "0.1.0"
-        }
-      ],
-      "permissions": [
-        "net:connect"
-      ]
+      "createdAt": "2026-10-08T13:06:43+08:00",
+      "updatedAt": "2026-10-09T10:32:30+08:00"
     },
     {
       "id": "omni.agent.opencode-go",
@@ -134,13 +100,83 @@
       "description": "Connect OpenCode Go subscription models with an API key; sync catalog and usage from the gateway.",
       "versions": [
         {
-          "version": "0.1.0"
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-agent-opencode-go-0.1.0.omni-plugin",
+            "sha256": "",
+            "size": 8234
+          }
         }
       ],
       "permissions": [
         "net:connect",
         "vault:read"
-      ]
+      ],
+      "createdAt": "2026-10-13T19:28:05+08:00",
+      "updatedAt": "2026-10-13T19:28:05+08:00"
+    },
+    {
+      "id": "omni.agent.trae",
+      "kind": "agent",
+      "name": "Trae",
+      "description": "Read the local Trae (China) login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-agent-trae-0.1.0.omni-plugin",
+            "sha256": "",
+            "size": 8234
+          }
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-10-08T13:06:43+08:00",
+      "updatedAt": "2026-10-09T13:35:41+08:00"
+    },
+    {
+      "id": "omni.agent.trae-global",
+      "kind": "agent",
+      "name": "Trae International",
+      "description": "Read the local Trae international login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-agent-trae-global-0.1.0.omni-plugin",
+            "sha256": "",
+            "size": 8234
+          }
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-10-08T13:06:43+08:00",
+      "updatedAt": "2026-10-09T13:35:41+08:00"
+    },
+    {
+      "id": "omni.agent.workbuddy",
+      "kind": "agent",
+      "name": "WorkBuddy",
+      "description": "Read the local WorkBuddy desktop login and surface models in the chat picker.",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "artifact": {
+            "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-agent-workbuddy-0.1.0.omni-plugin",
+            "sha256": "",
+            "size": 8234
+          }
+        }
+      ],
+      "permissions": [
+        "net:connect"
+      ],
+      "createdAt": "2026-10-08T13:06:43+08:00",
+      "updatedAt": "2026-10-09T10:32:30+08:00"
     },
     {
       "id": "omni.cloud.aliyun",
@@ -331,7 +367,7 @@
       "description": "Manage Qiniu Kodo buckets, bound domains, CDN domains, and SSL certificates (read-only); open buckets in Files via S3-compatible endpoints.",
       "versions": [
         {
-          "version": "0.2.0",
+          "version": "0.1.0",
           "artifact": {
             "url": "https://github.com/OmniUltraX/omnipanel/releases/download/plugins-latest/omni-cloud-qiniu-0.1.0.omni-plugin",
             "sha256": "d4322b254ed349f92067ecf3f2d8709b5e67497029f93ec7cd6c19afbfa3f12f",

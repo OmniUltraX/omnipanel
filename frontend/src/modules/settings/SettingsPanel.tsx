@@ -1142,6 +1142,8 @@ export function SettingsPanel() {
   };
 
   useEffect(() => {
+    // DEV 跳过自动检查：本地版本号是占位值，会永远误报有更新。
+    if (import.meta.env.DEV) return;
     if (checkUpdates) {
       checkUpdateFn();
     }

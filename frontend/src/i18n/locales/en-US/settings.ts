@@ -1094,7 +1094,12 @@ export default {
       packageCount: "{count} packages",
       packageList: "Packages",
       packageRemainValue: "{remain} / {size} left",
-      empty: "No AI providers yet",
+      empty:
+        "No AI providers yet. Install Cursor / WorkBuddy / Trae from Plugins → official catalog.",
+      emptyDev:
+        "No AI providers yet. Dev builds compile sidecars automatically; click Refresh to retry.",
+      compiling: "Compiling",
+      compilingHint: "Building Agent sidecars locally and installing them. First run may take a while…",
       toggleSource: "Enable {name}",
     },
   } as const;

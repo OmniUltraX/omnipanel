@@ -309,12 +309,13 @@ Rust 参考在 `src-agent-rs/`（`cargo build --release` 后把产物拷为 `bin
 
 私有长连接走 sidecar，拉起规则和数据库引擎相同，协议不同。`logic.js` / WASM 只做短 JSON。说明见 [sidecar-agent.md](./sidecar-agent.md)。
 
-官方示例：`plugins/agent-cursor`、`plugins/agent-workbuddy`（Rust 进程）。最小可跑样板：`plugins-samples/agent-echo`。
+官方示例：`plugins/agent-cursor`、`plugins/agent-workbuddy`（Rust 进程，download-only）。最小可跑样板：`plugins-samples/agent-echo`。
 
 ```bash
 node scripts/create-plugin.mjs my-agent agent
 node scripts/check-agent-sidecar.mjs plugins-custom/my-agent/bin/agent.mjs --source my-agent
-cargo build -p omnipanel-agent-cursor -p omnipanel-agent-workbuddy
+# 官方 sidecar：开发态设置页会自动编译；也可手动
+node scripts/stage-agent-sidecars.mjs
 ```
 
 ---

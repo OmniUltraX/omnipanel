@@ -39,8 +39,10 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
   checkedOnce: false,
 
   checkOnce: async () => {
-    if (!isTauriRuntime()) {
-      set({ checkedOnce: true });
+    // tauri.conf.json 在本地长期停在占位版本（发版才由 CI 写回），
+    // dev 构建去对线上 latest 会永远误报「有更新」并刷角标/弹窗。
+    if (!isTauriRuntime() || import.meta.env.DEV) {
+      set({ checkedOnce: true, updateInfo: null });
       return;
     }
     if (get().checking) return;

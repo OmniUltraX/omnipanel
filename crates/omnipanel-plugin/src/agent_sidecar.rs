@@ -1,4 +1,5 @@
-//! 已安装 agent 插件的 sidecar 驱动解析。第一方 Cursor / WorkBuddy 不走这条路径。
+//! 已安装 agent 插件的 sidecar 驱动解析。
+//! 官方 Cursor / WorkBuddy / Trae / OpenCode Go 与第三方一样：装上并启用后走这条路径。
 
 use std::path::{Path, PathBuf};
 
@@ -21,6 +22,23 @@ fn join_plugin_rel(root: &Path, plugin_id: &str, rel: &str) -> PathBuf {
             continue;
         }
         path.push(seg);
+    }
+    path
+}
+
+/// Windows 上 `entry.driver` 常不带后缀，优先落真实存在的 `.exe`。
+fn resolve_driver_file(root: &Path, plugin_id: &str, rel: &str) -> PathBuf {
+    let path = join_plugin_rel(root, plugin_id, rel);
+    if path.is_file() {
+        return path;
+    }
+    #[cfg(windows)]
+    if path.extension().is_none() {
+        let mut with_exe = path.clone();
+        with_exe.set_extension("exe");
+        if with_exe.is_file() {
+            return with_exe;
+        }
     }
     path
 }
@@ -68,7 +86,7 @@ pub fn collect_activated_installed_agent_drivers(
         let Some(rel) = entry.manifest.driver_entry() else {
             continue;
         };
-        let driver_path = join_plugin_rel(plugins_root, &entry.manifest.id, rel);
+        let driver_path = resolve_driver_file(plugins_root, &entry.manifest.id, rel);
         for (source_id, title) in declared_sources(&entry.manifest) {
             out.push(InstalledAgentDriver {
                 source_id,

@@ -41,6 +41,11 @@ const META = {
     name: "WorkBuddy",
     description: "Read the local WorkBuddy desktop login and surface models in the chat picker.",
   },
+  "omni.agent.opencode-go": {
+    name: "OpenCode Go",
+    description:
+      "Connect OpenCode Go subscription models with an API key; sync catalog and usage from the gateway.",
+  },
   "omni.cloud.aliyun": {
     name: "Alibaba Cloud",
     description: "Manage ECS, security groups, RDS, metrics, and other Alibaba Cloud resources.",

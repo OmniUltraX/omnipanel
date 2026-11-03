@@ -114,6 +114,7 @@ impl AgentSourceRegistry {
         self.sources.push(source);
     }
 
+    #[allow(dead_code)]
     fn register_pinned(&mut self, source: Arc<dyn AgentSource>) {
         let id = source.id().to_string();
         if !self.pinned.iter().any(|pinned| pinned == &id) {
@@ -174,15 +175,8 @@ impl AgentSourceRegistry {
 
 fn registry_slot() -> &'static Mutex<AgentSourceRegistry> {
     static REGISTRY: OnceLock<Mutex<AgentSourceRegistry>> = OnceLock::new();
-    REGISTRY.get_or_init(|| {
-        let mut registry = AgentSourceRegistry::default();
-        registry.register_pinned(Arc::new(sidecar::SidecarSource::workbuddy()));
-        registry.register_pinned(Arc::new(sidecar::SidecarSource::cursor()));
-        registry.register_pinned(Arc::new(sidecar::SidecarSource::trae()));
-        registry.register_pinned(Arc::new(sidecar::SidecarSource::trae_global()));
-        registry.register_pinned(Arc::new(sidecar::SidecarSource::opencode_go()));
-        Mutex::new(registry)
-    })
+    // 官方 Agent 不再 hard-pin：有二进制的已安装插件经 sync_installed_agent_sidecars 登记。
+    REGISTRY.get_or_init(|| Mutex::new(AgentSourceRegistry::default()))
 }
 
 pub fn agent_source_registry() -> std::sync::MutexGuard<'static, AgentSourceRegistry> {

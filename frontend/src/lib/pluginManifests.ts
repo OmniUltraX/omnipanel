@@ -4,11 +4,6 @@ import {
   type PluginManifest,
 } from "@omnipanel/plugin-sdk";
 import addonEverythingJson from "../../../plugins/addon-everything/plugin.json";
-import agentCursorJson from "../../../plugins/agent-cursor/plugin.json";
-import agentOpencodeGoJson from "../../../plugins/agent-opencode-go/plugin.json";
-import agentTraeJson from "../../../plugins/agent-trae/plugin.json";
-import agentTraeGlobalJson from "../../../plugins/agent-trae-global/plugin.json";
-import agentWorkbuddyJson from "../../../plugins/agent-workbuddy/plugin.json";
 import dbClickhouseJson from "../../../plugins/db-clickhouse/plugin.json";
 import dbMongodbJson from "../../../plugins/db-mongodb/plugin.json";
 import dbMysqlJson from "../../../plugins/db-mysql/plugin.json";
@@ -27,16 +22,11 @@ import themeDefaultJson from "../../../plugins/theme-default/plugin.json";
 /**
  * 第一方清单唯一前端事实源：与仓库 `plugins/` 中 bundled 目录一一对应，
  * 完整性由 `scripts/check-plugin-manifests.mjs` 校验。
- * `module-nacos` / 全部 `cloud-*` 等 download-only 插件不在此表（安装后经 Runtime Store 灌入）。
+ * `module-nacos` / `cloud-*` / `agent-*` 等 download-only 插件不在此表（安装后经 Runtime Store 灌入）。
  * 消费方 MUST 从此处按 kind/id 查询，禁止直接 import `plugins/*`。
  */
 export const FIRST_PARTY_PLUGIN_MANIFESTS: readonly PluginManifest[] = [
   parsePluginManifest(addonEverythingJson),
-  parsePluginManifest(agentCursorJson),
-  parsePluginManifest(agentOpencodeGoJson),
-  parsePluginManifest(agentTraeJson),
-  parsePluginManifest(agentTraeGlobalJson),
-  parsePluginManifest(agentWorkbuddyJson),
   parsePluginManifest(dbClickhouseJson),
   parsePluginManifest(dbMongodbJson),
   parsePluginManifest(dbMysqlJson),

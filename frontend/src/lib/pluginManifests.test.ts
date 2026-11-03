@@ -65,13 +65,8 @@ describe("pluginManifests 单源目录", () => {
     expect(listPluginManifests("cloud")).toHaveLength(0);
     expect(listPluginManifests("theme")).toHaveLength(1);
     expect(listPluginManifests("addon")).toHaveLength(2);
-    expect(listPluginManifests("agent").map((m) => m.id)).toEqual([
-      "omni.agent.cursor",
-      "omni.agent.opencode-go",
-      "omni.agent.trae",
-      "omni.agent.trae-global",
-      "omni.agent.workbuddy",
-    ]);
+    // agent-* 已 download-only，静态第一方表不再收录
+    expect(listPluginManifests("agent")).toHaveLength(0);
     expect(listPluginManifests("importer")).toHaveLength(1);
   });
 

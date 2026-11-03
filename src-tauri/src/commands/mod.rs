@@ -1,3 +1,4 @@
+pub mod agent_dev;
 pub mod agent_prompt;
 pub mod agent_source;
 #[allow(dead_code)]

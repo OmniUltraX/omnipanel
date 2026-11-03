@@ -1591,6 +1591,8 @@ export const commands = {
 	aiChatCancel: (conversationId: string) => typedError<null, string>(__TAURI_INVOKE("ai_chat_cancel", { conversationId })),
 	aiChatToolResult: (conversationId: string, toolCallId: string, result: string, approved: boolean) => typedError<null, string>(__TAURI_INVOKE("ai_chat_tool_result", { conversationId, toolCallId, result, approved })),
 	aiListBackends: () => typedError<BackendInfo[], string>(__TAURI_INVOKE("ai_list_backends")),
+	/** 开发态：官方 Agent sidecar 缺二进制时本地 cargo build 并装进插件目录。正式版为空操作。 */
+	agentDevEnsureSidecars: () => typedError<AgentDevEnsureResult, OmniError_Serialize>(__TAURI_INVOKE("agent_dev_ensure_sidecars")),
 	agentSourceList: () => typedError<AgentSourceCard[], string>(__TAURI_INVOKE("agent_source_list")),
 	agentSourceRefresh: (id: string) => typedError<AgentSourceCard, string>(__TAURI_INVOKE("agent_source_refresh", { id })),
 	aiListSessions: (source: string | null) => typedError<AiSessionRecord[], string>(__TAURI_INVOKE("ai_list_sessions", { source })),
@@ -2130,6 +2132,17 @@ export type AgentSourceCard = {
 	error: string | null,
 	models: AgentSourceModel[],
 	credits: AgentSourceCredits | null,
+};
+
+export type AgentDevEnsureItem = {
+	pluginId: string,
+	title: string,
+	status: string,
+	detail: string | null,
+};
+
+export type AgentDevEnsureResult = {
+	items: AgentDevEnsureItem[],
 };
 
 export type BackgroundTaskInfo = BackgroundTaskInfo_Serialize | BackgroundTaskInfo_Deserialize;

@@ -75,16 +75,26 @@ export function AiProvidersSection() {
   const { t } = useI18n();
   const sources = useAgentSourcesStore((s) => s.sources);
   const refreshingId = useAgentSourcesStore((s) => s.refreshingId);
+  const ensuringDev = useAgentSourcesStore((s) => s.ensuringDev);
+  const ensureDevError = useAgentSourcesStore((s) => s.ensureDevError);
   const load = useAgentSourcesStore((s) => s.load);
+  const ensureDevSidecars = useAgentSourcesStore((s) => s.ensureDevSidecars);
   const refresh = useAgentSourcesStore((s) => s.refresh);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (import.meta.env.DEV) {
+      void ensureDevSidecars();
+    } else {
+      void load();
+    }
+  }, [ensureDevSidecars, load]);
 
   const refreshAll = async () => {
-    const ids = sources.length > 0 ? sources.map((source) => source.id) : ["workbuddy"];
+    if (import.meta.env.DEV && sources.length === 0) {
+      await ensureDevSidecars();
+    }
+    const ids = sources.map((source) => source.id);
     for (const id of ids) await refresh(id);
   };
 
@@ -96,16 +106,34 @@ export function AiProvidersSection() {
             <h2>{t("settings.agentSources.label")}</h2>
             <p className="section-desc">{t("settings.agentSources.desc")}</p>
           </div>
-          <WorkbenchActionButton disabled={refreshingId != null} onClick={() => void refreshAll()}>
-            {refreshingId != null
-              ? t("settings.agentSources.refreshing")
-              : t("settings.agentSources.refresh")}
+          <WorkbenchActionButton
+            disabled={refreshingId != null || ensuringDev}
+            onClick={() => void refreshAll()}
+          >
+            {ensuringDev
+              ? t("settings.agentSources.compiling")
+              : refreshingId != null
+                ? t("settings.agentSources.refreshing")
+                : t("settings.agentSources.refresh")}
           </WorkbenchActionButton>
         </div>
 
-        {sources.length === 0 ? (
-          <p className="section-desc">{t("settings.agentSources.empty")}</p>
-        ) : (
+        {ensuringDev ? (
+          <p className="section-desc">{t("settings.agentSources.compilingHint")}</p>
+        ) : null}
+        {ensureDevError ? (
+          <p className="ai-provider-refresh-notice ai-provider-refresh-notice--err">
+            {ensureDevError}
+          </p>
+        ) : null}
+
+        {sources.length === 0 && !ensuringDev ? (
+          <p className="section-desc">
+            {import.meta.env.DEV
+              ? t("settings.agentSources.emptyDev")
+              : t("settings.agentSources.empty")}
+          </p>
+        ) : sources.length === 0 ? null : (
           <ul className="ai-models-list">
             {sources.map((source) => (
               <ProviderCard

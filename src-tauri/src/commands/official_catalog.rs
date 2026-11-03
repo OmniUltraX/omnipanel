@@ -545,8 +545,9 @@ pub async fn plugin_official_install(
             "官方目录缺少下载地址: {plugin_id}"
         )));
     }
-    let bytes = download_bytes(&state.plugin_http, &artifact.url).await?;
-    if !artifact.sha256.trim().is_empty() {
+    let bytes = download_bytes_for_plugin(&state.plugin_http, &plugin_id, &artifact.url).await?;
+    // Agent 平台包与 registry 占位 sha 可能不一致：空 sha 或 agent 跳过，仍走包签名。
+    if !artifact.sha256.trim().is_empty() && !plugin_id.starts_with("omni.agent.") {
         let actual = hex::encode(Sha256::digest(&bytes));
         if !actual.eq_ignore_ascii_case(artifact.sha256.trim()) {
             return Err(OmniError::invalid_input(format!(
@@ -570,6 +571,28 @@ pub async fn plugin_official_install(
     result
 }
 
+fn platform_artifact_url(url: &str) -> Option<String> {
+    let url = url.trim();
+    let triple = if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        "x86_64-pc-windows-msvc"
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "aarch64-apple-darwin"
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        "x86_64-apple-darwin"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "x86_64-unknown-linux-gnu"
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        "aarch64-unknown-linux-gnu"
+    } else {
+        return None;
+    };
+    let stem = url.strip_suffix(".omni-plugin")?;
+    if stem.contains(triple) {
+        return None;
+    }
+    Some(format!("{stem}-{triple}.omni-plugin"))
+}
+
 async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, OmniError> {
     let response = client
         .get(url)
@@ -589,6 +612,28 @@ async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, 
         .await
         .map_err(|e| OmniError::connection(format!("读取官方插件失败: {e}")))?;
     Ok(bytes.to_vec())
+}
+
+async fn download_bytes_for_plugin(
+    client: &reqwest::Client,
+    plugin_id: &str,
+    url: &str,
+) -> Result<Vec<u8>, OmniError> {
+    let mut urls = Vec::new();
+    if plugin_id.starts_with("omni.agent.") {
+        if let Some(platform) = platform_artifact_url(url) {
+            urls.push(platform);
+        }
+    }
+    urls.push(url.trim().to_string());
+    let mut last_err = None;
+    for candidate in urls {
+        match download_bytes(client, &candidate).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(err) => last_err = Some(err),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| OmniError::connection("下载官方插件失败")))
 }
 
 fn refuse_bundled_download(plugin_id: &str) -> OmniError {
