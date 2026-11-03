@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 编译官方 Agent sidecar，拷进 plugins/agent-*/bin/，供 pack / 本地校验。
+ * 编译官方 Agent sidecar，拷进 plugins/agent-<name>/bin，供 pack / 本地校验。
  *
  *   node scripts/stage-agent-sidecars.mjs
  *   node scripts/stage-agent-sidecars.mjs --release
