@@ -118,17 +118,22 @@
 
 Windows 上如果 driver 没有后缀，宿主还会再试同名 `.exe`。
 
-官方 Cursor / WorkBuddy / Trae / OpenCode Go 是 **download-only 插件**：正式版从插件中心按平台下载；开发态打开「AI 提供者」会自动 `cargo build` 并装进本地插件目录。
+官方 Cursor / WorkBuddy / Trae / OpenCode Go 是 **download-only 插件**。
 
-开发手动编一次也可以：
+加载顺序（设置 → AI 提供者 / 启动 ensure）：
+
+1. **已装二进制** → 直接用  
+2. **官方目录下载**平台包（`plugins-latest`，URL 按 host triple 改写）  
+3. **开发态兜底**：`cargo build` 写入安装目录  
+4. **开发态热重载**：把仓库 `plugins/agent-*` 链进 `plugin_dev`；改 `src-agent` / 清单后静置 2s 自动重编、pack、覆盖安装（`bin/` 不参与指纹，避免循环）
+
+手动编一次：
 
 ```bash
 node scripts/stage-agent-sidecars.mjs
-# 或
-cargo build -p omnipanel-agent-cursor -p omnipanel-agent-workbuddy -p omnipanel-agent-trae -p omnipanel-agent-opencode-go
 ```
 
-发版 CI 按目标三元组打 `{id}-{version}-{triple}.omni-plugin`，客户端下载时把 registry 里的通用 URL 改写成带 triple 的文件名。
+发版 CI 按目标三元组打 `{id}-{version}-{triple}.omni-plugin`。
 
 ## 4. 安全
 

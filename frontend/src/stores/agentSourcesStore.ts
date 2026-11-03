@@ -38,7 +38,9 @@ interface AgentSourcesState {
   ensureDevError: string | null;
   prefs: Record<string, SourcePref>;
   load: () => Promise<void>;
-  /** 开发态：缺二进制时 cargo build 并装进本地插件目录 */
+  /**
+   * 确保官方 Agent 可用：优先官方包下载；开发态可本地编译并挂热重载。
+   */
   ensureDevSidecars: () => Promise<void>;
   refresh: (id: string) => Promise<void>;
   setSourceEnabled: (id: string, enabled: boolean) => void;
@@ -92,7 +94,7 @@ export const useAgentSourcesStore = create<AgentSourcesState>((set, get) => ({
     }
   },
   ensureDevSidecars: async () => {
-    if (!canUseAiBackend() || !import.meta.env.DEV) return;
+    if (!canUseAiBackend()) return;
     if (get().ensuringDev) return;
     set({ ensuringDev: true, ensureDevError: null });
     try {
@@ -102,7 +104,7 @@ export const useAgentSourcesStore = create<AgentSourcesState>((set, get) => ({
           ensureDevError:
             typeof result.error === "string"
               ? result.error
-              : "自动编译 Agent sidecar 失败",
+              : "准备 Agent sidecar 失败",
         });
         return;
       }
@@ -117,7 +119,7 @@ export const useAgentSourcesStore = create<AgentSourcesState>((set, get) => ({
       await get().load();
     } catch (e) {
       set({
-        ensureDevError: e instanceof Error ? e.message : "自动编译 Agent sidecar 失败",
+        ensureDevError: e instanceof Error ? e.message : "准备 Agent sidecar 失败",
       });
     } finally {
       set({ ensuringDev: false });
@@ -141,11 +143,8 @@ export const useAgentSourcesStore = create<AgentSourcesState>((set, get) => ({
 }));
 
 export async function initAgentSourcesStore(): Promise<void> {
-  if (import.meta.env.DEV) {
-    await useAgentSourcesStore.getState().ensureDevSidecars();
-  } else {
-    await useAgentSourcesStore.getState().load();
-  }
+  // 正式包优先下载；开发态还会本地编译 + 热重载覆盖。
+  await useAgentSourcesStore.getState().ensureDevSidecars();
   const signedIn = useAgentSourcesStore
     .getState()
     .sources.filter((source) => source.signedIn);

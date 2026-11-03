@@ -38,7 +38,8 @@ const DEV_SETTLE_SECS: u64 = 2;
 /// 轮询间隔。
 const DEV_POLL_SECS: u64 = 1;
 /// 轮询跳过的目录名（构建产物/版本库不参与指纹）。
-const DEV_SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "dist", ".staging"];
+/// `bin`：Agent sidecar 编译产物，写入后不应再触发一轮热重载。
+const DEV_SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "dist", ".staging", "bin"];
 
 /// 开发期监听条目（`plugin_dev_status` 出参）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -70,9 +71,9 @@ pub struct DevProjectInfo {
 /// 链接文件条目：工程名 → 源码目录 + 插件 id（id 变了监听循环会迁移修正）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DevLink {
-    pub(crate) dir: String,
-    pub(crate) plugin_id: String,
+pub struct DevLink {
+    pub dir: String,
+    pub plugin_id: String,
 }
 
 struct DevEntry {
@@ -189,7 +190,7 @@ fn dev_links_path(app: &AppHandle) -> Result<PathBuf, OmniError> {
 }
 
 /// 读链接表（文件缺失/损坏按空表处理，不阻断）。
-pub(crate) fn load_dev_links(app: &AppHandle) -> HashMap<String, DevLink> {
+pub fn load_dev_links(app: &AppHandle) -> HashMap<String, DevLink> {
     dev_links_path(app)
         .ok()
         .and_then(|p| std::fs::read_to_string(p).ok())
@@ -197,7 +198,7 @@ pub(crate) fn load_dev_links(app: &AppHandle) -> HashMap<String, DevLink> {
         .unwrap_or_default()
 }
 
-pub(crate) fn save_dev_links(
+pub fn save_dev_links(
     app: &AppHandle,
     links: &HashMap<String, DevLink>,
 ) -> Result<(), OmniError> {
@@ -228,15 +229,47 @@ pub(crate) fn dev_linked_plugin_ids(app: &AppHandle) -> std::collections::HashSe
 }
 
 /// 目录安装内核：pack → 正式安装链路 → 清临时包。
-pub(crate) async fn install_dir_inner(
+pub async fn install_dir_inner(
     state: &State<'_, AppState>,
     dir: &Path,
 ) -> Result<PluginListItem, OmniError> {
     read_dev_manifest(dir)?;
+    // 官方 Rust Agent：pack 前先 cargo build，把 exe 放进 bin/（指纹已跳过 bin/）。
+    if let Err(err) = super::agent_dev::prepare_agent_sidecar_for_dir(dir) {
+        tracing::warn!(
+            target: "plugin_dev",
+            "准备 Agent sidecar 失败（继续打包，可能缺二进制）: {err}"
+        );
+    }
     let pkg = pack_dev_dir(dir).await?;
     let ret = super::plugin::install_plugin_from_path(state, pkg.clone()).await;
     let _ = tokio::fs::remove_file(&pkg).await;
     ret
+}
+
+/// 注册 / 刷新会话级热重载条目（Agent ensure 复用）。
+pub fn register_watch_entry(
+    app: &AppHandle,
+    project: String,
+    plugin_id: String,
+    dir: PathBuf,
+) {
+    if let Ok(mut map) = dev_entries().lock() {
+        let fingerprint = fingerprint_dir(&dir);
+        map.insert(
+            plugin_id,
+            DevEntry {
+                project,
+                dir,
+                fingerprint,
+                changed_at: None,
+                watching: true,
+                last_reload_ms: now_ms(),
+                last_error: String::new(),
+            },
+        );
+    }
+    ensure_dev_loop(app);
 }
 
 /// 由源码目录名派生链接工程名（与现有 user/repo/链接工程去重）。

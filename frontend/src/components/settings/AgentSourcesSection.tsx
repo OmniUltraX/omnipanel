@@ -77,24 +77,17 @@ export function AiProvidersSection() {
   const refreshingId = useAgentSourcesStore((s) => s.refreshingId);
   const ensuringDev = useAgentSourcesStore((s) => s.ensuringDev);
   const ensureDevError = useAgentSourcesStore((s) => s.ensureDevError);
-  const load = useAgentSourcesStore((s) => s.load);
   const ensureDevSidecars = useAgentSourcesStore((s) => s.ensureDevSidecars);
   const refresh = useAgentSourcesStore((s) => s.refresh);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    if (import.meta.env.DEV) {
-      void ensureDevSidecars();
-    } else {
-      void load();
-    }
-  }, [ensureDevSidecars, load]);
+    void ensureDevSidecars();
+  }, [ensureDevSidecars]);
 
   const refreshAll = async () => {
-    if (import.meta.env.DEV && sources.length === 0) {
-      await ensureDevSidecars();
-    }
-    const ids = sources.map((source) => source.id);
+    await ensureDevSidecars();
+    const ids = useAgentSourcesStore.getState().sources.map((source) => source.id);
     for (const id of ids) await refresh(id);
   };
 
@@ -111,7 +104,7 @@ export function AiProvidersSection() {
             onClick={() => void refreshAll()}
           >
             {ensuringDev
-              ? t("settings.agentSources.compiling")
+              ? t("settings.agentSources.preparing")
               : refreshingId != null
                 ? t("settings.agentSources.refreshing")
                 : t("settings.agentSources.refresh")}
@@ -119,7 +112,7 @@ export function AiProvidersSection() {
         </div>
 
         {ensuringDev ? (
-          <p className="section-desc">{t("settings.agentSources.compilingHint")}</p>
+          <p className="section-desc">{t("settings.agentSources.preparingHint")}</p>
         ) : null}
         {ensureDevError ? (
           <p className="ai-provider-refresh-notice ai-provider-refresh-notice--err">
@@ -128,11 +121,7 @@ export function AiProvidersSection() {
         ) : null}
 
         {sources.length === 0 && !ensuringDev ? (
-          <p className="section-desc">
-            {import.meta.env.DEV
-              ? t("settings.agentSources.emptyDev")
-              : t("settings.agentSources.empty")}
-          </p>
+          <p className="section-desc">{t("settings.agentSources.empty")}</p>
         ) : sources.length === 0 ? null : (
           <ul className="ai-models-list">
             {sources.map((source) => (
