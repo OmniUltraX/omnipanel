@@ -169,7 +169,8 @@ jobs:
           sudo apt-get install -y \
             pkg-config \
             libssl-dev \
-            libdbus-1-dev
+            libdbus-1-dev \
+            libudev-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
