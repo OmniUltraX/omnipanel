@@ -5746,6 +5746,8 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "omnipanel-error",
+ "omnipanel-s3",
+ "omnipanel-store",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -6260,6 +6262,7 @@ version = "0.0.5"
 dependencies = [
  "aes-gcm",
  "argon2",
+ "async-trait",
  "base64 0.22.1",
  "getrandom 0.2.17",
  "hex",

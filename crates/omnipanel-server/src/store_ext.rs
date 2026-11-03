@@ -1,20 +1,34 @@
 //! 任务 / 审计 / 第三方账号 / 密文库（本地 store 部分）。
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use omnipanel_assistant::{fetch_oss_sts, get_object_bytes_optional, upload_object_bytes};
+use omnipanel_assistant::{
+    SpaceLocation, TEAM_CONVERSATIONS_LATEST_LEAF, TEAM_MODULES_LATEST_LEAF, fetch_oss_sts,
+    fetch_space_location, get_object_bytes_optional, publish_space_location, pull_team_sync_json,
+    purge_s3_repo, sync_oss_space, sync_s3_space, team_repo_has_index, upload_object_bytes,
+};
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
-    AuditEntry, ConnectionKind, MasterKey, SaveTaskRequest, SecretsVaultEntry,
-    SecretsVaultEnvelope, SecretsVaultPlaintext, Task, TaskStatus, ThirdPartyAccount,
-    UpsertThirdPartyAccountInput, Vault, decode_salt_b64, decrypt_vault, derive_master_key,
-    encrypt_vault_with_salt, generate_salt,
+    AuditEntry, ConnectionKind, LayoutInput, LocalSpaceRecord, LocalSpaceStatus, MasterKey,
+    SYNC_KIND_CONVERSATIONS, SYNC_KIND_MODULES, SaveTaskRequest, SecretsVaultEntry,
+    SecretsVaultEnvelope, SecretsVaultPlaintext, SpaceClaimChoice, SpaceClaimStatus, SpaceConflict,
+    SpaceRepoReport, SpaceStorageInput, SpaceStorageSettings, SpaceSyncReport, SpaceSyncRequest,
+    Task, TaskStatus, ThirdPartyAccount, UpsertThirdPartyAccountInput, Vault, active_team_scope,
+    ai_providers_path, apply_database_files, attach_layouts, copy_team_dir_if_absent,
+    database_connections_path, decode_salt_b64, decrypt_vault, delete_space_conflict,
+    derive_master_key, desktop_plugin_dirs, encrypt_vault_with_salt, generate_salt,
+    get_or_create_sync_team_key, http_proxy_config_path, layout_files, legacy_conversation_files,
+    legacy_module_files, list_space_conflicts, restore_plugin_packs, stage_plugin_packs,
+    team_data_dir, web_search_config_path,
 };
 
 use crate::assistant_cmds::build_auth_context;
-use crate::auth_cmds::auth_device_identity;
+use crate::auth_cmds::{
+    auth_device_identity, auth_get_me, decode_sync_team_payload, resolve_sync_team,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::state::ServerState;
@@ -736,6 +750,348 @@ pub async fn sync_pairing_unwrap_and_store(
     let smk = omnipanel_store::unwrap_sync_master_key(&wrapped_key, &eph.secret, &aad)?;
     omnipanel_store::store_sync_master_key(&smk)?;
     Ok(())
+}
+
+pub async fn local_space_status(state: &ServerState) -> Result<LocalSpaceStatus, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.local_space_status()
+}
+
+pub async fn local_space_complete(
+    state: &ServerState,
+    name: String,
+) -> Result<LocalSpaceRecord, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.local_space_complete(&name)
+}
+
+pub async fn local_space_rebuild_repo(state: &ServerState) -> Result<SpaceRepoReport, OmniError> {
+    let root = team_data_dir()?;
+    let storage = state.storage.lock().await;
+    storage.rebuild_space_repo(&root)
+}
+
+pub async fn local_space_sync(
+    state: &ServerState,
+    request: SpaceSyncRequest,
+) -> Result<SpaceSyncReport, OmniError> {
+    static GATE: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = GATE.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
+    let root = team_data_dir()?;
+    let (mut extra, managed) = layout_files(LayoutInput {
+        ssh_sidebar_tree_json: request.ssh_sidebar_tree_json.as_deref(),
+        folder_trees_json: request.folder_trees_json.as_deref(),
+        custom_panels_json: request.custom_panels_json.as_deref(),
+        workspaces_json: request.workspaces_json.as_deref(),
+        conversations_json: request.conversations_json.as_deref(),
+        settings_json: request.settings_json.as_deref(),
+    })?;
+    stage_global_files(&mut extra);
+    for dir in desktop_plugin_dirs() {
+        let _ = stage_plugin_packs(&dir, &mut extra);
+    }
+    let index_id = {
+        let storage = state.storage.lock().await;
+        let device_id = crate::auth_cmds::current_device_id();
+        storage
+            .rebuild_space_repo_for(&root, &extra, &device_id)?
+            .index_id
+    };
+    if request.token.trim().is_empty() {
+        let mut report = SpaceSyncReport::local_only(index_id);
+        attach_layouts(&root, &mut report);
+        return Ok(report);
+    }
+    let identity = auth_device_identity().await?;
+    let token_for_me = request.token.clone();
+    let me = omnipanel_assistant::with_deadline(async move { auth_get_me(token_for_me).await })
+        .await?;
+    let team = resolve_sync_team(request.team_id, &me)?;
+    let team_id = team.id;
+    let auth = build_auth_context(&request.token, &identity.device_id).await?;
+    let (key, _) = get_or_create_sync_team_key(team_id)?;
+    if let Ok(Some((location, Some((access_key_id, secret))))) =
+        fetch_space_location(&auth, team_id, &key).await
+    {
+        if location.kind == "s3" && location.ready {
+            let storage = state.storage.lock().await;
+            let _ = storage.space_storage_adopt(
+                team_id,
+                &location.kind,
+                &location.endpoint,
+                &location.bucket,
+                &location.region,
+                &access_key_id,
+                &secret,
+            );
+        }
+    }
+    let mut legacy = if team_repo_has_index(&auth, team_id).await.unwrap_or(false) {
+        BTreeMap::new()
+    } else {
+        match pull_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF).await {
+            Ok(Some((_, bytes))) => decode_sync_team_payload(&me, team, SYNC_KIND_MODULES, &bytes)
+                .ok()
+                .and_then(|plain| serde_json::from_slice(&plain).ok())
+                .map(|value| legacy_module_files(&value))
+                .unwrap_or_default(),
+            _ => BTreeMap::new(),
+        }
+    };
+    if let Ok(Some((_, bytes))) =
+        pull_team_sync_json(&auth, team_id, TEAM_CONVERSATIONS_LATEST_LEAF).await
+    {
+        if let Some(files) = decode_sync_team_payload(&me, team, SYNC_KIND_CONVERSATIONS, &bytes)
+            .ok()
+            .and_then(|plain| serde_json::from_slice(&plain).ok())
+            .map(|value| legacy_conversation_files(&value))
+        {
+            legacy.extend(files);
+        }
+    }
+    let settings = {
+        let storage = state.storage.lock().await;
+        storage.space_storage_get(team_id)?
+    };
+    let mut report = if settings.kind == "s3" && settings.ready {
+        let (access_key_id, secret) = {
+            let storage = state.storage.lock().await;
+            storage.space_s3_credentials(team_id)?
+        };
+        sync_s3_space(
+            &settings.endpoint,
+            &settings.bucket,
+            &settings.region,
+            &access_key_id,
+            &secret,
+            &root,
+            &key,
+            &identity.device_id,
+            &legacy,
+            &managed,
+        )
+        .await?
+    } else {
+        sync_oss_space(
+            &auth,
+            team_id,
+            &root,
+            &key,
+            &identity.device_id,
+            &legacy,
+            &managed,
+        )
+        .await?
+    };
+    report.applied_connections = {
+        let storage = state.storage.lock().await;
+        storage.apply_space_checkout(&root)?
+    };
+    if let Ok(path) = database_connections_path() {
+        let _ = apply_database_files(&root, &path);
+    }
+    for dir in desktop_plugin_dirs() {
+        let _ = restore_plugin_packs(&root, &dir);
+    }
+    attach_layouts(&root, &mut report);
+    Ok(report)
+}
+
+fn stage_global_files(files: &mut BTreeMap<String, Vec<u8>>) {
+    for (key, path) in [
+        ("ai/providers.json", ai_providers_path().ok()),
+        ("ai/web-search.json", web_search_config_path().ok()),
+        ("ai/http-proxy.json", http_proxy_config_path().ok()),
+    ] {
+        let Some(path) = path else { continue };
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        if !bytes.is_empty() {
+            files.insert(key.to_string(), bytes);
+        }
+    }
+}
+
+pub async fn local_space_claim_status(
+    state: &ServerState,
+    token: String,
+    team_id: Option<i64>,
+) -> Result<SpaceClaimStatus, OmniError> {
+    let local_count = {
+        let storage = state.storage.lock().await;
+        storage.local_space_user_count()?
+    };
+    if token.trim().is_empty() {
+        let decision = if let Some(team) = team_id.filter(|id| *id > 0) {
+            state.storage.lock().await.space_claim_decision(team)?
+        } else {
+            None
+        };
+        return Ok(SpaceClaimStatus {
+            team_id: team_id.unwrap_or(0),
+            local_count,
+            remote_has_repo: false,
+            decision,
+        });
+    }
+    let identity = auth_device_identity().await?;
+    let me = auth_get_me(token.clone()).await?;
+    let team = resolve_sync_team(team_id, &me)?;
+    let auth = build_auth_context(&token, &identity.device_id).await?;
+    let remote_has_repo = team_repo_has_index(&auth, team.id).await.unwrap_or(false);
+    let decision = state.storage.lock().await.space_claim_decision(team.id)?;
+    Ok(SpaceClaimStatus {
+        team_id: team.id,
+        local_count,
+        remote_has_repo,
+        decision,
+    })
+}
+
+pub async fn local_space_claim_choose(
+    state: &ServerState,
+    choice: SpaceClaimChoice,
+) -> Result<(), OmniError> {
+    let decision = match choice.decision.trim() {
+        "merge" => "merge",
+        "local_only" => "local_only",
+        "new_space" => "new_space",
+        _ => {
+            return Err(OmniError::new(ErrorCode::InvalidInput, "未知的认领选择"));
+        }
+    };
+    let root = team_data_dir()?;
+    if decision == "new_space" {
+        let publish = choice
+            .publish_team_id
+            .ok_or_else(|| OmniError::new(ErrorCode::InvalidInput, "另建空间需要新的团队"))?;
+        state.storage.lock().await.checkpoint_wal()?;
+        copy_team_dir_if_absent(&active_team_scope(), &publish.to_string())?;
+    }
+    let storage = state.storage.lock().await;
+    storage.space_claim_put(choice.team_id, decision)?;
+    if decision == "local_only" || decision == "new_space" {
+        storage.mark_space_local_only(&root)?;
+    }
+    Ok(())
+}
+
+pub async fn local_space_storage_get(
+    state: &ServerState,
+    team_id: i64,
+) -> Result<SpaceStorageSettings, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.space_storage_get(team_id)
+}
+
+pub async fn local_space_storage_put(
+    state: &ServerState,
+    input: SpaceStorageInput,
+) -> Result<SpaceStorageSettings, OmniError> {
+    let storage = state.storage.lock().await;
+    storage.space_storage_put(&input)
+}
+
+pub async fn local_space_storage_copy(
+    state: &ServerState,
+    token: String,
+    team_id: i64,
+) -> Result<SpaceStorageSettings, OmniError> {
+    if token.trim().is_empty() {
+        return Err(OmniError::new(ErrorCode::InvalidInput, "需要先登录"));
+    }
+    let settings = state.storage.lock().await.space_storage_get(team_id)?;
+    if settings.kind != "s3" {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "当前不是自己的存储桶",
+        ));
+    }
+    let (access_key_id, secret) = state.storage.lock().await.space_s3_credentials(team_id)?;
+    if access_key_id.is_empty() || secret.is_empty() {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "请先保存 Access Key",
+        ));
+    }
+    let root = team_data_dir()?;
+    {
+        let storage = state.storage.lock().await;
+        storage.rebuild_space_repo_for(
+            &root,
+            &BTreeMap::new(),
+            &crate::auth_cmds::current_device_id(),
+        )?;
+    }
+    let identity = auth_device_identity().await?;
+    let auth = build_auth_context(&token, &identity.device_id).await?;
+    let (key, _) = get_or_create_sync_team_key(team_id)?;
+    sync_s3_space(
+        &settings.endpoint,
+        &settings.bucket,
+        &settings.region,
+        &access_key_id,
+        &secret,
+        &root,
+        &key,
+        &identity.device_id,
+        &BTreeMap::new(),
+        &std::collections::BTreeSet::new(),
+    )
+    .await?;
+    publish_space_location(
+        &auth,
+        team_id,
+        &SpaceLocation {
+            kind: "s3".into(),
+            endpoint: settings.endpoint.clone(),
+            bucket: settings.bucket.clone(),
+            region: settings.region.clone(),
+            ready: true,
+        },
+        &access_key_id,
+        &secret,
+        &key,
+    )
+    .await?;
+    let storage = state.storage.lock().await;
+    storage.space_storage_mark_ready(team_id)?;
+    storage.space_storage_get(team_id)
+}
+
+pub async fn local_space_storage_purge(
+    state: &ServerState,
+    team_id: i64,
+) -> Result<u32, OmniError> {
+    let settings = state.storage.lock().await.space_storage_get(team_id)?;
+    if settings.kind != "s3" {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            "官方凭证不能删除已上传的加密块",
+        ));
+    }
+    let (access_key_id, secret) = state.storage.lock().await.space_s3_credentials(team_id)?;
+    purge_s3_repo(
+        &settings.endpoint,
+        &settings.bucket,
+        &settings.region,
+        &access_key_id,
+        &secret,
+    )
+    .await
+}
+
+pub fn local_space_navicat_present() -> bool {
+    false
+}
+
+pub async fn local_space_list_conflicts() -> Result<Vec<SpaceConflict>, OmniError> {
+    list_space_conflicts(&team_data_dir()?)
+}
+
+pub async fn local_space_delete_conflict(id: String) -> Result<(), OmniError> {
+    delete_space_conflict(&team_data_dir()?, &id)
 }
 
 pub async fn write_text_file(path: String, contents: String) -> Result<String, String> {

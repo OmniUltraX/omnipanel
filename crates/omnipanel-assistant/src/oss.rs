@@ -1,6 +1,6 @@
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use omnipanel_error::OmniResult;
+use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 use reqwest::Client;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -9,6 +9,81 @@ use crate::error::{AssistantErrorKind, map_assistant_error_with_cause};
 use crate::sts::{OssStsCredentials, host_from_endpoint};
 
 type HmacSha256 = Hmac<Sha256>;
+
+const CLOUD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// 空间仓库用的客户端。不走系统代理，只用 HTTP/1.1。
+/// 系统代理会把连接挂在假 IP 上，HTTP/2 握手又可能一直不返回。
+pub(crate) fn space_http_client() -> Client {
+    Client::builder()
+        .http1_only()
+        .no_proxy()
+        .connect_timeout(std::time::Duration::from_secs(8))
+        .timeout(CLOUD_DEADLINE)
+        .read_timeout(std::time::Duration::from_secs(15))
+        .pool_max_idle_per_host(0)
+        .build()
+        .unwrap_or_else(|_| Client::new())
+}
+
+/// 单次云端请求的上限。
+///
+/// 请求放在新的系统线程和它自己的运行时里。调用方只等结果。
+/// 如果把请求丢回当前运行时，卡住的那次 `poll` 会占住工作线程，
+/// 超时通知也排在这条线程上，调用方永远醒不过来。
+pub async fn with_deadline<T>(
+    fut: impl std::future::Future<Output = OmniResult<T>> + Send + 'static,
+) -> OmniResult<T>
+where
+    T: Send + 'static,
+{
+    let (out_tx, out_rx) = tokio::sync::oneshot::channel();
+    if let Err(err) = std::thread::Builder::new()
+        .name("space-deadline".into())
+        .spawn(move || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let started = std::thread::Builder::new()
+                .name("space-http".into())
+                .spawn(move || {
+                    let result = match tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
+                        Ok(runtime) => runtime.block_on(fut),
+                        Err(err) => Err(OmniError::new(
+                            ErrorCode::Internal,
+                            "无法启动同步运行时",
+                        )
+                        .with_cause(err.to_string())),
+                    };
+                    let _ = tx.send(result);
+                });
+            let result = match started {
+                Err(err) => Err(OmniError::new(
+                    ErrorCode::Internal,
+                    "无法启动同步请求",
+                )
+                .with_cause(err.to_string())),
+                Ok(_) => match rx.recv_timeout(CLOUD_DEADLINE) {
+                    Ok(result) => result,
+                    Err(_) => Err(OmniError::new(
+                        ErrorCode::Timeout,
+                        "云端没有在限定时间内响应，本机数据保持不变",
+                    )),
+                },
+            };
+            let _ = out_tx.send(result);
+        })
+    {
+        return Err(
+            OmniError::new(ErrorCode::Internal, "无法启动同步计时").with_cause(err.to_string()),
+        );
+    }
+    match out_rx.await {
+        Ok(result) => result,
+        Err(_) => Err(OmniError::new(ErrorCode::Internal, "空间同步中断")),
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -132,6 +207,14 @@ pub async fn get_object_bytes(
     get_s3_sig_v4(http, sts, &key).await
 }
 
+fn missing_object(err: &OmniError) -> bool {
+    let msg = err.message.to_ascii_lowercase();
+    let cause = err.cause.as_deref().unwrap_or("").to_ascii_lowercase();
+    msg.contains("http 404")
+        || cause.contains("nosuchkey")
+        || cause.contains("http 404")
+}
+
 /// 下载对象；不存在（HTTP 404）时返回 `None`，便于首启 pull。
 pub async fn get_object_bytes_optional(
     http: &Client,
@@ -140,15 +223,29 @@ pub async fn get_object_bytes_optional(
 ) -> OmniResult<Option<Vec<u8>>> {
     match get_object_bytes(http, sts, object_key).await {
         Ok(bytes) => Ok(Some(bytes)),
-        Err(err) => {
-            let msg = err.message.to_ascii_lowercase();
-            let cause = err.cause.as_deref().unwrap_or("").to_ascii_lowercase();
-            if msg.contains("http 404") || cause.contains("nosuchkey") || cause.contains("404") {
-                Ok(None)
-            } else {
-                Err(err)
-            }
-        }
+        Err(err) if missing_object(&err) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+/// 只问对象在不在，不把密文下回来。
+pub async fn object_exists(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+) -> OmniResult<bool> {
+    let key = strip_bucket_prefix(object_key, &sts.bucket);
+    if key.is_empty() {
+        return Err(map_assistant_error_with_cause(
+            AssistantErrorKind::Inbox,
+            "OSS object key 为空",
+            object_key.to_string(),
+        ));
+    }
+    match head_s3_sig_v4(http, sts, &key).await {
+        Ok(exists) => Ok(exists),
+        Err(err) if missing_object(&err) => Ok(false),
+        Err(err) => Err(err),
     }
 }
 
@@ -289,6 +386,76 @@ async fn put_s3_sig_v4(
         etag,
         bytes: body.len() as u64,
     })
+}
+
+async fn head_s3_sig_v4(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+) -> OmniResult<bool> {
+    let key = object_key.trim_start_matches('/');
+    let (url, canonical_uri) = put_target(sts, key);
+    let host = host_from_endpoint(&sts.endpoint)?;
+
+    let now = Utc::now();
+    let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let date_stamp = now.format("%Y%m%d").to_string();
+    let payload_hash = EMPTY_PAYLOAD_HASH;
+    let token = sts.security_token();
+
+    let (canonical_headers, signed_headers) = if let Some(tok) = token {
+        (
+            format!(
+                "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\nx-amz-security-token:{tok}\n"
+            ),
+            "host;x-amz-content-sha256;x-amz-date;x-amz-security-token",
+        )
+    } else {
+        (
+            format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"),
+            "host;x-amz-content-sha256;x-amz-date",
+        )
+    };
+
+    let canonical_request =
+        format!("HEAD\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
+    let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
+    let credential_scope = format!("{date_stamp}/{}/s3/aws4_request", sts.region);
+    let string_to_sign =
+        format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
+    let signing_key = signing_key(&sts.access_key_secret, &date_stamp, &sts.region, "s3")?;
+    let signature = hex::encode(hmac_sha256(&signing_key, string_to_sign.as_bytes())?);
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        sts.access_key_id
+    );
+
+    let mut req = http
+        .head(&url)
+        .header("Host", &host)
+        .header("x-amz-content-sha256", payload_hash)
+        .header("x-amz-date", &amz_date)
+        .header("Authorization", authorization);
+    if let Some(tok) = token {
+        req = req.header("x-amz-security-token", tok);
+    }
+
+    let resp = req.send().await.map_err(|e| {
+        map_assistant_error_with_cause(AssistantErrorKind::Inbox, "OSS 查询对象失败", e.to_string())
+    })?;
+    let status = resp.status();
+    if status.as_u16() == 404 {
+        return Ok(false);
+    }
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(map_assistant_error_with_cause(
+            AssistantErrorKind::Inbox,
+            format!("OSS 查询对象失败 (HTTP {})", status.as_u16()),
+            text,
+        ));
+    }
+    Ok(true)
 }
 
 async fn get_s3_sig_v4(

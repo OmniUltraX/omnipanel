@@ -11,7 +11,12 @@ import { useSettingsStore } from "../../../stores/settingsStore";
 import { getShortcutKeys, matchesShortcut } from "../../../stores/shortcutsStore";
 import { quickInput } from "../../../lib/quickInput";
 import { isSqlEditorFocused, sqlAtOffset } from "../sqlIntel/sqlStatement";
-import { splitSqlStatements } from "../sqlIntel/sqlLex";
+import {
+  rebindSavedStatementTargets,
+  resolveSqlExecUnits,
+  sameSavedStatementTargets,
+  statementIndexAt,
+} from "../sqlIntel/sqlStatementTargets";
 import { makeQueryRunId, isQueryCancelledError } from "../sql/queryRun";
 import { resolveSqlPresenceToken } from "../sql/sqlPresence";
 import { useDbSqlFileStore } from "../../../stores/dbSqlFileStore";
@@ -98,6 +103,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
     const store = useDbSqlFileStore.getState();
     store.updateFileSql(tab.sqlFileId, state.sql);
     store.updateFileBinding(tab.sqlFileId, state.connId, state.database);
+    store.updateFileStatementTargets(tab.sqlFileId, state.statementTargets ?? []);
   }, []);
 
   const persistScratchQueryState = useCallback((tabId: string, state: SqlTabState) => {
@@ -112,6 +118,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       connId: state.connId,
       database: state.database,
       cursorOffset: state.cursorOffset,
+      statementTargets: state.statementTargets ?? [],
     });
   }, []);
 
@@ -142,7 +149,10 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
 
   const updateSqlTabState = useCallback((tabId: string, patch: Partial<SqlTabState>) => {
     const shouldPersistFile =
-      patch.sql !== undefined || patch.connId !== undefined || patch.database !== undefined;
+      patch.sql !== undefined ||
+      patch.connId !== undefined ||
+      patch.database !== undefined ||
+      patch.statementTargets !== undefined;
     const shouldPersistScratch =
       shouldPersistFile || patch.cursorOffset !== undefined;
     let nextStateForPersist: SqlTabState | null = null;
@@ -164,7 +174,12 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       }
     }
 
-    if (patch.sql !== undefined || patch.connId !== undefined || patch.database !== undefined) {
+    if (
+      patch.sql !== undefined ||
+      patch.connId !== undefined ||
+      patch.database !== undefined ||
+      patch.statementTargets !== undefined
+    ) {
       const tab = workspaceTabsRef.current.find((item) => item.id === tabId);
       if (tab?.kind === "sql" && !isScratchSqlTab(tab)) {
         setDirtySqlWorkspaceTabIds((prev) => {
@@ -277,7 +292,13 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
   const runQuery = useCallback(async (
     sqlOverride?: string,
     tabIdOverride?: string,
-    options?: { resultPage?: number; sessionId?: string; freshResult?: boolean },
+    options?: {
+      resultPage?: number;
+      sessionId?: string;
+      freshResult?: boolean;
+      statementIndex?: number;
+      anchor?: number;
+    },
   ) => {
     const tabStore = useDbWorkspaceTabStore.getState();
     const pageSize = useSettingsStore.getState().databaseQueryPageSize;
@@ -296,12 +317,20 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       if (!session) return;
       const sql = session.sql.trim();
       if (!sql) return;
-      const conn = connectionForSqlTab(resolvedTabId, sql);
+      const conn =
+        session.connId && session.database
+          ? (() => {
+              const base = resolveConnection(session.connId);
+              return base ? { ...base, database: session.database! } : null;
+            })()
+          : connectionForSqlTab(resolvedTabId, sql);
       if (!conn) {
         updateSqlResultSession(resolvedTabId, session.id, {
-          error: resolveSqlTabConnection(resolvedTabId)
-            ? t("database.workspace.selectDatabase")
-            : t("database.results.noConnection"),
+          error: session.connId
+            ? t("database.sqlTarget.missingConnection")
+            : resolveSqlTabConnection(resolvedTabId)
+              ? t("database.workspace.selectDatabase")
+              : t("database.results.noConnection"),
         });
         return;
       }
@@ -347,15 +376,23 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       return;
     }
 
-    const sql = (sqlOverride ?? tabState.sql).trim();
-
-    if (!sql) {
+    const units = resolveSqlExecUnits(
+      tabState.sql,
+      sqlOverride,
+      options?.statementIndex,
+      tabState.statementTargets,
+      options?.anchor,
+    );
+    if (units.length === 0) {
       updateSqlTabState(resolvedTabId, { error: t("database.results.emptySql") });
       return;
     }
 
-    const conn = connectionForSqlTab(resolvedTabId, sql);
-    if (!conn) {
+    const needsFileConnection = units.some((unit) => !unit.target);
+    const conn = needsFileConnection
+      ? connectionForSqlTab(resolvedTabId, units.find((unit) => !unit.target)?.sql)
+      : null;
+    if (needsFileConnection && !conn) {
       updateSqlTabState(resolvedTabId, {
         error: resolveSqlTabConnection(resolvedTabId)
           ? t("database.workspace.selectDatabase")
@@ -365,8 +402,11 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
     }
 
     const freshResult = options?.freshResult === true;
-    const statementSqls = splitSqlStatements(sql).map((part) => part.sql);
-    const statements = statementSqls.length > 0 ? statementSqls : [sql];
+    const statements = units.map((unit) => ({
+      sql: unit.sql,
+      connId: unit.target?.connId,
+      database: unit.target?.database,
+    }));
     if (tabState.activeQueryRunId) {
       try {
         await invoke("db_cancel_query", { runId: tabState.activeQueryRunId });
@@ -387,26 +427,33 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       activeResultSessionId: planned.activeSessionId,
     });
 
-    enqueueAction({
-      type: "sql",
-      title: t("database.actions.runQuery"),
-      description: `${conn.name} · ${t("database.actions.runQueryDesc")}`,
-      command: sql,
-      resourceId: conn.id,
-      source: "用户",
-    });
+    const actionConn =
+      conn ??
+      (plannedSessions[0]?.connId ? resolveConnection(plannedSessions[0].connId) : null);
+    if (actionConn) {
+      enqueueAction({
+        type: "sql",
+        title: t("database.actions.runQuery"),
+        description: `${actionConn.name} · ${t("database.actions.runQueryDesc")}`,
+        command: units.map((unit) => unit.sql).join("\n"),
+        resourceId: actionConn.id,
+        source: "用户",
+      });
+    }
 
     const useManualTxn = tabState.autoCommit === false;
-    // 多条语句共用一条连接，用户变量和临时表在脚本内仍然可见；
-    // 每条成功后提交，保持自动提交语义。手动事务继续用标签自己的会话。
+    // 没改执行库的语句仍共用一条脚本会话，用户变量和临时表在这些语句之间可见。
+    // 单独指定的库不进这条会话，避免 USE 把后面的默认语句带跑。
+    const defaultRunCount = plannedSessions.filter((item) => !item.connId).length;
     const scriptSessionId =
-      !useManualTxn && plannedSessions.length > 1
+      !useManualTxn && defaultRunCount > 1
         ? `${resolvedTabId}::script::${makeQueryRunId()}`
         : null;
     const historyTab = workspaceTabsRef.current.find((item) => item.id === resolvedTabId);
     const sqlFileId = historyTab?.kind === "sql" ? historyTab.sqlFileId ?? null : null;
     let anySuccess = false;
-    const succeededSql: string[] = [];
+    let defaultSucceeded = false;
+    const succeededByConn = new Map<string, { connection: DbConnectionConfig; sqls: string[] }>();
     let lastRunId: string | null = null;
     const batchIds: string[] = [];
     const trackBatch = plannedSessions.length > 1;
@@ -438,7 +485,26 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       });
       updateSqlResultSession(resolvedTabId, session.id, { running: true, error: null });
 
-      const presenceToken = await resolveSqlPresenceToken(conn, session.sql, t);
+      const sessionConn = session.connId
+        ? (() => {
+            const base = session.database ? resolveConnection(session.connId) : null;
+            return base && session.database ? { ...base, database: session.database } : null;
+          })()
+        : conn;
+      if (!sessionConn) {
+        const message = t("database.sqlTarget.missingConnection");
+        updateSqlResultSession(resolvedTabId, session.id, {
+          result: null,
+          error: message,
+          running: false,
+        });
+        if (session.connId) continue;
+        dropSessions(plannedSessions.slice(index + 1).map((item) => item.id), session.id);
+        break;
+      }
+      const joinScript = !session.connId && Boolean(useManualTxn || scriptSessionId);
+
+      const presenceToken = await resolveSqlPresenceToken(sessionConn, session.sql, t);
       if (currentRunId() !== runId) break;
       if (presenceToken === null) {
         dropSessions(
@@ -465,14 +531,16 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
         void appendSqlExecution({
           id: executionId,
           executedAt: Date.now(),
-          connectionId: conn.id,
-          connectionName: conn.name,
-          databaseName: conn.database,
+          connectionId: sessionConn.id,
+          connectionName: sessionConn.name,
+          databaseName: sessionConn.database,
           envTag: "",
           sqlFileId,
           tabId: resolvedTabId,
           sql: session.sql,
-          displayName: sqlExecDisplayName(session.sql, "SQL"),
+          displayName: session.connId
+            ? `${sqlExecDisplayName(session.sql, "SQL")} · ${sessionConn.name} · ${sessionConn.database}`
+            : sqlExecDisplayName(session.sql, "SQL"),
           status,
           elapsedMs: extra.elapsedMs,
           rowsAffected: extra.rowsAffected ?? 0,
@@ -483,30 +551,29 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
         });
       };
       try {
-        const res =
-          useManualTxn || scriptSessionId
-            ? await invoke<QueryResult>("db_execute_query_in_session", {
-                sessionId: scriptSessionId ?? resolvedTabId,
-                connection: conn,
-                sql: session.sql,
-                runId,
-                limit: pageSize,
-                offset: 0,
-                presenceToken: presenceToken ?? null,
-              })
-            : await invoke<QueryResult>("db_execute_query", {
-                connection: conn,
-                sql: session.sql,
-                runId,
-                limit: pageSize,
-                offset: 0,
-                presenceToken: presenceToken ?? null,
-              });
+        const res = joinScript
+          ? await invoke<QueryResult>("db_execute_query_in_session", {
+              sessionId: scriptSessionId ?? resolvedTabId,
+              connection: sessionConn,
+              sql: session.sql,
+              runId,
+              limit: pageSize,
+              offset: 0,
+              presenceToken: presenceToken ?? null,
+            })
+          : await invoke<QueryResult>("db_execute_query", {
+              connection: sessionConn,
+              sql: session.sql,
+              runId,
+              limit: pageSize,
+              offset: 0,
+              presenceToken: presenceToken ?? null,
+            });
         if (currentRunId() !== runId) {
           logExec("cancelled", { elapsedMs: Math.round(performance.now() - started) });
           break;
         }
-        if (scriptSessionId) {
+        if (scriptSessionId && !session.connId) {
           await invoke("db_query_session_commit", { sessionId: scriptSessionId });
           if (currentRunId() !== runId) break;
         }
@@ -520,7 +587,11 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
           running: false,
         });
         anySuccess = true;
-        succeededSql.push(session.sql);
+        if (!session.connId) defaultSucceeded = true;
+        const groupKey = `${sessionConn.id}\0${sessionConn.database}`;
+        const group = succeededByConn.get(groupKey) ?? { connection: sessionConn, sqls: [] };
+        group.sqls.push(session.sql);
+        succeededByConn.set(groupKey, group);
         logExec("ok", {
           elapsedMs: elapsed,
           rowsAffected: res.rowsAffected,
@@ -547,6 +618,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
           elapsedMs: Math.round(performance.now() - started),
           error: cancelled ? "" : message,
         });
+        if (!cancelled && session.connId) continue;
         dropSessions(
           plannedSessions.slice(index + 1).map((item) => item.id),
           session.id,
@@ -575,15 +647,18 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       updateSqlTabState(resolvedTabId, {
         running: false,
         activeQueryRunId: null,
-        ...(useManualTxn && anySuccess ? { inTransaction: true } : {}),
+        ...(useManualTxn && defaultSucceeded ? { inTransaction: true } : {}),
       });
     }
 
-    if (anySuccess && succeededSql.length > 0) {
-      onSqlSchemaMutated?.(conn, succeededSql);
+    if (anySuccess) {
+      for (const group of succeededByConn.values()) {
+        onSqlSchemaMutated?.(group.connection, group.sqls);
+      }
     }
   }, [
     connectionForSqlTab,
+    resolveConnection,
     resolveSqlTabConnection,
     activeWorkspaceTab,
     enqueueAction,
@@ -723,7 +798,8 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
 
       e.preventDefault();
       e.stopPropagation();
-      void runQuery(statement, tabId);
+      const statementIndex = statementIndexAt(tabState.sql, tabState.cursorOffset);
+      void runQuery(statement, tabId, statementIndex >= 0 ? { statementIndex } : undefined);
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -752,13 +828,20 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
         useSettingsStore.getState().formatSqlOnSave
           ? formatSql(rawSql, connection?.db_type ?? null)
           : rawSql;
-      if (sqlToSave !== state.sql) {
-        updateSqlTabState(tabId, { sql: sqlToSave });
+      const statementTargets = rebindSavedStatementTargets(sqlToSave, state.statementTargets);
+      const tabPatch: Partial<SqlTabState> = {};
+      if (sqlToSave !== state.sql) tabPatch.sql = sqlToSave;
+      if (!sameSavedStatementTargets(statementTargets, state.statementTargets)) {
+        tabPatch.statementTargets = statementTargets;
+      }
+      if (tabPatch.sql !== undefined || tabPatch.statementTargets !== undefined) {
+        updateSqlTabState(tabId, tabPatch);
       }
 
       if (tab.sqlFileId) {
         store.updateFileSql(tab.sqlFileId, sqlToSave);
         store.updateFileBinding(tab.sqlFileId, state.connId, state.database);
+        store.updateFileStatementTargets(tab.sqlFileId, statementTargets);
         await store.flushToDisk();
         setDirtySqlWorkspaceTabIds((prev) => {
           if (!prev.has(tabId)) return prev;
@@ -776,6 +859,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
           connId: state.connId,
           database: state.database,
           cursorOffset: state.cursorOffset,
+          statementTargets,
         });
         setDirtySqlWorkspaceTabIds((prev) => {
           if (!prev.has(tabId)) return prev;
@@ -798,6 +882,7 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
 
       const file = store.addFile(null, name.trim(), sqlToSave);
       store.updateFileBinding(file.id, state.connId, state.database);
+      store.updateFileStatementTargets(file.id, statementTargets);
       setWorkspaceTabs((prev) =>
         prev.map((item) =>
           item.id === tabId

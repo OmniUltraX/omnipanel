@@ -16,6 +16,7 @@ export function createCenteredSubWindowGeometry(
   heightRatio: number,
   viewportWidth = window.innerWidth,
   viewportHeight = window.innerHeight,
+  limits?: { maxWidth?: number; maxHeight?: number },
 ): SubWindowGeometry {
   const maxWidth = Math.max(
     SUBWINDOW_MIN_WIDTH,
@@ -25,11 +26,13 @@ export function createCenteredSubWindowGeometry(
     SUBWINDOW_MIN_HEIGHT,
     viewportHeight - SUBWINDOW_VIEWPORT_PADDING * 2,
   );
+  const widthCap = limits?.maxWidth ?? maxWidth;
+  const heightCap = limits?.maxHeight ?? maxHeight;
   const width = Math.round(
-    Math.min(maxWidth, Math.max(SUBWINDOW_MIN_WIDTH, viewportWidth * widthRatio)),
+    Math.min(maxWidth, widthCap, Math.max(SUBWINDOW_MIN_WIDTH, viewportWidth * widthRatio)),
   );
   const height = Math.round(
-    Math.min(maxHeight, Math.max(SUBWINDOW_MIN_HEIGHT, viewportHeight * heightRatio)),
+    Math.min(maxHeight, heightCap, Math.max(SUBWINDOW_MIN_HEIGHT, viewportHeight * heightRatio)),
   );
   const x = Math.round((viewportWidth - width) / 2);
   const y = Math.round((viewportHeight - height) / 2);

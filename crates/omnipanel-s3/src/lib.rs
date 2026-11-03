@@ -449,6 +449,18 @@ pub fn resolve_s3_endpoint(cfg: &S3Config) -> Result<S3Endpoint, OmniError> {
     })
 }
 
+fn is_s3_missing(err: &OmniError) -> bool {
+    if err.code == ErrorCode::NotFound {
+        return true;
+    }
+    let msg = err.message.to_ascii_lowercase();
+    let cause = err.cause.as_deref().unwrap_or("").to_ascii_lowercase();
+    msg.contains("404")
+        || msg.contains("nosuchkey")
+        || cause.contains("404")
+        || cause.contains("nosuchkey")
+}
+
 /// 统一 S3 客户端（自动路由 SigV4 自签 / rust-s3）。
 pub struct S3Client {
     cfg: S3Config,
@@ -494,6 +506,15 @@ impl S3Client {
             .await
             .map_err(|e| OmniError::new(ErrorCode::Io, "S3 下载失败").with_cause(e.to_string()))?;
         Ok(response.bytes().to_vec())
+    }
+
+    /// 对象不存在时返回 `None`。404 与 NoSuchKey 都算没有，其它错误照常返回。
+    pub async fn get_object_optional(&self, key: &str) -> Result<Option<Vec<u8>>, OmniError> {
+        match self.get_object(key).await {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(err) if is_s3_missing(&err) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
     /// 范围下载（Range GET，供流式下载 / 断点续传）。返回 `(数据, 实际总长度)`。

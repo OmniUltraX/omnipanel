@@ -26,6 +26,7 @@ import { usePersistedTreeExpanded } from "../../../../components/ui/module-sideb
 import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";
 import { SidebarIcon, SidebarRefreshIcon } from "../../../../components/ui/module-sidebar";
 import { formatOmniError } from "../utils/formatOmniError";
+import { SpaceConflictMark } from "../../../clientSync/SpaceConflictMark";
 
 function sshKeyTypeTreeKey(keyType: string) {
   return `ssh-key-type:${keyType.toLowerCase()}`;
@@ -619,6 +620,7 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
                                   </span>
                                 </span>
                               }
+                              afterLabel={<SpaceConflictMark path={`sshkeys/${key.id}.json`} />}
                               trailing={
                                 key.fingerprint ? (
                                   <span className="ssh-sidebar-list__preview" title={key.fingerprint}>

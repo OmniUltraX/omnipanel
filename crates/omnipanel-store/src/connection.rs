@@ -78,6 +78,9 @@ pub struct Connection {
     #[serde(default)]
     #[specta(type = f64)]
     pub updated_at: i64,
+    /// 创建设备 id。只写一次。旧数据从 `origin:` 标签迁入，之后不再当标签存。
+    #[serde(default)]
+    pub origin_device_id: String,
 }
 
 fn default_env_tag() -> String {
@@ -91,13 +94,13 @@ fn default_config() -> String {
 impl Storage {
     /// 列出全部连接（按更新时间倒序）。
     pub fn list_connections(&self) -> OmniResult<Vec<Connection>> {
-        self.query_connections("SELECT id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at FROM connections ORDER BY updated_at DESC", [])
+        self.query_connections("SELECT id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at, origin_device_id FROM connections ORDER BY updated_at DESC", [])
     }
 
     /// 按类型列出连接。
     pub fn list_connections_by_kind(&self, kind: ConnectionKind) -> OmniResult<Vec<Connection>> {
         self.query_connections(
-            "SELECT id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at FROM connections WHERE kind = ?1 ORDER BY updated_at DESC",
+            "SELECT id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at, origin_device_id FROM connections WHERE kind = ?1 ORDER BY updated_at DESC",
             [kind.as_str()],
         )
     }
@@ -106,7 +109,7 @@ impl Storage {
     pub fn get_connection(&self, id: &str) -> OmniResult<Option<Connection>> {
         Ok(self
             .query_connections(
-                "SELECT id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at FROM connections WHERE id = ?1",
+                "SELECT id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at, origin_device_id FROM connections WHERE id = ?1",
                 [id],
             )?
             .into_iter()
@@ -114,11 +117,20 @@ impl Storage {
     }
 
     /// 插入或更新连接（按 id upsert）。
+    /// 创建设备 id 只写一次：库里已有就保留，没有则用传入值或旧 `origin:` 标签。
     pub fn save_connection(&self, conn: &Connection) -> OmniResult<()> {
+        let mut conn = conn.clone();
+        let stored = self
+            .get_connection(&conn.id)?
+            .map(|existing| existing.origin_device_id)
+            .unwrap_or_default();
+        conn.origin_device_id =
+            crate::tag::settle_origin_device_id(&stored, &conn.origin_device_id, &conn.tags);
+        crate::tag::strip_origin_tags(&mut conn.tags);
         self.conn()
             .execute(
-                "INSERT INTO connections (id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "INSERT INTO connections (id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at, origin_device_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                  ON CONFLICT(id) DO UPDATE SET
                     kind = excluded.kind,
                     name = excluded.name,
@@ -127,7 +139,8 @@ impl Storage {
                     tags = excluded.tags,
                     config = excluded.config,
                     credential_ref = excluded.credential_ref,
-                    updated_at = excluded.updated_at",
+                    updated_at = excluded.updated_at,
+                    origin_device_id = excluded.origin_device_id",
                 rusqlite::params![
                     conn.id,
                     conn.kind.as_str(),
@@ -139,6 +152,7 @@ impl Storage {
                     conn.credential_ref,
                     conn.created_at,
                     conn.updated_at,
+                    conn.origin_device_id,
                 ],
             )
             .map_err(map_sqlite)?;
@@ -223,6 +237,7 @@ impl Storage {
                         credential_ref: row.get(7)?,
                         created_at: row.get(8)?,
                         updated_at: row.get(9)?,
+                        origin_device_id: row.get(10).unwrap_or_default(),
                     },
                     kind_str,
                 ))
@@ -236,6 +251,17 @@ impl Storage {
             out.push(conn);
         }
         Ok(out)
+    }
+
+    /// 把还写在 `origin:` 标签上的创建设备 id 迁进字段。已经迁过的不再改。
+    pub(crate) fn backfill_connection_origins(&self) -> OmniResult<()> {
+        let connections = self.list_connections()?;
+        for conn in connections {
+            if crate::tag::origin_device_id(&conn.tags).is_some() {
+                self.save_connection(&conn)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -255,6 +281,7 @@ mod tests {
             credential_ref: Some(format!("cred-{id}")),
             created_at: 1_700_000_000,
             updated_at: 1_700_000_000,
+            origin_device_id: String::new(),
         }
     }
 
@@ -352,5 +379,24 @@ mod tests {
         assert_eq!(json, "\"service\"");
         let back: ConnectionKind = serde_json::from_str(&json).unwrap();
         assert_eq!(back, ConnectionKind::Service);
+    }
+
+    #[test]
+    fn origin_is_written_once_and_leaves_the_tag() {
+        let storage = Storage::open_in_memory().unwrap();
+        let mut conn = sample("origin", ConnectionKind::Ssh);
+        conn.tags = vec!["origin:dev-a".into(), "env:prod".into()];
+        storage.save_connection(&conn).unwrap();
+        let saved = storage.get_connection("origin").unwrap().unwrap();
+        assert_eq!(saved.origin_device_id, "dev-a");
+        assert!(!saved.tags.iter().any(|tag| tag.starts_with("origin:")));
+        assert!(saved.tags.iter().any(|tag| tag == "env:prod"));
+
+        conn.origin_device_id = "dev-b".into();
+        conn.tags = vec!["origin:dev-c".into()];
+        storage.save_connection(&conn).unwrap();
+        let again = storage.get_connection("origin").unwrap().unwrap();
+        assert_eq!(again.origin_device_id, "dev-a");
+        assert!(again.tags.is_empty());
     }
 }

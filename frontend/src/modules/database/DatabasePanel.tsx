@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { ModuleWorkspaceLayout } from "../../components/workspace";
 import { ModuleLeftHeaderActions } from "../../components/ai/ModuleLeftHeaderActions";
 import { DatabaseSchemaSidebar } from "./schema/DatabaseSchemaSidebar";
@@ -98,6 +99,12 @@ export function DatabasePanel() {
     workspaceTabs,
     workspaces,
   } = useDatabasePanelModel();
+
+  useEffect(() => {
+    if (sessionStorage.getItem("omnipanel.navicatImport") !== "1") return;
+    sessionStorage.removeItem("omnipanel.navicatImport");
+    handleImportNavicat();
+  }, [handleImportNavicat]);
 
   return (
     <>

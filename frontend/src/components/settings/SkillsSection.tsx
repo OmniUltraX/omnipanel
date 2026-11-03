@@ -8,6 +8,7 @@ import { Button } from "../ui/primitives/Button";
 import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import { ModuleEmptyState } from "../ui/feedback/ModuleEmptyState";
 import { TextInput } from "../ui/form/TextInput";
+import { SpaceConflictMark } from "../../modules/clientSync/SpaceConflictMark";
 
 const NEW_SKILL_TEMPLATE = `---
 name: New Skill
@@ -232,7 +233,10 @@ export function SkillsSection() {
                       className={`skills-sidebar-item${active ? " is-active" : ""}`}
                       onClick={() => selectSkill(skill)}
                     >
-                      <span className="skills-sidebar-item__name">{skill.name}</span>
+                      <span className="skills-sidebar-item__name">
+                        {skill.name}
+                        <SpaceConflictMark path={`skills/${skill.id}.json`} />
+                      </span>
                     </button>
                     <button
                       type="button"

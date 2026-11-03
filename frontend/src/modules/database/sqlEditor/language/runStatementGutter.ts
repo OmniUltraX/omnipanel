@@ -47,28 +47,38 @@ class RunButtonMarker extends GutterMarker {
   private readonly from: number;
   private readonly to: number;
   private readonly title: string;
-  private readonly getOnRun: () => ((sql: string) => void) | undefined;
+  private readonly statementIndex: number | undefined;
+  private readonly getOnRun: () =>
+    | ((sql: string, statementIndex?: number, anchor?: number) => void)
+    | undefined;
   private readonly getReadOnly: () => boolean;
 
   constructor(
     sql: string,
     from: number,
     to: number,
-    getOnRun: () => ((sql: string) => void) | undefined,
+    getOnRun: () => ((sql: string, statementIndex?: number, anchor?: number) => void) | undefined,
     getReadOnly: () => boolean,
     title = "运行此语句",
+    statementIndex?: number,
   ) {
     super();
     this.sql = sql;
     this.from = from;
     this.to = to;
     this.title = title;
+    this.statementIndex = statementIndex;
     this.getOnRun = getOnRun;
     this.getReadOnly = getReadOnly;
   }
 
   eq(other: RunButtonMarker): boolean {
-    return other instanceof RunButtonMarker && other.sql === this.sql;
+    return (
+      other instanceof RunButtonMarker &&
+      other.sql === this.sql &&
+      other.from === this.from &&
+      other.statementIndex === this.statementIndex
+    );
   }
 
   toDOM(): HTMLElement {
@@ -91,7 +101,7 @@ class RunButtonMarker extends GutterMarker {
       }
       const onRun = this.getOnRun();
       if (onRun) {
-        onRun(this.sql);
+        onRun(this.sql, this.statementIndex, this.from);
       }
     });
     return btn;
@@ -191,29 +201,30 @@ class SqlLintRunGutterSpacer extends GutterMarker {
 
 function buildSqlLintRunGutterMarkers(
   state: EditorState,
-  getOnRun: () => ((sql: string) => void) | undefined,
+  getOnRun: () => ((sql: string, statementIndex?: number, anchor?: number) => void) | undefined,
   getReadOnly: () => boolean,
 ): RangeSet<GutterMarker> {
-  const byLine = new Map<number, { sql?: string; from?: number; to?: number; title?: string; diagnostics: Diagnostic[] }>();
+  const byLine = new Map<number, { sql?: string; from?: number; to?: number; title?: string; statementIndex?: number; diagnostics: Diagnostic[] }>();
 
   const readOnly = getReadOnly();
   const onRun = getOnRun();
   if (!readOnly && onRun) {
     const seenLineFrom = new Set<number>();
     const docText = state.doc.toString();
-    for (const stmt of splitSqlStatements(docText)) {
+    const statements = splitSqlStatements(docText);
+    for (let index = 0; index < statements.length; index += 1) {
+      const stmt = statements[index]!;
       const codeFrom = statementCodeStart(docText, stmt.from, stmt.to);
       if (codeFrom >= stmt.to) continue;
       const line = state.doc.lineAt(codeFrom);
-      if (seenLineFrom.has(line.from)) {
-        continue;
-      }
+      if (seenLineFrom.has(line.from)) continue;
       seenLineFrom.add(line.from);
       const entry = byLine.get(line.from) ?? { diagnostics: [] };
       entry.sql = stmt.sql;
       entry.from = codeFrom;
       entry.to = stmt.to;
       entry.title = "运行此语句";
+      entry.statementIndex = index;
       byLine.set(line.from, entry);
     }
     const subqueries = [...findSqlSubqueries(docText)].sort(
@@ -249,7 +260,15 @@ function buildSqlLintRunGutterMarkers(
     }
     const run =
       entry.sql !== undefined
-        ? new RunButtonMarker(entry.sql, entry.from ?? lineFrom, entry.to ?? lineFrom, getOnRun, getReadOnly, entry.title)
+        ? new RunButtonMarker(
+            entry.sql,
+            entry.from ?? lineFrom,
+            entry.to ?? lineFrom,
+            getOnRun,
+            getReadOnly,
+            entry.title,
+            entry.statementIndex,
+          )
         : null;
     const lint =
       entry.diagnostics.length > 0 ? new SqlLintGutterMarker(entry.diagnostics) : null;
@@ -263,7 +282,7 @@ function buildSqlLintRunGutterMarkers(
 }
 
 function createSqlLintRunGutterMarkersField(
-  getOnRun: () => ((sql: string) => void) | undefined,
+  getOnRun: () => ((sql: string, statementIndex?: number, anchor?: number) => void) | undefined,
   getReadOnly: () => boolean,
 ) {
   return StateField.define<RangeSet<GutterMarker>>({
@@ -324,7 +343,7 @@ const sqlLintMarkerTheme = EditorView.baseTheme({
  * 两格宽度固定（运行按钮 + 诊断图标），诊断出现或消失时列宽不变。
  */
 export function createSqlLintRunGutter(
-  getOnRun: () => ((sql: string) => void) | undefined,
+  getOnRun: () => ((sql: string, statementIndex?: number, anchor?: number) => void) | undefined,
   getReadOnly: () => boolean,
 ): Extension[] {
   const markersField = createSqlLintRunGutterMarkersField(getOnRun, getReadOnly);

@@ -177,6 +177,23 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> OmniResult<()> {
     Ok(())
 }
 
+/// 把当前团队目录复制到另一个还不存在主库的团队。不移动源目录。
+pub fn copy_team_dir_if_absent(from_scope: &str, to_scope: &str) -> OmniResult<bool> {
+    let from_scope = normalize_team_scope(from_scope);
+    let to_scope = normalize_team_scope(to_scope);
+    if from_scope == to_scope {
+        return Ok(false);
+    }
+    let root = module_dir(modules::STORE)?.join("teams");
+    let src = root.join(&from_scope);
+    let dest = root.join(&to_scope);
+    if !src.join("omnipanel.db").is_file() || dest.join("omnipanel.db").is_file() {
+        return Ok(false);
+    }
+    copy_dir_recursive(&src, &dest)?;
+    Ok(true)
+}
+
 /// 把升级前的全局路径迁进当前团队目录（仅当目标还不存在对应文件）。
 pub fn migrate_legacy_into_current_team() -> OmniResult<()> {
     let dest_root = team_data_dir()?;

@@ -23,6 +23,7 @@ mod knowledge;
 mod knowledge_todo;
 mod knowledge_vector;
 mod ks_sync;
+mod local_space;
 mod paths;
 mod plugin_settings;
 mod plugin_sources;
@@ -36,6 +37,8 @@ mod siyuan_sync;
 mod skill;
 mod skill_db;
 mod skill_seed;
+mod space_repo;
+mod space_sync;
 mod sql_exec_log;
 mod ssh_keys;
 mod ssh_vault;
@@ -110,6 +113,10 @@ pub use knowledge_vector::{
     KnowledgeVectorHit, KnowledgeVectorStatus, chunk_text, cosine_similarity,
 };
 pub use ks_sync::{KsFileState, KsSourceConfig};
+pub use local_space::{
+    LocalSpaceRecord, LocalSpaceStatus, SpaceClaimChoice, SpaceClaimStatus, SpaceStorageInput,
+    SpaceStorageSettings,
+};
 pub use paths::default_file_index_storage_dir;
 pub use paths::{
     ai_config_dir, ai_providers_path, database_connections_path, database_host_resolve_cache_path,
@@ -154,6 +161,17 @@ pub use skill_db::{
     SkillApplication, SkillDbRecord, SkillKnowledgeLink, SkillVectorHit, SkillVectorStatus,
 };
 pub use skill_seed::{ensure_agent_defaults, ensure_default_skills};
+pub use space_repo::{
+    CHUNK_SIZE, REPO_DIR, SPACE_DIR, SpaceRepoFile, SpaceRepoIndex, SpaceRepoReport,
+    build_space_repo, desktop_plugin_dirs, read_latest_index, restore_plugin_packs, sha256_hex,
+    split_chunks, stage_plugin_packs,
+};
+pub use space_sync::{
+    LayoutInput, SpaceConflict, SpaceRepoRemote, SpaceSyncReport, SpaceSyncRequest,
+    apply_database_files, attach_layouts, delete_space_conflict, layout_files,
+    legacy_conversation_files, legacy_module_files, list_space_conflicts, open_bytes, seal_bytes,
+    sync_local_repo,
+};
 pub use sql_exec_log::{
     SqlExecAppend, SqlExecListFilter, SqlExecRecord, SqlExecResultPage, append_sql_execution,
     clear_sql_executions, delete_sql_execution, get_sql_execution_result, list_sql_executions,
@@ -192,14 +210,14 @@ pub use tag::{
     TagSource, TaggableKind, TaggedResourceSummary, creator_device_name, ensure_creator_tag,
     ensure_origin_for_creator, ensure_origin_tag, migrate_device_tags_to_creator,
     normalize_tag_path, normalize_tag_segment, origin_device_id, preserve_device_tags,
-    reconcile_device_tags,
+    reconcile_device_tags, resolve_origin_device_id, settle_origin_device_id, strip_origin_tags,
 };
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use task_events::{TaskEventFilter, TaskEventRecord};
 pub use team_layout::{
-    LOCAL_TEAM_SCOPE, active_team_scope, init_team_storage, meta_db_exists_on_disk,
-    normalize_team_scope, persist_active_team_scope, promote_local_dir_to_team,
-    set_active_team_scope, team_data_dir,
+    LOCAL_TEAM_SCOPE, active_team_scope, copy_team_dir_if_absent, init_team_storage,
+    meta_db_exists_on_disk, normalize_team_scope, persist_active_team_scope,
+    promote_local_dir_to_team, set_active_team_scope, team_data_dir,
 };
 pub use terminal_history::{
     TerminalHistoryBlockRecord, TerminalHistoryRetainPolicy, sanitize_payload_json,

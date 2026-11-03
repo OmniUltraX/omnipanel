@@ -23,6 +23,7 @@ import { SqlEditor, type SqlEditorHandle, type SqlEditorOpenMode } from "../sql/
 import { SqlEditorScopedSearch } from "../sql/SqlEditorScopedSearch";
 import { SqlResultSessionsDock } from "../sql/SqlResultSessionsDock";
 import { inferSqlResultColumnType } from "../sql/SqlResultSessionPanel";
+import type { SqlResultEditBridge } from "../sql/useSqlResultEditing";
 import { type CellEditorPanelHandle } from "../cell_editor";
 import {
   TableDetailPanel,
@@ -30,8 +31,14 @@ import {
 } from "../tableDetail/TableDetailPanel";
 import type { TableDataGridActiveCell, TableDataGridActions } from "../grid/TableDataGrid";
 import { useI18n } from "../../../i18n";
-import { createDefaultSqlTabState, type SqlTabState } from "./dbWorkspaceState";
+import { createDefaultSqlTabState, resolvePreviewRowKey, type SqlTabState } from "./dbWorkspaceState";
 import { sqlAtOffset } from "../sqlIntel/sqlStatement";
+import {
+  sameSavedStatementTargets,
+  statementIndexAt,
+  type SavedSqlStatementTarget,
+} from "../sqlIntel/sqlStatementTargets";
+import { useDbWorkspaceTabStore } from "../../../stores/dbWorkspaceTabStore";
 import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
 import { SqlToolbarLeftControls } from "../sql/SqlToolbarLeftControls";
 import {
@@ -73,7 +80,12 @@ interface DbPanelSqlEditorProps {
   onHasSelectionChange: (hasSelection: boolean) => void;
   execError: { sql: string; message: string } | null;
   onExplainError: () => void;
-  onRun: (sql: string) => void;
+  onRun: (sql: string, statementIndex?: number, anchor?: number) => void;
+  onStatementTargetsChange: (targets: SavedSqlStatementTarget[]) => void;
+  sqlConnections: ReturnType<typeof useDbWorkspace>["sqlConnections"];
+  databasesByConnId: ReturnType<typeof useDbWorkspace>["databasesByConnId"];
+  sqlFileConnId: string;
+  sqlFileDatabase: string;
   onRunSelected: (selectedSql: string) => void;
   onRunAll: () => void;
   onSave: () => void;
@@ -108,6 +120,11 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
   execError,
   onExplainError,
   onRun,
+  onStatementTargetsChange,
+  sqlConnections,
+  databasesByConnId,
+  sqlFileConnId,
+  sqlFileDatabase,
   onRunSelected,
   onRunAll,
   onSave,
@@ -127,6 +144,12 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
       execError={execError}
       onExplainError={onExplainError}
       onRun={onRun}
+      onStatementTargetsChange={onStatementTargetsChange}
+      statementTargets={tabState.statementTargets}
+      sqlConnections={sqlConnections}
+      databasesByConnId={databasesByConnId}
+      sqlFileConnId={sqlFileConnId}
+      sqlFileDatabase={sqlFileDatabase}
       onRunSelected={onRunSelected}
       onRunAll={onRunAll}
       onSave={onSave}
@@ -205,6 +228,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const [detailTab, setDetailTab] = useState<TableDetailTab>("value");
   const [activeCell, setActiveCell] = useState<TableDataGridActiveCell | null>(null);
   const [selectedCells, setSelectedCells] = useState<TableDataGridActiveCell[]>([]);
+  const [resultEditing, setResultEditing] = useState<SqlResultEditBridge | null>(null);
   const [findSignal, setFindSignal] = useState(0);
   const editorMenuSignal = useSyncExternalStore(subscribeSqlEditorMenu, getSqlEditorMenu);
   const editorMenu = editorMenuSignal?.key === tab.id ? editorMenuSignal : null;
@@ -223,8 +247,20 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     [ws.updateSqlTabState, tab.id],
   );
   const handleSqlRun = useCallback(
-    (sql: string) => void ws.runQuery(sql, tab.id),
+    (sql: string, statementIndex?: number, anchor?: number) =>
+      void ws.runQuery(sql, tab.id, {
+        ...(statementIndex == null ? {} : { statementIndex }),
+        ...(anchor == null ? {} : { anchor }),
+      }),
     [ws.runQuery, tab.id],
+  );
+  const handleStatementTargetsChange = useCallback(
+    (targets: SavedSqlStatementTarget[]) => {
+      const current = useDbWorkspaceTabStore.getState().sqlTabStates[tab.id]?.statementTargets;
+      if (sameSavedStatementTargets(current, targets)) return;
+      ws.updateSqlTabState(tab.id, { statementTargets: targets });
+    },
+    [ws.updateSqlTabState, tab.id],
   );
   const handleSqlSave = useCallback(
     () => void ws.saveSqlTab(tab.id),
@@ -255,23 +291,27 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     });
   }, [isActiveTab]);
 
+  const hasStatementTarget = (tabState.statementTargets ?? []).some((item) => item.targets.length > 0);
   const canRunSql = Boolean(
-    tabConn &&
-      (tabState.database.trim() ||
-        !sqlRequiresDatabaseContext(tabState.sql) ||
-        !sqlRequiresDatabaseContext(sqlAtOffset(tabState.sql, tabState.cursorOffset))),
+    hasStatementTarget ||
+      (tabConn &&
+        (tabState.database.trim() ||
+          !sqlRequiresDatabaseContext(tabState.sql) ||
+          !sqlRequiresDatabaseContext(sqlAtOffset(tabState.sql, tabState.cursorOffset)))),
   );
 
   const [hasSqlSelection, setHasSqlSelection] = useState(false);
 
   const runSelectedSql = useCallback(() => {
-    const sql = sqlEditorRef.current?.getSelectedSql() ?? "";
+    const selection = sqlEditorRef.current?.getSelection();
+    const sql = selection ? selection.doc.slice(selection.from, selection.to).trim() : "";
     if (!sql.trim()) {
       ws.updateSqlTabState(tab.id, { error: t("database.results.emptySelection") });
       return;
     }
     sqlEditorRef.current?.highlightSql(sql);
-    void ws.runQuery(sql, tab.id);
+    const statementIndex = selection ? statementIndexAt(selection.doc, selection.from) : -1;
+    void ws.runQuery(sql, tab.id, statementIndex >= 0 ? { statementIndex } : undefined);
   }, [ws, tab.id, t]);
 
   const runAllSql = useCallback(() => {
@@ -371,6 +411,13 @@ export const DbPanelSurface = memo(function DbPanelSurface({
     setSelectedCells(cells);
   }, []);
 
+  const handleEditBridgeChange = useCallback((bridge: SqlResultEditBridge | null) => {
+    setResultEditing(bridge);
+  }, []);
+  const flushResultEditor = useCallback(() => {
+    cellEditorRef.current?.commitIfDirty();
+  }, []);
+
   const effectiveDetailPosition = detailPosition;
   const detailDefaultSize = toPanelPx(DETAIL_DEFAULT_SIZE_PX[effectiveDetailPosition]);
   const detailMinSize = toPanelPx(DETAIL_MIN_SIZE_PX[effectiveDetailPosition]);
@@ -378,10 +425,24 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const editorColumnName = activeCell?.column ?? selectedCells[0]?.column ?? null;
   const editorSelectionCount = selectedCells.length;
   const activeRow = activeCell?.row ?? selectedCells[0]?.row ?? null;
+  const resultEditableColumns = useMemo(() => {
+    if (!resultEditing?.editable) return null;
+    return new Set(resultEditing.columnMeta.map((column) => column.name));
+  }, [resultEditing]);
+  const resultPkCols = useMemo(
+    () => (resultEditing?.editable ? resultEditing.columnMeta.filter((column) => column.isPk) : []),
+    [resultEditing],
+  );
+  const resultRowKey = activeRow ? resolvePreviewRowKey(activeRow, resultPkCols) : "";
+  const resultRowOverrides = resultRowKey ? resultEditing?.overrides[resultRowKey] : undefined;
+  const columnEditable = Boolean(
+    editorColumnName && editorSelectionCount <= 1 && resultEditableColumns?.has(editorColumnName),
+  );
   const activeCellValue = useMemo(() => {
     if (!activeCell) return undefined;
-    return activeCell.row[activeCell.column];
-  }, [activeCell]);
+    const override = resultRowOverrides?.[activeCell.column];
+    return override !== undefined ? override : activeCell.row[activeCell.column];
+  }, [activeCell, resultRowOverrides]);
 
   const activeCellKey = useMemo(() => {
     if (activeCell) {
@@ -396,8 +457,11 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const inferredColumnType = useMemo(() => {
     if (editorSelectionCount > 1) return "text";
     if (!editorColumnName) return "text";
-    return inferSqlResultColumnType(editorColumnName, activeCellValue);
-  }, [activeCellValue, editorColumnName, editorSelectionCount]);
+    return (
+      resultEditing?.columnMeta.find((column) => column.name === editorColumnName)?.type ??
+      inferSqlResultColumnType(editorColumnName, activeCellValue)
+    );
+  }, [activeCellValue, editorColumnName, editorSelectionCount, resultEditing]);
 
   const detailColumns = activeResultSession?.result?.columns ?? [];
 
@@ -691,6 +755,11 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           execError={execError}
           onExplainError={explainError}
           onRun={handleSqlRun}
+          onStatementTargetsChange={handleStatementTargetsChange}
+          sqlConnections={ws.sqlConnections}
+          databasesByConnId={ws.databasesByConnId}
+          sqlFileConnId={tabConn?.id ?? tabState.connId ?? ""}
+          sqlFileDatabase={tabState.database}
           onRunSelected={runSelectedSql}
           onRunAll={runAllSql}
           onSave={handleSqlSave}
@@ -717,8 +786,36 @@ export const DbPanelSurface = memo(function DbPanelSurface({
       collapsed={detailCollapsed}
       onToggleCollapsed={handleDetailCollapsedChange}
       columns={detailColumns}
+      columnMeta={resultEditing?.editable ? resultEditing.columnMeta : undefined}
       activeRow={activeRow}
-      onRecordFieldApply={() => undefined}
+      cellOverrides={resultRowOverrides}
+      editableColumns={resultEditableColumns}
+      onRecordFieldApply={(column, { parsed }) => {
+        if (!activeRow || !resultEditing?.editable || !resultEditableColumns?.has(column)) return;
+        resultEditing.applyCell(
+          {
+            rowIndex: activeCell?.rowIndex ?? selectedCells[0]?.rowIndex ?? 0,
+            column,
+            row: activeRow,
+          },
+          parsed,
+        );
+      }}
+      onRecordFieldSetNull={
+        resultEditing?.editable
+          ? (column) => {
+              if (!activeRow || !resultEditableColumns?.has(column)) return;
+              resultEditing.applyCell(
+                {
+                  rowIndex: activeCell?.rowIndex ?? selectedCells[0]?.rowIndex ?? 0,
+                  column,
+                  row: activeRow,
+                },
+                null,
+              );
+            }
+          : undefined
+      }
       cellEditorRef={cellEditorRef}
       cellKey={activeCellKey}
       columnName={editorColumnName}
@@ -729,17 +826,27 @@ export const DbPanelSurface = memo(function DbPanelSurface({
       rowIndex={activeCell?.rowIndex ?? null}
       valueColumnMeta={
         editorColumnName
-          ? {
+          ? (resultEditing?.columnMeta.find((column) => column.name === editorColumnName) ?? {
               name: editorColumnName,
               type: inferredColumnType,
               isPk: false,
               isFk: false,
               nullable: true,
-            }
+            })
           : null
       }
-      onValueApply={() => undefined}
-      readOnly
+      onValueApply={({ parsed }) => {
+        if (!activeCell || !resultEditing?.editable || !resultEditableColumns?.has(activeCell.column)) {
+          return;
+        }
+        resultEditing.applyCell(activeCell, parsed);
+      }}
+      onValueSetNull={
+        columnEditable && activeCell && resultEditing
+          ? () => resultEditing.applyCell(activeCell, null)
+          : undefined
+      }
+      readOnly={!columnEditable}
       showDdlTab={false}
     />
   );
@@ -782,6 +889,8 @@ export const DbPanelSurface = memo(function DbPanelSurface({
         detailMinSize={detailMinSize}
         detailPanelRef={detailPanelRef}
         onDetailResize={handleDetailPanelResize}
+        onEditBridgeChange={handleEditBridgeChange}
+        beforeCommit={flushResultEditor}
       />
     </div>
   );

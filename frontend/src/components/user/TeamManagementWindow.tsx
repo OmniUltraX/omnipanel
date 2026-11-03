@@ -16,8 +16,10 @@ export function TeamManagementWindow() {
       title={t("userCenter.teams.managementTitle")}
       onClose={closeTeamManagement}
       className="team-management-subwindow"
-      widthRatio={0.72}
-      heightRatio={0.78}
+      widthRatio={0.92}
+      heightRatio={0.88}
+      maxWidth={640}
+      maxHeight={560}
     >
       <div className="team-management-panel">
         <UserCenterTeams initialTeamId={initialTeamId} />

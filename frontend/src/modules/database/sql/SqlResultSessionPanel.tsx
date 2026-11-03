@@ -24,6 +24,7 @@ import type { MutableRefObject } from "react";
 import { ImportToTableDialog, type ImportToTableDialogPayload } from "./ImportToTableDialog";
 import { applySqlRepair, presentSqlExecError, readSqlRepairNote, setSqlRepairNote, subscribeSqlRepairNote } from "./sqlExecErrorPresent";
 import { useDbWorkspaceTabStore } from "../../../stores/dbWorkspaceTabStore";
+import { useSqlResultEditing, type SqlResultEditBridge } from "./useSqlResultEditing";
 
 export interface SqlResultSessionPanelProps {
   sqlTabId: string;
@@ -44,6 +45,10 @@ export interface SqlResultSessionPanelProps {
   detailMinSize?: number | string;
   detailPanelRef?: RefObject<PanelImperativeHandle | null>;
   onDetailResize?: (size: PanelSize) => void;
+  /** 把当前结果的写回能力交给外层详情面板 */
+  onEditBridgeChange?: (bridge: SqlResultEditBridge | null) => void;
+  /** 提交前先把侧栏里还没落进脏数据的输入写进去 */
+  beforeCommit?: () => void;
 }
 
 /** 从单元格值推断预览类型（SQL 结果通常没有完整 columnMeta） */
@@ -79,6 +84,8 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
   detailMinSize = 200,
   detailPanelRef,
   onDetailResize,
+  onEditBridgeChange,
+  beforeCommit,
 }: SqlResultSessionPanelProps) {
   const { t } = useI18n();
   const ws = useDbWorkspace();
@@ -105,7 +112,7 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
     () => (session.result ? rowsToRecord(columns, session.result.rows) : []),
     [columns, session.result],
   );
-  const columnMeta = useMemo<DbColumnMeta[]>(() => {
+  const inferredColumnMeta = useMemo<DbColumnMeta[]>(() => {
     const sample = resultRows[0];
     return columns.map((name) => ({
       name,
@@ -114,6 +121,20 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
       isFk: false,
     }));
   }, [columns, resultRows]);
+  const editing = useSqlResultEditing({ sqlTabId, session, beforeCommit });
+  const columnMeta = useMemo(() => {
+    if (!editing.editable) return inferredColumnMeta;
+    const byName = new Map(editing.columnMeta.map((column) => [column.name, column]));
+    return inferredColumnMeta.map((column) => byName.get(column.name) ?? column);
+  }, [editing.columnMeta, editing.editable, inferredColumnMeta]);
+  const editableColumns = useMemo(
+    () => (editing.editable ? new Set(editing.columnMeta.map((column) => column.name)) : null),
+    [editing.columnMeta, editing.editable],
+  );
+  useEffect(() => {
+    onEditBridgeChange?.(editing.bridge);
+    return () => onEditBridgeChange?.(null);
+  }, [editing.bridge, onEditBridgeChange]);
   const rowCount = resultRows.length;
 
   const resultPage = session.resultPage ?? 0;
@@ -138,9 +159,14 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
 
   const openImportToTable = useCallback(() => {
     if (!session.result || session.result.columns.length === 0) return;
-    const conn =
-      ws.connectionForSqlTab(sqlTabId, session.sql) ??
-      ws.resolveSqlTabConnection(sqlTabId);
+    const override =
+      session.connId && session.database
+        ? ws.resolveConnection(session.connId)
+        : null;
+    const conn = override
+      ? { ...override, database: session.database ?? override.database }
+      : ws.connectionForSqlTab(sqlTabId, session.sql) ??
+        ws.resolveSqlTabConnection(sqlTabId);
     if (!conn) return;
     const tabState = useDbWorkspaceTabStore.getState().sqlTabStates[sqlTabId];
     setImportPayload({
@@ -150,10 +176,10 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
       currentPageRows: session.result.rows.length,
       resultHasMore,
       defaultConnId: conn.id,
-      defaultDatabase: tabState?.database ?? conn.database ?? null,
+      defaultDatabase: session.database ?? tabState?.database ?? conn.database ?? null,
     });
     setImportDialogOpen(true);
-  }, [resultHasMore, session.result, session.sql, sqlTabId, ws]);
+  }, [resultHasMore, session.connId, session.database, session.result, session.sql, sqlTabId, ws]);
 
   const handleActiveCellChange = useCallback(
     (cell: TableDataGridActiveCell | null) => {
@@ -214,10 +240,10 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           page={resultPage}
           pageSize={databaseQueryPageSize}
           totalPages={Math.max(1, Math.ceil(estimatedTotalRows / Math.max(databaseQueryPageSize, 1)))}
-          dirtyCount={0}
-          isCommitting={false}
-          canUndoDirty={false}
-          canRedoDirty={false}
+          dirtyCount={editing.dirtyCount}
+          isCommitting={editing.committing}
+          canUndoDirty={editing.canUndo}
+          canRedoDirty={editing.canRedo}
           canInsertRow={false}
           canDeleteRow={false}
           hasSelectedRows={false}
@@ -229,7 +255,7 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           detailCollapsed={detailCollapsed}
           colSidebarCollapsed={colSidebarCollapsed}
           columnCount={columns.length}
-          showDataEditing={false}
+          showDataEditing={editing.editable}
           showDetailToggle={Boolean(onToggleDetail)}
           pageSizeOptions={DATABASE_QUERY_PAGE_SIZE_OPTIONS}
           onPageChange={handleQueryPageChange}
@@ -240,10 +266,12 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           onRefresh={() => handleQueryPageChange(resultPage)}
           onInsertRow={() => {}}
           onDeleteSelectedRows={() => {}}
-          onUndoAll={() => {}}
-          onUndo={() => {}}
-          onRedo={() => {}}
-          onCommit={() => {}}
+          onUndoAll={editing.undoAll}
+          onUndo={editing.undo}
+          onRedo={editing.redo}
+          onCommit={() => {
+            void editing.commit();
+          }}
           onExport={(x, y) => ws.openExportMenu(x, y, sqlTabId, session.id)}
           onTransposeToggle={() => setTransposed((value) => !value)}
           onToggleColSidebar={() => {
@@ -347,6 +375,7 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           columns={columns}
           rows={resultRows}
           columnMeta={columnMeta}
+          editableColumns={editableColumns}
           totalRows={estimatedTotalRows}
           page={resultPage}
           pageSize={databaseQueryPageSize}
@@ -360,6 +389,12 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           gridActionsRef={actionsRef}
           onActiveCellChange={handleActiveCellChange}
           onSelectedCellsChange={handleSelectedCellsChange}
+          onCellCommit={editing.editable ? editing.applyCell : undefined}
+          onCellSetNull={
+            editing.editable ? (cell) => editing.applyCell(cell, null) : undefined
+          }
+          cellOverrides={editing.overrides}
+          dirtyRowKeys={editing.dirtyRowKeys}
           cellEditorCollapsed={detailCollapsed}
           reserveSelectionOnEscape
           onCellEditorFocusRequest={

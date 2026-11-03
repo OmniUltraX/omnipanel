@@ -6,6 +6,8 @@ description = "客户端 → 助手端：OSS 元数据快照采集与上传"
 
 [dependencies]
 omnipanel-error = { path = "../omnipanel-error" }
+omnipanel-store = { path = "../omnipanel-store" }
+omnipanel-s3 = { path = "../omnipanel-s3" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }

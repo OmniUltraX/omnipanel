@@ -4415,6 +4415,66 @@ pub async fn dispatch(
                 };
             respond_omni(crate::store_ext::secrets_vault_pull(state, request).await)
         }
+        "local_space_status" => respond_omni(crate::store_ext::local_space_status(state).await),
+        "local_space_complete" => {
+            let name = get_str(&args, "name").unwrap_or_default();
+            respond_omni(crate::store_ext::local_space_complete(state, name).await)
+        }
+        "local_space_rebuild_repo" => {
+            respond_omni(crate::store_ext::local_space_rebuild_repo(state).await)
+        }
+        "local_space_sync" => {
+            let request: omnipanel_store::SpaceSyncRequest =
+                match serde_json::from_value(args.get("request").cloned().unwrap_or_default()) {
+                    Ok(v) => v,
+                    Err(e) => return InvokeResponse::err(format!("解析 request 失败: {e}")),
+                };
+            respond_omni(crate::store_ext::local_space_sync(state, request).await)
+        }
+        "local_space_claim_status" => {
+            let token = get_str(&args, "token").unwrap_or_default();
+            let team_id = args.get("teamId").and_then(|v| v.as_i64());
+            respond_omni(crate::store_ext::local_space_claim_status(state, token, team_id).await)
+        }
+        "local_space_claim_choose" => {
+            let choice: omnipanel_store::SpaceClaimChoice =
+                match serde_json::from_value(args.get("choice").cloned().unwrap_or_default()) {
+                    Ok(v) => v,
+                    Err(e) => return InvokeResponse::err(format!("解析 choice 失败: {e}")),
+                };
+            respond_omni(crate::store_ext::local_space_claim_choose(state, choice).await)
+        }
+        "local_space_storage_get" => {
+            let team_id = args.get("teamId").and_then(|v| v.as_i64()).unwrap_or(0);
+            respond_omni(crate::store_ext::local_space_storage_get(state, team_id).await)
+        }
+        "local_space_storage_put" => {
+            let input: omnipanel_store::SpaceStorageInput =
+                match serde_json::from_value(args.get("input").cloned().unwrap_or_default()) {
+                    Ok(v) => v,
+                    Err(e) => return InvokeResponse::err(format!("解析 input 失败: {e}")),
+                };
+            respond_omni(crate::store_ext::local_space_storage_put(state, input).await)
+        }
+        "local_space_storage_copy" => {
+            let token = get_str(&args, "token").unwrap_or_default();
+            let team_id = args.get("teamId").and_then(|v| v.as_i64()).unwrap_or(0);
+            respond_omni(crate::store_ext::local_space_storage_copy(state, token, team_id).await)
+        }
+        "local_space_storage_purge" => {
+            let team_id = args.get("teamId").and_then(|v| v.as_i64()).unwrap_or(0);
+            respond_omni(crate::store_ext::local_space_storage_purge(state, team_id).await)
+        }
+        "local_space_navicat_present" => respond_omni(Ok::<bool, omnipanel_error::OmniError>(
+            crate::store_ext::local_space_navicat_present(),
+        )),
+        "local_space_list_conflicts" => {
+            respond_omni(crate::store_ext::local_space_list_conflicts().await)
+        }
+        "local_space_delete_conflict" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond_omni(crate::store_ext::local_space_delete_conflict(id).await)
+        }
         "sync_master_key_status" => respond_omni(crate::store_ext::sync_master_key_status().await),
         "sync_master_key_get_or_create" => {
             respond_omni(crate::store_ext::sync_master_key_get_or_create().await)

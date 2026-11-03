@@ -25,6 +25,7 @@ fn ftp_conn() -> Connection {
         credential_ref: Some("ftp-test-1-pass".to_string()),
         created_at: 0,
         updated_at: 0,
+        origin_device_id: String::new(),
     }
 }
 

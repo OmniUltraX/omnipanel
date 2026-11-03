@@ -18,6 +18,9 @@ pub struct DbSqlFileNode {
     pub conn_id: Option<String>,
     #[serde(default)]
     pub database: Option<String>,
+    /// 语句执行库覆盖，JSON 字符串。不写进 SQL 正文。
+    #[serde(default)]
+    pub statement_targets: Option<String>,
     #[specta(type = f64)]
     pub updated_at: i64,
 }

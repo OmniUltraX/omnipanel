@@ -5,6 +5,38 @@ use tauri::State;
 
 use crate::state::AppState;
 
+async fn rewrite_panel_host(state: &AppState, host: &str) -> Result<String, OmniError> {
+    let Ok(mut parsed) = url::Url::parse(host) else {
+        return Ok(host.to_string());
+    };
+    let Some(hostname) = parsed.host_str().map(str::to_string) else {
+        return Ok(host.to_string());
+    };
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let matched = {
+        let storage = state.storage.lock().await;
+        storage.list_connections().ok().and_then(|items| {
+            items
+                .into_iter()
+                .find(|conn| conn.config.contains(&hostname))
+                .map(|conn| (conn.origin_device_id, conn.tags))
+        })
+    };
+    let Some((origin, tags)) = matched else {
+        return Ok(host.to_string());
+    };
+    let (dial_host, dial_port) =
+        crate::mesh_relay::rewrite_dial(&hostname, port, &origin, &tags).await?;
+    if dial_host == hostname && dial_port == port {
+        return Ok(host.to_string());
+    }
+    if parsed.set_host(Some(&dial_host)).is_err() {
+        return Ok(host.to_string());
+    }
+    let _ = parsed.set_port(Some(dial_port));
+    Ok(parsed.to_string())
+}
+
 fn consume_panel_delete(
     state: &AppState,
     host: &str,
@@ -89,6 +121,7 @@ pub async fn panel_1panel_request(
         body.as_deref(),
         presence_token.as_deref(),
     )?;
+    let host = rewrite_panel_host(&state, &host).await?;
     let body_val = match body {
         Some(raw) if !raw.trim().is_empty() => {
             Some(serde_json::from_str::<Value>(&raw).map_err(|e| {
@@ -145,6 +178,7 @@ pub async fn panel_1panel_request_text(
         body.as_deref(),
         presence_token.as_deref(),
     )?;
+    let host = rewrite_panel_host(&state, &host).await?;
     let body_val = match body {
         Some(raw) if !raw.trim().is_empty() => {
             Some(serde_json::from_str::<Value>(&raw).map_err(|e| {
@@ -176,6 +210,7 @@ pub async fn panel_1panel_request_bytes(
         body.as_deref(),
         presence_token.as_deref(),
     )?;
+    let host = rewrite_panel_host(&state, &host).await?;
     let body_val = match body {
         Some(raw) if !raw.trim().is_empty() => {
             Some(serde_json::from_str::<Value>(&raw).map_err(|e| {
@@ -230,6 +265,7 @@ pub async fn panel_bt_request(
         body.as_deref(),
         presence_token.as_deref(),
     )?;
+    let host = rewrite_panel_host(&state, &host).await?;
     let body_map = match body {
         Some(raw) if !raw.trim().is_empty() => {
             let value = serde_json::from_str::<Value>(&raw).map_err(|e| {
@@ -270,6 +306,7 @@ pub async fn panel_bt_request_get(
         query.as_deref(),
         presence_token.as_deref(),
     )?;
+    let host = rewrite_panel_host(&state, &host).await?;
     let query_map = match query {
         Some(raw) if !raw.trim().is_empty() => {
             let value = serde_json::from_str::<Value>(&raw).map_err(|e| {

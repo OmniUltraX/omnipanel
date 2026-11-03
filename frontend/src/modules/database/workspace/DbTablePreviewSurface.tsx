@@ -107,9 +107,36 @@ const DETAIL_MIN_SIZE_PX: Record<DatabaseTableDetailPosition, number> = {
   right: 240,
   bottom: 180,
 };
+/** 与网格 DockPanel 的 minSize 一致；抽屉恢复宽度时必须给网格留出这段 */
+const GRID_PANEL_MIN_PX = 160;
 
 function toPanelPx(px: number): string {
   return `${Math.max(0, Math.round(px))}px`;
+}
+
+/**
+ * 分栏沿抽屉方向的真实像素。
+ * 面板仍是 display:none（切 Tab 的 pointerdown 预览早于 dockview 露出内容）时返回 0。
+ * react-resizable-panels 的 resize("Npx") 用当前宽度换百分比，宽度为 0 时会变成接近 100%。
+ */
+function readPreviewSplitSize(
+  root: HTMLElement | null,
+  position: DatabaseTableDetailPosition,
+): number {
+  if (!root || root.getClientRects().length === 0) return 0;
+  const split = root.querySelector(".db-table-preview-split");
+  if (!(split instanceof HTMLElement)) return 0;
+  const vertical = position === "bottom";
+  const panels = split.querySelectorAll(":scope > [data-panel]");
+  if (panels.length === 0) {
+    return vertical ? split.clientHeight : split.clientWidth;
+  }
+  let sum = 0;
+  panels.forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    sum += vertical ? node.offsetHeight : node.offsetWidth;
+  });
+  return sum;
 }
 
 export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
@@ -126,6 +153,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   const visible = activeProp ?? storeVisible;
   const cellEditorRef = useRef<CellEditorPanelHandle>(null);
   const detailPanelRef = useRef<PanelImperativeHandle | null>(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
   /** 用户拖拽后的尺寸（按右/底分别记 px），避免 expand() 回落到 minSize */
   const detailSizePxByPositionRef = useRef<Record<DatabaseTableDetailPosition, number>>({
     ...DETAIL_DEFAULT_SIZE_PX,
@@ -598,6 +626,10 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
       if (detailCollapseSyncingRef.current) {
         return;
       }
+      // 切走后表面是 display:none，此时的 0 宽测量不能改展开态，也不能覆盖记住的宽度
+      if (readPreviewSplitSize(surfaceRef.current, effectiveDetailPosition) <= 0) {
+        return;
+      }
       const collapsed = detailPanelRef.current?.isCollapsed() ?? false;
       setDetailCollapsed(collapsed);
       const minPx = DETAIL_MIN_SIZE_PX[effectiveDetailPosition];
@@ -901,32 +933,97 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
   );
   const showGridSkeleton = Boolean(showShell && !showPreviewGrid && preview?.loading);
 
-  // 切换右/底、或 Tab 重新激活时同步展开态（Dock 可能刚挂载），并用该方位已记住的 px
+  // 切换右/底、或 Tab 重新激活时同步展开态（Dock 可能刚挂载），并用该方位已记住的 px。
+  // 激活预览早于 dockview 把面板从 display:none 露出：此时宽度为 0，立刻 resize(px)
+  // 会把抽屉百分比算成接近 100%，切回来就拉满。等分栏有真实尺寸再恢复。
   useLayoutEffect(() => {
-    if (!showPreviewGrid || !active) return;
+    if (!showPreviewGrid || !active || !visible) return;
     const handle = detailPanelRef.current;
     if (!handle) return;
-    detailCollapseSyncingRef.current = true;
-    try {
-      if (detailCollapsed) {
-        handle.collapse();
-      } else {
-        handle.expand();
-        handle.resize(toPanelPx(detailSizePxByPositionRef.current[effectiveDetailPosition]));
-      }
-    } finally {
+
+    let cancelled = false;
+    let done = false;
+    let observer: ResizeObserver | null = null;
+    let raf = 0;
+
+    const finishSyncFlag = () => {
       queueMicrotask(() => {
-        detailCollapseSyncingRef.current = false;
+        if (!cancelled) detailCollapseSyncingRef.current = false;
       });
+    };
+
+    const apply = () => {
+      if (cancelled || done) return true;
+      if (detailCollapsed) {
+        done = true;
+        observer?.disconnect();
+        detailCollapseSyncingRef.current = true;
+        try {
+          handle.collapse();
+        } finally {
+          finishSyncFlag();
+        }
+        return true;
+      }
+
+      const groupSize = readPreviewSplitSize(surfaceRef.current, effectiveDetailPosition);
+      // 还没布局（宽度 0）就继续等；已经有尺寸但窗口窄于最小分栏时，不要用 px 去换百分比
+      const minGroup = DETAIL_MIN_SIZE_PX[effectiveDetailPosition] + GRID_PANEL_MIN_PX;
+      if (groupSize <= 0) return false;
+      if (groupSize < minGroup) {
+        done = true;
+        observer?.disconnect();
+        return true;
+      }
+
+      done = true;
+      observer?.disconnect();
+      const minPx = DETAIL_MIN_SIZE_PX[effectiveDetailPosition];
+      const saved = detailSizePxByPositionRef.current[effectiveDetailPosition];
+      const maxPx = Math.max(minPx, groupSize - GRID_PANEL_MIN_PX);
+      const px = Math.min(Math.max(saved, minPx), maxPx);
+      detailCollapseSyncingRef.current = true;
+      try {
+        handle.expand();
+        handle.resize(toPanelPx(px));
+      } finally {
+        finishSyncFlag();
+      }
+      return true;
+    };
+
+    if (!apply()) {
+      const root = surfaceRef.current;
+      if (root) {
+        observer = new ResizeObserver(() => {
+          apply();
+        });
+        observer.observe(root);
+      }
+      // dockview 露出面板要两帧 layout；尺寸已就绪但不再变化时，ResizeObserver 可能不补发
+      let attempts = 0;
+      const retry = () => {
+        if (cancelled || done) return;
+        if (apply() || ++attempts >= 8) return;
+        raf = requestAnimationFrame(retry);
+      };
+      raf = requestAnimationFrame(retry);
     }
+
+    return () => {
+      cancelled = true;
+      done = true;
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+      detailCollapseSyncingRef.current = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅形态/激活时同步，保留当前 collapsed
-  }, [effectiveDetailPosition, showPreviewGrid, active]);
+  }, [effectiveDetailPosition, showPreviewGrid, active, visible]);
 
   // 勿用 active 卸载网格/详情：Dock keep-alive 下卸载再挂载会明显「闪加载」
   // 但 macOS WKWebView 下 dockview 的 visibility:hidden 压不住绝对定位 canvas 合成层，
   // 切到库列表/其他 Tab 时会透出旧表数据残影——与 SQL 结果区同因，用 display:none 切断。
   // 判定用 visible（分屏时非聚焦 group 的面板同样可见），否则分屏另一侧会被清成空白。
-  const surfaceRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (!visible) {
       const root = surfaceRef.current;
@@ -1169,7 +1266,7 @@ export const DbTablePreviewSurface = memo(function DbTablePreviewSurface({
             direction={splitDirection}
             className={`db-table-preview-split db-table-preview-split--${effectiveDetailPosition}`}
           >
-            <DockPanel minSize="160px">
+            <DockPanel minSize={`${GRID_PANEL_MIN_PX}px`}>
               <div className="results-area db-sql-results">
                 {previewGrid ?? gridSkeleton}
               </div>

@@ -380,6 +380,7 @@ export function useDatabasePanelDockTabs(deps: UseDatabasePanelDockTabsDeps) {
               connId: scratchState.connId,
               database: scratchState.database,
               cursorOffset: scratchState.cursorOffset,
+              statementTargets: scratchState.statementTargets ?? [],
             });
           }
         }

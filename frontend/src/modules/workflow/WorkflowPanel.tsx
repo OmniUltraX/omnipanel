@@ -10,6 +10,7 @@ import { Select } from "../../components/ui/form/Select";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { commands } from "../../ipc/bindings";
 import { showToast } from "../../stores/toastStore";
+import { SpaceConflictMark } from "../clientSync/SpaceConflictMark";
 import type {
   Workflow,
   WorkflowDetail,
@@ -328,7 +329,10 @@ export function WorkflowPanel() {
                             <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
                           </svg>
                         </div>
-                        <div className="sc-name">{wf.name}</div>
+                        <div className="sc-name">
+                          {wf.name}
+                          <SpaceConflictMark path={`workflows/${wf.id}.json`} />
+                        </div>
                       </div>
                       <div className="sc-desc">{wf.description || "—"}</div>
                       <div className="sc-meta">

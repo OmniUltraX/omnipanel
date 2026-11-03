@@ -38,6 +38,7 @@ pub mod knowledge_source;
 pub mod knowledge_vector;
 pub mod local_file_log;
 pub mod local_runtime;
+pub mod local_space;
 pub mod log;
 pub mod marketplace;
 pub mod mcp;

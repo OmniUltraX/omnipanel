@@ -1,5 +1,7 @@
 # 客户端 ↔ 客户端同步（默认个人团队）
 
+模块快照和会话都改走 [本地优先](../local-first/README.md) 的按路径仓库。`modules/latest.json` 只在云端还没有仓库时补本机没有的路径。`ai-conversations/latest.json` 只在仓库里还没有 `conversations/` 时拆成一条一个文件，补一次。日常同步不再写这两个整包，也不再把会话裁成 80 条、每条 120 条消息。
+
 与 [助手端快照](../assistant/) **完全独立**：
 
 | | 客户端 → 助手 | 客户端 ↔ 客户端 |

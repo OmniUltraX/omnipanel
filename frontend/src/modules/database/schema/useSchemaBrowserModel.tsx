@@ -100,10 +100,11 @@ import {
 import {
   buildSchemaFlatRows,
   collectSchemaPathCrumbsForNodeId,
+  computeSchemaRowsScrollTopForStart,
   findSchemaFlatRowIndexByNodeId,
   isSchemaFlatRowIndexInViewport,
   scrollSchemaFlatRowIntoView,
-  scrollSchemaRowsToCenter,
+  scrollSchemaRowsToStart,
   SCHEMA_TREE_NODE_ROW_HEIGHT,
   SCHEMA_TREE_VIRTUALIZE_THRESHOLD,
   type SchemaFlatRow,
@@ -1326,18 +1327,11 @@ export function useSchemaBrowserModel({
   rowVirtualizerRef.current = rowVirtualizer;
   const searchAnchorQueryRef = useRef<string | null>(null);
 
-  // 搜索词变化时把当前连接和库滚到视口中间，不保留旧的滚动条位置。
-  useLayoutEffect(() => {
+  // 搜索时把当前表抬到连接/库吸顶头下面。列表高度未就绪时不要写成 0。
+  useEffect(() => {
     const query = search.trim();
     if (!query) {
       searchAnchorQueryRef.current = null;
-      return;
-    }
-    if (searchAnchorQueryRef.current === query) {
-      return;
-    }
-    const container = schemaTreeRef.current;
-    if (!container) {
       return;
     }
     const contextIds = resolveSchemaSearchContextIds({
@@ -1345,23 +1339,48 @@ export function useSchemaBrowserModel({
       activeDatabaseKey,
       activeConnId,
     });
-    const rowIndexes = contextIds
-      .map((id) => findSchemaFlatRowIndexByNodeId(flatRows, id))
-      .filter((index) => index >= 0);
-    if (rowIndexes.length === 0) {
+    if (contextIds.length === 0) {
       return;
     }
-    searchAnchorQueryRef.current = query;
-    scrollSchemaRowsToCenter(
-      container,
-      flatRows,
-      rowIndexes,
-      useTreeVirtualization
-        ? (index) =>
-            rowVirtualizerRef.current.scrollToIndex(index, { align: "center", behavior: "auto" })
-        : undefined,
-    );
-  }, [search, flatRows, activeTableKey, activeDatabaseKey, activeConnId, useTreeVirtualization]);
+    let frames = 0;
+    let raf = 0;
+    const rowIndexesFor = (rows: typeof flatRowsRef.current) =>
+      contextIds
+        .map((id) => findSchemaFlatRowIndexByNodeId(rows, id))
+        .filter((index) => index >= 0);
+    const apply = () => {
+      const container = schemaTreeRef.current;
+      const rows = flatRowsRef.current;
+      const rowIndexes = rowIndexesFor(rows);
+      const ready =
+        container != null &&
+        rowIndexes.length > 0 &&
+        scrollSchemaRowsToStart(container, rows, rowIndexes);
+      if (ready && container) {
+        const desired = computeSchemaRowsScrollTopForStart(rows, rowIndexes);
+        searchAnchorQueryRef.current = `${query}@${desired}`;
+        return;
+      }
+      if (frames++ < 12) {
+        raf = requestAnimationFrame(apply);
+      }
+    };
+    const initialIndexes = rowIndexesFor(flatRowsRef.current);
+    const desiredNow =
+      initialIndexes.length > 0
+        ? computeSchemaRowsScrollTopForStart(flatRowsRef.current, initialIndexes)
+        : 0;
+    const token = `${query}@${desiredNow}`;
+    // 已经停在目标位置就不要抢用户随后的滚动。被打回顶部时再补一次。
+    if (searchAnchorQueryRef.current === token) {
+      const container = schemaTreeRef.current;
+      if (container && (Math.abs(container.scrollTop - desiredNow) <= 2 || container.scrollTop > 4)) {
+        return;
+      }
+    }
+    raf = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(raf);
+  }, [search, flatRows, activeTableKey, activeDatabaseKey, activeConnId]);
 
   const virtualRows = useTreeVirtualization ? rowVirtualizer.getVirtualItems() : [];
 

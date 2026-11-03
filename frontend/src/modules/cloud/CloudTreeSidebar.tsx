@@ -3,6 +3,7 @@ import { useI18n } from "@/i18n";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
+import { SpaceConflictMark } from "@/modules/clientSync/SpaceConflictMark";
 import { IconPlus } from "@/components/ui/Icons";
 import { MultiSelect } from "@/components/ui/form/MultiSelect";
 import {
@@ -745,9 +746,12 @@ export function CloudTreeSidebar({
                     label={account.name}
                     note={sidebarNotes[SidebarNoteKeys.cloudAccount(account.id)]}
                     afterLabel={
-                      <span className="sidebar-tag-chip">
-                        {pluginDisplayName(account.pluginId, t)}
-                      </span>
+                      <>
+                        <span className="sidebar-tag-chip">
+                          {pluginDisplayName(account.pluginId, t)}
+                        </span>
+                        <SpaceConflictMark path={`accounts/${account.id}.json`} />
+                      </>
                     }
                     icon={<ServerTreeIcon kind={cloudBrandKind(account.pluginId)} />}
                     prefix={<SidebarStatusDot status={accountStatus} title={accountStatusTitle} />}

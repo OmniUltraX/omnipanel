@@ -10,6 +10,10 @@ import {
 } from "@codemirror/view";
 import { sqlErrorUnderline } from "../../sql/sqlExecErrorPresent";
 import { splitSqlStatements, type SqlStatementPart } from "../../sqlIntel/sqlLex";
+import { smallestSubqueryAt } from "../../sqlIntel/sqlSubquery";
+import { statementVisualEnd } from "../../sqlIntel/sqlStatementTargets";
+
+export { findSqlSubqueries, smallestSubqueryAt, type SqlSubqueryRange } from "../../sqlIntel/sqlSubquery";
 
 /** 语句可视范围从第一行真正的 SQL 开始，开头的 `--` / 块注释留在框外。 */
 export function statementCodeStart(text: string, from: number, to: number): number {
@@ -33,122 +37,6 @@ export function statementCodeStart(text: string, from: number, to: number): numb
     break;
   }
   return i;
-}
-
-export interface SqlSubqueryRange {
-  /** 括号内 SELECT / WITH 的起点 */
-  from: number;
-  /** 对应右括号之前 */
-  to: number;
-  sql: string;
-}
-
-function isIdentChar(ch: string | undefined): boolean {
-  return ch != null && /[A-Za-z0-9_]/.test(ch);
-}
-
-function keywordAt(text: string, i: number, word: string): boolean {
-  if (i < 0 || i + word.length > text.length) return false;
-  if (text.slice(i, i + word.length).toLowerCase() !== word) return false;
-  if (isIdentChar(text[i - 1]) || isIdentChar(text[i + word.length])) return false;
-  return true;
-}
-
-function skipSpaceAndComments(text: string, i: number, end: number): number {
-  while (i < end) {
-    const ch = text[i];
-    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
-      i += 1;
-      continue;
-    }
-    if (text.startsWith("--", i)) {
-      const nl = text.indexOf("\n", i);
-      i = nl < 0 ? end : nl + 1;
-      continue;
-    }
-    if (text.startsWith("/*", i)) {
-      const close = text.indexOf("*/", i + 2);
-      i = close < 0 ? end : close + 2;
-      continue;
-    }
-    break;
-  }
-  return i;
-}
-
-/** 括号内以 SELECT / WITH 开头的子查询，不含函数调用和值列表。 */
-export function findSqlSubqueries(text: string): SqlSubqueryRange[] {
-  const found: SqlSubqueryRange[] = [];
-  const parenStack: number[] = [];
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let lineComment = false;
-  let blockComment = false;
-
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    const next = text[i + 1];
-    if (lineComment) {
-      if (ch === "\n") lineComment = false;
-      continue;
-    }
-    if (blockComment) {
-      if (ch === "*" && next === "/") {
-        blockComment = false;
-        i += 1;
-      }
-      continue;
-    }
-    if (!inSingle && !inDouble && !inBacktick) {
-      if (ch === "-" && next === "-") {
-        lineComment = true;
-        i += 1;
-        continue;
-      }
-      if (ch === "/" && next === "*") {
-        blockComment = true;
-        i += 1;
-        continue;
-      }
-    }
-    if (ch === "'" && !inDouble && !inBacktick) {
-      inSingle = !inSingle;
-      continue;
-    }
-    if (ch === '"' && !inSingle && !inBacktick) {
-      inDouble = !inDouble;
-      continue;
-    }
-    if (ch === "`" && !inSingle && !inDouble) {
-      inBacktick = !inBacktick;
-      continue;
-    }
-    if (inSingle || inDouble || inBacktick) continue;
-    if (ch === "(") {
-      parenStack.push(i);
-      continue;
-    }
-    if (ch !== ")" || parenStack.length === 0) continue;
-    const open = parenStack.pop();
-    if (open == null) continue;
-    const keyword = skipSpaceAndComments(text, open + 1, i);
-    if (!keywordAt(text, keyword, "select") && !keywordAt(text, keyword, "with")) continue;
-    let end = i;
-    while (end > keyword && /\s/.test(text[end - 1] ?? "")) end -= 1;
-    if (end <= keyword) continue;
-    found.push({ from: keyword, to: end, sql: text.slice(keyword, end).trim() });
-  }
-  return found;
-}
-
-export function smallestSubqueryAt(text: string, head: number): SqlSubqueryRange | null {
-  let best: SqlSubqueryRange | null = null;
-  for (const query of findSqlSubqueries(text)) {
-    if (head < query.from || head > query.to) continue;
-    if (!best || query.to - query.from < best.to - best.from) best = query;
-  }
-  return best;
 }
 
 const PAD = 3;
@@ -249,12 +137,10 @@ function documentBase(view: EditorView): { left: number; top: number } {
   };
 }
 
-/** 高亮范围收到结尾分号之后，光标在句中或分号后都同一套。 */
+/** 高亮收到分号，分号单独占一行也框进去。分号后面的空行留在框外。 */
 function withTrailingSemicolon(text: string, stmt: SqlStatementPart, limit: number): SqlStatementPart {
-  let end = stmt.to;
-  while (end < limit && (text[end] === " " || text[end] === "\t" || text[end] === "\n" || text[end] === "\r")) end += 1;
-  if (end < limit && text[end] === ";") end += 1;
-  return end > stmt.to ? { ...stmt, to: end } : stmt;
+  const end = statementVisualEnd(text, stmt.from, stmt.to, limit);
+  return end === stmt.to ? stmt : { ...stmt, to: end };
 }
 
 function statementAtCursor(text: string, head: number): SqlStatementPart | null {
@@ -290,6 +176,7 @@ function lineBoxes(view: EditorView, stmt: SqlStatementPart, text: string): Line
     const from = Math.max(line.from, start);
     const to = Math.min(line.to, stmt.to);
     if (from >= to) continue;
+    if (!text.slice(from, to).trim()) continue;
     const a = view.coordsAtPos(from, 1);
     const b = view.coordsAtPos(to, -1);
     if (!a || !b) continue;
@@ -504,6 +391,7 @@ const frameTheme = EditorView.baseTheme({
     stroke: "var(--accent)",
     strokeWidth: "1px",
     strokeLinejoin: "round",
+    pointerEvents: "none",
   },
   ".cm-sql-stmt-frame.is-failed path": {
     stroke: "var(--danger, #ff453a)",

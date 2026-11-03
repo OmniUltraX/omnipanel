@@ -40,6 +40,7 @@ fn s3_conn() -> Connection {
         credential_ref: None,
         created_at: 0,
         updated_at: 0,
+        origin_device_id: String::new(),
     }
 }
 

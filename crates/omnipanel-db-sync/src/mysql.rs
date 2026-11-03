@@ -1300,6 +1300,7 @@ mod tests {
             has_password: !password.is_empty(),
             tags: Vec::new(),
             group: String::new(),
+            origin_device_id: String::new(),
         }
     }
 

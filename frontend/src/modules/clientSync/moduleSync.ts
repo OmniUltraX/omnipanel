@@ -8,6 +8,10 @@ import { useAuthStore } from "../../stores/authStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { collectModulesSyncPayload } from "./prepareModulesSyncPayload";
 import { scheduleSecretsVaultSync } from "./secretsVaultSync";
+import { getSpaceSyncPrefs, noteSpaceSyncFinished } from "./spaceSyncPrefs";
+
+/** 连续修改合成一次，避免每敲一下就整库合并。 */
+const AUTO_DEBOUNCE_MS = 3000;
 
 /** 模块同步落到本机后派发，供 Database / Protocol 等面板刷新 */
 export const CLIENT_SYNC_MODULES_APPLIED_EVENT = "omnipanel:client-sync-modules-applied";
@@ -15,6 +19,7 @@ export const CLIENT_SYNC_MODULES_APPLIED_EVENT = "omnipanel:client-sync-modules-
 let inFlight: Promise<void> | null = null;
 let pendingAfterFlight = false;
 let suppressPush = false;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function setClientModuleSyncSuppressed(value: boolean): void {
   suppressPush = value;
@@ -22,39 +27,57 @@ export function setClientModuleSyncSuppressed(value: boolean): void {
 
 export function cancelClientModuleSync(): void {
   pendingAfterFlight = false;
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
 }
 
 async function pushModulesOnce(teamId: number | null): Promise<void> {
-  const token = useAuthStore.getState().token;
-  if (!token?.trim()) return;
+  const token = useAuthStore.getState().token?.trim() ?? "";
   const payload = await collectModulesSyncPayload();
-  await unwrapCommand(
-    commands.clientSyncPushModules({
+  const report = await unwrapCommand(
+    commands.localSpaceSync({
       token,
       teamId,
-      ...payload,
+      sshSidebarTreeJson: payload.sshSidebarTreeJson,
+      folderTreesJson: payload.folderTreesJson,
+      customPanelsJson: payload.customPanelsJson,
+      workspacesJson: payload.workspacesJson,
+      conversationsJson: payload.conversationsJson,
+      settingsJson: payload.settingsJson,
     }),
     { quiet: true },
   );
+  if (!report.skipped) {
+    const { applySpaceSyncReport } = await import("./pullCloudSnapshot");
+    await applySpaceSyncReport(report);
+    const { noticeSpaceSync } = await import("./spaceClaim");
+    await noticeSpaceSync(report);
+  }
+  noteSpaceSyncFinished();
+  const { useSpaceConflictStore } = await import("../../stores/spaceConflictStore");
+  void useSpaceConflictStore.getState().refresh();
 }
 
 /**
- * 模块数据变更后立即推送到当前同步团队 OSS `modules/latest.json`。
+ * 模块数据变更后重写本机检出。已登录时再和团队仓库按路径合并。
  * 同时调度密文库自动推送（有 SyncMasterKey 时生效）。
  */
 export function scheduleClientModuleSync(): void {
   if (suppressPush) return;
-  const token = useAuthStore.getState().token;
-  if (!token?.trim()) return;
-
-  void runPush();
-  scheduleSecretsVaultSync();
+  if (!getSpaceSyncPrefs().auto) return;
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    debounceTimer = null;
+    void runPush();
+    const token = useAuthStore.getState().token;
+    if (token?.trim()) scheduleSecretsVaultSync();
+  }, AUTO_DEBOUNCE_MS);
 }
 
 async function runPush(): Promise<void> {
   if (suppressPush) return;
-  const token = useAuthStore.getState().token;
-  if (!token?.trim()) return;
 
   if (inFlight) {
     pendingAfterFlight = true;

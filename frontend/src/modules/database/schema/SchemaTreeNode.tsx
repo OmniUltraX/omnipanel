@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/sidebar-tree";
 import type { TreeRowMouseEvent } from "@/components/ui/sidebar-tree";
 import { SidebarNoteKeys, useSidebarNote } from "@/lib/sidebarNotes";
+import { SpaceConflictMark } from "../../clientSync/SpaceConflictMark";
 
 export interface TreeNodeProps {
   item: SchemaTreeItem;
@@ -366,6 +367,9 @@ export const TreeNode = memo(
         <>
           {isPk ? <span className="tree-badge tree-badge--pk">PK</span> : null}
           {isFk ? <span className="tree-badge tree-badge--fk">FK</span> : null}
+          {isConnection && connId ? (
+            <SpaceConflictMark path={`databases/${connId}.json`} />
+          ) : null}
         </>
       }
       trailing={trailingNode}

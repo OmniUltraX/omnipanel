@@ -15,7 +15,6 @@ import {
   flushClientConversationSync,
   setClientConversationSyncSuppressed,
 } from "./autoSync";
-import { mergeConversations, parseConversationsBundle } from "./merge";
 import {
   CLIENT_SYNC_MODULES_APPLIED_EVENT,
   flushClientModuleSync,
@@ -23,7 +22,6 @@ import {
 } from "./moduleSync";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { schedulePluginEnsure } from "../../lib/pluginEnsure";
-import { useClientSyncTombstoneStore } from "./tombstones";
 import {
   ensureTeamSyncKeyForTeam,
   setSkipPullAfterTeamKey,
@@ -83,30 +81,19 @@ function replaceWorkspacesJson(raw: string | null | undefined): void {
   });
 }
 
-/** 用远端会话快照整表替换本机（以 remote 为准，local 置空再 merge 以复用 tombstone 逻辑）。 */
-function replaceConversationsBundle(bodyJson: string): void {
-  const bundle = parseConversationsBundle(bodyJson);
-  if (!bundle) return;
-
-  const tombstoneStore = useClientSyncTombstoneStore.getState();
-  if (bundle.deleted.length > 0) {
-    tombstoneStore.mergeRemote("conversation", bundle.deleted);
+/** 用仓库里合并后的会话列表替换本机。 */
+function replaceConversationList(raw: string): void {
+  let list: AiConversation[] = [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return;
+    list = parsed as AiConversation[];
+  } catch {
+    return;
   }
-
-  const remote = bundle.conversations;
-  if (!Array.isArray(remote)) return;
-
-  const tombstones = tombstoneStore.listConversationTombstones();
-  const { conversations } = mergeConversations({
-    local: [],
-    remote: remote as AiConversation[],
-    tombstones,
-  });
-
   useAiStore.setState({
-    conversations,
-    activeConversationId:
-      conversations.find((c) => !c.parentConversationId)?.id ?? null,
+    conversations: list,
+    activeConversationId: list.find((item) => !item.parentConversationId)?.id ?? null,
   });
 }
 
@@ -206,24 +193,35 @@ export async function switchSyncTeam(
 
     if (switched.empty) {
       const modulesResult = await unwrapCommand(
-        commands.clientSyncPullModules({ token, teamId }),
+        commands.localSpaceSync({
+          token,
+          teamId,
+          sshSidebarTreeJson: null,
+          folderTreesJson: null,
+          customPanelsJson: null,
+          workspacesJson: null,
+        }),
         { quiet: true },
       );
-      if (modulesResult.found) {
-        replaceWorkspacesJson(modulesResult.workspacesJson);
-        applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "replace");
-        applyFolderTreesJson(modulesResult.folderTreesJson, "replace");
-        applyCustomPanelsJson(modulesResult.customPanelsJson, "replace");
+      if (!modulesResult.skipped) {
+        if (modulesResult.workspacesJson) {
+          replaceWorkspacesJson(modulesResult.workspacesJson);
+        }
+        if (modulesResult.sshSidebarTreeJson) {
+          applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "replace");
+        }
+        if (modulesResult.folderTreesJson) {
+          applyFolderTreesJson(modulesResult.folderTreesJson, "replace");
+        }
+        if (modulesResult.customPanelsJson) {
+          applyCustomPanelsJson(modulesResult.customPanelsJson, "replace");
+        }
+        if (modulesResult.conversationsJson != null) {
+          replaceConversationList(modulesResult.conversationsJson);
+          pulledConversations = true;
+        }
+        await refreshLocalModuleUi();
         pulledModules = true;
-      }
-
-      const convResult = await unwrapCommand(
-        commands.clientSyncPullConversations({ token, teamId }),
-        { quiet: true },
-      );
-      if (convResult.found && convResult.bodyJson?.trim()) {
-        replaceConversationsBundle(convResult.bodyJson);
-        pulledConversations = true;
       }
     }
 

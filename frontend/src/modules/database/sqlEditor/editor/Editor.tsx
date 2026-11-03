@@ -34,6 +34,9 @@ import { formatSql, formatSqlRange, type SqlFormatStyle } from "../language/form
 import { resolveSqlDialect } from "../../sqlIntel/sqlDialect";
 import { restoreDockWindowChromeAfterLayout } from "../../../../lib/restoreDockWindowChromeAfterLayout";
 import { findSqlInDoc, setSqlFrameErrorEffect, setSqlFrameFocusEffect } from "../language/sqlStatementFrame";
+import { refreshSqlFileTargetEffect } from "../language/sqlExecTargetChips";
+import { statementIndexAt, type SavedSqlStatementTarget } from "../../sqlIntel/sqlStatementTargets";
+import type { DbConnectionConfig } from "../../api";
 import { createSqlEditorExtensions } from "./extensions";
 import { getShortcutKeys, matchesShortcut } from "../../../../stores/shortcutsStore";
 import { useSettingsStore } from "../../../../stores/settingsStore";
@@ -81,7 +84,7 @@ interface SqlEditorProps {
   /** 连接 db_type，驱动语法高亮与格式化方言。 */
   dbType?: string;
   /** 执行光标所在的一条 SQL（由调用方传入已提取的语句）。快捷键 run-current-sql。 */
-  onRun?: (sqlAtCursor: string) => void;
+  onRun?: (sqlAtCursor: string, statementIndex?: number, anchor?: number) => void;
   /** 执行选中的 SQL（无选中时由调用方决定行为，通常回退到 onRun）。快捷键 run-selected-sql。 */
   onRunSelected?: (selectedSql: string) => void;
   /** 执行全部 SQL。快捷键 run-all-sql。 */
@@ -108,11 +111,19 @@ interface SqlEditorProps {
   onContextMenu?: (position: { x: number; y: number }) => void;
   /** 右键菜单归属。有值时直接打开编辑器菜单，不依赖 React 的 onContextMenu。 */
   contextMenuKey?: string;
+  /** 语句单独指定的执行库。编辑器挂载时读一次，之后由编辑器自己跟着文档走。 */
+  statementTargets?: SavedSqlStatementTarget[];
+  onStatementTargetsChange?: (targets: SavedSqlStatementTarget[]) => void;
+  sqlConnections?: DbConnectionConfig[];
+  databasesByConnId?: Record<string, string[]>;
+  /** 文件当前连接。语句末尾默认芯片跟着它变。 */
+  sqlFileConnId?: string;
+  sqlFileDatabase?: string;
 }
 
 function runStatementAtCursor(
   view: EditorView,
-  onRun: (sqlAtCursor: string) => void,
+  onRun: (sqlAtCursor: string, statementIndex?: number, anchor?: number) => void,
 ): void {
   const text = view.state.doc.toString();
   const { from, to, head } = view.state.selection.main;
@@ -121,7 +132,8 @@ function runStatementAtCursor(
   if (range) {
     view.dispatch({ effects: setSqlFrameFocusEffect.of(range) });
   }
-  onRun(sql);
+  const index = statementIndexAt(text, head);
+  onRun(sql, index >= 0 ? index : undefined, head);
 }
 
 function applyFormatToView(
@@ -176,6 +188,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     editorActive = true,
     onContextMenu,
     contextMenuKey,
+    statementTargets,
+    onStatementTargetsChange,
+    sqlConnections,
+    databasesByConnId,
+    sqlFileConnId = "",
+    sqlFileDatabase = "",
   },
   ref,
 ) {
@@ -203,6 +221,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const dbTypeRef = useRef(dbType);
   const sqlKeywordCaseRef = useRef(sqlKeywordCase);
   const valueRef = useRef(value);
+  const statementTargetsRef = useRef(statementTargets ?? []);
+  const onStatementTargetsChangeRef = useRef(onStatementTargetsChange);
+  const sqlConnectionsRef = useRef(sqlConnections ?? []);
+  const databasesByConnIdRef = useRef(databasesByConnId ?? {});
+  const sqlFileConnIdRef = useRef(sqlFileConnId);
+  const sqlFileDatabaseRef = useRef(sqlFileDatabase);
   const themeCompartment = useRef(new Compartment());
   const readOnlyCompartment = useRef(new Compartment());
   const languageCompartment = useRef(new Compartment());
@@ -223,6 +247,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   dbTypeRef.current = dbType;
   sqlKeywordCaseRef.current = sqlKeywordCase;
   valueRef.current = value;
+  statementTargetsRef.current = statementTargets ?? [];
+  onStatementTargetsChangeRef.current = onStatementTargetsChange;
+  sqlConnectionsRef.current = sqlConnections ?? [];
+  databasesByConnIdRef.current = databasesByConnId ?? {};
+  sqlFileConnIdRef.current = sqlFileConnId;
+  sqlFileDatabaseRef.current = sqlFileDatabase;
 
   const syncCursorOffset = useCallback((view: EditorView) => {
     if (!onCursorOffsetChangeRef.current) return;
@@ -419,6 +449,20 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
       },
       onCursorSync: syncCursorOffset,
       getOnRun: () => onRunRef.current,
+      statementTargets: onStatementTargetsChangeRef.current
+        ? {
+            getInitial: () => statementTargetsRef.current,
+            onChange: (saved) => onStatementTargetsChangeRef.current?.(saved),
+            getConnections: () => sqlConnectionsRef.current,
+            getDatabases: (connId) => databasesByConnIdRef.current[connId] ?? [],
+            getFileTarget: () => {
+              const connId = sqlFileConnIdRef.current.trim();
+              const database = sqlFileDatabaseRef.current.trim();
+              if (!connId && !database) return null;
+              return { connId, database };
+            },
+          }
+        : undefined,
       getOnSave: () => onSaveRef.current,
       getOnOpenTable: () => onOpenTableRef.current,
       onExplainError: () => onExplainErrorRef.current?.(),
@@ -450,6 +494,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ effects: refreshSqlFileTargetEffect.of(null) });
+  }, [sqlFileConnId, sqlFileDatabase]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -583,7 +633,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
         const run = onRunRef.current;
         if (!run) return;
         const text = view.state.doc.toString();
-        run(resolveSqlToRun(text, { from, to, head }));
+        const index = statementIndexAt(text, head);
+        run(resolveSqlToRun(text, { from, to, head }), index >= 0 ? index : undefined, head);
       }
     };
     window.addEventListener("keydown", onKeyDown, true);

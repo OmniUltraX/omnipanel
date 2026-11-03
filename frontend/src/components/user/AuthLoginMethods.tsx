@@ -220,9 +220,19 @@ const METHOD_OPTIONS: {
   { id: "email", labelKey: "app.login.methods.email", icon: emailIcon },
 ];
 
+const FACT_KEYS = [
+  "app.onboarding.facts.cipher",
+  "app.onboarding.facts.server",
+  "app.onboarding.facts.meta",
+  "app.onboarding.facts.key",
+  "app.onboarding.facts.assistant",
+] as const;
+
 export interface AuthLoginMethodsProps {
   /** 是否显示卡片标题（个人中心嵌入时建议开启） */
   showTitle?: boolean;
+  /** 引导页只留一句说明，避免把扫码区挤出屏幕 */
+  brief?: boolean;
   className?: string;
 }
 
@@ -230,7 +240,7 @@ export interface AuthLoginMethodsProps {
  * 多方式登录主体：微信扫码 / GitHub OAuth / 邮箱验证码。
  * 供启动门禁登录页与个人中心退出后复用。
  */
-export function AuthLoginMethods({ showTitle = false, className }: AuthLoginMethodsProps) {
+export function AuthLoginMethods({ showTitle = false, brief = false, className }: AuthLoginMethodsProps) {
   const { t } = useI18n();
   const githubIcon = useGithubIcon();
   const [method, setMethod] = useState<LoginMethod>("wechat");
@@ -246,12 +256,18 @@ export function AuthLoginMethods({ showTitle = false, className }: AuthLoginMeth
         </>
       ) : null}
 
+      {brief ? <p className="onboarding-brief">{t("app.onboarding.loginBrief")}</p> : null}
+      <p className="onboarding-facts-title">{t("app.onboarding.factsTitle")}</p>
+      <ul className="onboarding-facts">
+        {FACT_KEYS.map((key) => (
+          <li key={key}>{t(key)}</li>
+        ))}
+      </ul>
       <div className="login-page__body">
         {method === "wechat" ? <WechatLoginPanel hideHeader /> : null}
         {method === "github" ? <GithubLoginPanel /> : null}
         {method === "email" ? <EmailLoginPanel /> : null}
       </div>
-
       <div className="login-page__methods" role="group" aria-label={t("app.login.methodsLabel")}>
         <p className="login-page__methods-label">{t("app.login.methodsLabel")}</p>
         <div className="login-page__method-icons">

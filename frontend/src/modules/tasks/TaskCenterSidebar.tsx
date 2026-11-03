@@ -22,6 +22,7 @@ import {
 import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import { useAiOrchestrationStore } from "../../stores/aiOrchestrationStore";
+import { SpaceConflictMark } from "../clientSync/SpaceConflictMark";
 import {
   cancelAllRunningBackgroundTasks,
   getRunningBackgroundTasks,
@@ -513,6 +514,11 @@ export function TaskCenterSidebar({
                   active={active}
                   name={t(labelKey)}
                   icon={icon}
+                  trailing={
+                    view === "tasks" ? (
+                      <SpaceConflictMark path="todos/todo-default.json" />
+                    ) : null
+                  }
                   onClick={() => {
                     onInboxBucketChange("mine");
                     onSelect(next);
@@ -535,6 +541,7 @@ export function TaskCenterSidebar({
                     name={list.title || t("taskCenter.todo.untitledList")}
                     title={list.title}
                     icon={<IconClipboard size={12} />}
+                    trailing={<SpaceConflictMark path={`todos/${list.id}.json`} />}
                     onClick={() => {
                       onInboxBucketChange("mine");
                       onSelect({

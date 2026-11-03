@@ -177,6 +177,9 @@ pub(crate) async fn resolve_target(
             let port = cfg
                 .port
                 .unwrap_or(if cfg.tls.unwrap_or(true) { 2376 } else { 2375 });
+            let (host, port) =
+                crate::mesh_relay::rewrite_dial(&host, port, &conn.origin_device_id, &conn.tags)
+                    .await?;
             let docker = if cfg.tls.unwrap_or(true) {
                 LocalDockerAdapter::connect_remote_https(
                     &host,

@@ -42,6 +42,20 @@ describe("planSqlExecutionSessions", () => {
     expect(planned.activeSessionId).toBe("a");
   });
 
+  it("同一句打到两个库时各占一个结果", () => {
+    const planned = planSqlExecutionSessions(
+      [],
+      [
+        { sql: "SELECT * FROM orders", connId: "c1", database: "crm" },
+        { sql: "SELECT * FROM orders", connId: "c2", database: "archive" },
+      ],
+      false,
+    );
+    expect(planned.sessions.map((item) => item.database)).toEqual(["crm", "archive"]);
+    expect(planned.sessions.map((item) => item.connId)).toEqual(["c1", "c2"]);
+    expect(planned.runSessionIds).toHaveLength(2);
+  });
+
   it("新结果标签把每条语句追加为固定会话", () => {
     const existing = [session({ id: "old", sql: "SELECT 0" })];
     const planned = planSqlExecutionSessions(existing, ["SELECT 1", "SELECT 2"], true);

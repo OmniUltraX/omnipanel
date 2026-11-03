@@ -460,22 +460,15 @@ impl PluginHostBridge for PluginBridge {
         let plan_json = plan_json.to_string();
         let report = block_on_detached(async move {
             let store = storage.lock().await;
-            let report = omnipanel_store::apply_resource_dedupe(
-                &store,
-                databases.as_deref(),
-                &plan_json,
-            )
-            .map_err(|err| err.to_string())?;
+            let report =
+                omnipanel_store::apply_resource_dedupe(&store, databases.as_deref(), &plan_json)
+                    .map_err(|err| err.to_string())?;
             serde_json::to_string(&report).map_err(|err| err.to_string())
         })?;
         if let Some(notify) = &self.on_resources_applied {
             notify(report.clone());
         }
-        self.audit(
-            "plugin.resource-dedupe",
-            "success",
-            args_digest(&report),
-        );
+        self.audit("plugin.resource-dedupe", "success", args_digest(&report));
         Ok(report)
     }
 
@@ -666,6 +659,7 @@ fn save_candidate(
         credential_ref: None,
         created_at: now,
         updated_at: now,
+        origin_device_id: String::new(),
     };
     store.save_connection(&conn)
 }

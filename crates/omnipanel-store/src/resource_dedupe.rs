@@ -1343,6 +1343,7 @@ mod tests {
             credential_ref: None,
             created_at: 1,
             updated_at,
+            origin_device_id: String::new(),
         }
     }
 
@@ -1373,6 +1374,7 @@ mod tests {
             credential_ref: None,
             created_at: 1,
             updated_at: 1,
+            origin_device_id: String::new(),
         };
         storage.save_connection(&docker).unwrap();
         storage

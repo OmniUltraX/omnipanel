@@ -1503,38 +1503,59 @@ export function isSchemaFlatRowNodeInView(
   return virtualItems.some((item) => item.index === index);
 }
 
-/** 让一组行（如当前连接和库）的整体中点落在视口垂直中间。 */
-export function computeSchemaRowsScrollTopForCenter(
+/**
+ * 把当前上下文的最深一行（当前表，否则是库）放到上级吸顶头的正下方。
+ * 连接和库留在视口顶部，不会整块停在容器中间。
+ */
+export function computeSchemaRowsScrollTopForStart(
   rows: SchemaFlatRow[],
   rowIndexes: number[],
-  viewportHeight: number,
 ): number {
   const indexes = rowIndexes.filter((index) => index >= 0 && index < rows.length);
-  if (indexes.length === 0 || viewportHeight <= 0) {
+  if (indexes.length === 0) {
     return 0;
   }
-  const start = Math.min(...indexes);
-  const end = Math.max(...indexes);
-  const top = computeSchemaFlatRowOffset(rows, start);
-  const bottom = computeSchemaFlatRowOffset(rows, end) + estimateSchemaFlatRowSize(rows[end]);
-  return (top + bottom) / 2 - viewportHeight / 2;
+  const anchor = Math.max(...indexes);
+  const stickyBottomByDepth = new Map<number, number>();
+  let offset = 0;
+  for (let i = 0; i < anchor; i++) {
+    const row = rows[i]!;
+    if (schemaFlatRowIsStickyAncestor(row)) {
+      for (const depth of [...stickyBottomByDepth.keys()]) {
+        if (depth >= row.depth) {
+          stickyBottomByDepth.delete(depth);
+        }
+      }
+      stickyBottomByDepth.set(row.depth, (row.depth + 1) * SCHEMA_TREE_NODE_ROW_HEIGHT);
+    }
+    offset += estimateSchemaFlatRowSize(row);
+  }
+  let cover = 0;
+  for (const bottom of stickyBottomByDepth.values()) {
+    if (bottom > cover) {
+      cover = bottom;
+    }
+  }
+  return Math.max(0, offset - cover);
 }
 
-export function scrollSchemaRowsToCenter(
+export function scrollSchemaRowsToStart(
   container: HTMLElement,
   rows: SchemaFlatRow[],
   rowIndexes: number[],
-  scrollToIndex?: (index: number) => void,
-): void {
+): boolean {
   const indexes = rowIndexes.filter((index) => index >= 0 && index < rows.length);
   if (indexes.length === 0 || container.clientHeight <= 0) {
-    return;
+    return false;
   }
-  const middle = indexes[Math.floor(indexes.length / 2)]!;
-  scrollToIndex?.(middle);
-  const nextTop = computeSchemaRowsScrollTopForCenter(rows, indexes, container.clientHeight);
+  const nextTop = computeSchemaRowsScrollTopForStart(rows, indexes);
   const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+  // 虚拟列表高度还没跟上时先别写 0，否则会停在第一条命中（别的连接）上。
+  if (nextTop > 1 && maxScroll + 1 < nextTop) {
+    return false;
+  }
   container.scrollTop = Math.min(maxScroll, Math.max(0, nextTop));
+  return Math.abs(container.scrollTop - nextTop) <= 2;
 }
 
 /** 将目标行滚动到视口内（最小位移，不居中）。 */

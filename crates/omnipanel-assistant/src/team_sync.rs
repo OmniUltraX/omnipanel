@@ -4,7 +4,6 @@
 
 use chrono::Utc;
 use omnipanel_error::OmniResult;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -40,33 +39,39 @@ pub async fn fetch_team_oss_sts(auth: &AuthContext, team_id: i64) -> OmniResult<
         "{}/api/teams/{team_id}/oss/sts",
         auth.api_base.trim_end_matches('/')
     );
-    let resp = auth
-        .http
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", auth.access_token))
-        .header("X-App-Id", &auth.app_id)
-        .header("X-Device-Id", &auth.device_id)
-        .send()
-        .await
-        .map_err(|e| {
+    let token = auth.access_token.clone();
+    let app_id = auth.app_id.clone();
+    let device_id = auth.device_id.clone();
+    let (status, text) = crate::oss::with_deadline(async move {
+        let http = crate::oss::space_http_client();
+        let resp = http
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .header("X-App-Id", app_id)
+            .header("X-Device-Id", device_id)
+            .send()
+            .await
+            .map_err(|e| {
+                map_assistant_error_with_cause(
+                    AssistantErrorKind::Sts,
+                    "申请团队 OSS 凭证失败",
+                    e.to_string(),
+                )
+            })?;
+        let status = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| {
             map_assistant_error_with_cause(
                 AssistantErrorKind::Sts,
-                "申请团队 OSS 凭证失败",
+                "读取团队 OSS 凭证响应失败",
                 e.to_string(),
             )
         })?;
+        Ok((status, text))
+    })
+    .await?;
 
-    let status = resp.status();
-    let text = resp.text().await.map_err(|e| {
-        map_assistant_error_with_cause(
-            AssistantErrorKind::Sts,
-            "读取团队 OSS 凭证响应失败",
-            e.to_string(),
-        )
-    })?;
-
-    if !status.is_success() {
-        return Err(sts_http_error(status.as_u16(), &text));
+    if !(200..300).contains(&status) {
+        return Err(sts_http_error(status, &text));
     }
 
     let creds = if let Ok(env) = serde_json::from_str::<StsApiEnvelope>(&text) {
@@ -110,7 +115,7 @@ fn sts_http_error(status: u16, body: &str) -> omnipanel_error::OmniError {
     )
 }
 
-fn resolve_object_key(sts: &OssStsCredentials, leaf: &str) -> String {
+pub(crate) fn resolve_object_key(sts: &OssStsCredentials, leaf: &str) -> String {
     let leaf = leaf.trim().trim_matches('/');
     if leaf.is_empty() {
         return String::new();
@@ -153,8 +158,12 @@ pub async fn push_team_sync_json(
         ));
     }
     let key = strip_bucket_prefix(&object_key, &sts.bucket);
-    let http = Client::new();
-    upload_object_bytes(&http, &sts, &key, body, "application/json").await
+    let payload = body.to_vec();
+    crate::oss::with_deadline(async move {
+        let http = crate::oss::space_http_client();
+        upload_object_bytes(&http, &sts, &key, &payload, "application/json").await
+    })
+    .await
 }
 
 /// 拉取团队 sync blob；对象不存在时返回 `None`。
@@ -172,8 +181,12 @@ pub async fn pull_team_sync_json(
         ));
     }
     let key = strip_bucket_prefix(&object_key, &sts.bucket);
-    let http = Client::new();
-    let bytes = get_object_bytes_optional(&http, &sts, &key).await?;
+    let object_key = key.clone();
+    let bytes = crate::oss::with_deadline(async move {
+        let http = crate::oss::space_http_client();
+        get_object_bytes_optional(&http, &sts, &object_key).await
+    })
+    .await?;
     Ok(bytes.map(|b| (key, b)))
 }
 

@@ -167,6 +167,7 @@ export function useTableDataGridModel(props: TableDataGridProps) {
     columnMeta,
     onCellEdit,
     onCellCommit,
+    editableColumns = null,
     onCellSetNull,
     dirtyRowKeys,
     deletedRowKeys,
@@ -390,6 +391,8 @@ export function useTableDataGridModel(props: TableDataGridProps) {
     const onDocumentMouseDown = (event: MouseEvent) => {
       const wrap = wrapRef.current;
       if (!wrap) return;
+      // 表已切走（display:none）：之后在别的 Tab 里点击，不应清掉这份选中
+      if (wrap.getClientRects().length === 0) return;
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (wrap.contains(target)) return;
@@ -992,6 +995,7 @@ export function useTableDataGridModel(props: TableDataGridProps) {
 
       const colMeta = columnMetaMap?.[target.column];
       if (!colMeta) return;
+      if (editableColumns && !editableColumns.has(target.column)) return;
 
       const rowKey = resolvePreviewRowKey(target.row, pkCols);
       const overrides = rowKey ? displayCellOverrides?.[rowKey] : undefined;
@@ -1042,6 +1046,7 @@ export function useTableDataGridModel(props: TableDataGridProps) {
       pkCols,
       displayCellOverrides,
       onCellCommit,
+      editableColumns,
       onCellEdit,
       onActiveCellChange,
       onCellEditorFocusRequest,
@@ -2057,9 +2062,12 @@ export function useTableDataGridModel(props: TableDataGridProps) {
           : overrideValue !== undefined
             ? overrideValue
             : tableRow.original[columnId];
+      const editColumn = transposed ? transposedFieldName : columnId;
+      const columnAllowed = !editableColumns || editableColumns.has(editColumn);
       const canEdit =
         !isRowNum &&
         !isFieldCol &&
+        columnAllowed &&
         Boolean(onCellEdit || onCellCommit || onActiveCellChange) &&
         Boolean(colMeta);
       return {
@@ -2080,6 +2088,7 @@ export function useTableDataGridModel(props: TableDataGridProps) {
       columnMetaMap,
       pkCols,
       displayCellOverrides,
+      editableColumns,
       onCellEdit,
       onCellCommit,
       onActiveCellChange,

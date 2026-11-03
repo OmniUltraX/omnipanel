@@ -7,6 +7,7 @@ import { useAiStore } from "../../../stores/aiStore";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { Button } from "../../ui/primitives/Button";
 import { IconPlus, IconXCircle } from "../../ui/icons/Icons";
+import { SpaceConflictMark } from "../../../modules/clientSync/SpaceConflictMark";
 
 function formatConversationTime(ts: number, t: (key: string, params?: Record<string, string | number>) => string): string {
   const diff = Date.now() - ts;
@@ -94,7 +95,10 @@ export function AiConversationList({
                 }}
               >
                 <div className="ai-session-row-main">
-                  <div className="ai-session-row-title">{conv.title}</div>
+                  <div className="ai-session-row-title">
+                    {conv.title}
+                    <SpaceConflictMark path={`conversations/${conv.id}.json`} />
+                  </div>
                   <div className="ai-session-row-meta">
                     {conv.pinnedWorkspaceId ? (
                       <span className="ai-session-row-workspace">

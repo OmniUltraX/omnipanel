@@ -9,3 +9,4 @@ import "../modules/assistant/chatInbox";
 import "../modules/assistant/terminalCmdInbox";
 import "../modules/clientSync/autoSync";
 import "../modules/clientSync/moduleSync";
+import "../modules/clientSync/spaceSyncSchedule";

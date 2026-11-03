@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu/ContextMenu";
+import { SpaceConflictMark } from "../clientSync/SpaceConflictMark";
 import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { GLOBAL_SHARE_MENU_ID } from "../../components/ui/menu/withGlobalShareMenuItem";
 import { useShareUiStore } from "../../stores/shareUiStore";
@@ -1013,12 +1014,15 @@ export function ProtocolHttpSidebar() {
               label={req.name}
               icon={<ProtocolTreeHttpIcon />}
               afterLabel={
-                <span
-                  className="sidebar-tag-chip proto-method-tag"
-                  style={{ color: methodTint, borderColor: methodTint }}
-                >
-                  {formatMethodBadge(req.method)}
-                </span>
+                <>
+                  <span
+                    className="sidebar-tag-chip proto-method-tag"
+                    style={{ color: methodTint, borderColor: methodTint }}
+                  >
+                    {formatMethodBadge(req.method)}
+                  </span>
+                  <SpaceConflictMark path={`http/requests/${req.id}.json`} />
+                </>
               }
               dataTreeKey={entry.key}
               className={`${hintClass}${draggingClass}`}

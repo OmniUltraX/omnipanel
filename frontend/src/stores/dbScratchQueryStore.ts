@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
+import type { SavedSqlStatementTarget } from "../modules/database/sqlIntel/sqlStatementTargets";
 
 /** 侧栏「查询」入口的单例 SQL 草稿（不落文件，关闭后再打开可恢复）。 */
 export type DbScratchQueryDraft = {
@@ -8,6 +9,7 @@ export type DbScratchQueryDraft = {
   connId: string;
   database: string;
   cursorOffset: number;
+  statementTargets?: SavedSqlStatementTarget[];
 };
 
 type DbScratchQueryState = DbScratchQueryDraft & {
@@ -37,6 +39,7 @@ export const useDbScratchQueryStore = create<DbScratchQueryState>()(
         connId: state.connId,
         database: state.database,
         cursorOffset: state.cursorOffset,
+        statementTargets: state.statementTargets ?? [],
       }),
     },
   ),

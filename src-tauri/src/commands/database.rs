@@ -19,7 +19,9 @@ pub use omnipanel_store::{
     prune_connection_expanded, prune_connection_filters, save_schema_cache, save_schema_filters,
     save_schema_tree_expanded,
 };
-use omnipanel_store::{creator_device_name, origin_device_id, reconcile_device_tags};
+use omnipanel_store::{
+    creator_device_name, origin_device_id, reconcile_device_tags, resolve_origin_device_id,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -147,7 +149,8 @@ pub(crate) fn to_params(c: &DbConnectionConfig) -> DbParams {
 pub(crate) async fn relay_params(c: &DbConnectionConfig) -> Result<DbParams, String> {
     let mut params = to_params(c);
     let tags = dial_tags(c);
-    let (host, port) = crate::mesh_relay::rewrite_dial(&params.host, params.port, &tags)
+    let origin = dial_origin(c);
+    let (host, port) = crate::mesh_relay::rewrite_dial(&params.host, params.port, &origin, &tags)
         .await
         .map_err(|e| e.user_message())?;
     params.host = host;
@@ -162,7 +165,22 @@ pub(crate) fn install_db_connection_store(store: Arc<omnipanel_store::DatabaseCo
     let _ = DB_CONN_STORE.set(store);
 }
 
-/// 表单和部分调用方不带 `origin:` / `creator:`。已保存的连接仍按库里的标记转发。
+/// 表单经常不带回创建设备字段。已保存的连接仍按库里的 id 转发。
+fn dial_origin(c: &DbConnectionConfig) -> String {
+    if let Some(id) = resolve_origin_device_id(&c.origin_device_id, &c.tags) {
+        return id;
+    }
+    let id = c.id.trim();
+    if id.is_empty() {
+        return String::new();
+    }
+    DB_CONN_STORE
+        .get()
+        .and_then(|store| store.origin_of(id).ok().flatten())
+        .unwrap_or_default()
+}
+
+/// 表单和部分调用方不带 `creator:`。已保存的连接仍按库里的标记转发。
 fn dial_tags(c: &DbConnectionConfig) -> Vec<String> {
     if origin_device_id(&c.tags).is_some() || creator_device_name(&c.tags).is_some() {
         return c.tags.clone();

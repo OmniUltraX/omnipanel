@@ -14,6 +14,7 @@ import { ScopedSearch } from "../../components/ui/ScopedSearch";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu";
 import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { SpaceConflictMark } from "../clientSync/SpaceConflictMark";
 import {
   buildKnowledgeTree,
   expandAncestorIds,
@@ -190,6 +191,7 @@ function TreeRow({
           {!isFolder && vectorized ? (
             <span className="knowledge-tree-vector-dot" title="已向量化" aria-hidden />
           ) : null}
+          <SpaceConflictMark path={`knowledge/${entry.id}.json`} />
         </>
       }
       draggable={draggable}

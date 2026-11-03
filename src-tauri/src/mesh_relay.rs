@@ -14,7 +14,7 @@ use std::sync::{Arc, OnceLock};
 
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::with_ssh_dial;
-use omnipanel_store::{active_team_scope, creator_device_name, origin_device_id};
+use omnipanel_store::{active_team_scope, creator_device_name, resolve_origin_device_id};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -110,8 +110,13 @@ enum IntranetDial {
 
 /// 内网地址怎么拨。没有创建设备标记时直连：新建和测试连接发生在本机，
 /// 也无从知道该转给哪一台设备。
-fn intranet_dial(tags: &[String], self_id: &str, self_name: &str) -> IntranetDial {
-    if let Some(origin) = origin_device_id(tags) {
+fn intranet_dial(
+    origin_field: &str,
+    tags: &[String],
+    self_id: &str,
+    self_name: &str,
+) -> IntranetDial {
+    if let Some(origin) = resolve_origin_device_id(origin_field, tags) {
         if !self_id.is_empty() && origin == self_id {
             return IntranetDial::Direct;
         }
@@ -130,6 +135,7 @@ fn intranet_dial(tags: &[String], self_id: &str, self_name: &str) -> IntranetDia
 pub(crate) async fn rewrite_dial(
     host: &str,
     port: u16,
+    origin_device_id: &str,
     tags: &[String],
 ) -> Result<(String, u16), OmniError> {
     let host = host.trim();
@@ -141,7 +147,7 @@ pub(crate) async fn rewrite_dial(
     };
 
     let self_id = current_device_id().unwrap_or_default();
-    match intranet_dial(tags, &self_id, &current_device_name()) {
+    match intranet_dial(origin_device_id, tags, &self_id, &current_device_name()) {
         IntranetDial::Direct => Ok((host.to_string(), port)),
         IntranetDial::Relay(origin) => {
             let local_port = ensure_forward(team_id, &origin, host, port).await?;
@@ -158,10 +164,11 @@ pub(crate) async fn rewrite_dial(
 pub(crate) async fn ssh_connect_rewritten<F: std::future::Future>(
     host: &str,
     port: u16,
+    origin_device_id: &str,
     tags: &[String],
     connect: F,
 ) -> Result<F::Output, OmniError> {
-    let (dial_host, dial_port) = rewrite_dial(host, port, tags).await?;
+    let (dial_host, dial_port) = rewrite_dial(host, port, origin_device_id, tags).await?;
     if dial_host == host.trim() && dial_port == port {
         Ok(connect.await)
     } else {
@@ -375,9 +382,12 @@ mod tests {
 
     #[test]
     fn unmarked_intranet_dials_from_this_device() {
-        assert_eq!(intranet_dial(&[], "dev-a", "laptop"), IntranetDial::Direct);
         assert_eq!(
-            intranet_dial(&["prod".into()], "dev-a", "laptop"),
+            intranet_dial("", &[], "dev-a", "laptop"),
+            IntranetDial::Direct
+        );
+        assert_eq!(
+            intranet_dial("", &["prod".into()], "dev-a", "laptop"),
             IntranetDial::Direct
         );
     }
@@ -385,19 +395,27 @@ mod tests {
     #[test]
     fn own_marker_dials_direct_and_other_device_relays() {
         assert_eq!(
-            intranet_dial(&["origin:dev-a".into()], "dev-a", "laptop"),
+            intranet_dial("", &["origin:dev-a".into()], "dev-a", "laptop"),
             IntranetDial::Direct
         );
         assert_eq!(
-            intranet_dial(&["creator:Laptop".into()], "dev-a", "laptop"),
+            intranet_dial("", &["creator:Laptop".into()], "dev-a", "laptop"),
             IntranetDial::Direct
         );
         assert_eq!(
-            intranet_dial(&["origin:dev-b".into()], "dev-a", "laptop"),
+            intranet_dial("", &["origin:dev-b".into()], "dev-a", "laptop"),
             IntranetDial::Relay("dev-b".into())
         );
         assert_eq!(
-            intranet_dial(&["creator:Other".into()], "dev-a", "laptop"),
+            intranet_dial("dev-b", &[], "dev-a", "laptop"),
+            IntranetDial::Relay("dev-b".into())
+        );
+        assert_eq!(
+            intranet_dial("dev-a", &["origin:dev-b".into()], "dev-a", "laptop"),
+            IntranetDial::Direct
+        );
+        assert_eq!(
+            intranet_dial("", &["creator:Other".into()], "dev-a", "laptop"),
             IntranetDial::UnboundOrigin
         );
     }

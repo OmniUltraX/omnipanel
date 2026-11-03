@@ -277,6 +277,7 @@ pub async fn docker_scan_ssh_docker_hosts(
                     credential_ref: None,
                     created_at: now,
                     updated_at: now,
+                    origin_device_id: String::new(),
                 }
             };
 

@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { SplashScreen } from "./components/shell/SplashScreen";
-import { LoginPage } from "./components/user/LoginPage";
+import { FirstRunWizard } from "./components/onboarding/FirstRunWizard";
+import { SpaceClaimHost, SpaceKeyExportHost } from "./modules/clientSync/spaceClaim";
+import { SpaceConflictHost } from "./modules/clientSync/SpaceConflictMark";
 import { useI18n } from "./i18n";
 import { initSettings, useSettingsStore } from "./stores/settingsStore";
 import { commands } from "./ipc/bindings";
@@ -23,7 +25,8 @@ import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { expandMainWindow, showSplashWindow } from "./lib/bootSplashBridge";
 import { initDeviceNameCache } from "./lib/deviceIdentity";
-import { selectIsLoggedIn, useAuthStore } from "./stores/authStore";
+import { useAuthStore } from "./stores/authStore";
+import { resolveFirstRun } from "./lib/localSpaceBoot";
 import { syncAuthProfile } from "./lib/auth/syncAuthProfile";
 import "./lib/registerSyncBridges";
 
@@ -31,7 +34,7 @@ const MIN_SPLASH_MS = 800;
 const EXIT_ANIM_MS = 520;
 const TOTAL_STEPS = 4;
 
-type BootPhase = "wait-auth" | "login" | "splash" | "exit" | "app";
+type BootPhase = "wait-auth" | "wizard" | "splash" | "exit" | "app";
 
 function wait(ms: number) {
   return new Promise<void>((resolve) => {
@@ -41,7 +44,6 @@ function wait(ms: number) {
 
 export function Bootstrap() {
   const { t } = useI18n();
-  const isLoggedIn = useAuthStore(selectIsLoggedIn);
   const [authReady, setAuthReady] = useState(() => useAuthStore.persist.hasHydrated());
   const [phase, setPhase] = useState<BootPhase>("wait-auth");
   const [AppComponent, setAppComponent] = useState<ComponentType | null>(null);
@@ -53,7 +55,7 @@ export function Bootstrap() {
     syncAppWindowTitle();
     dismissHtmlBootSplash();
     // 启动中：固定小窗；登录/失败/退场：放大到正式尺寸
-    if (bootErrorMsg || phase === "login" || phase === "exit") {
+    if (bootErrorMsg || phase === "wizard" || phase === "exit") {
       expandMainWindow();
       return;
     }
@@ -77,12 +79,15 @@ export function Bootstrap() {
 
   useEffect(() => {
     if (!authReady) return;
-    if (isLoggedIn) {
-      setPhase((prev) => (prev === "wait-auth" || prev === "login" ? "splash" : prev));
-      return;
-    }
-    setPhase((prev) => (prev === "wait-auth" ? "login" : prev));
-  }, [authReady, isLoggedIn]);
+    let cancelled = false;
+    void resolveFirstRun().then((next) => {
+      if (cancelled) return;
+      setPhase((prev) => (prev === "wait-auth" ? (next === "wizard" ? "wizard" : "splash") : prev));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady]);
 
   useEffect(() => {
     if (phase !== "splash") return;
@@ -151,11 +156,14 @@ export function Bootstrap() {
             await alignLocalStorageTeam();
           } catch {
           }
-          try {
-            const { pullCloudSnapshot } = await import("./modules/clientSync");
-            await pullCloudSnapshot();
-          } catch {
-          }
+          // 冷启动在后台拉仓库。失败或网络卡住都不挡进门，拉完后自己写回本机。
+          // 这台电脑关掉自动同步时，启动也不拉。
+          void import("./modules/clientSync")
+            .then((m) => {
+              if (!m.spaceSyncAutoEnabled()) return;
+              return m.pullCloudSnapshot();
+            })
+            .catch(() => {});
         }
 
         await pushLog(t("app.splash.logs.connections"));
@@ -220,7 +228,14 @@ export function Bootstrap() {
   }, [phase]);
 
   if (phase === "app" && AppComponent) {
-    return <AppComponent />;
+    return (
+      <>
+        <SpaceClaimHost />
+        <SpaceKeyExportHost />
+        <SpaceConflictHost />
+        <AppComponent />
+      </>
+    );
   }
 
   if (bootErrorMsg) {
@@ -248,8 +263,8 @@ export function Bootstrap() {
     );
   }
 
-  if (phase === "login") {
-    return <LoginPage />;
+  if (phase === "wizard") {
+    return <FirstRunWizard onDone={() => setPhase("splash")} />;
   }
 
   if (phase === "wait-auth") {
@@ -263,11 +278,16 @@ export function Bootstrap() {
   }
 
   return (
-    <SplashScreen
-      exiting={phase === "exit"}
-      step={bootStep}
-      totalSteps={TOTAL_STEPS}
-      log={bootLog}
-    />
+    <>
+      <SpaceClaimHost />
+      <SpaceKeyExportHost />
+      <SpaceConflictHost />
+      <SplashScreen
+        exiting={phase === "exit"}
+        step={bootStep}
+        totalSteps={TOTAL_STEPS}
+        log={bootLog}
+      />
+    </>
   );
 }

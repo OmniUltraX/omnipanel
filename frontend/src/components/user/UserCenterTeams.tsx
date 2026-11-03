@@ -20,11 +20,7 @@ import {
   fetchTeamShare,
   formatTeamSyncError,
   listTeamShares,
-  peekTeamModules,
-  pullTeamModules,
-  pushTeamModules,
   type TeamShareSummary,
-  type TeamSyncPeekResult,
 } from "../../lib/auth/teamSyncApi";
 import {
   importResourceShareSnapshot,
@@ -38,14 +34,16 @@ import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 import { showToast } from "../../stores/toastStore";
 import { Button } from "../ui/Button";
+import { WorkbenchActionButton } from "../ui/primitives";
 import { FormDialog, FormField } from "../ui/form/FormDialog";
 import { TextInput } from "../ui/form/TextInput";
 import { Select } from "../ui/form/Select";
 import { IconChevronRight, IconCopy, IconPlus, IconRefresh, IconTrash, IconUsers } from "../ui/icons/Icons";
-import { TeamDataTree } from "./TeamDataTree";
+import { TeamSpaceStorage } from "./TeamSpaceStorage";
+import { TeamSpaceSync } from "./TeamSpaceSync";
 
 type TeamRoleCode = "creator" | "manager" | "user";
-type TeamDetailTab = "members" | "data";
+type TeamDetailTab = "members" | "data" | "storage";
 
 /** 团队 id 缺失（null）时无法执行任何团队操作。 */
 function numericTeamId(team: TeamSummary | null | undefined): number | null {
@@ -141,14 +139,9 @@ export function UserCenterTeams({
   const [teamShares, setTeamShares] = useState<TeamShareSummary[]>([]);
   const [sharesLoading, setSharesLoading] = useState(false);
   const [sharesError, setSharesError] = useState<string | null>(null);
-  const [syncModulesPushing, setSyncModulesPushing] = useState(false);
-  const [syncModulesPulling, setSyncModulesPulling] = useState(false);
   const [importingShareId, setImportingShareId] = useState<string | null>(null);
 
   const [detailTab, setDetailTab] = useState<TeamDetailTab>("members");
-  const [dataPeek, setDataPeek] = useState<TeamSyncPeekResult | null>(null);
-  const [dataPeekLoading, setDataPeekLoading] = useState(false);
-  const [dataPeekError, setDataPeekError] = useState<string | null>(null);
 
   const roleLabel = useCallback(
     (role: string) => {
@@ -226,38 +219,6 @@ export function UserCenterTeams({
     [handleSessionExpired, token],
   );
 
-  const loadTeamDataPeek = useCallback(
-    async (team: TeamSummary, options?: { silent?: boolean; afterUpload?: boolean }) => {
-      const teamId = numericTeamId(team);
-      if (!token || teamId === null) return;
-      const silent = options?.silent === true;
-      if (!silent) {
-        setDataPeekLoading(true);
-      }
-      setDataPeekError(null);
-      try {
-        const result = await peekTeamModules(token, teamId, {
-          afterUpload: options?.afterUpload === true,
-        });
-        setDataPeek(result);
-      } catch (e) {
-        if (isAuthSessionError(e)) {
-          handleSessionExpired();
-          return;
-        }
-        if (!silent) {
-          setDataPeek(null);
-        }
-        setDataPeekError(formatTeamSyncError(e));
-      } finally {
-        if (!silent) {
-          setDataPeekLoading(false);
-        }
-      }
-    },
-    [handleSessionExpired, token],
-  );
-
   useEffect(() => {
     void loadTeams();
   }, [loadTeams]);
@@ -277,17 +238,14 @@ export function UserCenterTeams({
       setMembersError(null);
       setTeamShares([]);
       setSharesError(null);
-      setDataPeek(null);
-      setDataPeekError(null);
       setDetailTab("members");
       return;
     }
     void loadMembers(selectedTeam);
     if (detailTab === "data") {
       void loadTeamShares(selectedTeam);
-      void loadTeamDataPeek(selectedTeam);
     }
-  }, [detailTab, loadMembers, loadTeamDataPeek, loadTeamShares, selectedTeam]);
+  }, [detailTab, loadMembers, loadTeamShares, selectedTeam]);
 
   const selectedRole = normalizeRole(selectedTeam?.roleCode);
   const canManage = canManageMembers(selectedRole);
@@ -566,69 +524,6 @@ export function UserCenterTeams({
     }
   };
 
-  const handlePushTeamModules = async () => {
-    if (!token || numericTeamId(selectedTeam) === null || syncModulesPushing) return;
-    setSyncModulesPushing(true);
-    try {
-      const teamId = numericTeamId(selectedTeam);
-      if (teamId === null) return;
-      const result = await pushTeamModules(token, teamId);
-      showToast(
-        t("userCenter.teams.syncModulesPushSuccess", {
-          size: Math.max(1, Math.round((result.bytes ?? 0) / 1024)),
-        }),
-      );
-      if (selectedTeam) {
-        await loadTeamDataPeek(selectedTeam, { afterUpload: true });
-      }
-    } catch (e) {
-      if (isAuthSessionError(e)) {
-        handleSessionExpired();
-      } else {
-        showToast(formatTeamSyncError(e));
-      }
-    } finally {
-      setSyncModulesPushing(false);
-    }
-  };
-
-  const handlePullTeamModules = async () => {
-    if (!token || numericTeamId(selectedTeam) === null || syncModulesPulling) return;
-    setSyncModulesPulling(true);
-    try {
-      const teamId = numericTeamId(selectedTeam);
-      if (teamId === null) return;
-      const result = await pullTeamModules(token, teamId);
-      let detail = "";
-      try {
-        const parsed = JSON.parse(result.bodyJson) as {
-          connections?: unknown[];
-          databaseConnections?: unknown[];
-        };
-        detail = t("userCenter.teams.syncModulesPullDetail", {
-          connections: parsed.connections?.length ?? 0,
-          databases: parsed.databaseConnections?.length ?? 0,
-        });
-      } catch {
-        detail = t("userCenter.teams.syncModulesPullSize", {
-          size: Math.max(1, Math.round((result.bytes ?? 0) / 1024)),
-        });
-      }
-      showToast(t("userCenter.teams.syncModulesPullSuccess", { detail }));
-      if (selectedTeam) {
-        await loadTeamDataPeek(selectedTeam);
-      }
-    } catch (e) {
-      if (isAuthSessionError(e)) {
-        handleSessionExpired();
-      } else {
-        showToast(formatTeamSyncError(e));
-      }
-    } finally {
-      setSyncModulesPulling(false);
-    }
-  };
-
   const handleImportTeamShare = async (share: TeamShareSummary) => {
     if (!token || numericTeamId(selectedTeam) === null || importingShareId) return;
     setImportingShareId(share.shareId);
@@ -897,9 +792,20 @@ export function UserCenterTeams({
             >
               {t("userCenter.teams.tabData")}
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={detailTab === "storage"}
+              className={`user-center-teams-detail__tab${detailTab === "storage" ? " is-active" : ""}`}
+              onClick={() => setDetailTab("storage")}
+            >
+              {t("userCenter.teams.tabStorage")}
+            </button>
           </div>
 
-          {detailTab === "members" ? (
+          {detailTab === "storage" ? (
+            <TeamSpaceStorage teamId={numericTeamId(selectedTeam) ?? 0} />
+          ) : detailTab === "members" ? (
             <>
               <div className="user-center-devices__header">
                 <div>
@@ -1005,73 +911,21 @@ export function UserCenterTeams({
             </>
           ) : (
             <>
-              <div className="user-center-devices__header">
-                <div>
-                  <h4 className="user-center-teams-detail__subtitle">
-                    {t("userCenter.teams.dataPreviewTitle")}
-                  </h4>
-                  <p className="user-center-section__desc">{t("userCenter.teams.dataPreviewDesc")}</p>
-                </div>
-                <div className="user-center-devices__header-actions">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      void loadTeamDataPeek(selectedTeam);
-                      void loadTeamShares(selectedTeam);
-                    }}
-                    disabled={dataPeekLoading || sharesLoading}
-                  >
-                    {t("userCenter.teams.refresh")}
-                  </Button>
-                </div>
-              </div>
-
-              <TeamDataTree
+              <TeamSpaceSync
                 teamId={numericTeamId(selectedTeam) ?? 0}
                 token={token ?? ""}
-                peek={dataPeek}
-                loading={dataPeekLoading}
-                error={dataPeekError}
-                onExclusionChange={() => void loadTeamDataPeek(selectedTeam, { silent: true })}
-                onCloudDelete={() => void loadTeamDataPeek(selectedTeam)}
+                onSessionExpired={handleSessionExpired}
               />
 
               <div className="user-center-teams-sync">
-                <div className="user-center-devices__header">
-                  <div>
-                    <h4 className="user-center-teams-detail__subtitle">
-                      {t("userCenter.teams.syncTitle")}
-                    </h4>
-                    <p className="user-center-section__desc">{t("userCenter.teams.syncDesc")}</p>
-                  </div>
-                  <div className="user-center-devices__header-actions">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={syncModulesPulling}
-                      onClick={() => void handlePullTeamModules()}
-                    >
-                      {syncModulesPulling
-                        ? t("userCenter.teams.syncModulesPulling")
-                        : t("userCenter.teams.syncModulesPull")}
-                    </Button>
-                    {canManage ? (
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="sm"
-                        disabled={syncModulesPushing}
-                        onClick={() => void handlePushTeamModules()}
-                      >
-                        {syncModulesPushing
-                          ? t("userCenter.teams.syncModulesPushing")
-                          : t("userCenter.teams.syncModulesPush")}
-                      </Button>
-                    ) : null}
-                  </div>
+                <div className="space-sync__shares-head">
+                  <h4 className="user-center-teams-detail__subtitle">{t("userCenter.teams.sharesTitle")}</h4>
+                  <WorkbenchActionButton
+                    onClick={() => void loadTeamShares(selectedTeam)}
+                    disabled={sharesLoading}
+                  >
+                    {t("userCenter.teams.syncRefresh")}
+                  </WorkbenchActionButton>
                 </div>
 
                 {sharesLoading ? (

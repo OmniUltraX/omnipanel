@@ -460,6 +460,7 @@ pub(crate) async fn sftp_session_for(
     let session = crate::mesh_relay::ssh_connect_rewritten(
         &host,
         port,
+        &conn.origin_device_id,
         &conn.tags,
         SshSession::connect_no_shell(ssh_cfg),
     )
@@ -1774,6 +1775,7 @@ mod file_credential_binding_tests {
             credential_ref: None,
             created_at: 0,
             updated_at: 0,
+            origin_device_id: String::new(),
         }
     }
 

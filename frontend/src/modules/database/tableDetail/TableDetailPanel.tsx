@@ -29,6 +29,8 @@ export interface TableDetailPanelProps {
   cellOverrides?: Record<string, unknown>;
   onRecordFieldApply: (column: string, payload: { rawText: string; parsed: unknown }) => void;
   onRecordFieldSetNull?: (column: string) => void;
+  /** 记录页只编辑这些列；不传则沿用 readOnly */
+  editableColumns?: ReadonlySet<string> | null;
   /** 值 Tab — CellEditorPanel */
   cellEditorRef: RefObject<CellEditorPanelHandle | null>;
   cellKey: string | null;
@@ -65,6 +67,7 @@ export function TableDetailPanel({
   cellOverrides,
   onRecordFieldApply,
   onRecordFieldSetNull,
+  editableColumns = null,
   cellEditorRef,
   cellKey,
   columnName,
@@ -183,8 +186,9 @@ export function TableDetailPanel({
             columnMeta={columnMeta}
             row={activeRow}
             cellOverrides={cellOverrides}
-            onApply={readOnly ? () => undefined : onRecordFieldApply}
-            onSetNull={readOnly ? undefined : onRecordFieldSetNull}
+            editableColumns={editableColumns}
+            onApply={readOnly && !editableColumns ? () => undefined : onRecordFieldApply}
+            onSetNull={readOnly && !editableColumns ? undefined : onRecordFieldSetNull}
           />
         ) : activeTab === "value" ? (
           <CellEditorPanel

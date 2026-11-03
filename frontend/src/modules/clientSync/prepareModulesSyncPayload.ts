@@ -10,6 +10,8 @@ import { waitLayoutStoresHydrated } from "./layoutStoresHydration";
 import { toIpcTombstones, useClientSyncTombstoneStore } from "./tombstones";
 import { serializeCustomPanelsJson } from "../workspace/useDashboardStore";
 import { uniqueTags } from "../../lib/resourceTags";
+import { useAiStore } from "../../stores/aiStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 /** 上传前对齐各模块侧栏布局与本机连接列表，避免快照与 UI 不一致。 */
 export function prepareLayoutStoresForModuleSync(): void {
@@ -43,6 +45,15 @@ function collectWorkspacesJson(): string {
   return JSON.stringify(payload);
 }
 
+/**
+ * 会话还没从本机存储恢复时返回 null，避免用空列表把云端会话清掉。
+ * 恢复之后返回全部会话，不再裁成 80 条或每条 120 条消息。
+ */
+export function collectConversationsJson(): string | null {
+  if (!useAiStore.persist.hasHydrated()) return null;
+  return JSON.stringify(useAiStore.getState().conversations ?? []);
+}
+
 function deletedPayload() {
   const store = useClientSyncTombstoneStore.getState();
   store.pruneExpired();
@@ -70,6 +81,18 @@ export async function collectModulesSyncPayload() {
     sshSidebarTreeJson: serializeSshSidebarTree(),
     folderTreesJson: collectFolderTreesJson(),
     customPanelsJson: serializeCustomPanelsJson(),
+    conversationsJson: collectConversationsJson(),
+    settingsJson: collectSettingsJson(),
     ...deletedPayload(),
   };
+}
+
+function collectSettingsJson(): string {
+  const state = useSettingsStore.getState() as unknown as Record<string, unknown>;
+  const plain: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(state)) {
+    if (typeof value === "function") continue;
+    plain[key] = value;
+  }
+  return JSON.stringify(plain);
 }

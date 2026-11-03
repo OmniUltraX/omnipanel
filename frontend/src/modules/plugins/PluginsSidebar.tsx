@@ -6,6 +6,7 @@ import { pluginDisplayName } from "./pluginDisplayName";
 import { isDbxCatalog, originMetaLabel, type PluginOrigin } from "./pluginOrigin";
 import { groupInstalledByKind, type KindFilter } from "./pluginCenterTypes";
 import { PluginGlyph } from "./pluginGlyph";
+import { SpaceConflictMark } from "../clientSync/SpaceConflictMark";
 
 type Props = {
   kindFilter: KindFilter;
@@ -184,7 +185,10 @@ function InstalledRow({
         <PluginGlyph pluginId={item.id} kind={item.kind} name={tName} size="sm" fromDbx={fromDbx} />
         <span className="plugin-center-row__body">
           <span className="plugin-center-row__name-row">
-            <span className="plugin-center-row__name">{tName}</span>
+            <span className="plugin-center-row__name">
+              {tName}
+              <SpaceConflictMark path={`plugins/${item.id}.json`} />
+            </span>
             {currentVersion ? (
               <span className="plugin-center-card__versions">
                 <span title={currentVersionLabel}>v{currentVersion}</span>

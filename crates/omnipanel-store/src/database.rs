@@ -64,6 +64,16 @@ pub struct DbConnectionConfig {
     /// 侧栏分组名；空 / `default` 视为「默认」。
     #[serde(default)]
     pub group: String,
+    /// 创建设备 id。只写一次。旧数据从 `origin:` 标签迁入，之后不再当标签存。
+    #[serde(default, alias = "originDeviceId")]
+    pub origin_device_id: String,
+}
+
+/// 已有创建设备 id 不覆盖。都没有时从旧 `origin:` 标签抄一次，然后从标签里去掉。
+pub(crate) fn settle_db_connection_origin(stored: &str, conn: &mut DbConnectionConfig) {
+    conn.origin_device_id =
+        crate::tag::settle_origin_device_id(stored, &conn.origin_device_id, &conn.tags);
+    crate::tag::strip_origin_tags(&mut conn.tags);
 }
 
 fn default_enabled() -> bool {
@@ -151,6 +161,7 @@ impl DatabaseConnectionStore {
         // 迁移：明文密码进 Vault 并 scrub
         let mut migrated = Vec::new();
         for mut conn in list {
+            settle_db_connection_origin("", &mut conn);
             if !conn.password.trim().is_empty() {
                 let _ = Vault::store(&db_password_ref(&conn.id), &conn.password);
                 conn.has_password = true;
@@ -229,10 +240,18 @@ impl DatabaseConnectionStore {
         Ok(list)
     }
 
-    /// 只读创建设备标记，拨号时补回被表单丢掉的 `origin:` / `creator:`。
+    /// 只读创建设备标记，拨号时补回被表单丢掉的 `creator:`。
     pub fn tags_of(&self, id: &str) -> OmniResult<Option<Vec<String>>> {
         let store = self.inner.lock().map_err(|_| lock_err())?;
         Ok(store.get(id).map(|conn| conn.tags.clone()))
+    }
+
+    /// 已保存的创建设备 id。字段优先，没有再看旧标签。
+    pub fn origin_of(&self, id: &str) -> OmniResult<Option<String>> {
+        let store = self.inner.lock().map_err(|_| lock_err())?;
+        Ok(store.get(id).and_then(|conn| {
+            crate::tag::resolve_origin_device_id(&conn.origin_device_id, &conn.tags)
+        }))
     }
 
     /// 取连接并注入 Vault 密码（供后端建连）。
@@ -263,6 +282,11 @@ impl DatabaseConnectionStore {
         }
         connection.password.clear();
         let mut store = self.inner.lock().map_err(|_| lock_err())?;
+        let stored = store
+            .get(&connection.id)
+            .map(|existing| existing.origin_device_id.clone())
+            .unwrap_or_default();
+        settle_db_connection_origin(&stored, &mut connection);
         store.insert(connection.id.clone(), connection.clone());
         let snapshot: Vec<_> = store.values().cloned().collect();
         drop(store);
@@ -339,6 +363,7 @@ fn sqlite_demo_connection(id: &str, name: &str, db_path: PathBuf) -> DbConnectio
         has_password: false,
         tags: Vec::new(),
         group: String::new(),
+        origin_device_id: String::new(),
     }
 }
 
@@ -465,6 +490,7 @@ mod tests {
             has_password: false,
             tags: Vec::new(),
             group: String::new(),
+            origin_device_id: String::new(),
         }
     }
 
@@ -546,5 +572,30 @@ mod tests {
         let list = store.list().unwrap();
         assert!(!list.iter().any(|c| c.id == "docker-mysql-test"));
         assert!(list.iter().any(|c| c.id == "keep-me"));
+    }
+
+    #[test]
+    fn origin_is_written_once_and_leaves_the_tag() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("connections.json");
+        let store = DatabaseConnectionStore::open_at(&path).unwrap();
+        let mut conn = sample("a");
+        conn.tags = vec!["origin:dev-a".into(), "env:prod".into()];
+        let saved = store.save(conn).unwrap();
+        assert_eq!(saved.origin_device_id, "dev-a");
+        assert!(saved.tags.iter().any(|tag| tag == "env:prod"));
+        assert!(!saved.tags.iter().any(|tag| tag.starts_with("origin:")));
+
+        let mut again = sample("a");
+        again.origin_device_id = "dev-b".into();
+        again.tags = vec!["origin:dev-c".into()];
+        let saved = store.save(again).unwrap();
+        assert_eq!(saved.origin_device_id, "dev-a");
+        assert!(!saved.tags.iter().any(|tag| tag.starts_with("origin:")));
+
+        let reloaded = DatabaseConnectionStore::open_at(&path).unwrap();
+        let listed = reloaded.list().unwrap();
+        assert_eq!(listed[0].origin_device_id, "dev-a");
+        assert_eq!(reloaded.origin_of("a").unwrap().as_deref(), Some("dev-a"));
     }
 }

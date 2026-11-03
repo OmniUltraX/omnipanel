@@ -1985,7 +1985,9 @@ export function useDatabasePanelModel() {
       [tabId]: {
         ...createDefaultSqlTabState(database, connId),
         sql,
-        cursorOffset } }));
+        cursorOffset,
+        statementTargets: draft.statementTargets ?? [],
+      } }));
     setWorkspaceTabs((prev) => [...prev, tab]);
     activateWorkspaceTab(tabId);
     setTabModes((prev) => ({ ...prev, [tabId]: "sql" }));
@@ -2135,6 +2137,7 @@ export function useDatabasePanelModel() {
           [tabId]: {
             ...createDefaultSqlTabState(file.database ?? "", file.connId ?? ""),
             sql: file.sql ?? "",
+            statementTargets: file.statementTargets ?? [],
           },
         }));
         setDirtySqlWorkspaceTabIds((prev) => {

@@ -18,6 +18,23 @@ describe("normalizePreviewWebUrl", () => {
     expect(normalizePreviewWebUrl("hello world")).toBeNull();
   });
 
+  it("拒绝点分配置键（末段不是常见顶级域名）", () => {
+    expect(normalizePreviewWebUrl("ai.tts.aliyun.accessKeySecret")).toBeNull();
+    expect(normalizePreviewWebUrl("system.user.register-enabled")).toBeNull();
+    expect(
+      resolvePreferredPreviewTextMode({
+        kind: "text",
+        text: "ai.tts.aliyun.accessKeySecret",
+      }),
+    ).toBe("plain");
+  });
+
+  it("显式协议仍按网址打开", () => {
+    expect(normalizePreviewWebUrl("https://ai.tts.aliyun.accessKeySecret")).toBe(
+      "https://ai.tts.aliyun.accesskeysecret/",
+    );
+  });
+
   it("拒绝看起来像文件名的 name.ext（避免误开网页预览）", () => {
     expect(normalizePreviewWebUrl("pig-auth-dev.yml")).toBeNull();
     expect(normalizePreviewWebUrl("application-dev.yml")).toBeNull();

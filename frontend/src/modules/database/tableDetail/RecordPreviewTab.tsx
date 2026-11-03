@@ -16,6 +16,8 @@ export interface RecordPreviewTabProps {
   cellOverrides?: Record<string, unknown>;
   onApply: (column: string, payload: { rawText: string; parsed: unknown }) => void;
   onSetNull?: (column: string) => void;
+  /** 只这些列渲染编辑器；不传则每列都可编辑 */
+  editableColumns?: ReadonlySet<string> | null;
 }
 
 function FieldIcon({ isPk }: { isPk?: boolean }) {
@@ -136,6 +138,7 @@ export function RecordPreviewTab({
   cellOverrides,
   onApply,
   onSetNull,
+  editableColumns = null,
 }: RecordPreviewTabProps) {
   const { t } = useI18n();
   const metaByName = useMemo(() => {
@@ -165,7 +168,8 @@ export function RecordPreviewTab({
         const typeLabel = meta?.type?.trim() || null;
         const comment = meta?.comment?.trim() || "";
         const isNull = value === null || value === undefined;
-        const canClear = Boolean(onSetNull) && !isNull;
+        const fieldEditable = !editableColumns || editableColumns.has(column);
+        const canClear = fieldEditable && Boolean(onSetNull) && !isNull;
 
         return (
           <div
@@ -197,12 +201,18 @@ export function RecordPreviewTab({
               <div
                 className={`db-record-field-value${isNull ? " is-null" : ""}${canClear ? " has-clear" : ""}`}
               >
-                <RecordFieldEditor
-                  column={column}
-                  meta={meta}
-                  value={value}
-                  onApply={(payload) => onApply(column, payload)}
-                />
+                {fieldEditable ? (
+                  <RecordFieldEditor
+                    column={column}
+                    meta={meta}
+                    value={value}
+                    onApply={(payload) => onApply(column, payload)}
+                  />
+                ) : (
+                  <span className={isNull ? "is-null" : undefined}>
+                    {isNull ? "NULL" : formatCellValue(value)}
+                  </span>
+                )}
                 {canClear ? (
                   <button
                     type="button"

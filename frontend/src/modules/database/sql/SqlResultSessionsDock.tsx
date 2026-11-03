@@ -10,6 +10,7 @@ import { showToast } from "../../../stores/toastStore";
 import type { SqlResultSession } from "../workspace/dbWorkspaceState";
 import type { TableDataGridActiveCell, TableDataGridActions } from "../grid/TableDataGrid";
 import { SqlResultSessionPanel } from "./SqlResultSessionPanel";
+import type { SqlResultEditBridge } from "./useSqlResultEditing";
 import type { MutableRefObject } from "react";
 import {
   clearSqlExecUnreadMany,
@@ -57,6 +58,8 @@ export interface SqlResultSessionsDockProps {
   detailMinSize?: number | string;
   detailPanelRef?: RefObject<PanelImperativeHandle | null>;
   onDetailResize?: (size: PanelSize) => void;
+  onEditBridgeChange?: (bridge: SqlResultEditBridge | null) => void;
+  beforeCommit?: () => void;
 }
 
 function statementKey(sql: string): string {
@@ -142,6 +145,8 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
   detailMinSize,
   detailPanelRef,
   onDetailResize,
+  onEditBridgeChange,
+  beforeCommit,
 }: SqlResultSessionsDockProps) {
   const { t } = useI18n();
   const [records, setRecords] = useState<SqlExecRecord[]>([]);
@@ -609,6 +614,7 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
           ) : null}
           {nested && record.pinned ? "📌 " : ""}
           {formatSqlExecRelativeTime(record.executedAt, t, now)}
+          {record.databaseName ? ` · ${record.connectionName ? `${record.connectionName} · ` : ""}${record.databaseName}` : ""}
           {record.status === "error" ? ` · ${t("database.sqlExec.failed")}` : ""}
           {record.status === "cancelled" ? ` · ${t("database.sqlExec.cancelled")}` : ""}
           {record.resultTruncated ? ` · ${t("database.sqlExec.truncated")}` : ""}
@@ -752,6 +758,8 @@ export const SqlResultSessionsDock = memo(function SqlResultSessionsDock({
             detailMinSize={detailMinSize}
             detailPanelRef={detailPanelRef}
             onDetailResize={onDetailResize}
+            onEditBridgeChange={onEditBridgeChange}
+            beforeCommit={beforeCommit}
           />
         ) : (
           <div className="px-3 py-4 text-[12px] text-muted-foreground">{t("database.sqlExec.empty")}</div>

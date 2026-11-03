@@ -107,4 +107,8 @@ export const GRID_EXTERNAL_INTERACTION_SELECTOR = [
   ".db-table-preview-split .dock-handle",
   ".redis-key-detail-split .dock-panel-bottom",
   ".redis-key-detail-split .dock-handle",
+  // 切 Dock Tab 不是取消选中；清掉的话切回来预览是空的
+  ".dv-tabs-and-actions-container",
+  ".dv-tab",
+  ".dock-tab-overflow",
 ].join(", ");

@@ -28,6 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         credential_ref: None,
         created_at: 0,
         updated_at: 0,
+        origin_device_id: String::new(),
     };
     {
         let storage = state.storage.lock().await;

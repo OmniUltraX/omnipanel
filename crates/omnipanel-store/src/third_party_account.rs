@@ -130,7 +130,7 @@ fn gen_id() -> String {
     format!("tpa-{nanos:x}")
 }
 
-pub fn credential_ref_for(id: &str) -> String {
+pub(crate) fn credential_ref_for(id: &str) -> String {
     format!("third-party-account-{id}")
 }
 

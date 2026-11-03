@@ -824,6 +824,48 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX IF NOT EXISTS idx_sql_exec_conn ON sql_executions(connection_id, executed_at DESC);
     CREATE INDEX IF NOT EXISTS idx_sql_exec_at ON sql_executions(executed_at DESC);
     "#,
+    // v42 — 本机个人空间。未登录也有一行；onboarded 标记首次导航已完成。
+    r#"
+    CREATE TABLE IF NOT EXISTS local_space (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        onboarded INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+    );
+    "#,
+    // v43 — 连接的创建设备 id。旧的 origin: 标签在打开库时迁入，之后不再当标签写。
+    "ALTER TABLE connections ADD COLUMN origin_device_id TEXT NOT NULL DEFAULT '';",
+    // v44 — 登录认领记一次。只留在本机的路径不进仓库。
+    r#"
+    CREATE TABLE IF NOT EXISTS space_claim (
+        team_id INTEGER PRIMARY KEY,
+        decision TEXT NOT NULL,
+        decided_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS space_local_only (
+        path TEXT PRIMARY KEY
+    );
+    "#,
+    // v45 — 团队存储位置（不含访问密钥）。各资源的创建设备 id 按路径只写一次。
+    r#"
+    CREATE TABLE IF NOT EXISTS space_storage (
+        team_id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        endpoint TEXT NOT NULL DEFAULT '',
+        bucket TEXT NOT NULL DEFAULT '',
+        region TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS resource_origin (
+        path TEXT PRIMARY KEY,
+        origin_device_id TEXT NOT NULL
+    );
+    "#,
+    // v46 — 自带 S3 要等对象抄完才算就绪。官方桶的行直接就绪。
+    r#"
+    ALTER TABLE space_storage ADD COLUMN ready INTEGER NOT NULL DEFAULT 0;
+    UPDATE space_storage SET ready = 1 WHERE kind = 'hosted';
+    "#,
 ];
 
 /// 审计日志条目。所有高风险操作经执行引擎写入此表。
@@ -915,6 +957,7 @@ impl Storage {
         self.ensure_global_tags()?;
         self.repair_knowledge_todo_schema()?;
         self.ensure_todo_schema_data()?;
+        self.backfill_connection_origins()?;
         Ok(())
     }
 

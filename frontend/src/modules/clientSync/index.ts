@@ -12,6 +12,7 @@ export {
   CLIENT_SYNC_MODULES_APPLIED_EVENT,
 } from "./moduleSync";
 export { pullCloudSnapshot } from "./pullCloudSnapshot";
+export { spaceSyncAutoEnabled } from "./spaceSyncPrefs";
 export { CLOUD_PULL_DISABLED } from "./syncFlags";
 export {
   scheduleSecretsVaultSync,

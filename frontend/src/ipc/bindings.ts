@@ -56,6 +56,32 @@ export const commands = {
 	syncMasterKeyGetOrCreate: () => typedError<SyncMasterKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_get_or_create")),
 	syncMasterKeyClear: () => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_clear")),
 	syncMasterKeyValidate: (key: string) => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("sync_master_key_validate", { key })),
+	/**  本机个人空间与已保存连接数，供启动时决定要不要首次导航。 */
+	localSpaceStatus: () => typedError<LocalSpaceStatus, OmniError_Serialize>(__TAURI_INVOKE("local_space_status")),
+	/**  写入空间名称并标记首次导航已完成。没有行时新建，已有行保持 id。 */
+	localSpaceComplete: (name: string) => typedError<LocalSpaceRecord, OmniError_Serialize>(__TAURI_INVOKE("local_space_complete", { name })),
+	/**  把固定记录写成一路径一文件，并在本机打出内容索引。不上传。 */
+	localSpaceRebuildRepo: () => typedError<SpaceRepoReport, OmniError_Serialize>(__TAURI_INVOKE("local_space_rebuild_repo")),
+	/**  按路径合并本机检出和云端仓库。未登录只重建本机索引。 */
+	localSpaceSync: (request: SpaceSyncRequest) => typedError<SpaceSyncReport, OmniError_Serialize>(__TAURI_INVOKE("local_space_sync", { request })),
+	/**  两边是否都有数据，以及这个团队是否已经选过怎么认领。 */
+	localSpaceClaimStatus: (token: string, teamId: number | null) => typedError<SpaceClaimStatus, OmniError_Serialize>(__TAURI_INVOKE("local_space_claim_status", { token, teamId })),
+	/**  记下认领选择。只留本机的记录不再上传；另建空间时先复制当前目录。 */
+	localSpaceClaimChoose: (choice: SpaceClaimChoice) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_space_claim_choose", { choice })),
+	/**  这个团队的仓库放在我们的桶，还是自己的 S3。密钥不回传明文。 */
+	localSpaceStorageGet: (teamId: number) => typedError<SpaceStorageSettings, OmniError_Serialize>(__TAURI_INVOKE("local_space_storage_get", { teamId })),
+	/**  保存团队存储位置。访问密钥进本机钥匙串，不进仓库。 */
+	localSpaceStoragePut: (input: SpaceStorageInput) => typedError<SpaceStorageSettings, OmniError_Serialize>(__TAURI_INVOKE("local_space_storage_put", { input })),
+	/**  本机冲突记录。 */
+	localSpaceListConflicts: () => typedError<SpaceConflict[], OmniError_Serialize>(__TAURI_INVOKE("local_space_list_conflicts")),
+	/**  丢掉一份冲突记录。当前资源不动。 */
+	localSpaceDeleteConflict: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_space_delete_conflict", { id })),
+	/**  先把现有仓库抄进自己的桶，写上 refs/latest 之后才改账号上的存储位置。 */
+	localSpaceStorageCopy: (token: string, teamId: number) => typedError<SpaceStorageSettings, OmniError_Serialize>(__TAURI_INVOKE("local_space_storage_copy", { token, teamId })),
+	/**  删除自己桶里的空间对象。官方桶没有删除接口。 */
+	localSpaceStoragePurge: (teamId: number) => typedError<number, OmniError_Serialize>(__TAURI_INVOKE("local_space_storage_purge", { teamId })),
+	/**  本机是否装了 Navicat。 */
+	localSpaceNavicatPresent: () => typedError<boolean, OmniError_Serialize>(__TAURI_INVOKE("local_space_navicat_present")),
 	syncTeamKeyStatus: (teamId: number) => typedError<SyncTeamKeyStatus, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_status", { teamId })),
 	syncTeamKeyGetOrCreate: (teamId: number) => typedError<SyncTeamKeyGetOrCreateResult, OmniError_Serialize>(__TAURI_INVOKE("sync_team_key_get_or_create", { teamId })),
 	/**  导出明文密钥供小程序扫码（QR：`omnipanel://sync-key?team_id=&key=`）。 */
@@ -2676,6 +2702,8 @@ export type Connection = {
 	credentialRef?: string | null,
 	createdAt?: number | null,
 	updatedAt?: number | null,
+	/**  创建设备 id。只写一次，旧的 origin: 标签会迁到这里。 */
+	originDeviceId?: string | null,
 };
 
 /**  连接类型。统一覆盖工作站内所有可持久化的连接资源。 */
@@ -2788,6 +2816,8 @@ export type DbConnectionConfig = {
 	tags?: string[],
 	/**  侧栏分组名；空 / `default` 视为「默认」。 */
 	group?: string,
+	/**  创建设备 id。只写一次，旧的 origin: 标签会迁到这里。 */
+	origin_device_id?: string,
 };
 
 export type DbDataSyncSqlGenerateResult = {
@@ -2874,6 +2904,7 @@ export type DbSqlFileNode = {
 	sql?: string | null,
 	connId?: string | null,
 	database?: string | null,
+	statementTargets?: string | null,
 	updatedAt: number | null,
 };
 
@@ -6217,6 +6248,93 @@ export type SyncMasterKeyStatus = {
 	hasKey: boolean,
 	/**  若有 key，返回展示串（设置页查看/备份用） */
 	key: string | null,
+};
+
+/**  本机个人空间。登录前就有一行。 */
+export type LocalSpaceRecord = {
+	id: string,
+	name: string,
+	onboarded: boolean,
+	createdAt: number,
+};
+
+/**  启动门禁用：空间行与已保存连接数。 */
+export type LocalSpaceStatus = {
+	space: LocalSpaceRecord | null,
+	connectionCount: number,
+};
+
+/**  本机空间索引重建结果。 */
+export type SpaceRepoReport = {
+	indexId: string,
+	fileCount: number,
+	chunkCount: number,
+};
+
+export type SpaceClaimStatus = {
+	teamId: number,
+	localCount: number,
+	remoteHasRepo: boolean,
+	decision: string | null,
+};
+
+export type SpaceClaimChoice = {
+	teamId: number,
+	decision: string,
+	publishTeamId?: number | null,
+};
+
+export type SpaceStorageSettings = {
+	teamId: number,
+	kind: string,
+	endpoint: string,
+	bucket: string,
+	region: string,
+	accessKeyId: string,
+	hasSecret: boolean,
+	ready: boolean,
+};
+
+export type SpaceStorageInput = {
+	teamId: number,
+	kind: string,
+	endpoint?: string,
+	bucket?: string,
+	region?: string,
+	accessKeyId?: string,
+	secretAccessKey?: string,
+};
+
+export type SpaceConflict = {
+	id: string,
+	path: string,
+	recordedAt: number,
+};
+
+export type SpaceSyncRequest = {
+	token: string,
+	teamId?: number | null,
+	sshSidebarTreeJson?: string | null,
+	folderTreesJson?: string | null,
+	customPanelsJson?: string | null,
+	workspacesJson?: string | null,
+	conversationsJson?: string | null,
+	settingsJson?: string | null,
+};
+
+export type SpaceSyncReport = {
+	skipped: boolean,
+	indexId: string,
+	uploadedChunks: number,
+	conflicts: number,
+	appliedConnections: number,
+	fileCount: number,
+	sshSidebarTreeJson: string | null,
+	folderTreesJson: string | null,
+	customPanelsJson: string | null,
+	workspacesJson: string | null,
+	conversationsJson: string | null,
+	settingsJson: string | null,
 };
 
 /**  中继传钥：生成临时密钥对（供后续 omniserver `/api/sync/key/*` 使用）。 */

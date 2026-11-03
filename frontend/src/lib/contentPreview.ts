@@ -81,8 +81,60 @@ const FILE_LIKE_TLD = new Set([
   "dockerfile",
 ]);
 
+/**
+ * 无协议时才要求命中。两位字母视为国家域名；更长的只收常见通用域名。
+ * 避免 `ai.tts.aliyun.accessKeySecret` 这类点分配置键被 iframe 当网址打开。
+ */
+const COMMON_GTLDS = new Set([
+  "com",
+  "net",
+  "org",
+  "edu",
+  "gov",
+  "mil",
+  "int",
+  "info",
+  "biz",
+  "name",
+  "pro",
+  "mobi",
+  "asia",
+  "app",
+  "dev",
+  "cloud",
+  "xyz",
+  "top",
+  "vip",
+  "shop",
+  "site",
+  "online",
+  "tech",
+  "store",
+  "blog",
+  "news",
+  "wiki",
+  "work",
+  "email",
+  "group",
+  "team",
+  "tools",
+  "digital",
+  "media",
+  "video",
+  "page",
+  "link",
+  "space",
+  "host",
+  "website",
+]);
+
+function isKnownPublicTld(tld: string): boolean {
+  if (/^[a-z]{2}$/.test(tld)) return true;
+  return COMMON_GTLDS.has(tld);
+}
+
 /** 排除 true / localhost 以外的单词主机名被误判为网址。 */
-function isPlausibleWebHostname(hostname: string): boolean {
+function isPlausibleWebHostname(hostname: string, requireKnownTld: boolean): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, "");
   if (!host) return false;
   if (host === "localhost") return true;
@@ -98,6 +150,7 @@ function isPlausibleWebHostname(hostname: string): boolean {
   const tld = host.slice(host.lastIndexOf(".") + 1);
   // 常见文件扩展名不当作 TLD（无协议文件名误判）
   if (FILE_LIKE_TLD.has(tld)) return false;
+  if (requireKnownTld && !isKnownPublicTld(tld)) return false;
   return true;
 }
 
@@ -123,7 +176,7 @@ export function normalizePreviewWebUrl(text: string): string | null {
   try {
     const url = new URL(candidate);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    if (!isPlausibleWebHostname(url.hostname)) return null;
+    if (!isPlausibleWebHostname(url.hostname, !hasScheme)) return null;
     return url.href;
   } catch {
     return null;

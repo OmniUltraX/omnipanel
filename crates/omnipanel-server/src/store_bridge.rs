@@ -654,6 +654,8 @@ pub struct DbSqlFileNode {
     pub conn_id: Option<String>,
     #[serde(default)]
     pub database: Option<String>,
+    #[serde(default)]
+    pub statement_targets: Option<String>,
     pub updated_at: i64,
 }
 

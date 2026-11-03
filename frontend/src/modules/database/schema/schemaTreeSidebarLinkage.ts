@@ -30,7 +30,8 @@ export function resolveSchemaTreeScrollTarget(params: {
 }
 
 /**
- * 搜索时要留在视口中间的当前上下文：连接，以及所在库（如果有）。
+ * 搜索时要贴在视口顶部的当前上下文：连接、所在库，以及当前表（如果有）。
+ * 当前表用来把这一行抬到上级吸顶头的正下方，避免停在结果列表中间。
  */
 export function resolveSchemaSearchContextIds(params: {
   activeTableKey: string | null | undefined;
@@ -41,10 +42,11 @@ export function resolveSchemaSearchContextIds(params: {
   const objectParsed = objectId
     ? parseTableNodeId(objectId) ?? parseViewNodeId(objectId)
     : null;
-  if (objectParsed) {
+  if (objectParsed && objectId) {
     return [
       connectionNodeId(objectParsed.connId),
       makeDatabaseNodeId(objectParsed.connId, objectParsed.dbName),
+      objectId,
     ];
   }
   if (params.activeDatabaseKey) {

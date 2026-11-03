@@ -37,6 +37,8 @@ import { createSqlLinter } from "../language/lint";
 import { createSqlHoverTooltip } from "../language/hover";
 import { createSqlLintRunGutter } from "../language/runStatementGutter";
 import { createSqlStatementFrame } from "../language/sqlStatementFrame";
+import { createSqlExecTargetChips, type SqlExecTargetChipOptions } from "../language/sqlExecTargetChips";
+import { statementIndexAt } from "../../sqlIntel/sqlStatementTargets";
 import { createFunctionSignaturePlugin } from "../language/signature";
 import { createInsertColumnInlayExtension } from "../language/insertColumnInlays";
 import { createSqlSemanticHighlight } from "../language/semantic";
@@ -51,7 +53,8 @@ export interface SqlEditorExtensionOptions {
   getReadOnly: () => boolean;
   onDocChange: (value: string) => void;
   onCursorSync: (view: EditorView) => void;
-  getOnRun?: () => ((sql: string) => void) | undefined;
+  getOnRun?: () => ((sql: string, statementIndex?: number, anchor?: number) => void) | undefined;
+  statementTargets?: SqlExecTargetChipOptions;
   getOnSave?: () => (() => void) | undefined;
   getOnOpenTable?: () => ((target: SqlGotoTableTarget) => void) | undefined;
   onExplainError?: () => void;
@@ -69,6 +72,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     onDocChange,
     onCursorSync,
     getOnRun,
+    statementTargets,
     getOnSave,
     getOnOpenTable,
     onExplainError,
@@ -87,6 +91,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
     dropCursor(),
     history(),
     ...createSqlLintRunGutter(getOnRun ?? (() => undefined), getReadOnly),
+    ...(statementTargets ? createSqlExecTargetChips(statementTargets) : []),
     ...createSqlStatementFrame(() => onExplainError?.()),
     EditorState.tabSize.of(2),
     indentOnInput(),
@@ -145,7 +150,7 @@ export function createSqlEditorExtensions(options: SqlEditorExtensionOptions): E
           if (!onRun) return false;
           const text = view.state.doc.toString();
           const { from, to, head } = view.state.selection.main;
-          onRun(resolveSqlToRun(text, { from, to, head }));
+          onRun(resolveSqlToRun(text, { from, to, head }), statementIndexAt(text, head), head);
           return true;
         },
       },

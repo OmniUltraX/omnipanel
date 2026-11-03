@@ -4,14 +4,11 @@ import {
   setClientConversationSyncCancelHook,
   setClientConversationSyncHook,
 } from "../../lib/clientConversationSyncBridge";
-import { useAuthStore } from "../../stores/authStore";
-import { useAiStore } from "../../stores/aiStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
-import { buildConversationsBundle } from "./payload";
-import { useClientSyncTombstoneStore } from "./tombstones";
+import { useAuthStore } from "../../stores/authStore";
+import { collectModulesSyncPayload } from "./prepareModulesSyncPayload";
+import { scheduleClientModuleSync } from "./moduleSync";
 
-let inFlight: Promise<void> | null = null;
-let pendingAfterFlight = false;
 /** hydrate / applyRemote 期间禁止回推，避免回路 */
 let suppressPush = false;
 
@@ -19,86 +16,51 @@ export function setClientConversationSyncSuppressed(value: boolean): void {
   suppressPush = value;
 }
 
-/** 取消尚未发出的客户端会话同步（登出时调用）。 */
-export function cancelClientConversationSync(): void {
-  pendingAfterFlight = false;
-}
+/** 取消尚未发出的客户端会话同步（登出时调用）。模块同步自己有取消口。 */
+export function cancelClientConversationSync(): void {}
 
 async function pushConversationsOnce(teamId: number | null): Promise<void> {
-  const token = useAuthStore.getState().token;
-  if (!token?.trim()) return;
-  const tombstones = useClientSyncTombstoneStore.getState();
-  tombstones.pruneExpired();
-  const bundle = buildConversationsBundle({
-    conversations: useAiStore.getState().conversations,
-    deleted: tombstones.listConversationTombstones(),
-  });
-  await unwrapCommand(
-    commands.clientSyncPushConversations({
+  const token = useAuthStore.getState().token?.trim() ?? "";
+  const payload = await collectModulesSyncPayload();
+  const report = await unwrapCommand(
+    commands.localSpaceSync({
       token,
-      bodyJson: JSON.stringify(bundle),
       teamId,
+      sshSidebarTreeJson: payload.sshSidebarTreeJson,
+      folderTreesJson: payload.folderTreesJson,
+      customPanelsJson: payload.customPanelsJson,
+      workspacesJson: payload.workspacesJson,
+      conversationsJson: payload.conversationsJson,
+      settingsJson: payload.settingsJson,
     }),
     { quiet: true },
   );
+  if (!report.skipped) {
+    const { applySpaceSyncReport } = await import("./pullCloudSnapshot");
+    await applySpaceSyncReport(report);
+    const { noticeSpaceSync } = await import("./spaceClaim");
+    await noticeSpaceSync(report);
+  }
 }
 
 /**
- * 会话变更后立即推送到当前同步团队 OSS `ai-conversations/latest.json`。
+ * 会话变更后重写本机检出。已登录时再和团队仓库按路径合并。
  */
 export function scheduleClientConversationSync(): void {
   if (suppressPush) return;
-
-  const token = useAuthStore.getState().token;
-  if (!token?.trim()) return;
-
-  void runPush();
-}
-
-async function runPush(): Promise<void> {
-  if (suppressPush) return;
-
-  const token = useAuthStore.getState().token;
-  if (!token?.trim()) return;
-
-  if (inFlight) {
-    pendingAfterFlight = true;
-    return;
-  }
-
-  inFlight = (async () => {
-    try {
-      await pushConversationsOnce(getCurrentSyncTeamId());
-    } catch {
-    } finally {
-      inFlight = null;
-      if (pendingAfterFlight) {
-        pendingAfterFlight = false;
-        scheduleClientConversationSync();
-      }
-    }
-  })();
-
-  await inFlight;
+  scheduleClientModuleSync();
 }
 
 /**
- * 强制等待当前推送结束后，再向指定团队推送一份会话快照。
- * 切换团队前用来把本机会话写回旧团队；不受 suppress 影响。
+ * 切换团队前把本机会话写回指定团队。不受 suppress 影响。
  */
 export async function flushClientConversationSync(
   teamId?: number | null,
 ): Promise<void> {
-  if (inFlight) {
-    try {
-      await inFlight;
-    } catch {
-    }
-  }
-  pendingAfterFlight = false;
   try {
     await pushConversationsOnce(teamId ?? getCurrentSyncTeamId());
   } catch {
+    /* 切换前的写入失败不阻断切团队 */
   }
 }
 

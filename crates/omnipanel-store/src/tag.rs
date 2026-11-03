@@ -107,11 +107,16 @@ pub const CREATOR_TAG_KEY: &str = "creator";
 /// 资源创建设备 id（`origin: <deviceId>`）。跳板只认这个，不认会改名的设备名。
 pub const ORIGIN_TAG_KEY: &str = "origin";
 
+fn starts_with_ascii_key(text: &str, prefix: &str) -> bool {
+    text.get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
 fn tag_value(tags: &[String], key: &str) -> Option<String> {
     let prefix = format!("{key}:");
     tags.iter().find_map(|raw| {
         let text = raw.trim();
-        if text.len() <= prefix.len() || !text[..prefix.len()].eq_ignore_ascii_case(&prefix) {
+        if !starts_with_ascii_key(text, &prefix) {
             return None;
         }
         let value = text[prefix.len()..].trim();
@@ -126,6 +131,37 @@ fn tag_value(tags: &[String], key: &str) -> Option<String> {
 /// 读取 `origin:` 标签里的设备 id。
 pub fn origin_device_id(tags: &[String]) -> Option<String> {
     tag_value(tags, ORIGIN_TAG_KEY)
+}
+
+/// 字段优先，没有再看旧的 `origin:` 标签。
+pub fn resolve_origin_device_id(field: &str, tags: &[String]) -> Option<String> {
+    let field = field.trim();
+    if !field.is_empty() {
+        return Some(field.to_string());
+    }
+    origin_device_id(tags)
+}
+
+/// 已有值不覆盖。都没有时从旧标签抄一次。
+pub fn settle_origin_device_id(stored: &str, incoming: &str, tags: &[String]) -> String {
+    let stored = stored.trim();
+    if !stored.is_empty() {
+        return stored.to_string();
+    }
+    let incoming = incoming.trim();
+    if !incoming.is_empty() {
+        return incoming.to_string();
+    }
+    origin_device_id(tags).unwrap_or_default()
+}
+
+/// 创建设备 id 不再留在标签里。
+pub fn strip_origin_tags(tags: &mut Vec<String>) {
+    let prefix = format!("{ORIGIN_TAG_KEY}:");
+    tags.retain(|raw| {
+        let text = raw.trim();
+        !starts_with_ascii_key(text, &prefix)
+    });
 }
 
 /// 读取 `creator:` 标签里的设备名。
@@ -1717,6 +1753,16 @@ mod tests {
         );
         assert_eq!(origin_device_id(&tags).as_deref(), Some("dev-a"));
         assert_eq!(creator_device_name(&tags).as_deref(), Some("Laptop"));
+    }
+
+    #[test]
+    fn chinese_note_is_not_an_origin_tag() {
+        let tags = vec!["注意此处指向DNS服务，实际还是向内网DNS查询".to_string()];
+        assert_eq!(origin_device_id(&tags), None);
+        assert_eq!(creator_device_name(&tags), None);
+        let mut owned = tags.clone();
+        strip_origin_tags(&mut owned);
+        assert_eq!(owned, tags);
     }
 
     #[test]

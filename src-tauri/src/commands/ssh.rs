@@ -166,6 +166,48 @@ async fn connect_direct(
     Ok(id)
 }
 
+fn ensure_private_key_present(conn: &Connection) -> Result<(), OmniError> {
+    let value: serde_json::Value =
+        serde_json::from_str(&conn.config).unwrap_or(serde_json::Value::Null);
+    let auth = value.get("auth");
+    let kind = auth
+        .and_then(|item| item.get("type"))
+        .and_then(|item| item.as_str())
+        .unwrap_or("");
+    if kind != "privateKey" && kind != "private_key" {
+        return Ok(());
+    }
+    let pem_ref = omnipanel_store::ssh_pem_ref(&conn.id);
+    if Vault::get(&pem_ref)
+        .ok()
+        .is_some_and(|text| !text.trim().is_empty())
+    {
+        return Ok(());
+    }
+    let inline = auth
+        .and_then(|item| item.get("pem"))
+        .and_then(|item| item.as_str())
+        .unwrap_or("");
+    if !inline.trim().is_empty() {
+        return Ok(());
+    }
+    let key_id = auth
+        .and_then(|item| item.get("keyId"))
+        .and_then(|item| item.as_str())
+        .unwrap_or("");
+    if !key_id.trim().is_empty() {
+        return Ok(());
+    }
+    let path = auth
+        .and_then(|item| item.get("keyPath"))
+        .and_then(|item| item.as_str())
+        .unwrap_or("");
+    if path.is_empty() || path == "auto" || Path::new(path).is_file() {
+        return Ok(());
+    }
+    Err(OmniError::new(ErrorCode::NotFound, "私钥不在这台电脑"))
+}
+
 fn resolve_connection_secret(conn: &Connection) -> Option<String> {
     Vault::get(&crate::commands::connection::ssh_credential_ref(&conn.id))
         .ok()
@@ -194,13 +236,16 @@ pub async fn ssh_connect_connection(
         return Err(OmniError::new(ErrorCode::InvalidInput, "连接不是 SSH 类型"));
     }
     let tags = conn.tags.clone();
+    let origin = conn.origin_device_id.clone();
     let config = crate::commands::connection::resolve_ssh_config(&conn)?;
+    ensure_private_key_present(&conn)?;
     drop(storage);
     let host = config.host.clone();
     let port = config.port;
     crate::mesh_relay::ssh_connect_rewritten(
         &host,
         port,
+        &origin,
         &tags,
         ssh_connect(state, config, cols, rows, pane_id),
     )
@@ -1776,6 +1821,7 @@ pub async fn ssh_sync_config_hosts(
                     credential_ref: None,
                     created_at: now,
                     updated_at: now,
+                    origin_device_id: String::new(),
                 };
                 storage.save_connection(&conn)?;
                 added += 1;

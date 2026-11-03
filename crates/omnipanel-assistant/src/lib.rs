@@ -9,6 +9,8 @@ mod notify;
 mod oss;
 mod push;
 mod sanitize;
+mod space_remote;
+mod space_s3;
 mod sts;
 mod team_sync;
 mod types;
@@ -40,6 +42,12 @@ pub use sanitize::{
     sanitize_db_connection_meta, sanitize_http_request_meta, sanitize_knowledge_meta,
     sanitize_task_meta, sanitize_terminal_session_meta, strip_secret_keys,
 };
+pub use space_remote::{
+    SpaceLocation, fetch_space_location, publish_space_location, sync_oss_space,
+    team_repo_has_index,
+};
+pub use space_s3::{purge_s3_repo, sync_s3_space};
+pub use oss::with_deadline;
 pub use sts::{AuthContext, OssStsCredentials, fetch_oss_sts};
 pub use team_sync::{
     TEAM_CONVERSATIONS_LATEST_LEAF, TEAM_MODULES_LATEST_LEAF, TEAM_SHARE_INDEX_KEY,

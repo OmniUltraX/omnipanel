@@ -4,20 +4,19 @@ import {
   type TeamSharePushResult,
   type TeamShareSummary,
   type TeamSyncFetchShareResult,
-  type TeamSyncPeekResult,
   type TeamSyncPullModulesResult,
   type TeamSyncPushModulesResult,
 } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { CLOUD_PULL_DISABLED } from "../../modules/clientSync/syncFlags";
 import { collectModulesSyncPayload } from "../../modules/clientSync/prepareModulesSyncPayload";
-import { teamSyncExclusionsForIpc } from "../../modules/teamSync/exclusions";
+import { applySpaceSyncReport } from "../../modules/clientSync/pullCloudSnapshot";
+import { noteSpaceSyncFinished } from "../../modules/clientSync/spaceSyncPrefs";
 
 export type {
   TeamSharePushResult,
   TeamShareSummary,
   TeamSyncFetchShareResult,
-  TeamSyncPeekResult,
   TeamSyncPullModulesResult,
   TeamSyncPushModulesResult,
 };
@@ -40,19 +39,30 @@ export async function fetchTeamShare(
   return unwrapCommand(commands.teamSyncFetchShare(token, teamId, shareId));
 }
 
-/** 将本机模块快照完整上传至团队 OSS（不过滤「取消同步」项）。 */
+/** 把本机检出和团队仓库按路径合并后上传。 */
 export async function pushTeamModules(
   token: string,
   teamId: number,
 ): Promise<TeamSyncPushModulesResult> {
   const payload = await collectModulesSyncPayload();
-  return unwrapCommand(
-    commands.teamSyncPushModules({
+  const report = await unwrapCommand(
+    commands.localSpaceSync({
       token,
       teamId,
-      ...payload,
+      sshSidebarTreeJson: payload.sshSidebarTreeJson,
+      folderTreesJson: payload.folderTreesJson,
+      customPanelsJson: payload.customPanelsJson,
+      workspacesJson: payload.workspacesJson,
+      conversationsJson: payload.conversationsJson,
     }),
   );
+  await applySpaceSyncReport(report);
+  noteSpaceSyncFinished();
+  return {
+    objectKey: "repo/refs/latest",
+    etag: null,
+    bytes: report.uploadedChunks,
+  };
 }
 
 export async function pullTeamModules(
@@ -63,25 +73,28 @@ export async function pullTeamModules(
     console.warn("[team-sync] pullTeamModules skipped (CLOUD_PULL_DISABLED)");
     throw new Error("云端拉取已临时关闭，请稍后再试");
   }
-  return unwrapCommand(commands.teamSyncPullModules(token, teamId));
-}
-
-export async function peekTeamModules(
-  token: string,
-  teamId: number,
-  options?: { afterUpload?: boolean },
-): Promise<TeamSyncPeekResult> {
   const payload = await collectModulesSyncPayload();
-  return unwrapCommand(
-    commands.teamSyncPeekModules({
+  const report = await unwrapCommand(
+    commands.localSpaceSync({
       token,
       teamId,
-      ...payload,
-      ...teamSyncExclusionsForIpc(teamId),
-      afterUpload: options?.afterUpload ?? false,
+      sshSidebarTreeJson: payload.sshSidebarTreeJson,
+      folderTreesJson: payload.folderTreesJson,
+      customPanelsJson: payload.customPanelsJson,
+      workspacesJson: payload.workspacesJson,
+      conversationsJson: payload.conversationsJson,
     }),
-    { quiet: true, logLabel: "[team-sync:peek]" },
   );
+  await applySpaceSyncReport(report);
+  noteSpaceSyncFinished();
+  return {
+    objectKey: "repo/refs/latest",
+    bytes: report.uploadedChunks,
+    bodyJson: JSON.stringify({
+      connections: Array.from({ length: report.appliedConnections }),
+      databaseConnections: [],
+    }),
+  };
 }
 
 export async function pushTeamShare(

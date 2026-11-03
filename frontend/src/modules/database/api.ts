@@ -48,6 +48,8 @@ export interface DbConnectionConfig {
   has_password?: boolean;
   /** 创建设备等系统标记；新建测试时可为空，保存时由后端补上 */
   tags?: string[];
+  /** 创建设备 id。只写一次，旧的 origin: 标签会迁到这里 */
+  origin_device_id?: string;
 }
 
 /** 未显式设为 `false` 时视为启用（兼容旧配置）。 */

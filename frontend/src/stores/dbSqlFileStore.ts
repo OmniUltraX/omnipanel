@@ -5,6 +5,11 @@ import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { commands } from "../ipc/bindings";
 import { canUseIpcBackend } from "../lib/isTauriRuntime";
 import type { SqlTabState } from "../modules/database/workspace/dbWorkspaceState";
+import {
+  parseSavedStatementTargets,
+  serializeSavedStatementTargets,
+  type SavedSqlStatementTarget,
+} from "../modules/database/sqlIntel/sqlStatementTargets";
 
 export type DbSqlFileNodeType = "folder" | "file";
 
@@ -18,6 +23,8 @@ export interface DbSqlFileNode {
   connId?: string;
   /** 上次在此文件上选用的数据库名 */
   database?: string;
+  /** 语句单独指定的执行库。不写进 SQL 正文。 */
+  statementTargets?: SavedSqlStatementTarget[];
   updatedAt: number;
 }
 
@@ -35,6 +42,7 @@ interface DbSqlFileState {
   addFile: (parentId: string | null, name: string, sql?: string) => DbSqlFileNode;
   updateFileSql: (id: string, sql: string) => void;
   updateFileBinding: (id: string, connId: string, database: string) => void;
+  updateFileStatementTargets: (id: string, targets: SavedSqlStatementTarget[]) => void;
   renameNode: (id: string, name: string) => boolean;
   moveNode: (id: string, newParentId: string | null) => boolean;
   canMoveNodeToParent: (id: string, newParentId: string | null) => boolean;
@@ -124,6 +132,7 @@ function normalizeNode(raw: Record<string, unknown>): DbSqlFileNode | null {
     sql: typeof raw.sql === "string" ? raw.sql : undefined,
     connId: typeof raw.connId === "string" ? raw.connId : undefined,
     database: typeof raw.database === "string" ? raw.database : undefined,
+    statementTargets: parseSavedStatementTargets(raw.statementTargets),
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
   };
 }
@@ -182,6 +191,7 @@ function serializeNodeForDisk(node: DbSqlFileNode) {
     sql: node.sql ?? null,
     connId: node.connId ?? null,
     database: node.database ?? null,
+    statementTargets: serializeSavedStatementTargets(node.statementTargets),
     updatedAt: node.updatedAt,
   };
 }
@@ -325,6 +335,16 @@ export const useDbSqlFileStore = create<DbSqlFileState>()(
             database: database || undefined,
             updatedAt: Date.now(),
           }
+        : node,
+    );
+    commitNodesInMemory(set, get, nodes, [id]);
+  },
+
+  updateFileStatementTargets: (id, targets) => {
+    const statementTargets = targets.length > 0 ? targets : undefined;
+    const nodes = get().nodes.map((node) =>
+      node.id === id && node.type === "file"
+        ? { ...node, statementTargets, updatedAt: Date.now() }
         : node,
     );
     commitNodesInMemory(set, get, nodes, [id]);
@@ -488,5 +508,6 @@ export function resolveSqlTabStateFromFile(sqlFileId: string, fallback: SqlTabSt
     sql: file.sql ?? "",
     connId: file.connId ?? fallback.connId,
     database: file.database ?? fallback.database,
+    statementTargets: file.statementTargets ?? [],
   };
 }

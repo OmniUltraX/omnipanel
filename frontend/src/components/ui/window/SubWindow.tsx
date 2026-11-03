@@ -39,6 +39,10 @@ export interface SubWindowProps {
   widthRatio?: number;
   /** 相对主窗坣坯视区域的高度比例，默讀0.9 */
   heightRatio?: number;
+  /** 打开时的宽度上限（像素）。小屏幕仍会缩到视口内。 */
+  maxWidth?: number;
+  /** 打开时的高度上限（像素）。小屏幕仍会缩到视口内。 */
+  maxHeight?: number;
   className?: string;
   /** 标题与关闭按钮之间的附加控件（如模型选择＀*/
   headerExtra?: ReactNode;
@@ -83,6 +87,8 @@ export function SubWindow({
   children,
   widthRatio = DEFAULT_RATIO,
   heightRatio = DEFAULT_RATIO,
+  maxWidth,
+  maxHeight,
   className,
   headerExtra,
   windowChrome = true,
@@ -95,7 +101,10 @@ export function SubWindow({
   const subWindowId = useId();
   const [visualState, setVisualState] = useState<SubWindowVisualState>("normal");
   const [geometry, setGeometry] = useState<SubWindowGeometry>(() =>
-    createCenteredSubWindowGeometry(widthRatio, heightRatio),
+    createCenteredSubWindowGeometry(widthRatio, heightRatio, undefined, undefined, {
+      maxWidth,
+      maxHeight,
+    }),
   );
   const restoreGeometryRef = useRef<SubWindowGeometry | null>(null);
   const preMinimizeSnapshotRef = useRef<{
@@ -117,12 +126,15 @@ export function SubWindow({
   } | null>(null);
 
   const resetGeometry = useCallback(() => {
-    const next = createCenteredSubWindowGeometry(widthRatio, heightRatio);
+    const next = createCenteredSubWindowGeometry(widthRatio, heightRatio, undefined, undefined, {
+      maxWidth,
+      maxHeight,
+    });
     setGeometry(next);
     restoreGeometryRef.current = null;
     preMinimizeSnapshotRef.current = null;
     setVisualState("normal");
-  }, [heightRatio, widthRatio]);
+  }, [heightRatio, maxHeight, maxWidth, widthRatio]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -235,7 +247,11 @@ export function SubWindow({
   const handleToggleMaximize = useCallback(() => {
     if (visualState === "maximized") {
       setGeometry(
-        restoreGeometryRef.current ?? createCenteredSubWindowGeometry(widthRatio, heightRatio),
+        restoreGeometryRef.current ??
+          createCenteredSubWindowGeometry(widthRatio, heightRatio, undefined, undefined, {
+            maxWidth,
+            maxHeight,
+          }),
       );
       restoreGeometryRef.current = null;
       setVisualState("normal");
@@ -244,7 +260,7 @@ export function SubWindow({
     restoreGeometryRef.current = geometry;
     setGeometry(maximizedSubWindowGeometry());
     setVisualState("maximized");
-  }, [geometry, heightRatio, visualState, widthRatio]);
+  }, [geometry, heightRatio, maxHeight, maxWidth, visualState, widthRatio]);
 
   const handleHeaderPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {

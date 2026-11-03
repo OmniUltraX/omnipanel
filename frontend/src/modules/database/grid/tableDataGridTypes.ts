@@ -29,6 +29,11 @@ export type TableDataGridProps = {
     cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> },
     value: unknown,
   ) => void;
+  /**
+   * 限制可写回的列。不传则沿用「有 columnMeta 且提供了提交回调」的旧行为。
+   * SQL 结果里表达式列不在这个集合中。
+   */
+  editableColumns?: ReadonlySet<string> | null;
   onCellSetNull?: (cellInfo: { rowIndex: number; column: string; row: Record<string, unknown> }) => void;
   /** 已修改的行 key 集合（来自父组件脏数据状态），用于高亮 */
   dirtyRowKeys?: Set<string>;

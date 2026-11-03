@@ -56,5 +56,6 @@ module-plans/
 
 - [Docker 模块规划](./docker/README.md)
 - [Server 模块规划](./server/README.md)
+- [本地优先（草案）](./local-first/README.md)
 
 后续新增模块时，直接复制 [TEMPLATE.md](./TEMPLATE.md) 到对应模块目录中，再按模块实际情况补全即可。

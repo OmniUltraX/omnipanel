@@ -2,6 +2,7 @@ import type { RuleGroupType } from "react-querybuilder";
 import type { SqlEditorOpenMode } from "../sql/SqlEditor";
 import type { TablePreviewResult, DbColumnMeta } from "../api";
 import type { TableDesignerModel } from "../tableDesigner/types";
+import type { SavedSqlStatementTarget } from "../sqlIntel/sqlStatementTargets";
 
 export {
   type DbWorkspaceTab,
@@ -85,6 +86,10 @@ export type SqlResultSession = {
   pinned?: boolean;
   /** 这一次执行在日志里的 id。会话 id 会被下次临时结果复用，不能当日志主键。 */
   executionId?: string;
+  /** 这条结果单独指定的连接。缺省表示跟文件当时的连接。 */
+  connId?: string;
+  /** 这条结果单独指定的库。缺省表示跟文件当时的库。 */
+  database?: string;
 };
 
 export type SqlTabState = {
@@ -104,6 +109,8 @@ export type SqlTabState = {
   autoCommit: boolean;
   /** 手动事务是否已 BEGIN（有未提交变更） */
   inTransaction: boolean;
+  /** 每条语句单独指定的执行库。空则跟本文件的连接和库。 */
+  statementTargets?: SavedSqlStatementTarget[];
   /** 每次执行对应一个结果会话 */
   resultSessions: SqlResultSession[];
   activeResultSessionId: string | null;
@@ -258,7 +265,31 @@ export function findTemporarySqlResultSession(
   return sessions.find((session) => !session.pinned);
 }
 
-export function createSqlResultSession(sql: string, pinned = false): SqlResultSession {
+export type SqlPlannedStatement = {
+  sql: string;
+  connId?: string;
+  database?: string;
+};
+
+function asPlannedStatement(item: string | SqlPlannedStatement): SqlPlannedStatement {
+  if (typeof item === "string") return { sql: item.trim() };
+  return {
+    sql: item.sql.trim(),
+    connId: item.connId,
+    database: item.database,
+  };
+}
+
+function resultTarget(item: SqlPlannedStatement): { connId: string; database: string } | null {
+  if (!item.connId || !item.database) return null;
+  return { connId: item.connId, database: item.database };
+}
+
+export function createSqlResultSession(
+  sql: string,
+  pinned = false,
+  target: { connId: string; database: string } | null = null,
+): SqlResultSession {
   return {
     id: makeSqlResultSessionId(),
     sql,
@@ -269,6 +300,8 @@ export function createSqlResultSession(sql: string, pinned = false): SqlResultSe
     resultPage: 0,
     resultHasMore: false,
     pinned,
+    connId: target?.connId,
+    database: target?.database,
   };
 }
 
@@ -279,10 +312,10 @@ export function createSqlResultSession(sql: string, pinned = false): SqlResultSe
  */
 export function planSqlExecutionSessions(
   existing: SqlResultSession[],
-  statements: string[],
+  statements: Array<string | SqlPlannedStatement>,
   freshResult: boolean,
 ): { sessions: SqlResultSession[]; activeSessionId: string; runSessionIds: string[] } {
-  const sqls = statements.map((sql) => sql.trim()).filter(Boolean);
+  const sqls = statements.map(asPlannedStatement).filter((item) => item.sql.length > 0);
   if (sqls.length === 0) {
     const fallback = existing[existing.length - 1];
     return {
@@ -293,7 +326,7 @@ export function planSqlExecutionSessions(
   }
 
   if (freshResult) {
-    const created = sqls.map((sql) => createSqlResultSession(sql, true));
+    const created = sqls.map((item) => createSqlResultSession(item.sql, true, resultTarget(item)));
     return {
       sessions: [...existing, ...created],
       activeSessionId: created[0]!.id,
@@ -302,10 +335,10 @@ export function planSqlExecutionSessions(
   }
 
   if (sqls.length === 1) {
-    const sql = sqls[0]!;
+    const item = sqls[0]!;
     const temp = findTemporarySqlResultSession(existing);
     if (temp) {
-      const session = reuseTemporarySqlResultSession(temp, sql);
+      const session = reuseTemporarySqlResultSession(temp, item.sql, resultTarget(item));
       return {
         sessions: existing
           .filter((item) => item.pinned || item.id === temp.id)
@@ -314,7 +347,7 @@ export function planSqlExecutionSessions(
         runSessionIds: [session.id],
       };
     }
-    const session = createSqlResultSession(sql);
+    const session = createSqlResultSession(item.sql, false, resultTarget(item));
     return {
       sessions: [...existing.filter((item) => item.pinned), session],
       activeSessionId: session.id,
@@ -322,7 +355,7 @@ export function planSqlExecutionSessions(
     };
   }
 
-  const created = sqls.map((sql) => createSqlResultSession(sql));
+  const created = sqls.map((item) => createSqlResultSession(item.sql, false, resultTarget(item)));
   return {
     sessions: [...existing.filter((item) => item.pinned), ...created],
     activeSessionId: created[0]!.id,
@@ -334,10 +367,13 @@ export function planSqlExecutionSessions(
 export function reuseTemporarySqlResultSession(
   session: SqlResultSession,
   sql: string,
+  target: { connId: string; database: string } | null = null,
 ): SqlResultSession {
   return {
     ...session,
     sql,
+    connId: target?.connId,
+    database: target?.database,
     result: null,
     error: null,
     elapsed: null,

@@ -521,6 +521,9 @@ impl SigV4Client {
         let body = resp.bytes().await.map_err(|e| {
             OmniError::new(ErrorCode::Io, "读取 OSS 对象失败").with_cause(e.to_string())
         })?;
+        if status == 404 {
+            return Err(OmniError::new(ErrorCode::NotFound, "S3 对象不存在"));
+        }
         if !(200..300).contains(&status) {
             let text = String::from_utf8_lossy(&body);
             return Err(http_error_with_sig_debug(

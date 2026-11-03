@@ -14,7 +14,6 @@ import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import {
   setClientConversationSyncSuppressed,
 } from "./autoSync";
-import { mergeConversations, parseConversationsBundle } from "./merge";
 import {
   CLIENT_SYNC_MODULES_APPLIED_EVENT,
   setClientModuleSyncSuppressed,
@@ -23,10 +22,12 @@ import {
   pullSecretsVaultOnce,
   setSecretsVaultSyncSuppressed,
 } from "./secretsVaultSync";
+import { collectModulesSyncPayload } from "./prepareModulesSyncPayload";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { waitLayoutStoresHydrated } from "./layoutStoresHydration";
+import { resolveSpaceClaim } from "./spaceClaim";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { schedulePluginEnsure } from "../../lib/pluginEnsure";
-import { useClientSyncTombstoneStore } from "./tombstones";
 
 function sidebarFoldersEmpty(raw: string | null | undefined): boolean {
   if (!raw?.trim()) return true;
@@ -88,6 +89,54 @@ async function shouldHealEmptyCloudLayouts(
   return false;
 }
 
+export async function applySpaceSyncReport(report: {
+  workspacesJson?: string | null;
+  sshSidebarTreeJson?: string | null;
+  folderTreesJson?: string | null;
+  customPanelsJson?: string | null;
+  conversationsJson?: string | null;
+  settingsJson?: string | null;
+}): Promise<void> {
+  mergeWorkspacesJson(report.workspacesJson);
+  applySshSidebarTreeJson(report.sshSidebarTreeJson, "merge");
+  applyFolderTreesJson(report.folderTreesJson, "merge");
+  applyCustomPanelsJson(report.customPanelsJson, "merge");
+  applyConversationList(report.conversationsJson);
+  applySettingsJson(report.settingsJson);
+  await refreshLocalModuleUi();
+}
+
+function applySettingsJson(raw: string | null | undefined): void {
+  if (!raw?.trim()) return;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    delete parsed.fileIndexStorageDir;
+    useSettingsStore.setState(parsed as never);
+  } catch {
+    /* 设置解析失败就保持本机这份 */
+  }
+}
+
+function applyConversationList(raw: string | null | undefined): void {
+  if (raw == null) return;
+  let list: AiConversation[] = [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return;
+    list = parsed as AiConversation[];
+  } catch {
+    return;
+  }
+  const active = useAiStore.getState().activeConversationId;
+  const activeStill = active != null && list.some((item) => item.id === active);
+  useAiStore.setState({
+    conversations: list,
+    activeConversationId: activeStill
+      ? active
+      : list.find((item) => !item.parentConversationId)?.id ?? null,
+  });
+}
+
 function mergeWorkspacesJson(raw: string | null | undefined): void {
   if (!raw?.trim()) return;
   try {
@@ -135,37 +184,6 @@ function mergeWorkspacesJson(raw: string | null | undefined): void {
     });
   } catch {
   }
-}
-
-function applyConversationsBundle(bodyJson: string): void {
-  const bundle = parseConversationsBundle(bodyJson);
-  if (!bundle) return;
-
-  const tombstoneStore = useClientSyncTombstoneStore.getState();
-  if (bundle.deleted.length > 0) {
-    tombstoneStore.mergeRemote("conversation", bundle.deleted);
-  }
-
-  const remote = bundle.conversations;
-  if (!Array.isArray(remote) || remote.length === 0) return;
-
-  const tombstones = tombstoneStore.listConversationTombstones();
-  const local = useAiStore.getState().conversations;
-  const { conversations, changed } = mergeConversations({
-    local,
-    remote: remote as AiConversation[],
-    tombstones,
-  });
-  if (!changed) return;
-
-  const active = useAiStore.getState().activeConversationId;
-  const activeStill = active && conversations.some((c) => c.id === active);
-  useAiStore.setState({
-    conversations,
-    activeConversationId: activeStill
-      ? active
-      : conversations.find((c) => !c.parentConversationId)?.id ?? null,
-  });
 }
 
 async function refreshLocalModuleUi(): Promise<void> {
@@ -244,6 +262,8 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
   }
 
   const teamId = getCurrentSyncTeamId();
+  const claimed = await resolveSpaceClaim(token, teamId);
+  if (claimed.skip) return { ...empty, ok: true };
   setClientModuleSyncSuppressed(true);
   setClientConversationSyncSuppressed(true);
   setSecretsVaultSyncSuppressed(true);
@@ -255,32 +275,24 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
   let result: PullCloudSnapshotResult = empty;
   try {
     const modulesResult = await unwrapCommand(
-      commands.clientSyncPullModules({ token, teamId }),
+      commands.localSpaceSync({
+        token,
+        teamId: claimed.teamId,
+        ...(await collectModulesSyncPayload()),
+      }),
       { quiet: true },
     );
-    modulesFound = Boolean(modulesResult.found);
+    modulesFound = !modulesResult.skipped;
     appliedConnections = Number(modulesResult.appliedConnections ?? 0);
-    appliedDatabases = Number(modulesResult.appliedDatabases ?? 0);
     if (modulesFound) {
-      mergeWorkspacesJson(modulesResult.workspacesJson);
-      applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "merge");
-      applyFolderTreesJson(modulesResult.folderTreesJson, "merge");
-      applyCustomPanelsJson(modulesResult.customPanelsJson, "merge");
-      await refreshLocalModuleUi();
-      // merge 可能保留本机文件夹；云端布局为空时回写修复历史空快照
+      await applySpaceSyncReport(modulesResult);
+      const { noticeSpaceSync } = await import("./spaceClaim");
+      await noticeSpaceSync(modulesResult);
       healEmptyLayouts = await shouldHealEmptyCloudLayouts(
         modulesResult.sshSidebarTreeJson,
         modulesResult.folderTreesJson,
       );
-    }
-
-    const convResult = await unwrapCommand(
-      commands.clientSyncPullConversations({ token, teamId }),
-      { quiet: true },
-    );
-    conversationsFound = Boolean(convResult.found && convResult.bodyJson?.trim());
-    if (conversationsFound && convResult.bodyJson) {
-      applyConversationsBundle(convResult.bodyJson);
+      conversationsFound = modulesResult.conversationsJson != null;
     }
 
     // 模块快照不含密码；有 SyncMasterKey 时再拉密文库。
