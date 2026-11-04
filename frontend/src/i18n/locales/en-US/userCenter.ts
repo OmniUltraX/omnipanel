@@ -2,6 +2,17 @@ export default {
     title: "User Center",
     menuLabel: "User menu",
     guest: "Guest",
+    guestEntry: "Sign in",
+    guestEntryAria: "Sign in to personal space and see unlocked features",
+    guestLanding: {
+      title: "Sign in to unlock",
+      localNote: "Local features work without an account. Sign-in is only for cloud and cross-device capabilities.",
+      benefits: {
+        sync: "Multi-device and team data sync (encrypted on-device before upload)",
+        devices: "Device management and assistant pairing",
+        profile: "Cloud profile and linked accounts",
+      },
+    },
     openSettings: "Open full settings",
     logout: "Sign out",
     switchTeam: "Switch Team",

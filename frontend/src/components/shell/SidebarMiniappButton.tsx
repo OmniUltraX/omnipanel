@@ -44,6 +44,8 @@ export function SidebarMiniappButton() {
   const token = useAuthStore((s) => s.token);
   const openUserCenter = useUserCenterUiStore((s) => s.openUserCenter);
   const userCenterOpen = useUserCenterUiStore((s) => s.open);
+  const userCenterPage = useUserCenterUiStore((s) => s.page);
+  const devicesClientOnly = useUserCenterUiStore((s) => s.devicesClientOnly);
   const selectedTeamId = useCurrentSyncTeamStore((s) => s.teamId);
   const teams = useUserProfileStore((s) => s.teams);
   const currentTeamId = resolveCurrentSyncTeamId(selectedTeamId, teams);
@@ -298,7 +300,11 @@ export function SidebarMiniappButton() {
 
   const closeQrModal = useCallback(() => setQrModalOpen(false), []);
 
-  const active = menuOpen || qrModalOpen || userCenterOpen;
+  // 仅本按钮打开的「客户端设备」页才算激活；普通登录/用户中心不要抢亮左边条
+  const active =
+    menuOpen ||
+    qrModalOpen ||
+    (userCenterOpen && userCenterPage === "devices" && devicesClientOnly);
 
   const menuItems: { id: MenuAction; label: string; icon: ReactNode }[] = [
     {

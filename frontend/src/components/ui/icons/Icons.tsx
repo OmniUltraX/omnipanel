@@ -378,6 +378,17 @@ export function IconUser({ size = 20, className }: IconProps) {
   );
 }
 
+/** 登录入口：箭头进入门框，与人像区分 */
+export function IconLogIn({ size = 20, className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width={size} height={size} className={className}>
+      <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 17l5-5-5-5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M15 12H3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function IconUsers({ size = 20, className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width={size} height={size} className={className}>

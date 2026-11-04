@@ -3,8 +3,11 @@ import type { Connection, DockerConnectionInfo } from "@/ipc/bindings";
 import {
   applyProbedDockerConnections,
   clearAllDockerProbePending,
+  clearDockerProbed,
+  dockerSidebarStatusDot,
   isDockerConnectionProbePending,
   markDockerProbePending,
+  markDockerProbed,
   reconcileDockerConnections,
 } from "./dockerConnectionList";
 
@@ -86,6 +89,40 @@ describe("reconcileDockerConnections", () => {
     const { connections } = reconcileDockerConnections(prev, []);
     expect(connections.map((item) => item.connectionId)).toEqual(["docker-local"]);
   });
+
+  it("连接库里的本机 Engine 不进侧栏，避免与内置 docker-local 重复", () => {
+    const local: DockerConnectionInfo = {
+      ...probed("docker-local", "online"),
+      name: "本地 Docker",
+      source: "local-engine",
+      hostLabel: "本地 Engine",
+      boundSshConnectionId: null,
+    };
+    const staleLocal = storedDocker("docker-seed-local", "本机 Docker", "local-engine");
+    staleLocal.config = JSON.stringify({ source: "local-engine" });
+    const { connections, addedIds } = reconcileDockerConnections([local], [
+      staleLocal,
+      storedDocker("docker-a", "Docker - a"),
+    ]);
+    expect(addedIds).toEqual(["docker-a"]);
+    expect(connections.map((item) => item.connectionId)).toEqual(["docker-local", "docker-a"]);
+  });
+});
+
+describe("dockerSidebarStatusDot", () => {
+  beforeEach(() => {
+    clearAllDockerProbePending();
+    clearDockerProbed(["docker-a"]);
+  });
+
+  it("未探测默认灰点，探测失败变红，在线变绿", () => {
+    expect(dockerSidebarStatusDot("docker-a", "offline")).toBe("idle");
+    markDockerProbed(["docker-a"]);
+    expect(dockerSidebarStatusDot("docker-a", "offline")).toBe("offline");
+    expect(dockerSidebarStatusDot("docker-a", "online")).toBe("online");
+    markDockerProbePending(["docker-a"]);
+    expect(dockerSidebarStatusDot("docker-a", "offline")).toBe("connecting");
+  });
 });
 
 describe("applyProbedDockerConnections", () => {
@@ -100,5 +137,21 @@ describe("applyProbedDockerConnections", () => {
     expect(next[0]?.status).toBe("online");
     expect(next[0]?.name).toBe("Docker - a");
     expect(next[1]?.name).toBe("Docker - b");
+  });
+
+  it("目录刷新不带探测结果时保留本会话已 online 的状态", () => {
+    const listedOffline = {
+      ...probed("docker-a", "offline"),
+      engineVersion: null,
+      apiVersion: null,
+    };
+    const next = applyProbedDockerConnections(
+      [probed("docker-a", "online")],
+      [listedOffline],
+      [storedDocker("docker-a", "Docker - a")],
+    );
+    expect(next).toHaveLength(1);
+    expect(next[0]?.status).toBe("online");
+    expect(next[0]?.engineVersion).toBe("24.0.0");
   });
 });

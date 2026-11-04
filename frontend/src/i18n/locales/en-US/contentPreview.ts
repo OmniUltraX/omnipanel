@@ -8,4 +8,7 @@ export default {
     modeJson: "JSON",
     modeMarkdown: "Markdown",
     modeWeb: "Web page",
+    jsonExpandToolbar: "JSON expand controls",
+    expandAll: "Expand all",
+    collapseAll: "Collapse all",
   } as const;

@@ -102,7 +102,13 @@ export function DockerPanel() {
   const storedConnections = useConnectionStore((s) => s.connections);
   const removeStoredConnection = useConnectionStore((s) => s.remove);
 
-  const { connections, loading: connectionsLoading, reloadConnections } = useDockerConnections();
+  const {
+    connections,
+    loading: connectionsLoading,
+    reloadConnections,
+    probeConnection,
+    probeAllConnections,
+  } = useDockerConnections();
   const tagAllowedIds = useModuleTagFilter("docker", CONNECTION_TAG_KINDS);
   const visibleConnections = useMemo(
     () =>
@@ -324,9 +330,12 @@ export function DockerPanel() {
           });
         },
       });
+      // 用户主动打开才探测连通性（列表/导入默认不连）
+      void probeConnection(target.connectionId);
     },
     [
       connectionById,
+      probeConnection,
       selectConnection,
       selectContainer,
       selectCompose,
@@ -399,6 +408,7 @@ export function DockerPanel() {
     if (ids.length === 0) return;
     setRefreshingAllCaches(true);
     try {
+      await probeAllConnections();
       await refreshAllDockerSidebarCaches(
         ids,
         createDockerSidebarCacheRefreshReporter(
@@ -414,7 +424,7 @@ export function DockerPanel() {
     } finally {
       setRefreshingAllCaches(false);
     }
-  }, [connectionById, connections, refreshingAllCaches, t]);
+  }, [connectionById, connections, probeAllConnections, refreshingAllCaches, t]);
 
   const handleImportFromSsh = useCallback(() => {
     if (importingFromSsh) return;
@@ -447,25 +457,8 @@ export function DockerPanel() {
             selections,
             saveConn,
           });
+          // 导入只落库 + 刷新目录；不主动 probe / 拉容器，等用户打开或点刷新
           await reloadConnections();
-          if (result.addedIds.length > 0) {
-            try {
-              await refreshAllDockerSidebarCaches(
-                result.addedIds,
-                createDockerSidebarCacheRefreshReporter(
-                  t,
-                  (connectionId) =>
-                    useConnectionStore.getState().connections.find((c) => c.id === connectionId)
-                      ?.name ?? connectionId,
-                ),
-              );
-            } catch (error) {
-              publishDockerSidebarCacheRefreshFailed(
-                t,
-                error instanceof Error ? error.message : String(error),
-              );
-            }
-          }
           if (result.added > 0 || result.skipped > 0) {
             showToast(
               t("docker.sidebar.importFromSshDone", {

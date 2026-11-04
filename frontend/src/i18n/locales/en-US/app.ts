@@ -116,5 +116,17 @@ export default {
         appShell: "Loading main application shell…",
         ready: "Startup complete, entering workspace…",
       },
+      secondaryTask: {
+        title: "Startup initialization",
+        parallel: "Loading configuration in background…",
+        tools: "Loading built-in tools…",
+        aiModels: "Loading AI model configuration…",
+        sqlFiles: "Loading SQL query files…",
+        treeCharts: "Loading schema chart files…",
+        agents: "Preparing agents (may download or compile)…",
+        dbSchema: "Loading database schema cache…",
+        done: "Startup initialization complete",
+        failed: "Startup initialization failed",
+      },
     },
   } as const;

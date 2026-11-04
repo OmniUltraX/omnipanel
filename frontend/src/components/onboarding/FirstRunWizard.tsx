@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { commands } from "../../ipc/bindings";
 import { useAuthStore } from "../../stores/authStore";
-import { syncFromOpenSshConfig, useConnectionStore } from "../../stores/connectionStore";
+import { syncFromOpenSshConfig } from "../../stores/connectionStore";
 import { AppLogo } from "../ui/layout/AppLogo";
 import { WinControls } from "../shell/WinControls";
 import { usesMacTrafficLights } from "../../lib/platform";
@@ -13,7 +13,7 @@ import { AuthLoginMethods } from "../user/AuthLoginMethods";
 type StepId = "welcome" | "name" | "import" | "login";
 
 interface ImportSource {
-  id: "ssh" | "docker" | "navicat";
+  id: "ssh" | "navicat";
   label: string;
   checked: boolean;
   aliases?: string[];
@@ -49,18 +49,7 @@ export function FirstRunWizard({ onDone }: FirstRunWizardProps) {
       } catch {
         /* 读不到 SSH 配置就不当作一个来源 */
       }
-      try {
-        const docker = await commands.dockerGetLocalEngineStatus();
-        if (docker.status === "ok" && docker.data.installed) {
-          found.push({
-            id: "docker",
-            label: t("app.onboarding.importDocker"),
-            checked: true,
-          });
-        }
-      } catch {
-        /* 探测失败就不当作一个来源 */
-      }
+      // 本机 Docker 由侧栏内置 `docker-local` 自动出现，勿再落库一条「本机 Docker」
       try {
         const navicat = await commands.localSpaceNavicatPresent();
         if (navicat.status === "ok" && navicat.data) {
@@ -107,29 +96,6 @@ export function FirstRunWizard({ onDone }: FirstRunWizardProps) {
       }
       if (source.id === "navicat") {
         sessionStorage.setItem("omnipanel.navicatImport", "1");
-      }
-      if (source.id === "docker") {
-        const listed = await commands.connList();
-        const hasLocal =
-          listed.status === "ok" &&
-          listed.data.some((conn) => {
-            if (conn.kind !== "docker") return false;
-            try {
-              const parsed = JSON.parse(conn.config || "{}") as { source?: string };
-              return parsed.source === "local-engine";
-            } catch {
-              return false;
-            }
-          });
-        if (!hasLocal) {
-          await useConnectionStore.getState().save({
-            id: "",
-            kind: "docker",
-            name: t("app.onboarding.importDocker"),
-            envTag: "dev",
-            config: JSON.stringify({ source: "local-engine" }),
-          });
-        }
       }
     }
   };

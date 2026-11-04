@@ -86,6 +86,7 @@ export default {
       statusOnline: "Docker 在线",
       statusDegraded: "Docker 降级 / 权限受限",
       statusOffline: "Docker 离线",
+      statusIdle: "未连接",
     },
     resourceOverview: {
       title: "资源概览",

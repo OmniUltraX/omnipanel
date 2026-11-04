@@ -88,6 +88,7 @@ export default {
       statusOnline: "Docker online",
       statusDegraded: "Docker degraded / permission limited",
       statusOffline: "Docker offline",
+      statusIdle: "Not connected",
     },
     resourceOverview: {
       title: "Resource overview",

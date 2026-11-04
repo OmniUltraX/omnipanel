@@ -197,12 +197,21 @@ export const CellEditorPanel = forwardRef<CellEditorPanelHandle, CellEditorPanel
       previewContent?.kind,
     );
 
+    // 推荐模式只跟单元格基线值走，不要绑 live previewContent：
+    // 否则用户切到「普通文本」编辑 Markdown/JSON 时，每次按键都会被 sniffer 打回预览模式。
     useEffect(() => {
-      if (!previewContent || isMediaPreview) {
+      if (!richPreview || isMediaPreview) {
         return;
       }
-      setTextMode(resolvePreferredPreviewTextMode(previewContent));
-    }, [cellKey, previewContent, isMediaPreview]);
+      const baseline =
+        omniBlob != null
+          ? resolveCellPreviewContent(currentValue, resolvedType, { sniffContent: true })
+          : resolveCellPreviewContent(normalized, resolvedType, { sniffContent: true });
+      if (baseline.kind === "image" || baseline.kind === "audio") {
+        return;
+      }
+      setTextMode(resolvePreferredPreviewTextMode(baseline));
+    }, [cellKey, richPreview, isMediaPreview, omniBlob, currentValue, normalized, resolvedType]);
 
     useEffect(() => {
       const cellChanged = cellKeyRef.current !== cellKey;

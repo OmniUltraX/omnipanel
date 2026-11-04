@@ -14,13 +14,11 @@ export function UserCenterWindow() {
 
   const title = !isLoggedIn
     ? t("app.login.title")
-    : page === "subscription"
-      ? t("userCenter.nav.subscription")
-      : page === "devices"
-        ? devicesClientOnly
-          ? t("userCenter.devices.role.client")
-          : t("userCenter.nav.devices")
-        : t("userCenter.nav.account");
+    : page === "devices"
+      ? devicesClientOnly
+        ? t("userCenter.devices.role.client")
+        : t("userCenter.nav.devices")
+      : t("userCenter.nav.account");
 
   return (
     <SubWindow

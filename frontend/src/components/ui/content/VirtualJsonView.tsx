@@ -1,5 +1,6 @@
-import { useMemo } from "react";
-import { JsonView, defaultStyles } from "react-json-view-lite";
+import { useEffect, useMemo, useState } from "react";
+import { JsonView, collapseAllNested, defaultStyles } from "react-json-view-lite";
+import { useI18n } from "../../../i18n";
 import { getTextSearchMatchIndices } from "../../../lib/textSearchMatch";
 import { cn } from "../../../lib/utils";
 import { useScopedSearchQuery } from "../search/ScopedSearch";
@@ -10,7 +11,14 @@ export interface VirtualJsonViewProps {
   className?: string;
   /** 默认展开层级深度，默认 2 */
   expandDepth?: number;
+  /** 是否显示全部展开 / 收起工具条，默认 true */
+  showExpandControls?: boolean;
 }
+
+type ExpandPreset = "default" | "all" | "collapsed";
+
+/** 全部展开时的深度上限，避免超大 JSON 卡死 */
+const EXPAND_ALL_MAX_DEPTH = 32;
 
 /** 与应用主题变量对齐的 JSON 树样式（替代库内置 defaultStyles / darkStyles） */
 const OMNI_JSON_VIEW_STYLES: typeof defaultStyles = {
@@ -67,34 +75,81 @@ export function VirtualJsonView({
   value,
   className,
   expandDepth = 2,
+  showExpandControls = true,
 }: VirtualJsonViewProps) {
+  const { t } = useI18n();
   const searchQuery = useScopedSearchQuery();
   const needle = searchQuery.trim();
+  const [expandPreset, setExpandPreset] = useState<ExpandPreset>("default");
+
+  useEffect(() => {
+    setExpandPreset("default");
+  }, [value]);
 
   const shouldExpandNode = useMemo(() => {
-    if (!needle) {
-      return (level: number) => level < expandDepth;
+    if (needle) {
+      return (level: number, nodeValue: unknown, field?: string) => {
+        if (field && getTextSearchMatchIndices(field, needle).length > 0) {
+          return true;
+        }
+        // 限制极端展开深度，避免超大 JSON 在命中过多时卡死
+        if (level > 24) {
+          return false;
+        }
+        return jsonSubtreeContainsQuery(nodeValue, needle);
+      };
     }
-    return (level: number, nodeValue: unknown, field?: string) => {
-      if (field && getTextSearchMatchIndices(field, needle).length > 0) {
-        return true;
-      }
-      // 限制极端展开深度，避免超大 JSON 在命中过多时卡死
-      if (level > 24) {
-        return false;
-      }
-      return jsonSubtreeContainsQuery(nodeValue, needle);
-    };
-  }, [expandDepth, needle]);
+    if (expandPreset === "all") {
+      return (level: number) => level < EXPAND_ALL_MAX_DEPTH;
+    }
+    if (expandPreset === "collapsed") {
+      return collapseAllNested;
+    }
+    return (level: number) => level < expandDepth;
+  }, [expandDepth, expandPreset, needle]);
+
+  const viewKey = needle
+    ? `search:${needle}`
+    : expandPreset === "default"
+      ? `default:${expandDepth}`
+      : expandPreset;
 
   return (
     <div className={cn("virtual-json-view", className)}>
-      <JsonView
-        key={needle ? `search:${needle}` : "default"}
-        data={value}
-        style={OMNI_JSON_VIEW_STYLES}
-        shouldExpandNode={shouldExpandNode}
-      />
+      {showExpandControls && !needle ? (
+        <div className="virtual-json-view-toolbar" role="toolbar" aria-label={t("contentPreview.jsonExpandToolbar")}>
+          <button
+            type="button"
+            className={cn(
+              "virtual-json-view-toolbar-btn",
+              expandPreset === "all" && "is-active",
+            )}
+            aria-pressed={expandPreset === "all"}
+            onClick={() => setExpandPreset("all")}
+          >
+            {t("contentPreview.expandAll")}
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "virtual-json-view-toolbar-btn",
+              expandPreset === "collapsed" && "is-active",
+            )}
+            aria-pressed={expandPreset === "collapsed"}
+            onClick={() => setExpandPreset("collapsed")}
+          >
+            {t("contentPreview.collapseAll")}
+          </button>
+        </div>
+      ) : null}
+      <div className="virtual-json-view-body">
+        <JsonView
+          key={viewKey}
+          data={value}
+          style={OMNI_JSON_VIEW_STYLES}
+          shouldExpandNode={shouldExpandNode}
+        />
+      </div>
     </div>
   );
 }

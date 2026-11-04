@@ -168,9 +168,10 @@ export default {
       localRuntime: {
         tooltip: "本地运行时 · Ollama: {ollama} · LM Studio: {lms}",
       },
+      services: "服务",
     },
     connectionPool: {
-      summary: "连接 {active} / {total}",
+      summary: "连接 {active}/{total}",
       detailTitle: "连接池",
       empty: "暂无连接",
       categoryCounts: "活跃 {active} / 总数 {total}",
@@ -214,6 +215,8 @@ export default {
         localModels: "本地模型",
         server: "服务器",
         files: "文件传输",
+        sync: "空间同步",
+        system: "系统",
       },
     },
     workspacePreview: {

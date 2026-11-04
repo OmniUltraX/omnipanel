@@ -116,5 +116,17 @@ export default {
         appShell: "正在加载主界面模块…",
         ready: "启动完成，即将进入工作区…",
       },
+      secondaryTask: {
+        title: "启动初始化",
+        parallel: "正在后台加载配置…",
+        tools: "正在加载内置工具…",
+        aiModels: "正在加载 AI 模型配置…",
+        sqlFiles: "正在加载 SQL 查询文件…",
+        treeCharts: "正在加载库表图文件…",
+        agents: "正在准备 Agent（可能下载或编译）…",
+        dbSchema: "正在加载数据库结构缓存…",
+        done: "启动初始化完成",
+        failed: "启动初始化失败",
+      },
     },
   } as const;

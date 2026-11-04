@@ -8,4 +8,7 @@ export default {
     modeJson: "JSON",
     modeMarkdown: "Markdown",
     modeWeb: "网页",
+    jsonExpandToolbar: "JSON 展开控制",
+    expandAll: "全部展开",
+    collapseAll: "全部收起",
   } as const;

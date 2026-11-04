@@ -77,13 +77,13 @@ function ConnectionPoolPopover({
   );
 }
 
-/** 状态栏左侧：全局活跃 / 总连接数，悬停展示分类明细。 */
+/** 状态栏左侧：活跃 / 总连接；无连接时不占位。 */
 export function ConnectionPoolIndicator() {
   const { t } = useI18n();
   const summary = useMergedPoolSummary();
   const total = poolTotal(summary.active, summary.idle);
   const [open, setOpen] = useState(false);
-  const anchorRef = useRef<HTMLSpanElement>(null);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearHoverTimer = useCallback(() => {
@@ -105,36 +105,33 @@ export function ConnectionPoolIndicator() {
 
   useEffect(() => () => clearHoverTimer(), [clearHoverTimer]);
 
+  if (total <= 0 && summary.active <= 0) {
+    return null;
+  }
+
   const label = t("shell.connectionPool.summary", {
     active: summary.active,
     total,
   });
+  const tone = summary.active > 0 ? "statusbar-chip--ok" : "statusbar-chip--muted";
 
   return (
     <>
-      <span
+      <button
         ref={anchorRef}
-        className="statusbar-item connection-pool-indicator"
+        type="button"
+        className={`statusbar-chip ${tone} connection-pool-indicator`}
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         title={label}
+        aria-label={label}
       >
-        <span className="statusbar-dot green" aria-hidden />
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          width="12"
-          height="12"
-          aria-hidden
-        >
-          <path d="M12 2a4 4 0 0 1 4 4v1h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1v5a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-5H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h2V6a4 4 0 0 1 4-4z" />
-          <circle cx="9" cy="13" r="1" fill="currentColor" stroke="none" />
-          <circle cx="15" cy="13" r="1" fill="currentColor" stroke="none" />
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+          <path d="M6.5 3.5h3M4 6.5v3M12 6.5v3M6.5 12.5h3" strokeLinecap="round" />
+          <rect x="5.5" y="5.5" width="5" height="5" rx="1" />
         </svg>
-        {label}
-      </span>
+        <span className="statusbar-chip__label">{label}</span>
+      </button>
       {open && anchorRef.current ? (
         <div onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
           <ConnectionPoolPopover

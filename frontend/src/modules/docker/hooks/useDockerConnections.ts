@@ -11,9 +11,13 @@ import { useConnectionStore } from "../../../stores/connectionStore";
 import { isDiscoverySkip, runDiscoveryProbe, sshDiscoveryScope } from "../../../lib/discoveryBus";
 import { registerDockerOfflineHandler } from "../dockerConnectionOffline";
 import {
+  applyDockerProbeResult,
   applyProbedDockerConnections,
   clearAllDockerProbePending,
+  clearDockerProbed,
   clearDockerProbePending,
+  isRedundantStoredLocalDocker,
+  markDockerProbed,
   markDockerProbePending,
   reconcileDockerConnections,
 } from "../dockerConnectionList";
@@ -29,24 +33,51 @@ export function useDockerConnections() {
   /** 已成功拉过一次后，后续刷新不再把侧栏整树切回「加载中」 */
   const hasLoadedOnceRef = useRef(false);
   const reloadEpochRef = useRef(0);
+  const connectionsRef = useRef(connections);
+  connectionsRef.current = connections;
   const storedConnections = useConnectionStore((state) => state.connections);
 
   useEffect(() => {
     setConnections((prev) => {
-      const { connections: next, addedIds } = reconcileDockerConnections(prev, storedConnections);
-      if (addedIds.length > 0) markDockerProbePending(addedIds);
+      // 新进连接库的条目默认未连接，不要标成「连接中」
+      const { connections: next } = reconcileDockerConnections(prev, storedConnections);
       if (next === prev) return prev;
       const alive = new Set(next.map((item) => item.connectionId));
       const dropped: string[] = [];
       for (const item of prev) {
         if (!alive.has(item.connectionId)) dropped.push(item.connectionId);
       }
-      if (dropped.length > 0) clearDockerProbePending(dropped);
+      if (dropped.length > 0) {
+        clearDockerProbePending(dropped);
+        clearDockerProbed(dropped);
+      }
       return next;
     });
   }, [storedConnections]);
 
+  // 清掉引导向导误落库的「本机 Docker」；后端 list 也会删，这里让连接库立刻同步
+  useEffect(() => {
+    const stale = storedConnections.filter(isRedundantStoredLocalDocker);
+    if (stale.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const remove = useConnectionStore.getState().remove;
+      for (const conn of stale) {
+        if (cancelled) return;
+        try {
+          await remove(conn.id);
+        } catch {
+          /* 后端 list 清理也会删；失败不挡侧栏 */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [storedConnections]);
+
   const markConnectionOffline = useCallback((connectionId: string) => {
+    markDockerProbed([connectionId]);
     setConnections((prev) => {
       let changed = false;
       const next = prev.map((item) => {
@@ -72,7 +103,7 @@ export function useDockerConnections() {
       setLoading(true);
     }
     try {
-      // 后端 list 会并行 probe，回填真实 online/degraded/offline
+      // 只拉目录，不 probe；绿点由打开 / 手动刷新写入
       const list = asArray(await unwrap(commands.dockerListConnections()));
       const token = useAuthStore.getState().token;
       const teamId = getCurrentSyncTeamId();
@@ -99,7 +130,6 @@ export function useDockerConnections() {
         }
       }
       if (epoch !== reloadEpochRef.current) return;
-      clearDockerProbePending([...list, ...shared].map((item) => item.connectionId));
       const stored = useConnectionStore.getState().connections;
       setConnections((prev) => applyProbedDockerConnections(prev, [...list, ...shared], stored));
       hasLoadedOnceRef.current = true;
@@ -109,6 +139,59 @@ export function useDockerConnections() {
       clearAllDockerProbePending();
     } finally {
       if (epoch === reloadEpochRef.current) setLoading(false);
+    }
+  }, []);
+
+  const probeConnection = useCallback(async (connectionId: string) => {
+    const id = connectionId.trim();
+    if (!id) return;
+    markDockerProbePending([id]);
+    // 触发一次渲染，让侧栏先变成「连接中」橙点
+    setConnections((prev) => prev.slice());
+    try {
+      const probe = await unwrap(commands.dockerProbeConnection(id), { quiet: true });
+      setConnections((prev) => applyDockerProbeResult(prev, id, probe));
+    } catch {
+      setConnections((prev) =>
+        applyDockerProbeResult(prev, id, {
+          status: "offline",
+          engineVersion: null,
+          apiVersion: null,
+          warningMessage: null,
+        }),
+      );
+    } finally {
+      clearDockerProbePending([id]);
+      setConnections((prev) => prev.slice());
+    }
+  }, []);
+
+  const probeAllConnections = useCallback(async () => {
+    const ids = connectionsRef.current.map((item) => item.connectionId);
+    if (ids.length === 0) return;
+    markDockerProbePending(ids);
+    setConnections((prev) => prev.slice());
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const probe = await unwrap(commands.dockerProbeConnection(id), { quiet: true });
+            setConnections((prev) => applyDockerProbeResult(prev, id, probe));
+          } catch {
+            setConnections((prev) =>
+              applyDockerProbeResult(prev, id, {
+                status: "offline",
+                engineVersion: null,
+                apiVersion: null,
+                warningMessage: null,
+              }),
+            );
+          }
+        }),
+      );
+    } finally {
+      clearDockerProbePending(ids);
+      setConnections((prev) => prev.slice());
     }
   }, []);
 
@@ -160,6 +243,8 @@ export function useDockerConnections() {
     scanning,
     error,
     reloadConnections,
+    probeConnection,
+    probeAllConnections,
     scanSshDockerHosts,
     markConnectionOffline,
   };

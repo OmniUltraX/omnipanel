@@ -35,7 +35,7 @@ import {
   compressImageToAvatarDataUrl,
   guessImageMime,
 } from "../../lib/auth/avatarImage";
-import { AuthLoginMethods } from "./AuthLoginMethods";
+import { UserCenterGuestLanding } from "./UserCenterGuestLanding";
 import { UserCenterDevices } from "./UserCenterDevices";
 import {
   AccountLinkBindPanel,
@@ -403,11 +403,7 @@ export function UserCenterPanel() {
   };
 
   if (!isLoggedIn) {
-    return (
-      <div className="user-center-login-embed">
-        <AuthLoginMethods showTitle />
-      </div>
-    );
+    return <UserCenterGuestLanding />;
   }
 
   const accountPage = (
@@ -512,22 +508,8 @@ export function UserCenterPanel() {
     </div>
   );
 
-  const subscriptionPage = (
-    <div className="user-center-content">
-      <section className="user-center-section">
-        <h3 className="user-center-section__title">{t("userCenter.plan.title")}</h3>
-        <div className="user-center-plan">
-          <div className="user-center-plan__badge">{t("userCenter.plan.localBadge")}</div>
-          <p className="user-center-plan__text">{t("userCenter.plan.localDesc")}</p>
-        </div>
-      </section>
-    </div>
-  );
-
   let main: ReactNode;
-  if (page === "subscription") {
-    main = subscriptionPage;
-  } else if (page === "devices") {
+  if (page === "devices") {
     main = <UserCenterDevices clientOnly={devicesClientOnly} />;
   } else {
     main = accountPage;

@@ -170,9 +170,10 @@ export default {
       localRuntime: {
         tooltip: "Local runtime · Ollama: {ollama} · LM Studio: {lms}",
       },
+      services: "Services",
     },
     connectionPool: {
-      summary: "Connections {active} / {total}",
+      summary: "Conn {active}/{total}",
       detailTitle: "Connection pool",
       empty: "No connections",
       categoryCounts: "Active {active} / Total {total}",
@@ -216,6 +217,8 @@ export default {
         localModels: "Local models",
         server: "Server",
         files: "File Transfer",
+        sync: "Space Sync",
+        system: "System",
       },
     },
     workspacePreview: {

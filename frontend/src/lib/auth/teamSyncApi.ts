@@ -11,6 +11,7 @@ import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { CLOUD_PULL_DISABLED } from "../../modules/clientSync/syncFlags";
 import { collectModulesSyncPayload } from "../../modules/clientSync/prepareModulesSyncPayload";
 import { applySpaceSyncReport } from "../../modules/clientSync/pullCloudSnapshot";
+import { withSpaceSyncTask } from "../../modules/clientSync/spaceSyncBackgroundTask";
 import { noteSpaceSyncFinished } from "../../modules/clientSync/spaceSyncPrefs";
 
 export type {
@@ -44,25 +45,32 @@ export async function pushTeamModules(
   token: string,
   teamId: number,
 ): Promise<TeamSyncPushModulesResult> {
-  const payload = await collectModulesSyncPayload();
-  const report = await unwrapCommand(
-    commands.localSpaceSync({
-      token,
-      teamId,
-      sshSidebarTreeJson: payload.sshSidebarTreeJson,
-      folderTreesJson: payload.folderTreesJson,
-      customPanelsJson: payload.customPanelsJson,
-      workspacesJson: payload.workspacesJson,
-      conversationsJson: payload.conversationsJson,
-    }),
+  return withSpaceSyncTask(
+    "push",
+    async () => {
+      const payload = await collectModulesSyncPayload();
+      const report = await unwrapCommand(
+        commands.localSpaceSync({
+          token,
+          teamId,
+          sshSidebarTreeJson: payload.sshSidebarTreeJson,
+          folderTreesJson: payload.folderTreesJson,
+          customPanelsJson: payload.customPanelsJson,
+          workspacesJson: payload.workspacesJson,
+          conversationsJson: payload.conversationsJson,
+        }),
+      );
+      await applySpaceSyncReport(report);
+      noteSpaceSyncFinished();
+      return {
+        objectKey: "repo/refs/latest",
+        etag: null,
+        bytes: report.uploadedChunks,
+      };
+    },
+    (result) =>
+      result.bytes > 0 ? `已同步（${result.bytes} 块）` : "已同步",
   );
-  await applySpaceSyncReport(report);
-  noteSpaceSyncFinished();
-  return {
-    objectKey: "repo/refs/latest",
-    etag: null,
-    bytes: report.uploadedChunks,
-  };
 }
 
 export async function pullTeamModules(
@@ -73,28 +81,34 @@ export async function pullTeamModules(
     console.warn("[team-sync] pullTeamModules skipped (CLOUD_PULL_DISABLED)");
     throw new Error("云端拉取已临时关闭，请稍后再试");
   }
-  const payload = await collectModulesSyncPayload();
-  const report = await unwrapCommand(
-    commands.localSpaceSync({
-      token,
-      teamId,
-      sshSidebarTreeJson: payload.sshSidebarTreeJson,
-      folderTreesJson: payload.folderTreesJson,
-      customPanelsJson: payload.customPanelsJson,
-      workspacesJson: payload.workspacesJson,
-      conversationsJson: payload.conversationsJson,
-    }),
+  return withSpaceSyncTask(
+    "pull",
+    async () => {
+      const payload = await collectModulesSyncPayload();
+      const report = await unwrapCommand(
+        commands.localSpaceSync({
+          token,
+          teamId,
+          sshSidebarTreeJson: payload.sshSidebarTreeJson,
+          folderTreesJson: payload.folderTreesJson,
+          customPanelsJson: payload.customPanelsJson,
+          workspacesJson: payload.workspacesJson,
+          conversationsJson: payload.conversationsJson,
+        }),
+      );
+      await applySpaceSyncReport(report);
+      noteSpaceSyncFinished();
+      return {
+        objectKey: "repo/refs/latest",
+        bytes: report.uploadedChunks,
+        bodyJson: JSON.stringify({
+          connections: Array.from({ length: report.appliedConnections }),
+          databaseConnections: [],
+        }),
+      };
+    },
+    () => "已从云端拉取",
   );
-  await applySpaceSyncReport(report);
-  noteSpaceSyncFinished();
-  return {
-    objectKey: "repo/refs/latest",
-    bytes: report.uploadedChunks,
-    bodyJson: JSON.stringify({
-      connections: Array.from({ length: report.appliedConnections }),
-      databaseConnections: [],
-    }),
-  };
 }
 
 export async function pushTeamShare(

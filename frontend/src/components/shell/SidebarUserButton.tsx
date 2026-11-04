@@ -31,6 +31,7 @@ import {
   IconClose,
   IconDownload,
   IconGlobe,
+  IconLogIn,
   IconPencil,
   IconSettings,
   IconUser,
@@ -42,7 +43,7 @@ import { fetchPublicQrcodes } from "../../lib/auth/loginApi";
 
 const WEBSITE_URL = "https://omniultrax.github.io/omnipanel/";
 
-type MenuAction = "account" | "subscription" | "settings" | "website" | "update" | "contact";
+type MenuAction = "account" | "settings" | "website" | "update" | "contact";
 
 function isUserMenuNode(target: EventTarget | null): boolean {
   return Boolean((target as Element | null)?.closest?.(".sidebar-user-menu"));
@@ -82,7 +83,10 @@ export function SidebarUserButton() {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const teamButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const active = userCenterOpen || settingsOpen || menuOpen;
+  // 未登录时用户中心由上方登录入口承担 active，避免与头像菜单双亮左边条
+  const active =
+    settingsOpen || menuOpen || (isLoggedIn && userCenterOpen);
+  const guestEntryActive = !isLoggedIn && userCenterOpen;
   const effectiveTeamId = resolveCurrentSyncTeamId(currentTeamId, teams);
   const currentTeam =
     teams.find((team) => team.id === effectiveTeamId) ??
@@ -200,10 +204,6 @@ export function SidebarUserButton() {
       }
       return;
     }
-    if (action === "subscription") {
-      openUserCenter("subscription");
-      return;
-    }
     openUserCenter("account");
   };
 
@@ -263,22 +263,22 @@ export function SidebarUserButton() {
   };
 
   // 版本更新放在倒数第二（设置之前）
+  // 未登录时「用户中心」已由上方登录入口承担，菜单里不再重复一项
   const items: {
     id: MenuAction;
     label: string;
     icon: ReactNode;
     badge?: boolean;
   }[] = [
-    {
-      id: "account",
-      label: t("userCenter.title"),
-      icon: <IconUser size={14} />,
-    },
-    {
-      id: "subscription",
-      label: t("userCenter.nav.subscription"),
-      icon: <IconCheckCircle size={14} />,
-    },
+    ...(isLoggedIn
+      ? [
+          {
+            id: "account" as const,
+            label: t("userCenter.title"),
+            icon: <IconUser size={14} />,
+          },
+        ]
+      : []),
     {
       id: "website",
       label: t("userCenter.nav.website"),
@@ -304,7 +304,7 @@ export function SidebarUserButton() {
 
   const title = isLoggedIn
     ? nickname.trim() || t("userCenter.title")
-    : t("userCenter.login.signIn");
+    : t("userCenter.menuLabel");
 
   const teamButtonTitle = currentTeam
     ? `${t("userCenter.switchTeam")}: ${currentTeam.name || `#${currentTeam.id}`}`
@@ -344,7 +344,24 @@ export function SidebarUserButton() {
         >
           <IconUsers size={20} />
         </button>
-      ) : null}
+      ) : (
+        <button
+          type="button"
+          className={`sidebar-item sidebar-guest-entry-btn${
+            guestEntryActive ? " active" : ""
+          }`}
+          title={t("userCenter.guestEntry")}
+          aria-label={t("userCenter.guestEntryAria")}
+          onClick={() => {
+            setMenuOpen(false);
+            setTeamMenuOpen(false);
+            openUserCenter("account");
+          }}
+        >
+          <IconLogIn size={20} />
+          <span className="sidebar-guest-entry-btn__dot" aria-hidden />
+        </button>
+      )}
 
       <button
         ref={buttonRef}
@@ -361,11 +378,11 @@ export function SidebarUserButton() {
       >
         {isLoggedIn && avatarUrl ? (
           <img src={avatarUrl} alt="" className="sidebar-user-btn__avatar" />
+        ) : isLoggedIn ? (
+          <IconUser size={20} />
         ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
+          // 未登录：底部是系统菜单，不是第二个「账号」人像
+          <IconSettings size={20} />
         )}
         {updateBadge ? (
           <span className="sidebar-user-btn__badge" aria-hidden />

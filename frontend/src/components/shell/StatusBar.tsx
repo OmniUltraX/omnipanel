@@ -13,13 +13,13 @@ import {
   countRunningBackgroundTasks,
   formatBackgroundTaskStatusMessage,
   getPrimaryBackgroundTaskForStatusBar,
+  isBackgroundTaskBusy,
 } from "../../stores/backgroundTaskStore";
 import { useI18n } from "../../i18n";
 import { ConnectionPoolIndicator } from "./ConnectionPoolIndicator";
 import { BackgroundTasksWindow } from "./BackgroundTasksWindow";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
-import { StatusBarAiServicesIndicator } from "./StatusBarAiServicesIndicator";
-import { StatusBarLocalRuntimeIndicator } from "./StatusBarLocalRuntimeIndicator";
+import { StatusBarServicesIndicator } from "./StatusBarServicesIndicator";
 import { StatusBarActionBar } from "./StatusBarActionBar";
 import { StatusBarInfoBar } from "./StatusBarInfoBar";
 import { useActionDraftStore } from "../../stores/actionDraftStore";
@@ -43,7 +43,7 @@ function StatusBarApprovalBadge() {
   }, [setGlobalDialogOpen]);
 
   const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLSpanElement>) => {
+    (event: KeyboardEvent<HTMLButtonElement>) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         handleOpen();
@@ -57,35 +57,47 @@ function StatusBarApprovalBadge() {
   const message = t("ai.approval.pendingCount", { count });
 
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      className="statusbar-log statusbar-log--warn"
+    <button
+      type="button"
+      className="statusbar-chip statusbar-chip--warn"
       title={message}
       aria-label={message}
       onClick={handleOpen}
       onKeyDown={handleKeyDown}
     >
-      <span className="statusbar-dot yellow" aria-hidden />
-      <span className="statusbar-log-text">{message}</span>
-    </span>
+      <span className="statusbar-chip__pulse statusbar-chip__pulse--warn" aria-hidden />
+      <span className="statusbar-chip__label">{message}</span>
+    </button>
   );
 }
 
-/** 全局后台任务进度（切换模块后仍展示） */
+const COMPLETED_TASK_FLASH_MS = 4000;
+
+/** 全局后台任务进度（切换模块后仍展示）；已完成只短暂闪一下，避免底栏常驻绿字。 */
 function StatusBarBackgroundTaskLog() {
   const { t } = useI18n();
   const setTaskListOpen = useBackgroundTaskStore((s) => s.setTaskListOpen);
   const tasks = useBackgroundTaskStore((s) => s.tasks);
   const primary = getPrimaryBackgroundTaskForStatusBar(tasks);
   const runningCount = countRunningBackgroundTasks(tasks);
+  const [showSettled, setShowSettled] = useState(true);
+
+  useEffect(() => {
+    if (!primary || isBackgroundTaskBusy(primary.status)) {
+      setShowSettled(true);
+      return;
+    }
+    setShowSettled(true);
+    const timer = window.setTimeout(() => setShowSettled(false), COMPLETED_TASK_FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [primary?.id, primary?.status, primary?.finishedAt]);
 
   const handleOpenTasks = useCallback(() => {
     setTaskListOpen(true);
   }, [setTaskListOpen]);
 
   const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLSpanElement>) => {
+    (event: KeyboardEvent<HTMLButtonElement>) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         handleOpenTasks();
@@ -97,24 +109,43 @@ function StatusBarBackgroundTaskLog() {
   if (!primary) {
     return null;
   }
+  if (!isBackgroundTaskBusy(primary.status) && !showSettled) {
+    return null;
+  }
 
   const message = formatBackgroundTaskStatusMessage(primary, runningCount, t);
   const level = backgroundTaskStatusBarLevel(primary.status);
   const title = `${message}\n${t("shell.backgroundTasks.openHint")}`;
+  const chipTone =
+    level === "success"
+      ? "statusbar-chip--ok"
+      : level === "error"
+        ? "statusbar-chip--danger"
+        : "statusbar-chip--progress";
 
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      className={`statusbar-log statusbar-log--${level}`}
+    <button
+      type="button"
+      className={`statusbar-chip statusbar-chip--task ${chipTone}`}
       title={title}
       aria-label={message}
       onClick={handleOpenTasks}
       onKeyDown={handleKeyDown}
     >
-      {level === "progress" ? <span className="statusbar-dot yellow" aria-hidden /> : null}
-      <span className="statusbar-log-text">{message}</span>
-    </span>
+      {level === "progress" ? (
+        <span className="statusbar-chip__pulse" aria-hidden />
+      ) : level === "success" ? (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <path d="M3.5 8.5 6.5 11.5 12.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+          <circle cx="8" cy="8" r="5.5" />
+          <path d="M8 5v4M8 11h.01" strokeLinecap="round" />
+        </svg>
+      )}
+      <span className="statusbar-chip__label">{message}</span>
+    </button>
   );
 }
 
@@ -328,58 +359,51 @@ export function StatusBar() {
 
     return (
       <div className="statusbar">
-        <ConnectionPoolIndicator />
-        <StatusBarApprovalBadge />
-        <StatusBarBackgroundTaskLog />
-        <StatusBarModuleLog />
+        <div className="statusbar-left">
+          <ConnectionPoolIndicator />
+          <StatusBarApprovalBadge />
+          <StatusBarBackgroundTaskLog />
+          <StatusBarModuleLog />
+          <span className="statusbar-chip statusbar-chip--muted">
+            <span className="statusbar-chip__label">{terminalState}</span>
+          </span>
+          {activeResource?.name ? (
+            <span className="statusbar-chip statusbar-chip--muted">
+              <span className="statusbar-chip__label">{activeResource.name}</span>
+            </span>
+          ) : null}
+          <span className="statusbar-chip statusbar-chip--muted">
+            <span className="statusbar-chip__label">{time}</span>
+          </span>
+        </div>
         <BackgroundTasksWindow />
-        <span className="statusbar-item">
-          <span className="statusbar-dot green" />
-          {terminalState}
-        </span>
-        <span className="statusbar-item">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-            <rect x="2" y="7" width="6" height="5" rx="1" />
-            <rect x="10" y="7" width="6" height="5" rx="1" />
-          </svg>
-          {activeResource?.name ?? "prod-web-01"}
-        </span>
-        <span className="statusbar-item">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 6v6l4 2" />
-          </svg>
-          {time}
-        </span>
         <span className="statusbar-spacer" />
-        <StatusBarInfoBar />
-        <StatusBarActionBar />
-        <span className="statusbar-item" style={{ color: "var(--meta)" }}>
-          Ctrl+K: Command Palette
-        </span>
-        <span className="statusbar-item">GPU: wgpu</span>
-        <span className="statusbar-item">UTF-8</span>
-        <span className="statusbar-item">LF</span>
-        <StatusBarLocalRuntimeIndicator />
-        <StatusBarAiServicesIndicator />
-        {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
+        <div className="statusbar-right">
+          <StatusBarInfoBar />
+          <StatusBarActionBar />
+          <StatusBarServicesIndicator />
+          {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="statusbar">
-      <ConnectionPoolIndicator />
-      <StatusBarApprovalBadge />
-      <StatusBarBackgroundTaskLog />
-      <StatusBarModuleLog />
+      <div className="statusbar-left">
+        <ConnectionPoolIndicator />
+        <StatusBarApprovalBadge />
+        <StatusBarBackgroundTaskLog />
+        <StatusBarModuleLog />
+      </div>
       <BackgroundTasksWindow />
       <span className="statusbar-spacer" />
-      <StatusBarInfoBar />
-      <StatusBarActionBar />
-      <StatusBarLocalRuntimeIndicator />
-      <StatusBarAiServicesIndicator />
-      {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
+      <div className="statusbar-right">
+        <StatusBarInfoBar />
+        <StatusBarActionBar />
+        <StatusBarServicesIndicator />
+        {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
+      </div>
     </div>
   );
 }

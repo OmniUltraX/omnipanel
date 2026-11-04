@@ -118,7 +118,7 @@ export interface ContentPreviewViewProps {
   /** 内容切杢时針置文本模开*/
   contentResetKey?: string;
   className?: string;
-  /** 兝许编辑文本内容（普通文最/ 代砝 / JSON / Markdown 模弝＀*/
+  /** 允许编辑文本；Markdown / JSON 树 / Web 为只读预览，编辑请切到「普通文本 / 代码」 */
   editable?: boolean;
   onTextChange?: (text: string) => void;
 }
@@ -311,10 +311,8 @@ export function ContentPreviewView({
       return renderEditableCodeEditor("json", "content-preview-code--json");
     }
 
+    // Markdown 模式一律渲染预览（与 JSON 树一致）；编辑请切到「代码 / 普通文本」。
     if (textMode === "markdown") {
-      if (editable) {
-        return renderEditableCodeEditor("text", "content-preview-code--markdown");
-      }
       return (
         <div className="content-preview-markdown">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{sourceText}</ReactMarkdown>

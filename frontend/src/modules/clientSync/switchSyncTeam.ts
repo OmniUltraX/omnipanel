@@ -20,6 +20,7 @@ import {
   flushClientModuleSync,
   setClientModuleSyncSuppressed,
 } from "./moduleSync";
+import { withSpaceSyncTask } from "./spaceSyncBackgroundTask";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { schedulePluginEnsure } from "../../lib/pluginEnsure";
 import {
@@ -192,37 +193,43 @@ export async function switchSyncTeam(
     let pulledConversations = false;
 
     if (switched.empty) {
-      const modulesResult = await unwrapCommand(
-        commands.localSpaceSync({
-          token,
-          teamId,
-          sshSidebarTreeJson: null,
-          folderTreesJson: null,
-          customPanelsJson: null,
-          workspacesJson: null,
-        }),
-        { quiet: true },
+      await withSpaceSyncTask(
+        "pull",
+        async () => {
+          const modulesResult = await unwrapCommand(
+            commands.localSpaceSync({
+              token,
+              teamId,
+              sshSidebarTreeJson: null,
+              folderTreesJson: null,
+              customPanelsJson: null,
+              workspacesJson: null,
+            }),
+            { quiet: true },
+          );
+          if (!modulesResult.skipped) {
+            if (modulesResult.workspacesJson) {
+              replaceWorkspacesJson(modulesResult.workspacesJson);
+            }
+            if (modulesResult.sshSidebarTreeJson) {
+              applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "replace");
+            }
+            if (modulesResult.folderTreesJson) {
+              applyFolderTreesJson(modulesResult.folderTreesJson, "replace");
+            }
+            if (modulesResult.customPanelsJson) {
+              applyCustomPanelsJson(modulesResult.customPanelsJson, "replace");
+            }
+            if (modulesResult.conversationsJson != null) {
+              replaceConversationList(modulesResult.conversationsJson);
+              pulledConversations = true;
+            }
+            await refreshLocalModuleUi();
+            pulledModules = true;
+          }
+        },
+        () => (pulledModules ? "已拉取团队空间" : "团队空间无快照"),
       );
-      if (!modulesResult.skipped) {
-        if (modulesResult.workspacesJson) {
-          replaceWorkspacesJson(modulesResult.workspacesJson);
-        }
-        if (modulesResult.sshSidebarTreeJson) {
-          applySshSidebarTreeJson(modulesResult.sshSidebarTreeJson, "replace");
-        }
-        if (modulesResult.folderTreesJson) {
-          applyFolderTreesJson(modulesResult.folderTreesJson, "replace");
-        }
-        if (modulesResult.customPanelsJson) {
-          applyCustomPanelsJson(modulesResult.customPanelsJson, "replace");
-        }
-        if (modulesResult.conversationsJson != null) {
-          replaceConversationList(modulesResult.conversationsJson);
-          pulledConversations = true;
-        }
-        await refreshLocalModuleUi();
-        pulledModules = true;
-      }
     }
 
     await refreshLocalModuleUi();

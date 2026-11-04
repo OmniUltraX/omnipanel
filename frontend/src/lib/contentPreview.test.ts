@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  looksLikeMarkdown,
   normalizePreviewWebUrl,
   resolvePreferredPreviewTextMode,
   resolvePreviewWebTarget,
@@ -60,5 +61,26 @@ describe("resolvePreviewWebTarget / preferred mode", () => {
     expect(
       resolvePreferredPreviewTextMode({ kind: "text", text: "https://example.com" }),
     ).toBe("web");
+  });
+
+  it("Markdown 文档推荐 markdown 模式", () => {
+    const md = [
+      "## 平台简介",
+      "",
+      "**芋道** 是开源项目",
+      "",
+      "* [vue-element-plus-admin](https://example.com)",
+      "* 支持多租户",
+    ].join("\n");
+    expect(looksLikeMarkdown(md)).toBe(true);
+    expect(resolvePreferredPreviewTextMode({ kind: "text", text: md })).toBe("markdown");
+  });
+
+  it("普通短句不误判为 Markdown", () => {
+    expect(looksLikeMarkdown("hello world")).toBe(false);
+    expect(looksLikeMarkdown("price * qty")).toBe(false);
+    expect(
+      resolvePreferredPreviewTextMode({ kind: "text", text: "hello world" }),
+    ).toBe("plain");
   });
 });

@@ -19,7 +19,6 @@ import {
   SidebarIcon,
   SidebarImportIcon,
   SidebarStatusDot,
-  type SidebarStatus,
 } from "@/components/ui/module-sidebar";
 import {
   type VerticalSplitSidebarSectionConfig,
@@ -51,7 +50,11 @@ import {
 } from "./hooks/useDockerConnectionResources";
 import { DockerContainersTreeBranch } from "./DockerContainersTreeBranch";
 import { dockerSourceLabel } from "./dockerConnectionSource";
-import { isDockerConnectionProbePending } from "./dockerConnectionList";
+import {
+  dockerSidebarStatusDot,
+  isDockerConnectionProbePending,
+  isDockerConnectionProbed,
+} from "./dockerConnectionList";
 import { ensureDockerSidebarContainers } from "./dockerSidebarCacheSeed";
 import { groupContainersByComposeProject } from "./dockerComposeGroups";
 import { usePersistedTreeExpanded } from "@/components/ui/module-sidebar/usePersistedTreeExpanded";
@@ -78,10 +81,18 @@ import {
   type DockerSidebarFolder,
 } from "@/stores/dockerSidebarTreeStore";
 
-function statusDotStatus(status: DockerConnectionInfo["status"]): SidebarStatus {
-  if (status === "online") return "online";
-  if (status === "degraded") return "connecting";
-  return "offline";
+function statusDotTitle(
+  connection: DockerConnectionInfo,
+  pending: boolean,
+  t: (key: string) => string,
+): string {
+  if (pending) return t("common.statusConnecting");
+  if (connection.status === "online") return t("docker.sidebar.statusOnline");
+  if (connection.status === "degraded") return t("docker.sidebar.statusDegraded");
+  if (!isDockerConnectionProbed(connection.connectionId)) {
+    return t("docker.sidebar.statusIdle");
+  }
+  return t("docker.sidebar.statusOffline");
 }
 
 type DockerTreeBranchProps = {
@@ -552,20 +563,12 @@ export function DockerPanelTreeSidebar({
           onDragEnd={() => setDragOverKey(null)}
           prefix={
             <SidebarStatusDot
-              status={
-                isDockerConnectionProbePending(connection.connectionId)
-                  ? "connecting"
-                  : statusDotStatus(connection.status)
-              }
-              title={
-                isDockerConnectionProbePending(connection.connectionId)
-                  ? t("common.statusConnecting")
-                  : connection.status === "online"
-                    ? t("docker.sidebar.statusOnline")
-                    : connection.status === "degraded"
-                      ? t("docker.sidebar.statusDegraded")
-                      : t("docker.sidebar.statusOffline")
-              }
+              status={dockerSidebarStatusDot(connection.connectionId, connection.status)}
+              title={statusDotTitle(
+                connection,
+                isDockerConnectionProbePending(connection.connectionId),
+                t,
+              )}
             />
           }
           label={

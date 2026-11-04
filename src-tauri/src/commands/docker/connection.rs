@@ -1,10 +1,5 @@
 //! Docker 命令桥接：connection
 use super::*;
-use futures::future::join_all;
-use std::time::Duration;
-
-/// 列表探测超时：避免单个不可达主机拖死侧栏加载。
-const LIST_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// 编辑 Docker 连接表单：从 Vault 取回面板 API Key（列表 / config 永不存明文）。
 #[tauri::command]
@@ -99,6 +94,8 @@ pub async fn docker_list_connections(
         storage.list_connections_by_kind(omnipanel_store::ConnectionKind::Docker)?
     };
 
+    // 本机 Engine 已由上方内置 `docker-local` 覆盖；连接库里再存一条会并出两个「本机/本地 Docker」
+    let mut stale_local_ids = Vec::new();
     for conn in stored {
         let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
         let source = cfg
@@ -106,6 +103,10 @@ pub async fn docker_list_connections(
             .as_deref()
             .map(DockerConnectionSource::parse)
             .unwrap_or(DockerConnectionSource::LocalEngine);
+        if source == DockerConnectionSource::LocalEngine || conn.id == LOCAL_CONNECTION_ID {
+            stale_local_ids.push(conn.id);
+            continue;
+        }
         let host_label = cfg
             .host
             .or_else(|| cfg.ssh.as_ref().map(|s| format!("{}@{}", s.user, s.host)))
@@ -138,43 +139,14 @@ pub async fn docker_list_connections(
         });
     }
 
-    // 并行探测各实例，回填 status / 版本信息（侧栏 topbar-tab-dot 依赖此字段）
-    // 注意：此处不走 with_adapter 重试——宝塔鉴权失败再打会加速封禁
-    let probe_results = join_all(out.iter().map(|info| {
-        let connection_id = info.connection_id.clone();
-        async {
-            let probed = tokio::time::timeout(LIST_PROBE_TIMEOUT, async {
-                let adapter = resolve_adapter(&state, &connection_id).await?;
-                adapter.probe().await
-            })
-            .await;
-            match probed {
-                Ok(Ok(probe)) => Some((connection_id, probe)),
-                Ok(Err(_)) | Err(_) => None,
-            }
-        }
-    }))
-    .await;
-
-    for (connection_id, probe) in probe_results.into_iter().flatten() {
-        let Some(info) = out
-            .iter_mut()
-            .find(|item| item.connection_id == connection_id)
-        else {
-            continue;
-        };
-        info.status = probe.status;
-        if info.engine_version.is_none() {
-            info.engine_version = probe.engine_version;
-        }
-        if info.api_version.is_none() {
-            info.api_version = probe.api_version;
-        }
-        if info.warning_message.is_none() {
-            info.warning_message = probe.warning_message;
+    if !stale_local_ids.is_empty() {
+        let storage = state.storage.lock().await;
+        for id in &stale_local_ids {
+            let _ = storage.delete_connection(id);
         }
     }
 
+    // 列表只回目录，不主动 probe / 建 SSH。状态由打开连接或手动刷新走 docker_probe_connection。
     Ok(out)
 }
 

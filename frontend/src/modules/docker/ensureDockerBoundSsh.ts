@@ -1,10 +1,9 @@
 /**
- * Docker 实例依赖的绑定 SSH：未打开时先确认，用户同意后再建立会话并允许重试原操作。
+ * Docker 实例依赖的绑定 SSH：用户已在操作 Docker，未打开时直接建会话，不再二次确认。
  */
 import { commands } from "../../ipc/bindings";
 import { formatIpcError } from "../../ipc/result";
 import { appAlert } from "../../lib/appAlert";
-import { appConfirm } from "../../lib/appConfirm";
 import { ensureSshReady, isSshConnectionEstablished } from "../database/mysqlSlowQueryLog";
 import { useConnectionStore } from "../../stores/connectionStore";
 import {
@@ -157,12 +156,12 @@ function isSshNeedOpenError(error: unknown): boolean {
   return MISSING_BOUND_SSH_RE.test(text) || SSH_NEED_OPEN_RE.test(text);
 }
 
-/** 同一 SSH 并发确保时合并为一次确认 / 建连。 */
+/** 同一 SSH 并发确保时合并为一次建连。 */
 const ensureInflight = new Map<string, Promise<boolean>>();
 
 /**
- * 若绑定 SSH 尚未建立会话，弹出确认框；用户同意则打开连接。
- * @returns true 表示可继续原逻辑；false 表示用户取消或打开失败
+ * 若绑定 SSH 尚未建立会话，直接打开（用户已在操作 Docker，不再询问）。
+ * @returns true 表示可继续原逻辑；false 表示打开失败
  */
 export async function ensureDockerBoundSshOpen(
   boundSshConnectionId: string | null | undefined,
@@ -177,18 +176,6 @@ export async function ensureDockerBoundSshOpen(
   const task = (async () => {
     if (isSshConnectionEstablished(sshId)) return true;
     if (await tryEstablishBoundSshSilently(sshId)) return true;
-
-    const confirmed = await appConfirm(
-      "该实例所依赖的SSH连接尚未打开，是否立即打开？",
-      "OmniPanel",
-      {
-        kind: "warning",
-        confirmLabel: "打开",
-        cancelLabel: "取消",
-      },
-    );
-    if (!confirmed) return false;
-
     return openBoundSshAfterConfirm(sshId);
   })().finally(() => {
     ensureInflight.delete(sshId);
@@ -199,7 +186,7 @@ export async function ensureDockerBoundSshOpen(
 }
 
 /**
- * Docker 操作前：若配置了绑定 SSH 且未打开，则确认并打开。
+ * Docker 操作前：若配置了绑定 SSH 且未打开，则直接打开。
  * 未配置绑定时返回 true，交由后端报错或后续 recover 处理。
  */
 export async function prepareDockerBoundSsh(
@@ -258,8 +245,8 @@ export async function runWithDockerBoundSsh<T>(
   hint?: DockerBoundSshHint | string | null,
 ): Promise<T> {
   if (!(await prepareDockerBoundSsh(dockerConnectionId, hint))) {
-    throw Object.assign(new Error("已取消打开依赖的 SSH 连接"), {
-      code: "cancelled",
+    throw Object.assign(new Error("打开依赖的 SSH 连接失败"), {
+      code: "ssh_open_failed",
     });
   }
 

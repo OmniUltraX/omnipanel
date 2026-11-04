@@ -7282,6 +7282,24 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     pointer-events: none;
 }
 
+/* 未登录：头像上方常驻登录入口（切团队槽位） */
+.sidebar-guest-entry-btn {
+    position: relative;
+    overflow: visible;
+}
+
+.sidebar-guest-entry-btn__dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--sidebar-bg, var(--surface));
+    pointer-events: none;
+}
+
 .sidebar-user-menu {
     display: flex;
     flex-direction: column;
@@ -10325,15 +10343,28 @@ button.omni-btn-tool[aria-pressed="true"] {
 
     /* Statusbar */
     .statusbar {
-        height: 26px;
+        height: 28px;
         display: flex;
         align-items: center;
-        padding: 0 var(--sp-3);
+        padding: 0 8px;
         background: var(--bg-deeper);
         border-top: 1px solid var(--border);
         font-size: 11px;
         color: var(--meta);
-        gap: var(--sp-3);
+        gap: 6px;
+        flex-shrink: 0;
+    }
+
+    .statusbar-left,
+    .statusbar-right {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        flex-shrink: 1;
+    }
+
+    .statusbar-right {
         flex-shrink: 0;
     }
 
@@ -10341,6 +10372,82 @@ button.omni-btn-tool[aria-pressed="true"] {
         display: flex;
         align-items: center;
         gap: var(--sp-1);
+    }
+
+    /* 底栏统一芯片：安静、可点、不抢戏 */
+    .statusbar-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        max-width: min(360px, 42vw);
+        height: 20px;
+        padding: 0 7px;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--meta);
+        font: inherit;
+        line-height: 1;
+        cursor: default;
+        white-space: nowrap;
+        transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+
+    button.statusbar-chip {
+        cursor: pointer;
+    }
+
+    .statusbar-chip__label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .statusbar-chip__pulse {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--accent);
+        flex-shrink: 0;
+    }
+
+    .statusbar-chip__pulse--warn {
+        background: var(--warn);
+    }
+
+    .statusbar-chip--muted {
+        color: var(--meta);
+    }
+
+    .statusbar-chip--ok {
+        color: color-mix(in srgb, var(--success) 85%, var(--fg-2));
+        background: color-mix(in srgb, var(--success) 8%, transparent);
+        border-color: color-mix(in srgb, var(--success) 22%, transparent);
+    }
+
+    .statusbar-chip--warn {
+        color: color-mix(in srgb, var(--warn) 90%, var(--fg-2));
+        background: color-mix(in srgb, var(--warn) 10%, transparent);
+        border-color: color-mix(in srgb, var(--warn) 28%, transparent);
+    }
+
+    .statusbar-chip--danger {
+        color: color-mix(in srgb, var(--danger) 88%, var(--fg-2));
+        background: color-mix(in srgb, var(--danger) 10%, transparent);
+        border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+    }
+
+    .statusbar-chip--progress {
+        color: var(--fg-2);
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+        border-color: color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+
+    button.statusbar-chip:hover {
+        color: var(--fg);
+        border-color: var(--border);
+        background: var(--surface-hover, color-mix(in srgb, var(--fg) 6%, transparent));
     }
 
     .statusbar-user {
@@ -10575,7 +10682,8 @@ button.omni-btn-tool[aria-pressed="true"] {
         align-items: center;
         gap: var(--sp-1);
         min-width: 0;
-        flex: 1 1 auto;
+        max-width: min(360px, 42vw);
+        flex: 0 1 auto;
         overflow: hidden;
         color: var(--fg-2);
         cursor: pointer;
@@ -10631,7 +10739,6 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .connection-pool-indicator {
-        cursor: default;
         user-select: none;
     }
 
@@ -25494,7 +25601,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: auto;
+    overflow: hidden;
     padding: 0;
     background: var(--bg);
 }
@@ -26659,6 +26766,97 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 .user-center-login-embed .auth-login-methods {
     width: min(100%, 360px);
     margin: 0 auto;
+}
+
+/* 未登录用户中心：能力说明 + 登录 */
+.user-center-guest-landing {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.user-center-guest-landing__benefits {
+    flex: 0 0 min(280px, 36%);
+    min-width: 200px;
+    max-width: 320px;
+    padding: var(--sp-5);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    box-sizing: border-box;
+    background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+}
+
+.user-center-guest-landing__title {
+    margin: 0 0 var(--sp-3);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--fg);
+    line-height: 1.35;
+}
+
+.user-center-guest-landing__list {
+    margin: 0;
+    padding: 0 0 0 1.1em;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--fg-2);
+}
+
+.user-center-guest-landing__list li::marker {
+    color: var(--accent);
+}
+
+.user-center-guest-landing__note {
+    margin: var(--sp-4) 0 0;
+    padding-top: var(--sp-3);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--meta);
+}
+
+.user-center-guest-landing__login {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--sp-5);
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.user-center-guest-landing__login .auth-login-methods {
+    width: min(100%, 380px);
+}
+
+.user-center-guest-landing__login .onboarding-facts-title {
+    margin-top: var(--sp-4);
+}
+
+@media (max-width: 720px) {
+    .user-center-guest-landing {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .user-center-guest-landing__benefits {
+        flex: 0 0 auto;
+        max-width: none;
+        min-width: 0;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .user-center-guest-landing__login {
+        overflow: visible;
+    }
 }
 
 .auth-login-methods__title {

@@ -23,6 +23,11 @@ import {
   setSecretsVaultSyncSuppressed,
 } from "./secretsVaultSync";
 import { collectModulesSyncPayload } from "./prepareModulesSyncPayload";
+import {
+  beginSpaceSyncTask,
+  finishSpaceSyncTask,
+  updateSpaceSyncTask,
+} from "./spaceSyncBackgroundTask";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { waitLayoutStoresHydrated } from "./layoutStoresHydration";
 import { resolveSpaceClaim } from "./spaceClaim";
@@ -273,6 +278,7 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
   let appliedDatabases = 0;
   let healEmptyLayouts = false;
   let result: PullCloudSnapshotResult = empty;
+  beginSpaceSyncTask("pull");
   try {
     const modulesResult = await unwrapCommand(
       commands.localSpaceSync({
@@ -285,6 +291,7 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
     modulesFound = !modulesResult.skipped;
     appliedConnections = Number(modulesResult.appliedConnections ?? 0);
     if (modulesFound) {
+      updateSpaceSyncTask("正在应用云端快照…");
       await applySpaceSyncReport(modulesResult);
       const { noticeSpaceSync } = await import("./spaceClaim");
       await noticeSpaceSync(modulesResult);
@@ -296,6 +303,7 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
     }
 
     // 模块快照不含密码；有 SyncMasterKey 时再拉密文库。
+    updateSpaceSyncTask("正在同步密文库…");
     await pullSecretsVaultOnce();
 
     result = {
@@ -305,6 +313,12 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
       appliedConnections,
       appliedDatabases,
     };
+    finishSpaceSyncTask({
+      ok: true,
+      progress: modulesFound
+        ? `已拉取（连接 ${appliedConnections}）`
+        : "云端无新快照",
+    });
   } catch (err) {
     console.warn("[client-sync] pullCloudSnapshot failed:", err);
     result = {
@@ -314,6 +328,7 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
       appliedConnections,
       appliedDatabases,
     };
+    finishSpaceSyncTask({ ok: false, error: err });
   } finally {
     setClientModuleSyncSuppressed(false);
     setClientConversationSyncSuppressed(false);

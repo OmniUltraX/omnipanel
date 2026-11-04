@@ -233,6 +233,8 @@ export interface AuthLoginMethodsProps {
   showTitle?: boolean;
   /** 引导页只留一句说明，避免把扫码区挤出屏幕 */
   brief?: boolean;
+  /** 隐私说明相对登录区的位置；访客落地页用 after */
+  factsPosition?: "before" | "after" | "hidden";
   className?: string;
 }
 
@@ -240,29 +242,32 @@ export interface AuthLoginMethodsProps {
  * 多方式登录主体：微信扫码 / GitHub OAuth / 邮箱验证码。
  * 供启动门禁登录页与个人中心退出后复用。
  */
-export function AuthLoginMethods({ showTitle = false, brief = false, className }: AuthLoginMethodsProps) {
+export function AuthLoginMethods({
+  showTitle = false,
+  brief = false,
+  factsPosition = "before",
+  className,
+}: AuthLoginMethodsProps) {
   const { t } = useI18n();
   const githubIcon = useGithubIcon();
   const [method, setMethod] = useState<LoginMethod>("wechat");
 
   const rootClass = ["auth-login-methods", className].filter(Boolean).join(" ");
 
-  return (
-    <div className={rootClass}>
-      {showTitle ? (
-        <>
-          <h2 className="auth-login-methods__title">{t("app.login.title")}</h2>
-          <p className="auth-login-methods__desc">{t("app.login.desc")}</p>
-        </>
-      ) : null}
+  const facts =
+    factsPosition === "hidden" ? null : (
+      <>
+        <p className="onboarding-facts-title">{t("app.onboarding.factsTitle")}</p>
+        <ul className="onboarding-facts">
+          {FACT_KEYS.map((key) => (
+            <li key={key}>{t(key)}</li>
+          ))}
+        </ul>
+      </>
+    );
 
-      {brief ? <p className="onboarding-brief">{t("app.onboarding.loginBrief")}</p> : null}
-      <p className="onboarding-facts-title">{t("app.onboarding.factsTitle")}</p>
-      <ul className="onboarding-facts">
-        {FACT_KEYS.map((key) => (
-          <li key={key}>{t(key)}</li>
-        ))}
-      </ul>
+  const loginBody = (
+    <>
       <div className="login-page__body">
         {method === "wechat" ? <WechatLoginPanel hideHeader /> : null}
         {method === "github" ? <GithubLoginPanel /> : null}
@@ -291,6 +296,22 @@ export function AuthLoginMethods({ showTitle = false, brief = false, className }
           })}
         </div>
       </div>
+    </>
+  );
+
+  return (
+    <div className={rootClass}>
+      {showTitle ? (
+        <>
+          <h2 className="auth-login-methods__title">{t("app.login.title")}</h2>
+          <p className="auth-login-methods__desc">{t("app.login.desc")}</p>
+        </>
+      ) : null}
+
+      {brief ? <p className="onboarding-brief">{t("app.onboarding.loginBrief")}</p> : null}
+      {factsPosition === "before" ? facts : null}
+      {loginBody}
+      {factsPosition === "after" ? facts : null}
     </div>
   );
 }

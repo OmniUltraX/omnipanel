@@ -7,10 +7,6 @@ import { SpaceConflictHost } from "./modules/clientSync/SpaceConflictMark";
 import { useI18n } from "./i18n";
 import { initSettings, useSettingsStore } from "./stores/settingsStore";
 import { commands } from "./ipc/bindings";
-import { initAiModelsStore } from "./stores/aiModelsStore";
-import { initDbSqlFilesStore } from "./stores/dbSqlFileStore";
-import { initDbTreeChartFilesStore } from "./stores/dbTreeChartFileStore";
-import { initAgentSourcesStore } from "./stores/agentSourcesStore";
 import { initConnections } from "./stores/connectionStore";
 import { initConnectionPool } from "./stores/connectionPoolStore";
 import { initBackgroundTasks } from "./stores/backgroundTaskStore";
@@ -19,12 +15,12 @@ import { initPluginRuntimeStore } from "./stores/pluginRuntimeStore";
 import { warmDbxCatalogCache } from "./stores/dbxCatalogStore";
 import { initPluginConfirmListener } from "./lib/pluginConfirm";
 import { initResourceDedupeListener } from "./lib/resourceDedupeRewrite";
-import { initBuiltinToolStore } from "./stores/builtinToolStore";
 import { initActionListener } from "./stores/actionStore";
 import { syncAppWindowTitle } from "./lib/appWindowTitle";
 import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 import { expandMainWindow, showSplashWindow } from "./lib/bootSplashBridge";
 import { initDeviceNameCache } from "./lib/deviceIdentity";
+import { startBootSecondaryInits } from "./lib/bootSecondaryInits";
 import { useAuthStore } from "./stores/authStore";
 import { resolveFirstRun } from "./lib/localSpaceBoot";
 import { syncAuthProfile } from "./lib/auth/syncAuthProfile";
@@ -33,6 +29,8 @@ import "./lib/registerSyncBridges";
 const MIN_SPLASH_MS = 800;
 const EXIT_ANIM_MS = 520;
 const TOTAL_STEPS = 4;
+/** 资料同步最多等这么久；超时仍进门，后台继续 */
+const PROFILE_SYNC_BUDGET_MS = 1500;
 
 type BootPhase = "wait-auth" | "wizard" | "splash" | "exit" | "app";
 
@@ -109,13 +107,13 @@ export function Bootstrap() {
 
       try {
         advance(1);
+        // 主界面与重活尽早并行；重活进门后继续，不挡闪屏
         const appPromise = import("./App");
 
         await pushLog(t("app.splash.logs.settings"));
         initSettings();
 
         const token = useAuthStore.getState().token;
-        const profileSync = token ? syncAuthProfile() : Promise.resolve();
         // 预热设备名缓存，供工作区创建等同步路径打 creator 标签
         void initDeviceNameCache();
 
@@ -129,35 +127,28 @@ export function Bootstrap() {
 
         advance(2);
         await pushLog(t("app.splash.logs.modules"));
-        await initAppModuleStore();
-        await initPluginRuntimeStore();
+        await Promise.all([initAppModuleStore(), initPluginRuntimeStore()]);
         warmDbxCatalogCache();
         void initPluginConfirmListener();
         void initResourceDedupeListener();
 
-        await pushLog(t("app.splash.logs.builtinTools"));
-        const toolsChain = initBuiltinToolStore().then(async () => {
-          const { registerToolHandlers } = await import("./lib/ai/toolHost");
-          registerToolHandlers();
-          const { syncGatewayConfig } = await import("./lib/ai/gatewayConfig");
-          void syncGatewayConfig();
-        });
-
-        await pushLog(t("app.splash.logs.cloudSync"));
         if (token) {
-          // 必须先等资料（teams / ossPath）就绪，再拉快照；否则密文库会因缺 ossPath 被跳过，
-          // 且残留 teamId 可能在 teams 校验前导致拉取失败。
+          await pushLog(t("app.splash.logs.cloudSync"));
+          // 资料同步限时：网络慢时用本地 teams 缓存对齐存储，不把闪屏拖死
           try {
-            await profileSync;
+            await Promise.race([syncAuthProfile(), wait(PROFILE_SYNC_BUDGET_MS)]);
           } catch {
+            /* syncAuthProfile 已自吞错误；race 仅限时 */
           }
+          // 超时后仍让资料请求在后台跑完（写回 profile）
+          void syncAuthProfile().catch(() => {});
           try {
             const { alignLocalStorageTeam } = await import("./lib/applyLocalTeamScope");
             await alignLocalStorageTeam();
           } catch {
+            /* 对齐失败不挡进门 */
           }
-          // 冷启动在后台拉仓库。失败或网络卡住都不挡进门，拉完后自己写回本机。
-          // 这台电脑关掉自动同步时，启动也不拉。
+          // 冷启动拉仓库：失败或卡住都不挡进门
           void import("./modules/clientSync")
             .then((m) => {
               if (!m.spaceSyncAutoEnabled()) return;
@@ -173,22 +164,22 @@ export function Bootstrap() {
         initConnectionPool();
         initBackgroundTasks();
 
+        // AI / Agent / SQL / 工具：进门后后台跑，进度走左下角任务条
+        startBootSecondaryInits({
+          title: t("app.splash.secondaryTask.title"),
+          parallel: t("app.splash.secondaryTask.parallel"),
+          tools: t("app.splash.secondaryTask.tools"),
+          aiModels: t("app.splash.secondaryTask.aiModels"),
+          sqlFiles: t("app.splash.secondaryTask.sqlFiles"),
+          treeCharts: t("app.splash.secondaryTask.treeCharts"),
+          agents: t("app.splash.secondaryTask.agents"),
+          dbSchema: t("app.splash.secondaryTask.dbSchema"),
+          done: t("app.splash.secondaryTask.done"),
+          failed: t("app.splash.secondaryTask.failed"),
+        });
+
         await pushLog(t("app.splash.logs.actionListener"));
         initActionListener();
-
-        await pushLog(t("app.splash.logs.aiModels"));
-        const parallelInits = Promise.all([
-          initAiModelsStore(),
-          initDbSqlFilesStore(),
-          initDbTreeChartFilesStore(),
-          initAgentSourcesStore(),
-          import("./modules/database/schema/initDbSchemaUiStores").then((m) =>
-            m.initDbSchemaUiStores(),
-          ),
-        ]);
-        await Promise.all([toolsChain, parallelInits]);
-        // 无 token 时仍消化掉已启动的 profileSync（有 token 时上方已 await）
-        void profileSync;
 
         advance(3);
         await pushLog(t("app.splash.logs.xterm"));

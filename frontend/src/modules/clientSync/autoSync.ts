@@ -8,6 +8,7 @@ import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { useAuthStore } from "../../stores/authStore";
 import { collectModulesSyncPayload } from "./prepareModulesSyncPayload";
 import { scheduleClientModuleSync } from "./moduleSync";
+import { withSpaceSyncTask } from "./spaceSyncBackgroundTask";
 
 /** hydrate / applyRemote 期间禁止回推，避免回路 */
 let suppressPush = false;
@@ -20,27 +21,29 @@ export function setClientConversationSyncSuppressed(value: boolean): void {
 export function cancelClientConversationSync(): void {}
 
 async function pushConversationsOnce(teamId: number | null): Promise<void> {
-  const token = useAuthStore.getState().token?.trim() ?? "";
-  const payload = await collectModulesSyncPayload();
-  const report = await unwrapCommand(
-    commands.localSpaceSync({
-      token,
-      teamId,
-      sshSidebarTreeJson: payload.sshSidebarTreeJson,
-      folderTreesJson: payload.folderTreesJson,
-      customPanelsJson: payload.customPanelsJson,
-      workspacesJson: payload.workspacesJson,
-      conversationsJson: payload.conversationsJson,
-      settingsJson: payload.settingsJson,
-    }),
-    { quiet: true },
-  );
-  if (!report.skipped) {
-    const { applySpaceSyncReport } = await import("./pullCloudSnapshot");
-    await applySpaceSyncReport(report);
-    const { noticeSpaceSync } = await import("./spaceClaim");
-    await noticeSpaceSync(report);
-  }
+  await withSpaceSyncTask("push", async () => {
+    const token = useAuthStore.getState().token?.trim() ?? "";
+    const payload = await collectModulesSyncPayload();
+    const report = await unwrapCommand(
+      commands.localSpaceSync({
+        token,
+        teamId,
+        sshSidebarTreeJson: payload.sshSidebarTreeJson,
+        folderTreesJson: payload.folderTreesJson,
+        customPanelsJson: payload.customPanelsJson,
+        workspacesJson: payload.workspacesJson,
+        conversationsJson: payload.conversationsJson,
+        settingsJson: payload.settingsJson,
+      }),
+      { quiet: true },
+    );
+    if (!report.skipped) {
+      const { applySpaceSyncReport } = await import("./pullCloudSnapshot");
+      await applySpaceSyncReport(report);
+      const { noticeSpaceSync } = await import("./spaceClaim");
+      await noticeSpaceSync(report);
+    }
+  }, () => "本机变更已同步");
 }
 
 /**

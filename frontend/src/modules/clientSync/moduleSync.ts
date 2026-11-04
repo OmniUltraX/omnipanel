@@ -8,6 +8,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { getCurrentSyncTeamId } from "../../stores/currentSyncTeamStore";
 import { collectModulesSyncPayload } from "./prepareModulesSyncPayload";
 import { scheduleSecretsVaultSync } from "./secretsVaultSync";
+import { withSpaceSyncTask } from "./spaceSyncBackgroundTask";
 import { getSpaceSyncPrefs, noteSpaceSyncFinished } from "./spaceSyncPrefs";
 
 /** 连续修改合成一次，避免每敲一下就整库合并。 */
@@ -34,30 +35,32 @@ export function cancelClientModuleSync(): void {
 }
 
 async function pushModulesOnce(teamId: number | null): Promise<void> {
-  const token = useAuthStore.getState().token?.trim() ?? "";
-  const payload = await collectModulesSyncPayload();
-  const report = await unwrapCommand(
-    commands.localSpaceSync({
-      token,
-      teamId,
-      sshSidebarTreeJson: payload.sshSidebarTreeJson,
-      folderTreesJson: payload.folderTreesJson,
-      customPanelsJson: payload.customPanelsJson,
-      workspacesJson: payload.workspacesJson,
-      conversationsJson: payload.conversationsJson,
-      settingsJson: payload.settingsJson,
-    }),
-    { quiet: true },
-  );
-  if (!report.skipped) {
-    const { applySpaceSyncReport } = await import("./pullCloudSnapshot");
-    await applySpaceSyncReport(report);
-    const { noticeSpaceSync } = await import("./spaceClaim");
-    await noticeSpaceSync(report);
-  }
-  noteSpaceSyncFinished();
-  const { useSpaceConflictStore } = await import("../../stores/spaceConflictStore");
-  void useSpaceConflictStore.getState().refresh();
+  await withSpaceSyncTask("push", async () => {
+    const token = useAuthStore.getState().token?.trim() ?? "";
+    const payload = await collectModulesSyncPayload();
+    const report = await unwrapCommand(
+      commands.localSpaceSync({
+        token,
+        teamId,
+        sshSidebarTreeJson: payload.sshSidebarTreeJson,
+        folderTreesJson: payload.folderTreesJson,
+        customPanelsJson: payload.customPanelsJson,
+        workspacesJson: payload.workspacesJson,
+        conversationsJson: payload.conversationsJson,
+        settingsJson: payload.settingsJson,
+      }),
+      { quiet: true },
+    );
+    if (!report.skipped) {
+      const { applySpaceSyncReport } = await import("./pullCloudSnapshot");
+      await applySpaceSyncReport(report);
+      const { noticeSpaceSync } = await import("./spaceClaim");
+      await noticeSpaceSync(report);
+    }
+    noteSpaceSyncFinished();
+    const { useSpaceConflictStore } = await import("../../stores/spaceConflictStore");
+    void useSpaceConflictStore.getState().refresh();
+  }, () => "本机变更已同步");
 }
 
 /**

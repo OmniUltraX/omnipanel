@@ -2,6 +2,17 @@ export default {
     title: "用户中心",
     menuLabel: "用户菜单",
     guest: "访客",
+    guestEntry: "登录",
+    guestEntryAria: "登录个人空间，查看可解锁能力",
+    guestLanding: {
+      title: "登录解锁这些能力",
+      localNote: "本机功能无需登录即可用；登录只用于云端与跨设备能力。",
+      benefits: {
+        sync: "多端与团队数据同步（本机加密后再上传）",
+        devices: "设备管理与助手端扫码配对",
+        profile: "云端账号资料与账号绑定",
+      },
+    },
     openSettings: "打开完整设置",
     logout: "退出登录",
     switchTeam: "切换团队",

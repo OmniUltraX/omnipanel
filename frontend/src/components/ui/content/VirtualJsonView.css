@@ -1,8 +1,50 @@
 .virtual-json-view {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.virtual-json-view-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 65%, var(--surface));
+}
+
+.virtual-json-view-toolbar-btn {
+  padding: 3px 10px;
+  border: none;
+  border-radius: calc(var(--r-sm) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.virtual-json-view-toolbar-btn:hover {
+  color: var(--fg-2);
+  background: var(--surface);
+}
+
+.virtual-json-view-toolbar-btn.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.virtual-json-view-body {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
 }
+
 
 .json-view-container {
   margin: 0;

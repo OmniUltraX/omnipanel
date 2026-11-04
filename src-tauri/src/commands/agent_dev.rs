@@ -142,13 +142,33 @@ fn find_built_binary(root: &Path, bin_name: &str) -> Option<PathBuf> {
 
 pub(crate) fn cargo_build_agent(root: &Path, package_name: &str) -> Result<(), String> {
     let cargo = if cfg!(windows) { "cargo.exe" } else { "cargo" };
-    let status = Command::new(cargo)
-        .args(["build", "-p", package_name])
+    let mut cmd = Command::new(cargo);
+    cmd.args(["build", "-p", package_name])
         .current_dir(root)
-        .status()
+        // GUI 宿主下 cargo/rustc 是控制台程序；不藏窗体会一闪一闪的黑框
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = cmd
+        .output()
         .map_err(|e| format!("启动 cargo 失败: {e}"))?;
-    if !status.success() {
-        return Err(format!("cargo build -p {package_name} 失败 ({status})"));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = if !stderr.trim().is_empty() {
+            stderr.trim().to_string()
+        } else if !stdout.trim().is_empty() {
+            stdout.trim().to_string()
+        } else {
+            output.status.to_string()
+        };
+        return Err(format!("cargo build -p {package_name} 失败: {detail}"));
     }
     Ok(())
 }
@@ -295,26 +315,31 @@ pub async fn agent_dev_ensure_sidecars(
             continue;
         };
 
-        if !built_packages.contains(spec.package_name) {
-            if let Err(err) = cargo_build_agent(root, spec.package_name) {
-                items.push(AgentDevEnsureItem {
-                    plugin_id: spec.plugin_id.to_string(),
-                    title: spec.title.to_string(),
-                    status: "error".into(),
-                    detail: Some(err),
-                });
-                continue;
+        // 工作区 target 里已有产物就直接挂装，避免每次启动都再起一轮 cargo 黑框
+        let mut binary = find_built_binary(root, spec.bin_name);
+        if binary.is_none() {
+            if !built_packages.contains(spec.package_name) {
+                if let Err(err) = cargo_build_agent(root, spec.package_name) {
+                    items.push(AgentDevEnsureItem {
+                        plugin_id: spec.plugin_id.to_string(),
+                        title: spec.title.to_string(),
+                        status: "error".into(),
+                        detail: Some(err),
+                    });
+                    continue;
+                }
+                built_packages.insert(spec.package_name.to_string());
             }
-            built_packages.insert(spec.package_name.to_string());
+            binary = find_built_binary(root, spec.bin_name);
         }
 
-        let Some(binary) = find_built_binary(root, spec.bin_name) else {
+        let Some(binary) = binary else {
             items.push(AgentDevEnsureItem {
                 plugin_id: spec.plugin_id.to_string(),
                 title: spec.title.to_string(),
                 status: "error".into(),
                 detail: Some(format!(
-                    "cargo 已完成但找不到 {}",
+                    "找不到已编译的 {}",
                     bin_file_name(spec.bin_name)
                 )),
             });

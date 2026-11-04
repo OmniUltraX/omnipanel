@@ -7,7 +7,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use omnipanel_docker::{
     BtPanelAdapter, BtPanelClient, ContainerFilter, DockerAdapter, DockerConnectionInfo,
@@ -24,9 +23,6 @@ use crate::state::ServerState;
 
 /// 内建本地 Engine 连接 id（与桌面端一致，不落库、始终可用）。
 pub const LOCAL_CONNECTION_ID: &str = "docker-local";
-
-/// 列表探测超时：避免单个不可达主机拖死侧栏加载。
-const LIST_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// 运行期 Docker SSH 会话池（按 docker 连接 id 索引）。
 pub type DockerSshSessions = Arc<Mutex<HashMap<String, Arc<omnipanel_ssh::SshSession>>>>;
@@ -466,6 +462,8 @@ pub async fn docker_list_connections(
             .map_err(|e| e.to_string())?
     };
 
+    // 本机 Engine 已由上方内置 `docker-local` 覆盖；连接库里再存一条会并出两个「本机/本地 Docker」
+    let mut stale_local_ids = Vec::new();
     for conn in stored {
         let cfg: DockerConnectionConfig = serde_json::from_str(&conn.config).unwrap_or_default();
         let source = cfg
@@ -473,6 +471,10 @@ pub async fn docker_list_connections(
             .as_deref()
             .map(DockerConnectionSource::parse)
             .unwrap_or(DockerConnectionSource::LocalEngine);
+        if source == DockerConnectionSource::LocalEngine || conn.id == LOCAL_CONNECTION_ID {
+            stale_local_ids.push(conn.id);
+            continue;
+        }
         let host_label = cfg
             .host
             .or_else(|| cfg.ssh.as_ref().map(|s| format!("{}@{}", s.user, s.host)))
@@ -500,51 +502,15 @@ pub async fn docker_list_connections(
         });
     }
 
-    let mut probes = Vec::new();
-    for info in &out {
-        let connection_id = info.connection_id.clone();
-        probes.push(async move {
-            let probed = tokio::time::timeout(LIST_PROBE_TIMEOUT, async {
-                // 注意：这里直接 resolve_adapter（无需重试）
-                let adapter = resolve_adapter_direct(state, &connection_id).await?;
-                adapter.probe().await
-            })
-            .await;
-            match probed {
-                Ok(Ok(probe)) => Some((connection_id, probe)),
-                Ok(Err(_)) | Err(_) => None,
-            }
-        });
-    }
-    let probe_results = futures_util::future::join_all(probes).await;
-
-    for (connection_id, probe) in probe_results.into_iter().flatten() {
-        let Some(info) = out
-            .iter_mut()
-            .find(|item| item.connection_id == connection_id)
-        else {
-            continue;
-        };
-        info.status = probe.status;
-        if info.engine_version.is_none() {
-            info.engine_version = probe.engine_version;
-        }
-        if info.api_version.is_none() {
-            info.api_version = probe.api_version;
-        }
-        if info.warning_message.is_none() {
-            info.warning_message = probe.warning_message;
+    if !stale_local_ids.is_empty() {
+        let storage = state.storage.lock().await;
+        for id in &stale_local_ids {
+            let _ = storage.delete_connection(id);
         }
     }
 
+    // 列表只回目录，不主动 probe / 建 SSH。状态由打开连接或手动刷新走 docker_probe_connection。
     Ok(out)
-}
-
-async fn resolve_adapter_direct(
-    state: &ServerState,
-    connection_id: &str,
-) -> Result<Box<dyn DockerAdapter>, OmniError> {
-    resolve_adapter(state, connection_id).await
 }
 
 /// 探测单个连接。
