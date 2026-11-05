@@ -59,14 +59,7 @@ impl SpaceRepoRemote for OssSpaceRemote {
         let bytes = bytes.to_vec();
         crate::oss::with_deadline(async move {
             let http = crate::oss::space_http_client();
-            upload_object_bytes(
-                &http,
-                &sts,
-                &object,
-                &bytes,
-                "application/octet-stream",
-            )
-            .await?;
+            upload_object_bytes(&http, &sts, &object, &bytes, "application/octet-stream").await?;
             Ok(())
         })
         .await

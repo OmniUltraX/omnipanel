@@ -776,7 +776,10 @@ pub async fn local_space_sync(
     request: SpaceSyncRequest,
 ) -> Result<SpaceSyncReport, OmniError> {
     static GATE: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
-    let _guard = GATE.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
+    let _guard = GATE
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
     let root = team_data_dir()?;
     let (mut extra, managed) = layout_files(LayoutInput {
         ssh_sidebar_tree_json: request.ssh_sidebar_tree_json.as_deref(),
@@ -804,8 +807,8 @@ pub async fn local_space_sync(
     }
     let identity = auth_device_identity().await?;
     let token_for_me = request.token.clone();
-    let me = omnipanel_assistant::with_deadline(async move { auth_get_me(token_for_me).await })
-        .await?;
+    let me =
+        omnipanel_assistant::with_deadline(async move { auth_get_me(token_for_me).await }).await?;
     let team = resolve_sync_team(request.team_id, &me)?;
     let team_id = team.id;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;

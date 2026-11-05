@@ -186,7 +186,11 @@ fn stampable_space_path(path: &str) -> bool {
 }
 
 fn attach_known_vault_files(files: &mut BTreeMap<String, Vec<u8>>) {
-    for reference in ["space-gateway-key", "http-proxy-password", "embedding-api-key"] {
+    for reference in [
+        "space-gateway-key",
+        "http-proxy-password",
+        "embedding-api-key",
+    ] {
         attach_vault_file(files, reference);
     }
     let Some(bytes) = files.get("ai/providers.json").cloned() else {

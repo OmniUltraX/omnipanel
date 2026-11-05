@@ -32,6 +32,7 @@ pub use collect::{
 };
 pub use error::{AssistantErrorKind, map_assistant_error};
 pub use notify::{SnapshotNotifyRequest, notify_snapshot_uploaded};
+pub use oss::with_deadline;
 pub use oss::{
     OssUploadResult, get_object_bytes, get_object_bytes_optional, strip_bucket_prefix,
     upload_object_bytes, upload_snapshot_json,
@@ -47,7 +48,6 @@ pub use space_remote::{
     team_repo_has_index,
 };
 pub use space_s3::{purge_s3_repo, sync_s3_space};
-pub use oss::with_deadline;
 pub use sts::{AuthContext, OssStsCredentials, fetch_oss_sts};
 pub use team_sync::{
     TEAM_CONVERSATIONS_LATEST_LEAF, TEAM_MODULES_LATEST_LEAF, TEAM_SHARE_INDEX_KEY,

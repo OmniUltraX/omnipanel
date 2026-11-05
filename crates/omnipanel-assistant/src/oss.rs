@@ -50,20 +50,14 @@ where
                         .build()
                     {
                         Ok(runtime) => runtime.block_on(fut),
-                        Err(err) => Err(OmniError::new(
-                            ErrorCode::Internal,
-                            "无法启动同步运行时",
-                        )
-                        .with_cause(err.to_string())),
+                        Err(err) => Err(OmniError::new(ErrorCode::Internal, "无法启动同步运行时")
+                            .with_cause(err.to_string())),
                     };
                     let _ = tx.send(result);
                 });
             let result = match started {
-                Err(err) => Err(OmniError::new(
-                    ErrorCode::Internal,
-                    "无法启动同步请求",
-                )
-                .with_cause(err.to_string())),
+                Err(err) => Err(OmniError::new(ErrorCode::Internal, "无法启动同步请求")
+                    .with_cause(err.to_string())),
                 Ok(_) => match rx.recv_timeout(CLOUD_DEADLINE) {
                     Ok(result) => result,
                     Err(_) => Err(OmniError::new(
@@ -76,7 +70,7 @@ where
         })
     {
         return Err(
-            OmniError::new(ErrorCode::Internal, "无法启动同步计时").with_cause(err.to_string()),
+            OmniError::new(ErrorCode::Internal, "无法启动同步计时").with_cause(err.to_string())
         );
     }
     match out_rx.await {
@@ -210,9 +204,7 @@ pub async fn get_object_bytes(
 fn missing_object(err: &OmniError) -> bool {
     let msg = err.message.to_ascii_lowercase();
     let cause = err.cause.as_deref().unwrap_or("").to_ascii_lowercase();
-    msg.contains("http 404")
-        || cause.contains("nosuchkey")
-        || cause.contains("http 404")
+    msg.contains("http 404") || cause.contains("nosuchkey") || cause.contains("http 404")
 }
 
 /// 下载对象；不存在（HTTP 404）时返回 `None`，便于首启 pull。

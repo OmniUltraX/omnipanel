@@ -259,7 +259,8 @@ impl JsInstanceInner {
                 Function::new(ctx.clone(), {
                     let b = Arc::clone(&bridge);
                     move |ctx: Ctx<'_>, plan: String| -> rquickjs::Result<String> {
-                        b.resources_apply(&plan).map_err(|msg| throw_host(&ctx, msg))
+                        b.resources_apply(&plan)
+                            .map_err(|msg| throw_host(&ctx, msg))
                     }
                 }),
             )?;
