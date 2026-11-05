@@ -50,16 +50,27 @@ function AnchorPopover({
     // 靠右锚点时尽量右对齐，避免贴右边缘溢出
     const preferredLeft = rect.right - width;
     const left = Math.max(8, Math.min(preferredLeft, window.innerWidth - width - 8));
-    setCoords({ left, top: rect.bottom + 6 });
+    const top = rect.bottom + 6;
+    setCoords((prev) =>
+      prev && prev.left === left && prev.top === top ? prev : { left, top },
+    );
   }, [anchorRef]);
 
   useLayoutEffect(() => {
     if (!open) {
-      setCoords(null);
+      setCoords((prev) => (prev == null ? prev : null));
       return;
     }
     updatePosition();
-  }, [open, updatePosition, children]);
+    // Reposition when popover content size changes (replaces unstable children dep).
+    const el = panelRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      updatePosition();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, updatePosition]);
 
   useEffect(() => {
     if (!open) return;

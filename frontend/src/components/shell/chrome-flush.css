@@ -1,4 +1,4 @@
-/* 主窗顶栏 chrome 与模块窗对齐：贴边通高、左描边。
+﻿/* 主窗顶栏 chrome 与模块窗对齐：贴边通高、左描边。
  * 由 Topbar 直接 import，避免只改 global.css 时 HMR/缓存导致 28px 带框按钮仍在。
  * 必须放在 @layer 外，才能压过 Tailwind 层里的旧 .topbar-btn。 */
 
@@ -98,4 +98,11 @@
     border-radius: 50%;
     line-height: 1;
     pointer-events: none;
+}
+
+.topbar .topbar-btn:focus,
+.topbar .topbar-btn:focus-visible,
+.topbar .dock-chrome-ai-btn:focus,
+.topbar .dock-chrome-ai-btn:focus-visible {
+    outline: none;
 }

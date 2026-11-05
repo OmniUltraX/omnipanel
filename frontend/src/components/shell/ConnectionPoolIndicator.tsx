@@ -113,23 +113,21 @@ export function ConnectionPoolIndicator() {
     active: summary.active,
     total,
   });
-  const tone = summary.active > 0 ? "statusbar-chip--ok" : "statusbar-chip--muted";
+  const pulseClass =
+    summary.active > 0 ? "statusbar-chip__pulse--ok" : "statusbar-chip__pulse--off";
 
   return (
     <>
       <button
         ref={anchorRef}
         type="button"
-        className={`statusbar-chip ${tone} connection-pool-indicator`}
+        className="statusbar-chip statusbar-chip--muted connection-pool-indicator"
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         title={label}
         aria-label={label}
       >
-        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
-          <path d="M6.5 3.5h3M4 6.5v3M12 6.5v3M6.5 12.5h3" strokeLinecap="round" />
-          <rect x="5.5" y="5.5" width="5" height="5" rx="1" />
-        </svg>
+        <span className={`statusbar-chip__pulse ${pulseClass}`} aria-hidden />
         <span className="statusbar-chip__label">{label}</span>
       </button>
       {open && anchorRef.current ? (

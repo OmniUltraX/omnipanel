@@ -14,12 +14,14 @@ import { resolveSqlPresenceToken } from "./sqlPresence";
 import {
   buildSqlResultUpdateStatements,
   countSqlResultDirtyCells,
-  matchSqlResultEditColumns,
+  matchSqlResultEditColumnsForTables,
   mergeSqlResultOverrides,
-  resolveSqlResultEditTarget,
+  parseSqlResultSelectOrigins,
+  resolveSqlResultEditTargets,
   sqlResultCellDirty,
   type SqlResultDirtyRows,
   type SqlResultEditColumns,
+  type SqlResultEditTarget,
 } from "./sqlResultEdit";
 import type { SqlResultSession } from "../workspace/dbWorkspaceState";
 
@@ -41,6 +43,26 @@ type UseSqlResultEditingOptions = {
   beforeCommit?: () => void;
 };
 
+const EMPTY_COLUMN_META: DbColumnMeta[] = [];
+
+function resolveEditDatabase(
+  sessionDb: string,
+  targets: SqlResultEditTarget[] | null,
+  dbType: string | undefined,
+): string {
+  const schemaNames = [
+    ...new Set(
+      (targets ?? [])
+        .map((target) => target.schemaName?.trim() || "")
+        .filter(Boolean),
+    ),
+  ];
+  const type = (dbType ?? "").toLowerCase();
+  const mysqlLike = type.includes("mysql") || type.includes("mariadb");
+  if (mysqlLike && schemaNames.length === 1) return schemaNames[0]!;
+  return sessionDb;
+}
+
 export function useSqlResultEditing({
   sqlTabId,
   session,
@@ -52,7 +74,8 @@ export function useSqlResultEditing({
   const tabDatabase = useDbWorkspaceTabStore(
     (state) => state.sqlTabStates[sqlTabId]?.database ?? "",
   );
-  const target = useMemo(() => resolveSqlResultEditTarget(session.sql), [session.sql]);
+  const targets = useMemo(() => resolveSqlResultEditTargets(session.sql), [session.sql]);
+  const selectOrigins = useMemo(() => parseSqlResultSelectOrigins(session.sql), [session.sql]);
   const connection = useMemo(() => {
     if (session.connId) {
       const bound = ws.resolveConnection(session.connId);
@@ -63,10 +86,14 @@ export function useSqlResultEditing({
       ws.resolveSqlTabConnection(sqlTabId)
     );
   }, [session.connId, session.sql, sqlTabId, ws]);
-  const database =
-    target?.schemaName || session.database || tabDatabase || connection?.database || "";
+  // MySQL/MariaDB：唯一 schema.table 的 schema 就是库名；多 schema 或 PG 等沿用会话库。
+  const database = resolveEditDatabase(
+    session.database || tabDatabase || connection?.database || "",
+    targets,
+    connection?.db_type,
+  );
 
-  const [tableColumns, setTableColumns] = useState<DbColumnMeta[] | null>(null);
+  const [tableColumnsByKey, setTableColumnsByKey] = useState<Record<string, DbColumnMeta[]>>({});
   const [dirty, setDirty] = useState<SqlResultDirtyRows>({});
   const [committed, setCommitted] = useState<SqlResultDirtyRows>({});
   const [past, setPast] = useState<SqlResultDirtyRows[]>([]);
@@ -86,46 +113,83 @@ export function useSqlResultEditing({
     setCommitted({});
     setPast([]);
     setFuture([]);
-  }, [session.id, session.executionId, session.result]);
+    // result 对象引用会抖动；只在会话/执行轮次变化时清空脏数据
+  }, [session.id, session.executionId]);
 
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
 
   useEffect(() => {
     const current = connectionRef.current;
-    if (!target || !current || current.db_type === "redis" || !database) {
-      setTableColumns(null);
+    if (!targets?.length || !current || current.db_type === "redis" || !database) {
+      setTableColumnsByKey({});
       return;
     }
-    const cached = getCachedTableColumns(
-      useDbSchemaCacheStore.getState().snapshot,
-      current.id,
-      database,
-      target.tableName,
-    );
-    if (cached?.length) {
-      setTableColumns(cached);
+
+    const cachedMap: Record<string, DbColumnMeta[]> = {};
+    for (const target of targets) {
+      const cacheDb =
+        (current.db_type ?? "").toLowerCase().includes("mysql") ||
+        (current.db_type ?? "").toLowerCase().includes("mariadb")
+          ? target.schemaName?.trim() || database
+          : database;
+      const cached = getCachedTableColumns(
+        useDbSchemaCacheStore.getState().snapshot,
+        current.id,
+        cacheDb,
+        target.tableName,
+      );
+      if (cached?.length) {
+        cachedMap[`${target.schemaName ?? ""}::${target.tableName}`] = cached;
+      }
     }
+    if (Object.keys(cachedMap).length > 0) {
+      setTableColumnsByKey((prev) => ({ ...prev, ...cachedMap }));
+    }
+
     let cancelled = false;
-    void introspectTable({ ...current, database }, database, target.tableName)
-      .then((schema) => {
-        if (!cancelled) setTableColumns(schema.columns);
-      })
-      .catch(() => {
-        if (!cancelled && !cached?.length) setTableColumns(null);
-      });
+    void (async () => {
+      const next: Record<string, DbColumnMeta[]> = { ...cachedMap };
+      await Promise.all(
+        targets.map(async (target) => {
+          const key = `${target.schemaName ?? ""}::${target.tableName}`;
+          const cacheDb =
+            (current.db_type ?? "").toLowerCase().includes("mysql") ||
+            (current.db_type ?? "").toLowerCase().includes("mariadb")
+              ? target.schemaName?.trim() || database
+              : database;
+          try {
+            const schema = await introspectTable(
+              { ...current, database: cacheDb },
+              cacheDb,
+              target.tableName,
+            );
+            next[key] = schema.columns;
+          } catch {
+            if (!next[key] && cachedMap[key]) next[key] = cachedMap[key]!;
+          }
+        }),
+      );
+      if (!cancelled) setTableColumnsByKey(next);
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, [connection?.db_type, connection?.id, database, schemaRevision, target]);
+  }, [connection?.db_type, connection?.id, database, schemaRevision, targets]);
 
   const matched = useMemo<SqlResultEditColumns | null>(() => {
-    if (!target || !tableColumns || !resultColumns?.length) return null;
-    return matchSqlResultEditColumns(resultColumns, tableColumns);
-  }, [resultColumns, tableColumns, target]);
+    if (!targets?.length || !resultColumns?.length) return null;
+    const tables = targets.map((target) => {
+      const key = `${target.schemaName ?? ""}::${target.tableName}`;
+      return { target, columns: tableColumnsByKey[key] ?? [] };
+    });
+    if (tables.some((table) => table.columns.length === 0)) return null;
+    return matchSqlResultEditColumnsForTables(resultColumns, tables, selectOrigins);
+  }, [resultColumns, selectOrigins, tableColumnsByKey, targets]);
 
   const editable = Boolean(matched) && !session.running;
-  const columnMeta = matched?.columnMeta ?? [];
+  const columnMeta = matched?.columnMeta ?? EMPTY_COLUMN_META;
 
   const replaceDirty = useCallback((next: SqlResultDirtyRows, recordHistory: boolean) => {
     if (recordHistory) {
@@ -190,7 +254,6 @@ export function useSqlResultEditing({
 
   const commitStateRef = useRef({
     matched,
-    target,
     editable,
     database,
     sessionId: session.id,
@@ -198,7 +261,6 @@ export function useSqlResultEditing({
   });
   commitStateRef.current = {
     matched,
-    target,
     editable,
     database,
     sessionId: session.id,
@@ -212,22 +274,21 @@ export function useSqlResultEditing({
     const snapshot = dirtyRef.current;
     const {
       matched: columns,
-      target: editTarget,
       editable: canEdit,
       database: dbName,
       sessionId,
       resultPage,
     } = commitStateRef.current;
     const current = connectionRef.current;
-    if (!columns || !editTarget || !current || !canEdit) return;
+    if (!columns || !current || !canEdit) return;
     const changed = countSqlResultDirtyCells(snapshot);
     if (changed === 0) return;
     const statements = buildSqlResultUpdateStatements({
       dbType: current.db_type,
-      schemaName: editTarget.schemaName,
-      tableName: editTarget.tableName,
       dirty: snapshot,
-      pkResultNames: columns.pkResultNames,
+      targets: columns.targets,
+      pkResultNamesByTarget: columns.pkResultNamesByTarget,
+      resultToTargetIndex: columns.resultToTargetIndex,
       resultToTableName: columns.resultToTableName,
       columnTypeByResultName: columns.columnTypeByResultName,
     });

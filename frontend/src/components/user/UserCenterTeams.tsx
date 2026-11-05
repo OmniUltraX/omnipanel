@@ -95,6 +95,13 @@ export function UserCenterTeams({
   initialTeamId?: number | null;
 } = {}) {
   const { t, locale } = useI18n();
+  const teamLabel = (team: { id?: number | null; name?: string; kind?: string } | null | undefined) => {
+    if (!team) return "";
+    if (isPersonalTeam(team)) return t("userCenter.switchTeamPersonalName");
+    const name = String(team.name || "").trim();
+    if (name) return name;
+    return team.id == null ? "" : `#${team.id}`;
+  };
   const token = useAuthStore((s) => s.token);
   const logout = useAuthStore((s) => s.logout);
   const clearProfile = useUserProfileStore((s) => s.clearProfile);
@@ -761,7 +768,7 @@ export function UserCenterTeams({
               <IconUsers size={22} />
             </div>
             <div>
-              <h3 className="user-center-section__title">{selectedTeam.name}</h3>
+              <h3 className="user-center-section__title">{teamLabel(selectedTeam)}</h3>
               <p className="user-center-section__desc">
                 {t("userCenter.teams.myRole", { role: roleLabel(selectedTeam.roleCode) })}
                 {selectedTeam.userTeamName.trim()
@@ -1073,7 +1080,7 @@ export function UserCenterTeams({
                   onClick={() => setSelectedTeam(team)}
                 >
                   <div className="user-center-team-card__main">
-                    <span className="user-center-team-card__name">{team.name}</span>
+                    <span className="user-center-team-card__name">{teamLabel(team)}</span>
                     <span className="user-center-team-card__meta">
                       {roleLabel(team.roleCode)}
                       {team.userTeamName.trim() ? ` · ${team.userTeamName.trim()}` : ""}

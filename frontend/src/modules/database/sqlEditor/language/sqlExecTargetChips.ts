@@ -13,7 +13,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { DbConnectionConfig } from "../../api";
 import { splitSqlStatements } from "../../sqlIntel/sqlLex";
 import { findSqlSubqueries, smallestSubqueryAt } from "../../sqlIntel/sqlSubquery";
-import { statementCodeStart } from "./sqlStatementFrame";
+import { setSqlFrameFocusEffect, statementCodeStart } from "./sqlStatementFrame";
 import {
   assignStatementTargets,
   assignSubqueryTargets,
@@ -56,6 +56,10 @@ export interface SqlExecTargetChipOptions {
   getDatabases: (connId: string) => string[];
   /** 文件当前的连接和库。库为空时仍返回连接，芯片上用来展示。 */
   getFileTarget: () => SqlExecTarget | null;
+  /** 只跑某个库标签对应的那条语句。 */
+  getOnRunTarget?: () =>
+    | ((sql: string, target: SqlExecTarget, statementIndex?: number, anchor?: number) => void)
+    | undefined;
 }
 
 /** 工具栏改了连接或库之后，让语句末尾的默认芯片重画。 */
@@ -282,6 +286,19 @@ function fileChipLabel(file: SqlExecTarget | null, connections: readonly DbConne
   return database ? `${name} · ${database}` : name;
 }
 
+const RUN_TARGET_SVG =
+  '<svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';
+
+interface TargetChipView {
+  label: string;
+  /** null = 仅展示、不可单独跑（例如还没选库）。 */
+  target: SqlExecTarget | null;
+}
+
+function runnableTarget(target: SqlExecTarget | null): target is SqlExecTarget {
+  return Boolean(target?.connId.trim() && target.database.trim());
+}
+
 let pickerEl: HTMLElement | null = null;
 let pickerRoot: Root | null = null;
 let pickerCleanup: (() => void) | null = null;
@@ -442,18 +459,34 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
     }, 0);
   };
 
+  function runSlotSql(view: EditorView, slot: TargetSlot, target: SqlExecTarget) {
+    const onRun = options.getOnRunTarget?.();
+    if (!onRun || view.state.readOnly) return;
+    const text = view.state.doc.toString();
+    const part = rangeAt(text, slot);
+    if (!part) return;
+    const start = statementCodeStart(text, part.from, part.to);
+    const focusTo = part.to > start ? part.to : start;
+    view.dispatch({ effects: setSqlFrameFocusEffect.of({ from: start, to: focusTo }) });
+    const statementIndex = slot.scope === "statement" ? slot.index : undefined;
+    const anchor = slot.scope === "subquery" ? part.from : undefined;
+    onRun(part.sql, target, statementIndex, anchor);
+  }
+
   function fillTargetChips(
     root: HTMLElement,
     view: EditorView,
     slot: TargetSlot,
-    labels: readonly string[],
+    chips: readonly TargetChipView[],
     inherited: boolean,
     showAdd: boolean,
+    showRun: boolean,
   ) {
     const fileTitle =
       slot.scope === "subquery" ? t("database.sqlTarget.subqueryFileTitle") : t("database.sqlTarget.fileTitle");
     const editTitle =
       slot.scope === "subquery" ? t("database.sqlTarget.subqueryEditTitle") : t("database.sqlTarget.editTitle");
+    const runTitle = t("database.sqlTarget.run");
     const bind = (button: HTMLButtonElement, request: TargetPickerRequest) => {
       button.style.pointerEvents = "auto";
       button.addEventListener(
@@ -466,14 +499,45 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
         true,
       );
     };
-    labels.forEach((label, chip) => {
+    chips.forEach((chip, chipIndex) => {
+      // 标签本体带边框；运行按钮放在标签内部左侧，不另起一块。
+      const shell = document.createElement("span");
+      shell.className = inherited ? "cm-sql-exec-target is-file" : "cm-sql-exec-target";
+      if (showRun && runnableTarget(chip.target)) {
+        const run = document.createElement("button");
+        run.type = "button";
+        run.className = "cm-sql-exec-target-run";
+        run.title = runTitle;
+        run.setAttribute("aria-label", runTitle);
+        run.innerHTML = RUN_TARGET_SVG;
+        run.style.pointerEvents = "auto";
+        run.addEventListener(
+          "mousedown",
+          (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          },
+          true,
+        );
+        run.addEventListener(
+          "click",
+          (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            runSlotSql(view, slot, chip.target!);
+          },
+          true,
+        );
+        shell.append(run);
+      }
       const button = document.createElement("button");
       button.type = "button";
-      button.className = inherited ? "cm-sql-exec-target is-file" : "cm-sql-exec-target";
-      button.textContent = label;
+      button.className = "cm-sql-exec-target-label";
+      button.textContent = chip.label;
       button.title = inherited ? fileTitle : editTitle;
-      bind(button, { mode: "edit", slot: inherited ? -1 : chip });
-      root.append(button);
+      bind(button, { mode: "edit", slot: inherited ? -1 : chipIndex });
+      shell.append(button);
+      root.append(shell);
     });
     if (showAdd) {
       const add = document.createElement("button");
@@ -487,21 +551,24 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
   }
 
   class TargetLensWidget extends WidgetType {
-    readonly labels: readonly string[];
+    readonly chips: readonly TargetChipView[];
     readonly active: boolean;
     readonly showAdd: boolean;
+    readonly showRun: boolean;
     readonly slot: TargetSlot;
 
     constructor(
-      labels: readonly string[],
+      chips: readonly TargetChipView[],
       active: boolean,
       showAdd: boolean,
+      showRun: boolean,
       slot: TargetSlot,
     ) {
       super();
-      this.labels = labels;
+      this.chips = chips;
       this.active = active;
       this.showAdd = showAdd;
+      this.showRun = showRun;
       this.slot = slot;
     }
 
@@ -511,7 +578,8 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
         sameSlot(other.slot, this.slot) &&
         other.active === this.active &&
         other.showAdd === this.showAdd &&
-        other.labels.join("\0") === this.labels.join("\0")
+        other.showRun === this.showRun &&
+        JSON.stringify(other.chips) === JSON.stringify(this.chips)
       );
     }
 
@@ -526,7 +594,7 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
     toDOM(view: EditorView): HTMLElement {
       const root = document.createElement("div");
       root.className = this.active ? "cm-sql-exec-lens is-active" : "cm-sql-exec-lens";
-      fillTargetChips(root, view, this.slot, this.labels, false, this.showAdd);
+      fillTargetChips(root, view, this.slot, this.chips, false, this.showAdd, this.showRun);
       scheduleLensAlign(view, root, this.slot);
       return root;
     }
@@ -535,7 +603,7 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
       // eq 对不上时编辑器会复用这块 DOM。只返回 true 而不重画，激活态和加号就停在上一次。
       dom.className = this.active ? "cm-sql-exec-lens is-active" : "cm-sql-exec-lens";
       dom.replaceChildren();
-      fillTargetChips(dom, view, this.slot, this.labels, false, this.showAdd);
+      fillTargetChips(dom, view, this.slot, this.chips, false, this.showAdd, this.showRun);
       scheduleLensAlign(view, dom, this.slot);
       return true;
     }
@@ -587,13 +655,15 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
     if (start >= range.to) return;
     const lineFrom = state.doc.lineAt(start).from;
     const active = cursor != null && sameSlot(cursor, slot);
+    const showRun = !readOnly && typeof options.getOnRunTarget?.() === "function";
     marks.push({
       from: lineFrom,
       deco: Decoration.widget({
         widget: new TargetLensWidget(
-          targets.map((target) => chipLabel(target, connections)),
+          targets.map((target) => ({ label: chipLabel(target, connections), target })),
           active,
           active && !readOnly,
+          showRun,
           slot,
         ),
         block: true,
@@ -622,29 +692,32 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
     readonly left: number;
     readonly top: number;
     readonly slot: TargetSlot;
-    readonly labels: readonly string[];
+    readonly chips: readonly TargetChipView[];
     readonly active: boolean;
     readonly inherited: boolean;
     readonly showAdd: boolean;
+    readonly showRun: boolean;
     readonly view: EditorView;
 
     constructor(
       left: number,
       top: number,
       slot: TargetSlot,
-      labels: readonly string[],
+      chips: readonly TargetChipView[],
       active: boolean,
       inherited: boolean,
       showAdd: boolean,
+      showRun: boolean,
       view: EditorView,
     ) {
       this.left = left;
       this.top = top;
       this.slot = slot;
-      this.labels = labels;
+      this.chips = chips;
       this.active = active;
       this.inherited = inherited;
       this.showAdd = showAdd;
+      this.showRun = showRun;
       this.view = view;
     }
 
@@ -657,7 +730,8 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
         other.active === this.active &&
         other.inherited === this.inherited &&
         other.showAdd === this.showAdd &&
-        other.labels.join("\0") === this.labels.join("\0")
+        other.showRun === this.showRun &&
+        JSON.stringify(other.chips) === JSON.stringify(this.chips)
       );
     }
 
@@ -676,7 +750,7 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
       root.style.top = `${this.top}px`;
       root.replaceChildren();
       root.style.pointerEvents = "auto";
-      fillTargetChips(root, this.view, this.slot, this.labels, this.inherited, this.showAdd);
+      fillTargetChips(root, this.view, this.slot, this.chips, this.inherited, this.showAdd, this.showRun);
       return root;
     }
   }
@@ -707,17 +781,26 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
     const place = placeHighlightCorner(view, text, range.from, end);
     if (!place) return [];
     const inherited = targets.length === 0;
+    const showRun = !readOnly && typeof options.getOnRunTarget?.() === "function";
+    const file = options.getFileTarget();
+    const chips: TargetChipView[] = inherited
+      ? [
+          {
+            label: fileChipLabel(file, connections),
+            target: runnableTarget(file) ? file : null,
+          },
+        ]
+      : targets.map((target) => ({ label: chipLabel(target, connections), target }));
     return [
       new TargetRowMarker(
         place.left,
         place.top,
         slot,
-        inherited
-          ? [fileChipLabel(options.getFileTarget(), connections)]
-          : targets.map((target) => chipLabel(target, connections)),
+        chips,
         true,
         inherited,
         !readOnly,
+        showRun,
         view,
       ),
     ];
@@ -814,19 +897,21 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
         whiteSpace: "nowrap",
       },
       ".cm-sql-exec-target": {
-        maxWidth: "180px",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "2px",
+        maxWidth: "210px",
         height: "18px",
-        padding: "0 6px",
+        padding: "0 6px 0 4px",
         overflow: "hidden",
+        boxSizing: "border-box",
         border: "1px solid color-mix(in srgb, var(--accent) 28%, transparent)",
         borderRadius: "4px",
         background: "color-mix(in srgb, var(--surface, #fff) 82%, transparent)",
         color: "color-mix(in srgb, var(--muted-foreground, #888) 70%, var(--foreground, #222))",
         fontSize: "11px",
         lineHeight: "16px",
-        textOverflow: "ellipsis",
         whiteSpace: "nowrap",
-        cursor: "pointer",
       },
       ".cm-sql-exec-target:hover": {
         borderColor: "var(--accent)",
@@ -847,10 +932,60 @@ export function createSqlExecTargetChips(options: SqlExecTargetChipOptions) {
         borderColor: "var(--accent)",
         color: "var(--accent)",
       },
+      ".cm-sql-exec-target-label": {
+        minWidth: "0",
+        maxWidth: "180px",
+        height: "16px",
+        padding: "0",
+        overflow: "hidden",
+        border: "none",
+        background: "transparent",
+        color: "inherit",
+        font: "inherit",
+        lineHeight: "16px",
+        textAlign: "left",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        cursor: "pointer",
+      },
       ".cm-sql-exec-target-add": {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
         width: "18px",
         padding: "0",
         textAlign: "center",
+        cursor: "pointer",
+      },
+      ".cm-sql-exec-target-run": {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "14px",
+        height: "14px",
+        marginLeft: "-1px",
+        padding: "0",
+        border: "none",
+        borderRadius: "3px",
+        background: "transparent",
+        color: "inherit",
+        cursor: "pointer",
+        opacity: "0.72",
+        flex: "0 0 14px",
+      },
+      ".cm-sql-exec-target-run svg": {
+        width: "10px",
+        height: "10px",
+      },
+      ".cm-sql-exec-target-run:hover": {
+        opacity: "1",
+        color: "var(--accent)",
+        background: "color-mix(in srgb, var(--accent) 16%, transparent)",
+      },
+      ".cm-sql-exec-target-run:focus-visible": {
+        opacity: "1",
+        outline: "1px solid var(--accent)",
+        outlineOffset: "0",
       },
     }),
   ];

@@ -339,54 +339,18 @@ function StatusBarWorkspaceControls() {
 }
 
 export function StatusBar() {
+  const { t } = useI18n();
   const location = useLocation();
   const activeResourceId = useWorkspaceStore((state) => state.activeResourceId);
-  const [time, setTime] = useState(() => new Date().toLocaleTimeString("zh-CN", { hour12: false }));
 
   const activeResource = getResourceById(activeResourceId);
   const showWorkspaceControls = !isWorkspacePath(location.pathname);
-
-  useEffect(() => {
-    if (location.pathname !== "/module/terminal") return;
-    const timer = window.setInterval(() => {
-      setTime(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [location.pathname]);
-
-  if (location.pathname === "/module/terminal") {
-    const terminalState = activeResource?.environment === "local" ? "Local PTY Ready" : "SSH Connected";
-
-    return (
-      <div className="statusbar">
-        <div className="statusbar-left">
-          <ConnectionPoolIndicator />
-          <StatusBarApprovalBadge />
-          <StatusBarBackgroundTaskLog />
-          <StatusBarModuleLog />
-          <span className="statusbar-chip statusbar-chip--muted">
-            <span className="statusbar-chip__label">{terminalState}</span>
-          </span>
-          {activeResource?.name ? (
-            <span className="statusbar-chip statusbar-chip--muted">
-              <span className="statusbar-chip__label">{activeResource.name}</span>
-            </span>
-          ) : null}
-          <span className="statusbar-chip statusbar-chip--muted">
-            <span className="statusbar-chip__label">{time}</span>
-          </span>
-        </div>
-        <BackgroundTasksWindow />
-        <span className="statusbar-spacer" />
-        <div className="statusbar-right">
-          <StatusBarInfoBar />
-          <StatusBarActionBar />
-          <StatusBarServicesIndicator />
-          {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
-        </div>
-      </div>
-    );
-  }
+  const isTerminal = location.pathname === "/module/terminal";
+  const terminalState = isTerminal
+    ? activeResource?.environment === "local"
+      ? t("shell.statusbar.terminalLocalReady")
+      : t("shell.statusbar.terminalSshReady")
+    : null;
 
   return (
     <div className="statusbar">
@@ -395,6 +359,12 @@ export function StatusBar() {
         <StatusBarApprovalBadge />
         <StatusBarBackgroundTaskLog />
         <StatusBarModuleLog />
+        {terminalState ? <span className="statusbar-meta">{terminalState}</span> : null}
+        {isTerminal && activeResource?.name ? (
+          <span className="statusbar-meta" title={activeResource.name}>
+            {activeResource.name}
+          </span>
+        ) : null}
       </div>
       <BackgroundTasksWindow />
       <span className="statusbar-spacer" />

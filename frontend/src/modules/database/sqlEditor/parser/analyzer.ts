@@ -142,17 +142,32 @@ function mergeTableRefs(primary: TableRef[], secondary: TableRef[]): TableRef[] 
   return [...map.values()];
 }
 
+function isQuotedIdent(token: string): boolean {
+  const trimmed = token.trim();
+  return (
+    (trimmed.startsWith("`") && trimmed.endsWith("`")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  );
+}
+
 function parseQualifiedTableToken(token: string): { schemaName?: string; tableName: string } | null {
-  const cleaned = stripIdentifierQuotes(token.trim());
-  if (!cleaned || isStopWord(cleaned)) return null;
-  const dot = cleaned.match(/^(`?[\w$]+`?)\.(`?[\w$]+`?)$/);
-  if (dot) {
-    const schemaName = stripIdentifierQuotes(dot[1]);
-    const tableName = stripIdentifierQuotes(dot[2]);
-    if (!tableName || isStopWord(tableName)) return null;
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.match(/^([`"]?[\w$]+[`"]?)\.([`"]?[\w$]+[`"]?)$/);
+  if (parts) {
+    const schemaRaw = parts[1]!;
+    const tableRaw = parts[2]!;
+    const schemaName = stripIdentifierQuotes(schemaRaw);
+    const tableName = stripIdentifierQuotes(tableRaw);
+    if (!tableName) return null;
+    // 未加引号的保留字不当表名；`order` / "order" 视为真实表。
+    if (!isQuotedIdent(tableRaw) && isStopWord(tableName)) return null;
     return { schemaName: schemaName || undefined, tableName };
   }
-  return { tableName: cleaned };
+  const tableName = stripIdentifierQuotes(trimmed);
+  if (!tableName) return null;
+  if (!isQuotedIdent(trimmed) && isStopWord(tableName)) return null;
+  return { tableName };
 }
 
 function pushRegexRef(
@@ -162,7 +177,8 @@ function pushRegexRef(
   tableName: string,
   alias: string | undefined,
 ): void {
-  if (!tableName || isStopWord(tableName)) return;
+  if (!tableName) return;
+  // 表名保留字拦截已在 parseQualifiedTableToken（区分是否加引号）完成。
   const aliasName = alias && !isStopWord(alias) ? alias : undefined;
   const ref: TableRef = { schemaName, tableName, alias: aliasName };
   const key = refKey(ref);
@@ -174,12 +190,15 @@ function pushRegexRef(
 function parseTableAliasChunk(chunk: string, target: TableRef[], seen: Set<string>): void {
   const trimmed = chunk.trim();
   if (!trimmed) return;
-  const withoutOn = trimmed.replace(/\s+\bON\b[\s\S]*$/i, "").trim();
+  // FOR UPDATE / LOCK IN SHARE MODE 等锁子句不是表别名。
+  const withoutLock = trimmed.replace(/\s+\bFOR\b[\s\S]*$/i, "").trim();
+  const withoutOn = withoutLock.replace(/\s+\bON\b[\s\S]*$/i, "").trim();
   const match = withoutOn.match(
     /^((?:[`"]?[\w$]+[`"]?\.)?[`"]?[\w$]+[`"]?)(?:\s+(?:AS\s+)?([`"]?[\w$]+[`"]?))?$/i,
   );
   if (!match) return;
-  const parsed = parseQualifiedTableToken(match[1]);
+  const tableToken = match[1]!;
+  const parsed = parseQualifiedTableToken(tableToken);
   if (!parsed) return;
   const aliasRaw = match[2] ? stripIdentifierQuotes(match[2]) : undefined;
   pushRegexRef(target, seen, parsed.schemaName, parsed.tableName, aliasRaw);
@@ -190,7 +209,7 @@ function extractFromClauseSegment(sql: string): string {
   if (!fromMatch) return "";
   let segment = fromMatch[1];
   const stop = segment.search(
-    /\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|UNION|EXCEPT|INTERSECT)\b/i,
+    /\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|OFFSET|FETCH|FOR|WINDOW|UNION|EXCEPT|INTERSECT)\b/i,
   );
   if (stop >= 0) {
     segment = segment.slice(0, stop);

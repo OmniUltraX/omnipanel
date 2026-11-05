@@ -82,6 +82,50 @@ function mountNested(): EditorView {
 }
 
 describe("sqlExecTargetChips", () => {
+  it("库标签内部左侧有运行按钮，点击只带该库目标", () => {
+    const part = splitSqlStatements(nestedSql)[0]!;
+    const calls: Array<{ sql: string; target: { connId: string; database: string } }> = [];
+    const view = new EditorView({
+      parent: document.body,
+      state: EditorState.create({
+        doc: nestedSql,
+        selection: { anchor: nestedSql.indexOf("FROM") },
+        extensions: [
+          createSqlExecTargetChips({
+            getInitial: () => [
+              {
+                fingerprint: sqlStatementFingerprint(part.sql),
+                targets: [
+                  { connId: "conn-a", database: "mkdept" },
+                  { connId: "conn-a", database: "mkdeptdvs" },
+                ],
+              },
+            ],
+            onChange: () => {},
+            getConnections: () => [connection],
+            getDatabases: () => ["mkdept", "mkdeptdvs"],
+            getFileTarget: () => ({ connId: "conn-a", database: "mkdept" }),
+            getOnRunTarget: () => (sql, target) => {
+              calls.push({ sql, target });
+            },
+          }),
+        ],
+      }),
+    });
+    const chips = view.dom.querySelectorAll(".cm-sql-exec-target:not(.cm-sql-exec-target-add)");
+    expect(chips.length).toBe(2);
+    const runs = [...chips].map((chip) => chip.querySelector(".cm-sql-exec-target-run"));
+    expect(runs.every((run) => run != null)).toBe(true);
+    (runs[1] as HTMLButtonElement).click();
+    expect(calls).toEqual([
+      {
+        sql: part.sql,
+        target: { connId: "conn-a", database: "mkdeptdvs" },
+      },
+    ]);
+    view.destroy();
+  });
+
   it("光标从子查询移到外层语句后，芯片高亮并带加号", () => {
     const view = mountNested();
     const before = view.dom.querySelector(".cm-sql-exec-lens");

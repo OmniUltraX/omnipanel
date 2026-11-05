@@ -19,6 +19,7 @@ export default {
     switchTeamAria: "Switch data snapshot source team",
     switchTeamCurrent: "Current",
     switchTeamPersonal: "Personal",
+  switchTeamPersonalName: "Personal space",
     switchTeamEmpty: "No teams available",
     switchTeamConfirmTitle: "Confirm team switch",
     switchTeamConfirm:

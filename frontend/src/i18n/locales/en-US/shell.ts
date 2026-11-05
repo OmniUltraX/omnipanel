@@ -170,7 +170,20 @@ export default {
       localRuntime: {
         tooltip: "Local runtime · Ollama: {ollama} · LM Studio: {lms}",
       },
+      terminalLocalReady: "Local terminal ready",
+      terminalSshReady: "SSH connected",
       services: "Services",
+      servicesDetail: {
+        title: "Services",
+        router: "Agent Router",
+        mcp: "OmniMCP",
+        ollama: "Ollama",
+        lms: "LM Studio",
+        running: "Running",
+        notReady: "Not ready",
+        disabled: "Disabled",
+        statusWithPort: "{status} (:{port})",
+      },
     },
     connectionPool: {
       summary: "Conn {active}/{total}",

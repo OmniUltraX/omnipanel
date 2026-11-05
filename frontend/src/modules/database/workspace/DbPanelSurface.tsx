@@ -25,6 +25,7 @@ import { SqlResultSessionsDock } from "../sql/SqlResultSessionsDock";
 import { inferSqlResultColumnType } from "../sql/SqlResultSessionPanel";
 import type { SqlResultEditBridge } from "../sql/useSqlResultEditing";
 import { type CellEditorPanelHandle } from "../cell_editor";
+import { detectCellEditorKind, parseCellValue } from "../cell_editor/types";
 import {
   TableDetailPanel,
   type TableDetailTab,
@@ -37,6 +38,7 @@ import {
   sameSavedStatementTargets,
   statementIndexAt,
   type SavedSqlStatementTarget,
+  type SqlExecTarget,
 } from "../sqlIntel/sqlStatementTargets";
 import { useDbWorkspaceTabStore } from "../../../stores/dbWorkspaceTabStore";
 import { sqlRequiresDatabaseContext } from "../sqlIntel/connectionLevelSql";
@@ -81,6 +83,12 @@ interface DbPanelSqlEditorProps {
   execError: { sql: string; message: string } | null;
   onExplainError: () => void;
   onRun: (sql: string, statementIndex?: number, anchor?: number) => void;
+  onRunTarget: (
+    sql: string,
+    target: SqlExecTarget,
+    statementIndex?: number,
+    anchor?: number,
+  ) => void;
   onStatementTargetsChange: (targets: SavedSqlStatementTarget[]) => void;
   sqlConnections: ReturnType<typeof useDbWorkspace>["sqlConnections"];
   databasesByConnId: ReturnType<typeof useDbWorkspace>["databasesByConnId"];
@@ -120,6 +128,7 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
   execError,
   onExplainError,
   onRun,
+  onRunTarget,
   onStatementTargetsChange,
   sqlConnections,
   databasesByConnId,
@@ -144,6 +153,7 @@ const DbPanelSqlEditor = memo(function DbPanelSqlEditor({
       execError={execError}
       onExplainError={onExplainError}
       onRun={onRun}
+      onRunTarget={onRunTarget}
       onStatementTargetsChange={onStatementTargetsChange}
       statementTargets={tabState.statementTargets}
       sqlConnections={sqlConnections}
@@ -251,6 +261,15 @@ export const DbPanelSurface = memo(function DbPanelSurface({
       void ws.runQuery(sql, tab.id, {
         ...(statementIndex == null ? {} : { statementIndex }),
         ...(anchor == null ? {} : { anchor }),
+      }),
+    [ws.runQuery, tab.id],
+  );
+  const handleSqlRunTarget = useCallback(
+    (sql: string, target: SqlExecTarget, statementIndex?: number, anchor?: number) =>
+      void ws.runQuery(sql, tab.id, {
+        ...(statementIndex == null ? {} : { statementIndex }),
+        ...(anchor == null ? {} : { anchor }),
+        targetOverride: target,
       }),
     [ws.runQuery, tab.id],
   );
@@ -412,7 +431,20 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   }, []);
 
   const handleEditBridgeChange = useCallback((bridge: SqlResultEditBridge | null) => {
-    setResultEditing(bridge);
+    setResultEditing((prev) => {
+      if (prev === bridge) return prev;
+      if (prev == null || bridge == null) return bridge;
+      if (
+        prev.sessionId === bridge.sessionId &&
+        prev.editable === bridge.editable &&
+        prev.columnMeta === bridge.columnMeta &&
+        prev.overrides === bridge.overrides &&
+        prev.applyCell === bridge.applyCell
+      ) {
+        return prev;
+      }
+      return bridge;
+    });
   }, []);
   const flushResultEditor = useCallback(() => {
     cellEditorRef.current?.commitIfDirty();
@@ -436,7 +468,11 @@ export const DbPanelSurface = memo(function DbPanelSurface({
   const resultRowKey = activeRow ? resolvePreviewRowKey(activeRow, resultPkCols) : "";
   const resultRowOverrides = resultRowKey ? resultEditing?.overrides[resultRowKey] : undefined;
   const columnEditable = Boolean(
-    editorColumnName && editorSelectionCount <= 1 && resultEditableColumns?.has(editorColumnName),
+    resultEditing?.editable &&
+      (editorSelectionCount > 1
+        ? selectedCells.length > 0 &&
+          selectedCells.every((cell) => resultEditableColumns?.has(cell.column))
+        : editorColumnName && resultEditableColumns?.has(editorColumnName)),
   );
   const activeCellValue = useMemo(() => {
     if (!activeCell) return undefined;
@@ -755,6 +791,7 @@ export const DbPanelSurface = memo(function DbPanelSurface({
           execError={execError}
           onExplainError={explainError}
           onRun={handleSqlRun}
+          onRunTarget={handleSqlRunTarget}
           onStatementTargetsChange={handleStatementTargetsChange}
           sqlConnections={ws.sqlConnections}
           databasesByConnId={ws.databasesByConnId}
@@ -825,21 +862,38 @@ export const DbPanelSurface = memo(function DbPanelSurface({
       editorOpen={!detailCollapsed}
       rowIndex={activeCell?.rowIndex ?? null}
       valueColumnMeta={
-        editorColumnName
-          ? (resultEditing?.columnMeta.find((column) => column.name === editorColumnName) ?? {
-              name: editorColumnName,
-              type: inferredColumnType,
-              isPk: false,
-              isFk: false,
-              nullable: true,
-            })
-          : null
+        editorSelectionCount > 1
+          ? null
+          : editorColumnName
+            ? (resultEditing?.columnMeta.find((column) => column.name === editorColumnName) ?? {
+                name: editorColumnName,
+                type: inferredColumnType,
+                isPk: false,
+                isFk: false,
+                nullable: true,
+              })
+            : null
       }
-      onValueApply={({ parsed }) => {
-        if (!activeCell || !resultEditing?.editable || !resultEditableColumns?.has(activeCell.column)) {
-          return;
+      dbType={tabConn?.db_type}
+      onValueApply={({ rawText, parsed }) => {
+        if (!resultEditing?.editable || !resultEditableColumns) return;
+        const multi = selectedCells.length > 1;
+        if (multi && detailCollapsed) return;
+        const targets = multi
+          ? selectedCells
+          : activeCell
+            ? [activeCell]
+            : selectedCells.length === 1
+              ? selectedCells
+              : [];
+        if (targets.length === 0) return;
+        for (const cell of targets) {
+          if (!resultEditableColumns.has(cell.column)) continue;
+          const meta = resultEditing.columnMeta.find((column) => column.name === cell.column);
+          const kind = detectCellEditorKind(meta?.type ?? "text");
+          const value = targets.length === 1 ? parsed : parseCellValue(kind, rawText);
+          resultEditing.applyCell(cell, value);
         }
-        resultEditing.applyCell(activeCell, parsed);
       }}
       onValueSetNull={
         columnEditable && activeCell && resultEditing

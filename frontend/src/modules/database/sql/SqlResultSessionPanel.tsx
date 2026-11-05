@@ -24,7 +24,20 @@ import type { MutableRefObject } from "react";
 import { ImportToTableDialog, type ImportToTableDialogPayload } from "./ImportToTableDialog";
 import { applySqlRepair, presentSqlExecError, readSqlRepairNote, setSqlRepairNote, subscribeSqlRepairNote } from "./sqlExecErrorPresent";
 import { useDbWorkspaceTabStore } from "../../../stores/dbWorkspaceTabStore";
+import {
+  formatShortcutList,
+  getShortcutKeys,
+  matchesShortcut,
+} from "../../../stores/shortcutsStore";
 import { useSqlResultEditing, type SqlResultEditBridge } from "./useSqlResultEditing";
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+  );
+}
 
 export interface SqlResultSessionPanelProps {
   sqlTabId: string;
@@ -131,10 +144,11 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
     () => (editing.editable ? new Set(editing.columnMeta.map((column) => column.name)) : null),
     [editing.columnMeta, editing.editable],
   );
+  const editBridge = editing.bridge;
   useEffect(() => {
-    onEditBridgeChange?.(editing.bridge);
+    onEditBridgeChange?.(editBridge);
     return () => onEditBridgeChange?.(null);
-  }, [editing.bridge, onEditBridgeChange]);
+  }, [editBridge, onEditBridgeChange]);
   const rowCount = resultRows.length;
 
   const resultPage = session.resultPage ?? 0;
@@ -208,6 +222,60 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
     const ok = await writeToClipboard(session.sql);
     showToast(ok ? t("database.results.copiedSql") : t("database.tablesPanel.copyFailed"));
   }, [session.sql, t]);
+
+  const saveShortcutLabel = formatShortcutList(getShortcutKeys("save-table-data"));
+  const undoShortcutLabel = formatShortcutList(getShortcutKeys("undo-table-data"));
+  const redoShortcutLabel = formatShortcutList(getShortcutKeys("redo-table-data"));
+
+  useEffect(() => {
+    if (!selectionReporting || !editing.editable) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+
+      if (matchesShortcut(event, getShortcutKeys("save-table-data"))) {
+        if (editing.committing || editing.dirtyCount === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        window.setTimeout(() => {
+          void editing.commit();
+        }, 0);
+        return;
+      }
+
+      if (matchesShortcut(event, getShortcutKeys("undo-table-data"))) {
+        if (isEditableKeyboardTarget(event.target)) return;
+        if (editing.committing || !editing.canUndo) return;
+        event.preventDefault();
+        event.stopPropagation();
+        editing.undo();
+        return;
+      }
+
+      if (matchesShortcut(event, getShortcutKeys("redo-table-data"))) {
+        if (isEditableKeyboardTarget(event.target)) return;
+        if (editing.committing || !editing.canRedo) return;
+        event.preventDefault();
+        event.stopPropagation();
+        editing.redo();
+        return;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [
+    selectionReporting,
+    editing.editable,
+    editing.committing,
+    editing.dirtyCount,
+    editing.canUndo,
+    editing.canRedo,
+    editing.commit,
+    editing.undo,
+    editing.redo,
+  ]);
 
   const numericColumn = columns.find((column) =>
     resultRows.some((row) => typeof row[column] === "number" && Number.isFinite(row[column] as number)),
@@ -287,10 +355,24 @@ export const SqlResultSessionPanel = memo(function SqlResultSessionPanel({
           }}
           copySqlHint={copySqlHint}
           previewSqlTitle={session.sql}
+          saveShortcutHint={editing.editable ? saveShortcutLabel : undefined}
+          undoShortcutHint={editing.editable ? undoShortcutLabel : undefined}
+          redoShortcutHint={editing.editable ? redoShortcutLabel : undefined}
         />
       ) : (
         <div className="min-w-0 flex-1" />
       )}
+      {!editing.editable &&
+      !session.running &&
+      session.result &&
+      session.result.columns.length > 0 ? (
+        <span
+          className="max-w-[280px] truncate text-[11px] text-muted-foreground"
+          title={t("database.results.editRequiresSingleTablePk")}
+        >
+          {t("database.results.editRequiresSingleTablePk")}
+        </span>
+      ) : null}
       <div className="ml-auto flex items-center gap-1">
         {canExport ? (
           <WorkbenchActionButton disabled={session.running} onClick={openImportToTable}>

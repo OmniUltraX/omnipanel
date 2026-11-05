@@ -19,6 +19,7 @@ export default {
     switchTeamAria: "切换数据快照来源团队",
     switchTeamCurrent: "当前",
     switchTeamPersonal: "个人",
+  switchTeamPersonalName: "个人空间",
     switchTeamEmpty: "暂无可切换的团队",
     switchTeamConfirmTitle: "确认切换团队",
     switchTeamConfirm:

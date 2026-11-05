@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useI18n } from "../../i18n";
+import { isPersonalTeam } from "../../lib/auth/teamApi";
 import { selectIsLoggedIn, useAuthStore } from "../../stores/authStore";
 import {
   selectUpdateBadgeVisible,
@@ -58,6 +59,13 @@ function isTeamMenuNode(target: EventTarget | null): boolean {
 /** 侧栏底部：切换团队按钮（头像上方）+ 用户头像菜单。 */
 export function SidebarUserButton() {
   const { t } = useI18n();
+  const teamLabel = (team: { id?: number | null; name?: string; kind?: string } | null | undefined) => {
+    if (!team) return "";
+    if (isPersonalTeam(team)) return t("userCenter.switchTeamPersonalName");
+    const name = String(team.name || "").trim();
+    if (name) return name;
+    return team.id == null ? "" : `#${team.id}`;
+  };
   const isLoggedIn = useAuthStore(selectIsLoggedIn);
   const avatarUrl = useUserProfileStore((s) => s.avatarUrl);
   const nickname = useUserProfileStore((s) => s.nickname);
@@ -307,7 +315,7 @@ export function SidebarUserButton() {
     : t("userCenter.menuLabel");
 
   const teamButtonTitle = currentTeam
-    ? `${t("userCenter.switchTeam")}: ${currentTeam.name || `#${currentTeam.id}`}`
+    ? `${t("userCenter.switchTeam")}: ${teamLabel(currentTeam)}`
     : t("userCenter.switchTeam");
 
   const renderTeamTag = (kind: string) => {
@@ -455,8 +463,8 @@ export function SidebarUserButton() {
                         disabled={switchingTeam}
                         onClick={() => handleSelectTeam(team.id)}
                       >
-                        <span className="sidebar-team-switch-menu__name" title={team.name}>
-                          {team.name || `#${team.id}`}
+                        <span className="sidebar-team-switch-menu__name" title={teamLabel(team)}>
+                          {teamLabel(team)}
                         </span>
                         {renderTeamTag(team.kind)}
                         {isActive ? (
@@ -472,7 +480,7 @@ export function SidebarUserButton() {
                         }`}
                         title={t("userCenter.teams.manageTeam")}
                         aria-label={t("userCenter.teams.manageTeamAria", {
-                          name: team.name || `#${team.id}`,
+                          name: teamLabel(team),
                         })}
                         disabled={switchingTeam}
                         onMouseDown={(event) => {

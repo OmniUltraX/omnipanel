@@ -1443,6 +1443,7 @@ export default {
       meta: "{rows} rows · {ms}ms · {mode}",
       noConnection: "Select a database connection first",
       runHint: "Run SQL to see results",
+      editRequiresSingleTablePk: "Read-only: columns need a unique base-table mapping and that table's PKs in the result (JOIN: unambiguous columns only)",
       emptySql: "No SQL statement to execute at cursor",
       emptySelection: "Select SQL to execute first",
       affected: "Success, {rows} rows affected",
@@ -1857,6 +1858,7 @@ export default {
       subqueryFileTitle: "Connection and database used when this subquery runs alone. Click to change",
       subqueryEditTitle: "Change the database used when this subquery runs alone",
       missingConnection: "Connection is gone",
+      run: "Run against this database only",
     },
     rowEditor: {
       title: "Edit Row",

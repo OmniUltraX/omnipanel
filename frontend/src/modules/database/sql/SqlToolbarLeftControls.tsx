@@ -54,16 +54,27 @@ function AnchorPopover({
     const rect = anchor.getBoundingClientRect();
     const { width } = el.getBoundingClientRect();
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-    setCoords({ left, top: rect.bottom + 6 });
+    const top = rect.bottom + 6;
+    setCoords((prev) =>
+      prev && prev.left === left && prev.top === top ? prev : { left, top },
+    );
   }, [anchorRef]);
 
   useLayoutEffect(() => {
     if (!open) {
-      setCoords(null);
+      setCoords((prev) => (prev == null ? prev : null));
       return;
     }
     updatePosition();
-  }, [open, updatePosition, children]);
+    // Reposition when popover content size changes (replaces unstable children dep).
+    const el = panelRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      updatePosition();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, updatePosition]);
 
   useEffect(() => {
     if (!open) return;

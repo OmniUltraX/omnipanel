@@ -35,7 +35,7 @@ import { resolveSqlDialect } from "../../sqlIntel/sqlDialect";
 import { restoreDockWindowChromeAfterLayout } from "../../../../lib/restoreDockWindowChromeAfterLayout";
 import { findSqlInDoc, setSqlFrameErrorEffect, setSqlFrameFocusEffect } from "../language/sqlStatementFrame";
 import { refreshSqlFileTargetEffect } from "../language/sqlExecTargetChips";
-import { statementIndexAt, type SavedSqlStatementTarget } from "../../sqlIntel/sqlStatementTargets";
+import { statementIndexAt, type SavedSqlStatementTarget, type SqlExecTarget } from "../../sqlIntel/sqlStatementTargets";
 import type { DbConnectionConfig } from "../../api";
 import { createSqlEditorExtensions } from "./extensions";
 import { getShortcutKeys, matchesShortcut } from "../../../../stores/shortcutsStore";
@@ -85,6 +85,13 @@ interface SqlEditorProps {
   dbType?: string;
   /** 执行光标所在的一条 SQL（由调用方传入已提取的语句）。快捷键 run-current-sql。 */
   onRun?: (sqlAtCursor: string, statementIndex?: number, anchor?: number) => void;
+  /** 只跑某个库标签对应的语句。 */
+  onRunTarget?: (
+    sql: string,
+    target: SqlExecTarget,
+    statementIndex?: number,
+    anchor?: number,
+  ) => void;
   /** 执行选中的 SQL（无选中时由调用方决定行为，通常回退到 onRun）。快捷键 run-selected-sql。 */
   onRunSelected?: (selectedSql: string) => void;
   /** 执行全部 SQL。快捷键 run-all-sql。 */
@@ -174,6 +181,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     openMode = "query",
     dbType,
     onRun,
+    onRunTarget,
     onRunSelected,
     onRunAll,
     onSave,
@@ -207,6 +215,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onRunRef = useRef(onRun);
+  const onRunTargetRef = useRef(onRunTarget);
   const onRunSelectedRef = useRef(onRunSelected);
   const onRunAllRef = useRef(onRunAll);
   const onSaveRef = useRef(onSave);
@@ -233,6 +242,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
 
   onChangeRef.current = onChange;
   onRunRef.current = onRun;
+  onRunTargetRef.current = onRunTarget;
   onRunSelectedRef.current = onRunSelected;
   onRunAllRef.current = onRunAll;
   onSaveRef.current = onSave;
@@ -461,6 +471,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
               if (!connId && !database) return null;
               return { connId, database };
             },
+            getOnRunTarget: () => onRunTargetRef.current,
           }
         : undefined,
       getOnSave: () => onSaveRef.current,

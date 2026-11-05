@@ -52,7 +52,7 @@ body,
     touch-action: manipulation;
 }
 
-/* 原生日期/时间控件：图标随 data-theme 的 color-scheme 自动切换（暗=浅色图标，亮=深色图标） */
+/* 閸樼喓鏁撻弮銉︽埂/閺冨爼妫块幒褌娆㈤敍姘禈閺嶅洭娈?data-theme 閻?color-scheme 閼奉亜濮╅崚鍥ㄥ床閿涘牊娈?濞村懓澹婇崶鐐垼閿涘奔瀵?濞ｈ精澹婇崶鐐垼閿?*/
 input[type="date"],
 input[type="time"],
 input[type="datetime-local"],
@@ -84,13 +84,13 @@ a {
     -webkit-user-drag: none;
 }
 
-/* 鍏ㄥ眬绂佹鏂囨湰閫変腑锛岄渶瑕侀€夋嫨鐨勫厓绱犺嚜琛屾坊鍔?user-select: auto 鎴?text */
+/* 闁稿繈鍔岄惇顒傜矉娴ｈ鍓鹃柡鍌氭处濠€浼存焻婢跺鍘柨娑樼焸濞撳墎鎲版笟鈧埀顒€顦扮€氥劑鎯冮崟顐㈠笚缂佽京濮鹃崵婊呮偘鐏炴儳娼戦柛?user-select: auto 闁?text */
 * {
     -webkit-user-select: none;
     user-select: none;
 }
 
-/* 表单控件必须可选中：全局 none 在 WebView2 下会导致 password→text 切换后明文不渲染 */
+/* 鐞涖劌宕熼幒褌娆㈣箛鍛淬€忛崣顖炩偓澶夎厬閿涙艾鍙忕仦鈧?none 閸?WebView2 娑撳绱扮€佃壈鍤?password閳姲ext 閸掑洦宕查崥搴㈡閺傚洣绗夊〒鍙夌厠 */
 input,
 textarea,
 select,
@@ -99,12 +99,12 @@ select,
     user-select: text !important;
 }
 
-/* 可读区域须放在 unlayered 规则中，否则无法覆盖上方 * 选择器（@layer components 优先级更低） */
+/* 閸欘垵顕伴崠鍝勭厵妞ょ粯鏂侀崷?unlayered 鐟欏嫬鍨稉顓ㄧ礉閸氾箑鍨弮鐘崇《鐟曞棛娲婃稉濠冩煙 * 闁瀚ㄩ崳顭掔礄@layer components 娴兼ê鍘涚痪褎娲挎担搴礆 */
 .ai-message-list .ai-msg-body,
 .ai-message-list .ai-msg-body *,
 .aui-user-message-content,
 .aui-user-message-content *,
-/* AI 助手页：助手正文 / Markdown / 思考过程 / 工具结果可选中复制 */
+/* AI 閸斺晜澧滄い纰夌窗閸斺晜澧滃锝嗘瀮 / Markdown / 閹繆鈧啳绻冪粙?/ 瀹搞儱鍙跨紒鎾寸亯閸欘垶鈧鑵戞径宥呭煑 */
 [data-slot="aui_assistant-message-content"],
 [data-slot="aui_assistant-message-content"] *,
 [data-slot="aui_chain-of-thought"],
@@ -123,7 +123,7 @@ select,
     user-select: text !important;
 }
 
-/* 助手消息内的操作条 / 折叠触发器仍禁止选中，避免拖选误触 */
+/* 閸斺晜澧滃☉鍫熶紖閸愬懐娈戦幙宥勭稊閺?/ 閹舵ê褰旂憴锕€褰傞崳銊ょ矝缁備焦顒涢柅澶夎厬閿涘矂浼╅崗宥嗗珛闁顕ょ憴?*/
 [data-slot="aui_assistant-message-footer"],
 [data-slot="aui_assistant-message-footer"] *,
 [data-slot="aui_assistant-message-indicator"],
@@ -135,12 +135,12 @@ select,
     user-select: none !important;
 }
 
-/* 单元格 / 文件内容预览：支持选中复制 */
+/* 閸楁洖鍘撻弽?/ 閺傚洣娆㈤崘鍛啇妫板嫯顫嶉敍姘暜閹镐線鈧鑵戞径宥呭煑 */
 .content-preview-view,
 .content-preview-view *,
 .db-cell-editor-blob-preview,
 .db-cell-editor-blob-preview *,
-/* 1Panel 已安装应用参数：支持框选与 Ctrl+C */
+/* 1Panel 瀹告彃鐣ㄧ憗鍛安閻劌寮弫甯窗閺€顖涘瘮濡楀棝鈧绗?Ctrl+C */
 .app-installed-params,
 .app-installed-params * {
     -webkit-user-select: text !important;
@@ -160,7 +160,7 @@ select,
     user-select: none !important;
 }
 
-/* 鈹€鈹€鈹€ Workspace Framework 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Workspace Framework 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
 .env-badge {
     display: inline-flex;
     align-items: center;
@@ -264,7 +264,7 @@ select,
     min-width: 0 !important;
 }
 
-/* 鈹€鈹€鈹€ 搴曢儴渚ф爮锛圫idebarBottom锛夆攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?閹煎瓨娲熼崕瀛樼瑹瑜庨悥顕€鏁嶉崷鐜ebarBottom闁挎稑顦弨銏ゅ煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀?*/
 .dock-workspace.content-bottom .dock-panel-bottom {
     border-top: 1px solid var(--border);
     background: var(--bg-deeper);
@@ -280,7 +280,7 @@ select,
     overflow: hidden;
 }
 
-/* 搴曢儴宸ョ▼宸ヤ綔鍖猴細澶氬疄渚嬪垏鎹?+ DockWorkspace 甯冨眬 */
+/* 閹煎瓨娲熼崕鏉戭啅閵壯€鏌ょ€规悶鍎扮紞鏃堝礌閻氬绐楀鑸佃壘閻ゅ嫭绗熺€ｎ亜鐎奸柟?+ DockWorkspace 閻㈩垰鍟惇?*/
 .workspace-bottom-shell {
     height: 100%;
     width: 100%;
@@ -382,7 +382,7 @@ select,
     pointer-events: none;
 }
 
-/* 搴曢儴宸ョ▼宸ヤ綔鍖哄叏灞忥細闅愯棌椤舵爮涓庝富鍐呭鍖猴紝淇濈暀鐘舵€佹爮 */
+/* 閹煎瓨娲熼崕鏉戭啅閵壯€鏌ょ€规悶鍎扮紞鏃堝礌閸濆嫬寮块悘鐐查獜缁变即姊鹃幇顖涱棏濡炪倛鍩栭悥顔界▔鎼存繂鐦滈柛鎰噹椤旀劙宕犻悮瀵哥濞ｅ洦绻勯弳鈧柣妯垮煐閳ь兛鐒﹂悥?*/
 .workspace--bottom-fullscreen > .topbar {
     visibility: hidden;
     pointer-events: none;
@@ -439,7 +439,7 @@ select,
     flex-direction: column;
 }
 
-/* 宸ヤ綔鍖哄涓伙細full / half / off 璇箟 */
+/* 鐎规悶鍎扮紞鏃堝礌閸濆嫷鍟忓☉鎾茬串缁辩櫞ull / half / off 閻犲浂鍘虹粻?*/
 .workspace-host {
     flex: 1;
     min-height: 0;
@@ -455,9 +455,9 @@ select,
     min-height: 0;
 }
 
-/* 鍏ㄥ睆鏃剁敱 workspace-preview__main 闅愯棌涓诲尯锛屽嬁鍐?visibility:hidden content-routes锛?   鍚﹀垯 navigate鈫抏xit 鏃跺涓€灞傚彲瑙佹€у垏鎹紝閫€鍑哄叏灞忎細闂┖鐧藉抚 */
+/* 闁稿繈鍔岄惈鍡涘籍閸撲焦鏆?workspace-preview__main 闂傚懏鍔樺Λ灞剧▔鐠囨彃闅橀柨娑樿嫰鐎ｄ線宕?visibility:hidden content-routes闁?   闁告熬绠戦崹?navigate闁愁偅濮€xit 闁哄啳娉涢ˇ鎸庣▔閳ь剛浠﹂崒姘閻熸瑤鐒﹂埀顑啫鐎奸柟璇℃緛缁辨繈鏌呴埀顒勫礄閸濆嫬寮块悘鐐茬箣缁变即姊婚鍡忔晞闁谎嗘閹?*/
 
-/* 鈹€鈹€鈹€ 宸ヤ綔鍖洪瑙堬紙WorkspacePreview 路 split-window / task-bar锛夆攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?鐎规悶鍎扮紞鏃堝礌濞差亶鏆曢悷娆忕墳缁辨┒orkspacePreview 鐠?split-window / task-bar闁挎稑顦弨銏ゅ煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳ь剟鍩為埀顒勫煘閳?*/
 .workspace-preview {
     flex: 1;
     min-height: 0;
@@ -467,7 +467,7 @@ select,
     overflow: hidden;
 }
 
-/* task-bar 鍥哄畾楂樺害锛氶』鍦ㄥ涓诲眰瀹氫箟锛屼緵 dock-panel-bottom 缁ф壙锛堝嬁渚濊禆 .workspace-taskbar-strip锛?*/
+/* task-bar 闁搞儱鎼悾鐐殗濡搫顔婇柨娑欏哺閵嗗繘宕烽妸銉晱濞戞捁顕ч惇鎵偓瑙勭煯缁犵喖鏁嶇仦鑲╄繑 dock-panel-bottom 缂備綀鍕棡闁挎稑鐗嗙€ｄ焦绗熷┑濠勵洬 .workspace-taskbar-strip闁?*/
 .workspace-preview--task-bar,
 .workspace-host--taskbar {
     --ws-taskbar-h: var(--topbar-h, 44px);
@@ -489,7 +489,7 @@ select,
 .workspace-preview__bottom-stack > [data-visible="false"] {
     visibility: hidden;
     pointer-events: none;
-    /* 首页预热 / 折叠态：跳过子树绘制与部分布局，配合 contentSuspended 抑制业务 effect */
+    /* 妫ｆ牠銆夋０鍕劰 / 閹舵ê褰旈幀渚婄窗鐠哄疇绻冪€涙劖鐖茬紒妯哄煑娑撳酣鍎撮崚鍡楃鐏炩偓閿涘矂鍘ら崥?contentSuspended 閹舵垵鍩楁稉姘 effect */
     content-visibility: hidden;
     position: absolute;
     inset: 0;
@@ -540,7 +540,7 @@ select,
     flex-direction: column;
 }
 
-/* split-window 涓嬭В闄?task-bar 閬楃暀鐨?40px 楂樺害绾︽潫锛堝涓?class 鍒囨崲鍙兘婊炲悗涓€甯э級 */
+/* split-window 濞戞挸顑堣闂?task-bar 闂侇剚顨堥弳鈧柣?40px 濡ゅ倹锚鐎瑰磭鐥敂鑺ュ皢闁挎稑鐗嗛鏍ㄧ▔?class 闁告帒娲﹀畷鏌ュ矗椤栨繂鍘存繝濠勫仜閹绋夐埀顒傛暜瑜濈槐?*/
 .workspace-preview--split-window .dock-panel-bottom--workspace,
 .workspace-host--half .dock-panel-bottom--workspace {
     flex: 1 1 auto !important;
@@ -592,7 +592,7 @@ select,
     flex-direction: column;
 }
 
-/* task-bar 妯″紡搴曟爮锛堜笌鍗婂睆/鍏ㄥ睆宸ョ▼宸ヤ綔鍖?dock tab 鏍忚瑙夊榻愶級 */
+/* task-bar 婵☆垪鈧磭纭€閹煎瓨娲橀悥顕€鏁嶉崼婊呯憿闁告锕ら惈?闁稿繈鍔岄惈鍡楊啅閵壯€鏌ょ€规悶鍎扮紞鏃堝礌?dock tab 闁哄秴绻楅～瀣喆婢跺鍤犲缁樺姧缁?*/
 .workspace-preview-taskbar {
     flex: 1 1 auto;
     display: flex;
@@ -636,7 +636,7 @@ select,
     background: var(--bg);
 }
 
-/* taskbar tab锛氳创婊℃爮楂橈紝椤惰竟 inset 鎸囩ず鏉★紙閬垮厤 border 鎸ゅ嚭涓婅竟璺濓級 */
+/* taskbar tab闁挎稒淇洪崚娑橆煥閳╁啰鍩夊Δ鍌涳公缁辨繃銇勯幆鎵彾 inset 闁圭娲ㄩ妵姘跺级閳藉懐绀勯梺顒€鐏濋崢?border 闁规悶鍊曢崵顓熺▔婵犲懐鐝堕悹鐑樼箰缁?*/
 .workspace-preview-taskbar .workspace-taskbar-tab {
     flex: 0 0 auto;
     align-self: stretch;
@@ -1055,7 +1055,7 @@ select,
     height: 100%;
 }
 
-/* 宸ヤ綔鍖哄唴瑕嗙洊 Docker 鎶藉眽鍥哄畾楂樺害锛?60px锛?*/
+/* 鐎规悶鍎扮紞鏃堝礌閸濆嫬鏁堕悷鏇炴濞?Docker 闁规儼妫勯惇浠嬪炊閸濆嫮鏆板Δ鍌浢€规娊鏁?60px闁?*/
 .docker-workspace-tab-pane .docker-exec-term,
 .workspace-panel-dock .docker-exec-term,
 .workspace-bottom-fullscreen-shell .docker-exec-term {
@@ -1129,7 +1129,7 @@ select,
     height: 100%;
 }
 
-/* 看板页：撑满 dock 面板高度，否则底栏 margin-top:auto 无效 */
+/* 閻婢樻い纰夌窗閹炬垶寮?dock 闂堛垺婢樻妯哄閿涘苯鎯侀崚娆忕俺閺?margin-top:auto 閺冪姵鏅?*/
 .dashboard-page {
     height: 100%;
     min-height: 0;
@@ -1561,7 +1561,7 @@ select,
     font-size: 13px;
 }
 
-/* 服务器资源监控小组件 */
+/* 閺堝秴濮熼崳銊ㄧカ濠ф劗娲冮幒褍鐨紒鍕 */
 .sc-server-mon {
     display: flex;
     flex-direction: column;
@@ -1804,7 +1804,7 @@ select,
     margin-top: 0;
 }
 
-/* Docker 容器 / Compose 监控小组件 */
+/* Docker 鐎圭懓娅?/ Compose 閻╂垶甯剁亸蹇曠矋娴?*/
 .sc-docker-mon {
     display: flex;
     flex-direction: column;
@@ -2019,7 +2019,7 @@ select,
     color: var(--danger, #e5484d);
 }
 
-/* 宝塔 Java 网站监控样式见 btJavaWebsiteMonitor/BtJavaWebsiteMonitorView.css */
+/* 鐎规繂顢?Java 缂冩垹鐝惄鎴炲付閺嶅嘲绱＄憴?btJavaWebsiteMonitor/BtJavaWebsiteMonitorView.css */
 
 .sc-mysql-ov,
 .sc-redis-ov {
@@ -2190,7 +2190,7 @@ select,
     flex-direction: column;
     height: 100%;
     min-height: 0;
-    /* 底栏 AI 区上提，避免贴死窗口底边 */
+    /* 鎼存洘鐖?AI 閸栬桨绗傞幓鎰剁礉闁灝鍘ょ拹瀛橆劥缁愭褰涙惔鏇＄珶 */
     padding-bottom: 28px;
 }
 
@@ -2242,7 +2242,7 @@ select,
 }
 
 .home-board-launch__item:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid color-mix(in srgb, var(--border-focus, var(--accent)) 55%, transparent);
     outline-offset: 2px;
     border-radius: var(--r-md);
 }
@@ -2495,7 +2495,7 @@ select,
     width: 100%;
 }
 
-/* 宸ョ▼宸ヤ綔鍖哄崐灞忥細tab 鏍忎笌鍏ㄥ睆鎸夐挳缁熶竴涓?shell 椤舵爮楂樺害 */
+/* 鐎规悶鍎抽埢鐓庮啅閵夈倗绋婇柛鏍ф惈瀹曟劗浠﹁箛銉х獥tab 闁哄秴绻嬬粭宀勫礂閵娿儳娼岄柟绋款樀閹稿磭绱掗悢鍓侇伇濞?shell 濡炪倛鍩栭悥顔筋殗濡搫顔?*/
 .workspace-panel-dock.dockable-workspace {
     --dv-tabs-and-actions-container-height: var(--shell-dv-tab-bar-h);
     --dv-tabs-and-actions-container-font-size: 14px;
@@ -2514,7 +2514,7 @@ select,
     box-sizing: border-box;
 }
 
-/* 鍗婂睆宓屽叆锛氫粎涓哄伐绋嬪伐浣滃尯鏍圭骇椤堕儴 tab 鏍忕暀鐧斤紝閬垮紑鍙充笂瑙?mode-controls锛?   鍕跨敤鍚庝唬閫夋嫨鍣ㄥ懡涓祵濂楃殑 advance-terminal-side-dock 绔栨帓渚ф爮锛?8px 瀹藉姞 padding 浼氭暣鍒楃┖鐧斤級 */
+/* 闁告锕ら惈鍡楃暤鐏炶棄寮抽柨娑欑煯缁孩绋夐崫鍕矗缂佸顑呮导鎰媴濠婂啫闅橀柡宥呮贡妤犲洦銇勯崼鏇炲姤 tab 闁哄秴绻掗弳鈧柣褎鏋荤槐婵嬫焼閸喚纾婚柛娆忓帠缁楀倻鎲?mode-controls闁?   闁告洝娉曢弫銈夊触鎼存繂鏁╅梺顐㈩槹鐎氥劑宕抽妸銉﹀殥濞戞搩鍘肩粊鍨附濡ゅ啯鐣?advance-terminal-side-dock 缂佹梹鐗楃敮鎾寸瑹瑜庨悥顕€鏁?8px 閻庣妫勬慨?padding 濞村吋纰嶉弳锝夊礆濡ゅ啠鏁勯柣褎鏋荤槐?*/
 .workspace-panel-frame:has(.workspace-panel-mode-controls)
     .workspace-panel-dock.dockable-workspace.dock-header-top
     > .dockable-workspace__dockview
@@ -2564,7 +2564,7 @@ select,
     height: 100%;
 }
 
-/* 鍗婂睆宓屽叆绌哄伐浣滃尯锛氶《鏍忕敱 workspace-panel-empty-topbar 鎵胯浇锛岄殣钘?dockview 绌?group 娈嬬暀 tab 鏍?*/
+/* 闁告锕ら惈鍡楃暤鐏炶棄寮崇紒灞芥惈娴兼劖鎷呭鍐ㄩ殬闁挎稒宀搁妴濠囧冀韫囨洘鏆?workspace-panel-empty-topbar 闁逛絻鍎诲ù鍥晬瀹€鍕吅闁?dockview 缂?group 婵炲牆顑囬弳鈧?tab 闁?*/
 .workspace-panel-frame.workspace-panel--empty:not(.workspace-panel-frame--engineering-full)
     .workspace-panel-dock.dockable-workspace
     .dockable-workspace__dockview
@@ -2578,7 +2578,7 @@ select,
     pointer-events: none;
 }
 
-/* 淇濈暀 dv-content-container 灏哄渚?dockview 绌?group 鎺ユ敹璺?dock 鎷栨斁锛堝崐灞忓祵鍏ョ┖鎬侊級 */
+/* 濞ｅ洦绻勯弳鈧?dv-content-container 閻忓繐鎼顓熺瑹?dockview 缂?group 闁规亽鍎查弫鍦崉?dock 闁归攱鐗楅弬渚€鏁嶉崼婵嗙９閻忕偛绻愮粊鐢稿礂閵壯€鏁勯柟顑跨筏缁?*/
 .workspace-panel-frame.workspace-panel--empty:not(.workspace-panel-frame--engineering-full)
     .workspace-panel-dock.dockable-workspace
     .dockable-workspace__dockview
@@ -2587,7 +2587,7 @@ select,
     min-height: 0;
 }
 
-/* 鐢ㄦ埛宸ヤ綔鍖鸿鎯呴〉锛?workspace/:id锛?*/
+/* 闁活潿鍔嶉崺娑橆啅閵夈倗绋婇柛鏍細椤曟盯骞嗛崨娣偓澶愭晬?workspace/:id闁?*/
 .user-workspace {
     display: flex;
     flex-direction: column;
@@ -2611,7 +2611,7 @@ select,
     min-height: 0;
 }
 
-/* 绌哄伐浣滃尯鍗犱綅灞備笉鎷︽埅鎷栨斁锛屼粎鎭㈠杈撳叆鎺т欢鍙偣鍑?*/
+/* 缂佸苯鎼导鎰媴濠婂啫闅橀柛妤冨С缂嶅懐浠﹂崒娆戠憹闁瑰嚖闄勯崺鍛村箯閺嶃劍鏉归柨娑樺缁酣骞侀姀鐙€妲婚弶鍫熸尭閸欏棝骞掕濞嗐垽宕ｉ婊冧化闁?*/
 .workspace-panel-frame.workspace-panel--empty .dockable-workspace__empty--overlay,
 .workspace-panel-frame.workspace-panel--empty .dockable-workspace__empty--overlay * {
     pointer-events: none;
@@ -2649,7 +2649,7 @@ select,
     padding: 0;
     border-bottom: 1px solid var(--border);
     background: var(--bg);
-    /* 半屏嵌入顶栏：禁止拖拽控制 OS 窗口（全屏才走 dock windowControl） */
+    /* 閸楀﹤鐫嗗畵灞藉弳妞よ埖鐖敍姘鳖洣濮濄垺瀚嬮幏鑺ュ付閸?OS 缁愭褰涢敍鍫濆弿鐏炲繑澧犵挧?dock windowControl閿?*/
     -webkit-app-region: no-drag;
 }
 
@@ -2803,7 +2803,7 @@ select,
     color: var(--meta);
 }
 
-/* 鈹€鈹€鈹€ 宸ヤ綔鍖轰簲鎬侊細缂╃暐鍥?/ 浠诲姟鏍?/ 鍏ㄥ睆鎷栨嫿 鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?鐎规悶鍎扮紞鏃堝礌鏉炴壆瀹夐柟顑跨筏缁辨壆绱撻埡鍐╂闁?/ 濞寸姾顕ф慨鐔煎冀?/ 闁稿繈鍔岄惈鍡涘箯閺嶃劌顏?闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
 .sidebar-bottom-host {
     flex: 1;
     min-height: 0;
@@ -2842,7 +2842,7 @@ select,
     align-items: stretch;
 }
 
-/* 浠诲姟鏍忓崟琛岋細Tab 鍖烘拺婊★紝鍏ㄥ睆鎸夐挳鍥哄畾鍦ㄦ渶鍙?*/
+/* 濞寸姾顕ф慨鐔煎冀韫囨挸绀嬮悶娑樼焿缁辩櫉ab 闁告牜鍎ら幏鍝勵煥閳藉懐绀夐柛蹇嬪妼閻棝骞愭径鎰唉闁搞儱鎼悾楣冨捶閵婏附浠橀柛?*/
 .workspace-taskbar-bar {
     display: flex;
     flex-direction: row;
@@ -3033,7 +3033,7 @@ select,
     background: var(--bg-deeper);
 }
 
-/* 鎮诞鎺т欢锛氬乏涓婅鍒囨崲鍣ㄣ€佸彸涓婅鍏ㄥ睆 */
+/* 闁诡噮鍓氱拠鐐哄箳瑜屽▎銏ゆ晬濮橆兛绠☉鎾筹龚椤宕氶崶銊ュ簥闁革絻鍔婇埀顑跨瑜板憡绋夋繝鍜佹健闁稿繈鍔岄惈?*/
 .workspace-compact-float {
     position: absolute;
     z-index: 12;
@@ -3581,7 +3581,7 @@ select,
     cursor: default;
 }
 
-/* CodeMirror 查找/替换面板（@codemirror/search） */
+/* CodeMirror 閺屻儲澹?閺囨寧宕查棃銏℃緲閿涘湌codemirror/search閿?*/
 .cm-editor .cm-panels {
     background: var(--surface, #302c2c);
     color: var(--fg, #fdfcfc);
@@ -3648,7 +3648,7 @@ select,
     background: color-mix(in srgb, var(--accent, #007aff) 48%, transparent);
 }
 
-/* INSERT VALUES/SELECT 列名 inlay + 悬停高亮（DataGrip 风格） */
+/* INSERT VALUES/SELECT 閸掓鎮?inlay + 閹剙浠犳妯瑰瘨閿涘湒ataGrip 妞嬪孩鐗搁敍?*/
 .cm-sql-insert-column-inlay {
     display: inline-block;
     font-size: 0.78em;
@@ -3679,13 +3679,13 @@ select,
 }
 
 .sql-codemirror-editor--inactive {
-    /* 切 Tab 时 dockview 会先露出面板、React active 稍后才到；
-       绝不能用 visibility/尺寸隐藏，否则会出现「工具栏在、编辑器黑」的闪帧。
-       仅禁用交互即可。 */
+    /* 閸?Tab 閺?dockview 娴兼艾鍘涢棁鎻掑毉闂堛垺婢橀妴涓積act active 缁嬪秴鎮楅幍宥呭煂閿?
+       缂佹繀绗夐懗鐣屾暏 visibility/鐏忓搫顕梾鎰閿涘苯鎯侀崚娆庣窗閸戣櫣骞囬妴灞戒紣閸忛攱鐖崷銊ｂ偓浣虹椽鏉堟垵娅掓鎴欌偓宥囨畱闂傤亜鎶氶妴?
+       娴犲懐顩﹂悽銊ゆ唉娴滄帒宓嗛崣顖樷偓?*/
     pointer-events: none;
 }
 
-/* SQL 缂栬緫鍣?CodeMirror 琛ュ叏鍒楄〃锛坱ooltip 鎸傝浇鍦?body锛岄殢涓婚鍙橀噺鍒囨崲锛?*/
+/* SQL 缂傚倹鐗炵欢顐﹀闯?CodeMirror 閻炴稏鍎遍崣蹇涘礆濡ゅ嫨鈧啴鏁嶉崸鐪攐ltip 闁圭鍊藉ù鍥捶?body闁挎稑鐭傚▓銏＄▔婵犳凹鏆柛娆愶耿閸ｆ椽宕氶崶銊ュ簥闁?*/
 .cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar {
     width: 8px;
 }
@@ -3720,7 +3720,7 @@ select,
     border-color: color-mix(in srgb, #bf5af2 32%, var(--border));
 }
 
-/* SQL Lint 娉㈡氮绾?/ gutter 璇婃柇鎻愮ず */
+/* SQL Lint 婵炲鍨哄顔剧棯?/ gutter 閻犲洤锕ラ弻鍥箵閹邦喓浠?*/
 .cm-tooltip-lint .cm-diagnosticText {
     display: block;
 }
@@ -3750,14 +3750,14 @@ select,
     color: var(--fg);
 }
 
-/* SQL 编辑器表/字段悬停信息卡（tooltip 挂载在 body） */
+/* SQL 缂傛牞绶崳銊ㄣ€?鐎涙顔岄幃顒€浠犳穱鈩冧紖閸椻槄绱檛ooltip 閹稿倽娴囬崷?body閿?*/
 .cm-tooltip:has(.db-sql-hover-card) {
     padding: 0;
     border: none;
     background: transparent;
     box-shadow: none;
     overflow: visible;
-    /* 高于 dock 标签栏 / 面板控件，避免顶部被挡住 */
+    /* 妤傛ü绨?dock 閺嶅洨顒烽弽?/ 闂堛垺婢橀幒褌娆㈤敍宀勪缉閸忓秹銆婇柈銊潶閹糕€茬秶 */
     z-index: 200000 !important;
 }
 
@@ -3769,14 +3769,14 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     z-index: 200000 !important;
 }
 
-/* 瑕嗙洊鍏ㄥ眬 user-select: none锛屾敮鎸佸鍒跺厓淇℃伅涓?SQL 瀹氫箟 */
+/* 閻熸洖妫涘ú濠囧礂閵娿儳婀?user-select: none闁挎稑鏈弫顕€骞愭担鍓叉Щ闁告帟娉涢崢鎾寸┍閳╁啩绱栧☉?SQL 閻庤鐭粻?*/
 .db-sql-hover-card,
 .db-sql-hover-card * {
     -webkit-user-select: text !important;
     user-select: text !important;
 }
 
-/* 表预览工具栏身份芯片：可框选复制表名 / 库名 */
+/* 鐞涖劑顣╃憴鍫濅紣閸忛攱鐖煬顐″敜閼侯垳澧栭敍姘讲濡楀棝鈧顦查崚鎯般€冮崥?/ 鎼存挸鎮?*/
 .db-table-topbar-identity,
 .db-table-topbar-identity * {
     -webkit-user-select: text !important;
@@ -3799,7 +3799,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
         0 0 0 1px color-mix(in srgb, var(--border) 40%, transparent);
 }
 
-/* 表 Hover：整体更紧凑，字段列表少占空间 */
+/* 鐞?Hover閿涙碍鏆ｆ担鎾存纯缁毖冨櫨閿涘苯鐡у▓闈涘灙鐞涖劌鐨崡鐘碘敄闂?*/
 .db-sql-hover-card--table {
     min-width: min(420px, 88vw);
     max-width: min(520px, 92vw);
@@ -4352,7 +4352,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     white-space: nowrap;
 }
 
-/* 鍗婂睆宓屽叆锛氫笌鍏ㄥ睆绌洪〉鐩稿悓锛屼粎鍦ㄦ湁闄愰珮搴﹀唴鍙粴鍔?*/
+/* 闁告锕ら惈鍡楃暤鐏炶棄寮抽柨娑欑煯缁楀矂宕楅妸銉ф綄缂佸本妞介妴澶愭儎缁嬫寧鍊遍柨娑樺缁酣宕烽妸锔界畳闂傚嫭鍔欓悵顔芥償閿曗偓閸炴挳宕ｉ娑氭硦闁?*/
 .workspace-empty-page--embedded {
     height: 100%;
     justify-content: flex-start;
@@ -4570,7 +4570,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
         line-height: 1.5;
         color: var(--fg);
         background: var(--bg);
-        /* Windows 暗色下 antialiased 会让笔画发虚；保持默认渲染更清晰 */
+        /* Windows 閺嗘澹婃稉?antialiased 娴兼俺顔€缁楁梻鏁鹃崣鎴ｆ珓閿涙稐绻氶幐渚€绮拋銈嗚閺屾挻娲垮〒鍛珰 */
         -webkit-font-smoothing: auto;
         text-rendering: optimizeLegibility;
     }
@@ -4590,6 +4590,8 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
         border: none;
         background: none;
         color: var(--fg);
+        -webkit-appearance: none;
+        appearance: none;
     }
 
     input,
@@ -4598,9 +4600,28 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
         font-family: var(--font);
     }
 
+    /* Desktop shell: kill browser neon Tab rings. Forms already restyle via border. */
+    :focus,
     :focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
+        outline: none;
+    }
+
+    html,
+    body,
+    button,
+    [role="button"],
+    a,
+    summary {
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Keep a usable keyboard cue only on raw form controls that do not already restyle focus. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]):focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    [contenteditable="true"]:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--border-focus, var(--accent)) 55%, transparent);
+        outline-offset: 1px;
     }
 
     /* Window resize edges */
@@ -4617,7 +4638,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     }
 }
 
-/* Scrollbar — 纤细半透明；默认隐藏，悬停或焦点区域内显示 */
+/* Scrollbar 閳?缁俱倗绮忛崡濠団偓蹇旀閿涙盯绮拋銈夋閽樺骏绱濋幃顒€浠犻幋鏍妽閻愮懓灏崺鐔峰敶閺勫墽銇?*/
 * {
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
@@ -4664,20 +4685,20 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     background-color: color-mix(in srgb, var(--fg-2) 72%, transparent);
 }
 
-/* 鈹€鈹€鈹€ App Layout 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?App Layout 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾 */
 .app {
     display: grid;
     grid-template-columns: var(--sidebar-w) 1fr;
     grid-template-rows: 1fr;
     height: 100vh;
     width: 100vw;
-    /* 涓?dockview .dv-tabs-and-actions-container 鍏辩敤楂樺害 */
+    /* 濞?dockview .dv-tabs-and-actions-container 闁稿繗浜弫銈嗩殗濡搫顔?*/
     --shell-dv-tab-bar-h: var(--topbar-h);
-    /* 绐楀彛鎺у埗涓夐敭锛坢inimize / maximize / close锛夊崰浣嶅搴?*/
+    /* 缂佹劖顨呰ぐ娑㈠箳瑜嶉崺妤佺▔婢舵劖鏆涢柨娑樻桨inimize / maximize / close闁挎稑顦畷鐗堟媴瀹ュ拋鍟嶉幖?*/
     --shell-win-controls-width: 138px;
 }
 
-/* 椤诲湪 @layer 澶栵紝閬垮厤 Tailwind layer 绾ц仈瀵艰嚧 hidden 椤舵爮浠嶅彲瑙?*/
+/* 濡炪倛顕у﹢?@layer 濠㈣埖鐗槐婵嬫焼閸喖甯?Tailwind layer 缂佺嫏鍡曠矒閻庝絻澹堥崵?hidden 濡炪倛鍩栭悥顔界瀹ュ懎璁查悷?*/
 .topbar.topbar--hidden {
     display: none !important;
 }
@@ -4737,7 +4758,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     overflow: hidden;
 }
 
-/* 鏅€氭ā鍧楋細闈炴縺娲荤洿鎺ュ嵏杞藉竷灞€锛堣交閲忋€佸垏鎹㈠揩锛?*/
+/* 闁哄拋鍣ｉ埀顒佺鑶╅柛褎顨愮槐浼存閻愬璐熸繛鑼跺吹濞插潡骞掗妷銉ョセ閺夌偠妫勭粩椋庝沪閳ь剟鏁嶉崼锝勬唉闂佹彃绻堥埀顑跨閸ㄥ繘骞戦姀鐘冲渐闁?*/
 .route-panel:not(.route-panel--overlay):not(.route-panel--active) {
     display: none;
 }
@@ -4748,7 +4769,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 /*
- * 鍚?dockview 鐨勬ā鍧楋紙缁堢/鏁版嵁搴擄級锛氬缁堝彔灞傚崰婊?content-routes锛? * 浠呭垏 visibility锛岀姝?display:none / relative鈫攁bsolute 鍒囨崲銆? * 鍚﹀垯 dockview 閲忓埌 0 瀹藉悗 api.layout 浼氭妸鏁撮〉閿佹鍦?~38px 鍘嬫墎鎬併€? */
+ * 闁?dockview 闁汇劌瀚啯闁秆勵殣缁辨瑧绱掗崼銏╀紓/闁轰胶澧楀畵浣规償閹垮嫮绀嗛柨娑欒壘椤劗绱掗崼婵嗙秾閻忕偛鍊稿畷鏉款煥?content-routes闁? * 濞寸姴鎳庨崹?visibility闁挎稑鐬奸々锕€顫?display:none / relative闁愁偅鏀solute 闁告帒娲﹀畷鏌ュΥ? * 闁告熬绠戦崹?dockview 闂佹彃绻愰崺?0 閻庣妫勯幃?api.layout 濞村吋纰嶆俊鎼佸极閹绢喓鈧鏌ㄦ担璇″姤闁?~38px 闁告ê顑嗘晶搴ㄥ箑娴ｇ鍋? */
 .route-panel--overlay {
     position: absolute;
     inset: 0;
@@ -4773,16 +4794,16 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 /*
- * 闅愯棌鐨勯潪 dockview overlay锛氳烦杩囧瓙鏍戝竷灞€涓庣粯鍒讹紝鍑忚交鍚庡彴妯″潡鐨勬覆鏌撳紑閿€銆? * keep-layout 妯″潡锛堢粓绔?鏁版嵁搴?dockview锛変笉鍙備笌锛岄伩鍏嶉噺鍒?0 瀹藉悗 api.layout 鍘嬫墎銆? * 鍏冪礌鑷韩浠?absolute inset:0 鍗犱綅锛屽垏鍥炴椂瀛愭爲鎸夋棦鏈?box 鎭㈠甯冨眬锛屾棤灏哄濉岄櫡銆? */
+ * 闂傚懏鍔樺Λ宀勬儍閸曨垱濮?dockview overlay闁挎稒淇洪悜锔芥交閸パ呮憤闁哄秵鍨电粩椋庝沪閳ь剚绋夋惔锝囧笡闁告帟顔愮槐婵嬪礄韫囨矮姘﹂柛姘瑜版潙螣閳ヨ櫕鍋ラ柣銊ュ鐟曞棝寮婚幘宕囩；闂佸簱鍋撻柕? * keep-layout 婵☆垪鈧櫕鍋ラ柨娑樼墢缁挾绮?闁轰胶澧楀畵浣规償?dockview闁挎稑顦粭澶愬矗閸屾瑧鐟㈤柨娑樼焸娴尖晠宕楀澶婃闁?0 閻庣妫勯幃?api.layout 闁告ê顑嗘晶搴ㄥΥ? * 闁稿繐鍟扮粈宀勬嚊椤忓洭鐓╁ù?absolute inset:0 闁告濮崇紞鍛存晬鐏炶棄鐎奸柛銉у仦濡炲倻鈧稒鍔栭悥鏌ュ箰婢跺锛嗛柡?box 闁诡厹鍨归ˇ鑼暜閸愩劎婀伴柨娑樻湰濡倗浜搁崫鍕靛殶濠靛鐭傚▍锟犲Υ? */
 .route-panel--overlay:not(.route-panel--active) {
     content-visibility: hidden;
     contain-intrinsic-size: auto 100%;
 }
 
-/* === 宸ヤ綔鍖哄叏灞忔€侊細dock 瀹瑰櫒 position:fixed 鍗犳弧瑙嗗彛 ===
-   dockview 濮嬬粓鍦?WorkspacePreview 鍐呮寕杞斤紙涓?unmount锛夛紝
-   鍏ㄥ睆鏃剁敤 position:fixed 鑴辩 SidebarBottom 鐨?panel size 闄愬埗銆?*/
-/* 瑕嗙洊 workspace--bottom-fullscreen 瀵?dock-panel-bottom 鐨?collapse锛宖ixed dock 椤诲彲浜や簰 */
+/* === 鐎规悶鍎扮紞鏃堝礌閸濆嫬寮块悘鐐茬箲閳ь兛绶ょ槐鐧瞣ck 閻庡湱鎳撳▍?position:fixed 闁告濮靛褏鎲撮崱妤€缍?===
+   dockview 濠殿喖顑囩划鎾诲捶?WorkspacePreview 闁告劕鎳忕€垫洘娼弬銈囩濞?unmount闁挎稑顧€缁?
+   闁稿繈鍔岄惈鍡涘籍閸撲焦鏆?position:fixed 闁肩浜‖?SidebarBottom 闁?panel size 闂傚嫭鍔曢崺妤呭Υ?*/
+/* 閻熸洖妫涘ú?workspace--bottom-fullscreen 閻?dock-panel-bottom 闁?collapse闁挎稑鐣篿xed dock 濡炪倛顕цぐ鍙夌閵堝嫮闉?*/
 .workspace--bottom-fullscreen .workspace-preview--fullscreen .dock-panel-bottom--workspace {
     flex: 1 1 auto !important;
     min-height: 0 !important;
@@ -4847,7 +4868,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 .workspace-preview--fullscreen .workspace-preview__main {
-    /* 涓嶇敤 display:none锛屼繚鎸佸瓙鏍?layout 灏哄锛岄€€鍑哄叏灞忔椂 dockview 鏃犻渶浠?0 閲嶇畻 */
+    /* 濞戞挸绉堕弫?display:none闁挎稑濂旂换姘跺箰娴ｅ摜鎽嶉柡?layout 閻忓繐鎼顓㈡晬瀹€鍕ㄥ亾閳ь剟宕欓崫鍕伎閻忕偛绻戝?dockview 闁哄啰濞€濞撹埖绂?0 闂佹彃绉堕悾?*/
     visibility: hidden;
     pointer-events: none;
     opacity: 0;
@@ -4858,7 +4879,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     min-width: 0;
 }
 
-/* 瀛?route-panel 鐨?visibility:visible 浼氱┛閫忕埗绾?hidden锛屽叏灞忔椂寮哄埗瑁佸垏 */
+/* 閻?route-panel 闁?visibility:visible 濞村吋姘ㄩ埞娑㈡焻韫囨洖鐓戠紒?hidden闁挎稑鑻崣蹇曚沪韫囨梹顦х€殿喖鎼崺妤冩啑娴ｇ鐎?*/
 .workspace-preview--fullscreen .workspace-preview__main .route-panel,
 .workspace-preview--fullscreen .workspace-preview__main .content-routes {
     visibility: hidden !important;
@@ -4875,7 +4896,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     visibility: visible;
 }
 
-/* dockview 浠庣獎瀹?闅愯棌鎭㈠锛氫粎闅愯棌鍐呭鍖猴紝淇濈暀 Tab 鏍忥紙鍚?data-tauri-drag-region锛?   浠ヤ究鎭㈠鏈熼棿浠嶅彲鎷栨嫿绐楀彛锛涙暣妫?dockview visibility:hidden 浼氳绐楀彛鎷栦笉鍔ㄣ€?*/
+/* dockview 濞寸姴娴烽悰搴ｂ偓?闂傚懏鍔樺Λ宀勫箒閵忕媭妲婚柨娑欑煯缁酣姊鹃幇顖涱棏闁告劕鎳庨鎰板礌閻氬绀夊ǎ鍥ㄧ箘閺嗏偓 Tab 闁哄秴楠忕槐娆撳触?data-tauri-drag-region闁?   濞寸姰鍎扮粚鍫曞箒閵忕媭妲婚柡鍫㈠枛濡寧绂掑鍛闁归攱鐗楃€氳法绮ｅΔ鈧ぐ娑㈡晬濞戞瑦娈绘俊?dockview visibility:hidden 濞村吋淇洪鈧紒鎰殔瑜版盯骞忛弽锔剧憹闁告柣鍔婇埀?*/
 .dockable-workspace--recovering .dockable-workspace__dockview .dv-content-container,
 .dockable-workspace--recovering .dockable-workspace__dockview .dv-render-overlay {
     visibility: hidden !important;
@@ -4895,7 +4916,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     contain-intrinsic-size: auto 28px;
 }
 
-/* 鈹€鈹€鈹€ Dock Layout 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Dock Layout 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾 */
 .dock-layout {
     flex: 1;
     display: flex;
@@ -4925,7 +4946,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     min-height: var(--result-panel-min-h) !important;
 }
 
-/* 搴曢儴宸ョ▼宸ヤ綔鍖猴細鍏佽鎷栧埌 taskbar / hidden锛屼笉鍙?SQL 缁撴灉闈㈡澘 180px 涓嬮檺绾︽潫 */
+/* 閹煎瓨娲熼崕鏉戭啅閵壯€鏌ょ€规悶鍎扮紞鏃堝礌閻氬绐楅柛蹇庢祰椤斿繘骞忛弽褍鐓?taskbar / hidden闁挎稑濂旂粭澶愬矗?SQL 缂備焦鎸婚悘澶愭閵忊剝绶?180px 濞戞挸顑夊铏圭棯閿旇姤灏?*/
 .dock-panel-bottom--workspace {
     min-height: 0 !important;
     width: 100% !important;
@@ -4948,7 +4969,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 .dock-handle {
     position: relative;
     flex-shrink: 0;
-    /* 楂樹簬鐩搁偦 dock-panel锛岄伩鍏嶅悗缁樺埗鐨勯潰鏉跨洊浣忓垎闅旀潯鐑尯锛堥娆℃嫋鎷藉け鏁堬級 */
+    /* 濡ゅ倹眉缁剟鎯勯幖浣镐桓 dock-panel闁挎稑鐭傛导鈺呭礂瀹ュ懏鍊电紓浣姑崺妤呮儍閸曨垱妗ㄩ柡澶庢硶濞插﹥鎷呰箛鎾崇€婚梻鍛⒐濞碱垶鎮滈鐐查殬闁挎稑鐗撻々璇测枎閳╁啫鐝涢柟鐤閵囨垿寮崼顒傜 */
     z-index: 10;
     display: flex;
     align-items: center;
@@ -5000,7 +5021,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     background: var(--accent);
 }
 
-/* 鈹€鈹€鈹€ Dockable Workspace锛坉ockview 閫氱敤鎷栨嫿鍋滈潬锛?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Dockable Workspace闁挎稑娼恛ckview 闂侇偅姘ㄩ弫銈夊箯閺嶃劌顏奸柛瀣矒濞碱剟鏁?闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
 .dockable-workspace {
     flex: 1;
     min-width: 0;
@@ -5018,7 +5039,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     --dv-drag-over-background-color: var(--accent-soft);
 }
 
-/* 截断 dockview overlay 撑高的可滚动溢出，避免 scrollIntoView 把整页滚飞 */
+/* 閹搭亝鏌?dockview overlay 閹炬垿鐝惃鍕讲濠婃艾濮╁┃銏犲毉閿涘矂浼╅崗?scrollIntoView 閹跺﹥鏆ｆい鍨泊妞?*/
 .dockable-workspace > .dockable-workspace__dockview,
 .dockable-workspace .dv-shell {
     overflow: hidden !important;
@@ -5027,7 +5048,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     min-height: 0;
 }
 
-/* 椤诲湪 dockview 鏍硅妭鐐硅鐩?themeDark 鍐呯疆鍙橀噺锛屽啓鍦?.dockable-workspace 涓婁笉浼氬悜涓嬬敓鏁?*/
+/* 濡炪倛顕у﹢?dockview 闁哄秶顢婃俊顓㈡倷绾拋娲柣?themeDark 闁告劕鎳愰悿鍡涘矗濮椻偓閸ｆ椽鏁嶇仦钘夋櫢闁?.dockable-workspace 濞戞挸锕ｇ粭澶嬪濮橆剚鍊诲☉鎾愁儑閺佹捇寮?*/
 .dockable-workspace .dockable-workspace__dockview,
 .dockable-workspace .dockable-workspace__dockview.dockview-theme-dark,
 .dockable-workspace .dockview-theme-dark {
@@ -5044,7 +5065,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     --dv-inactivegroup-hiddenpanel-tab-color: var(--muted);
 }
 
-/* 妯″潡椤剁骇 Dock锛圡oduleSegmentDock锛夆€?涓庣粓绔?dock 鍏辩敤 tab 鏍?/ windowControl 鏍峰紡 */
+/* 婵☆垪鈧櫕鍋ュ銈呭妤?Dock闁挎稑婀duleSegmentDock闁挎稑顦埀?濞戞挸娴风划鎾剁博?dock 闁稿繗浜弫?tab 闁?/ windowControl 闁哄秴鍢茬槐?*/
 .module-root-dock.dockable-workspace,
 .module-segment-dock.dockable-workspace {
     flex: 1;
@@ -5085,14 +5106,14 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     max-height: var(--shell-dv-tab-bar-h);
 }
 
-/* 路由未激活时仅隐藏模块顶栏（横向 tab）；竖排侧栏 .dv-groupview-header-vertical 不受影响 */
+/* 鐠侯垳鏁遍張顏呯负濞茬粯妞傛禒鍛存閽樺繑膩閸ф銆婇弽蹇ョ礄濡亜鎮?tab閿涘绱辩粩鏍ㄥ笓娓氀勭埉 .dv-groupview-header-vertical 娑撳秴褰堣ぐ鍗炴惙 */
 .module-segment-dock--route-inactive.dockable-workspace > .dockable-workspace__dockview .dv-groupview > .dv-tabs-and-actions-container:not(.dv-groupview-header-vertical) {
     display: none;
 }
 
 /*
- * 有窗口控制的顶栏绝不能被 route-inactive 藏掉（主窗 / 独立窗均适用）。
- * no-tab-bar（任务中心等）仍允许整栏隐藏，由其侧栏自管 chrome。
+ * 閺堝鐛ラ崣锝嗗付閸掑墎娈戞い鑸电埉缂佹繀绗夐懗鍊燁潶 route-inactive 閽樺繑甯€閿涘牅瀵岀粣?/ 閻欘剛鐝涚粣妤€娼庨柅鍌滄暏閿涘鈧?
+ * no-tab-bar閿涘牅鎹㈤崝鈥茶厬韫囧啰鐡戦敍澶夌矝閸忎浇顔忛弫瀛樼埉闂呮劘妫岄敍宀€鏁遍崗鏈垫櫠閺嶅繗鍤滅粻?chrome閵?
  */
 .dock-window-control.module-segment-dock--route-inactive:not(.module-segment-dock--no-tab-bar).dockable-workspace
     > .dockable-workspace__dockview
@@ -5101,7 +5122,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     display: flex;
 }
 
-/* 独立模块窗兜底：与上条同效，保留更高优先级选择器以防层叠覆盖 */
+/* 閻欘剛鐝涘Ο鈥虫健缁愭鍘规惔鏇窗娑撳簼绗傞弶鈥虫倱閺佸牞绱濇穱婵堟殌閺囨挳鐝导妯哄帥缁狙団偓澶嬪閸ｃ劋浜掗梼鎻掔湴閸欑姾顩惄?*/
 .module-window .module-segment-dock--route-inactive.dockable-workspace > .dockable-workspace__dockview .dv-groupview > .dv-tabs-and-actions-container:not(.dv-groupview-header-vertical) {
     display: flex;
 }
@@ -5131,7 +5152,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     min-width: 0;
 }
 
-/* dockview tab 鏍忎笌闈㈡澘鍖哄煙锛堣瑙夊榻?.topbar-tab / .topbar-tabs锛?*/
+/* dockview tab 闁哄秴绻嬬粭宀勬閵忊剝绶查柛鏍ф惈閻撴瑩鏁嶉崼锝庢綊閻熸瑥顦顔筋瀲?.topbar-tab / .topbar-tabs闁?*/
 .dockable-workspace .dv-tabs-and-actions-container {
     background: var(--bg);
     border-bottom: 1px solid var(--border);
@@ -5145,12 +5166,12 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     flex-grow: 0;
 }
 
-/* 宓屽 dock锛堝 SQL/HTTP 缁撴灉浼氳瘽 Tab锛変笉鍙備笌绐楀彛鎷栨嫿 */
+/* 鐎规挸鑻〃?dock闁挎稑鐗嗛々?SQL/HTTP 缂備焦鎸婚悘澶嬪濮樺磭妯?Tab闁挎稑顦粭澶愬矗閸屾瑧鐟㈢紒鎰殔瑜版盯骞忛弽銊ヮ伡 */
 .dockable-workspace:not(.dock-window-control) .dv-void-container {
     -webkit-app-region: no-drag;
 }
 
-/* Tab 鏍忓墠缂€鎿嶄綔鍖猴紙dockview dv-pre-actions-container锛?*/
+/* Tab 闁哄秴绻愭晶鐘电磽閳ь剟骞欏鍕▕闁告牜灏ㄧ槐妾噊ckview dv-pre-actions-container闁?*/
 .dockable-workspace .dv-pre-actions-container,
 .dockable-workspace .dock-prefix-actions {
     display: flex;
@@ -5167,7 +5188,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     height: 100%;
 }
 
-/* 妯″潡 dock 鏍囬 鈥?瀵归綈璁捐绋?.topbar-title + .topbar-tabs margin */
+/* 婵☆垪鈧櫕鍋?dock 闁哄秴娲。?闁?閻庨潧缍婄紞鍫㈡媼閹规劦鍚€缂?.topbar-title + .topbar-tabs margin */
 .dockable-workspace .dock-prefix-actions .module-dock-title {
     display: inline-flex;
     align-items: center;
@@ -5245,7 +5266,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     border-radius: 0;
 }
 
-/* Tab 椤?鈥?瀵归綈 .topbar-tab锛堢粨鏋勶細.dv-tab > .dv-default-tab锛涜儗鏅敱 dockview + 涓婃柟 --dv-* 鍙橀噺鎺у埗锛?*/
+/* Tab 濡?闁?閻庨潧缍婄紞?.topbar-tab闁挎稑鐗忕划銊╁几閸曞墎绐?dv-tab > .dv-default-tab闁挎稒绋栭崕妤呭疾椤栨粍鏆?dockview + 濞戞挸锕ラ弻?--dv-* 闁告瑦锕㈤崳娲箳瑜嶉崺妤呮晬?*/
 .dockable-workspace .dv-default-tab {
     display: inline-flex;
     align-items: center;
@@ -5264,7 +5285,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     flex-shrink: 0;
     cursor: pointer;
     box-sizing: border-box;
-    /* 不含 border-color：激活指示条必须即时跟上点击，过渡会显得「不跟手」 */
+    /* 娑撳秴鎯?border-color閿涙碍绺哄ú缁樺瘹缁€鐑樻蒋韫囧懘銆忛崡铏鐠虹喍绗傞悙鐟板毊閿涘矁绻冨〒鈥茬窗閺勬儳绶遍妴灞肩瑝鐠虹喐澧滈妴?*/
     transition: color 0.08s, background-color 0.08s;
 }
 
@@ -5278,7 +5299,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     border-bottom-color: var(--accent);
 }
 
-/* 鍏抽棴鎸夐挳 鈥?鏀惧ぇ鐐瑰嚮鍖哄煙涓庡浘鏍?*/
+/* 闁稿繑濞婂Λ鎾箰婢舵劖灏?闁?闁衡偓閹佷海闁绘劗鎳撻崵顕€宕犻崫鍕幍濞戞挸楠稿ù姗€寮?*/
 .dockable-workspace .dv-tab.dv-inactive-tab .dv-default-tab .dv-default-tab-action {
     visibility: visible;
 }
@@ -5314,7 +5335,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     background: var(--surface-hover);
 }
 
-/* Tab 鏍忓湪搴曢儴锛氭縺娲绘寚绀烘潯鏀瑰埌椤惰竟锛屽垎闅旂嚎鏀瑰埌 Tab 鏍忎笂鏂?*/
+/* Tab 闁哄秴绻愬﹢顏呮償閺囥垹鍔ラ柨娑欑缁哄搫煤缂佹ê鐦圭紒鈧悜妯昏拫闁衡偓閻熸澘鐓傚銈嗗劶缁旂喖鏁嶇仦钘夌€婚梻鍛⒒閸ゅ酣寮ㄩ悷鏉跨厒 Tab 闁哄秴绻嬬粭鍌炲棘?*/
 .dockable-workspace.dock-header-bottom .dv-tabs-and-actions-container {
     border-bottom: none;
     border-top: 1px solid var(--border);
@@ -5345,7 +5366,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     gap: var(--sp-2);
     min-width: 0;
     max-width: 220px;
-    /* 浠呰鍒囨爣棰橈紱鏈繚瀛?宸蹭繚瀛樺渾鐐归渶淇濇寔鍙 */
+    /* 濞寸姴鎳撻ˉ鍡涘礆閸ャ劎鍨煎Λ鐗堬公缁遍亶寮甸鍐閻?鐎规瓕寮撶换姘扁偓娑櫭〒楣冩倷瑜版帗浠樺ǎ鍥ㄧ箖鐎垫棃宕ｉ婵愭綄 */
     overflow: visible;
 }
 
@@ -5400,7 +5421,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     position: relative;
 }
 
-/* 浼氳瘽鐘舵€佺偣锛坱opbar 椋庢牸 tab锛?*/
+/* 濞村吋淇洪惁浠嬫偐閼哥鍋撴担鍝勪化闁挎稑婢卭pbar 濡炲瀛╅悧?tab闁?*/
 .dockable-workspace .topbar-tab-dot {
     width: 6px;
     height: 6px;
@@ -5422,7 +5443,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     background: var(--danger);
 }
 
-/* 渚ф爮 Tab锛坙eft/right锛夛細浠呭浘鏍囷紝鏀剁獎瀹藉害锛堢粓绔晶鏍忕敤鍘熺敓 DefaultTab 鍗曠嫭鏍峰紡锛?*/
+/* 濞撴皜鍕焿 Tab闁挎稑娼ft/right闁挎稑顧€缁辩増绂掗崨顓熺闁哄秴娴勭槐婵嬪绩閸撲胶宕曢悗纭呮鐎规娊鏁嶉崼銏㈢煉缂佹棏鍨弲鍫曞冀韫囨洘鏆忛柛妯煎枔閺?DefaultTab 闁告娲滅€氼參寮藉畡鎵闁?*/
 .dockable-workspace.dock-header-left .dv-tabs-and-actions-container,
 .dockable-workspace.dock-header-right .dv-tabs-and-actions-container {
     width: 36px;
@@ -5439,7 +5460,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     background: var(--bg);
 }
 
-/* windowControl锛歵ab 鏍忎笌 topbar 鍚岄珮锛屽彸渚ф嫋鎷藉尯 + 绐楀彛鎺у埗鎸夐挳 */
+/* windowControl闁挎稒顒產b 闁哄秴绻嬬粭?topbar 闁告艾鐭傞悵顕€鏁嶇仦钘夌濞撴皜鍕彌闁圭柉妫勭亸?+ 缂佹劖顨呰ぐ娑㈠箳瑜嶉崺妤呭箰婢舵劖灏?*/
 .dockable-workspace.dock-window-control {
     --dv-tabs-and-actions-container-height: var(--shell-dv-tab-bar-h);
     --dv-tabs-and-actions-container-font-size: 14px;
@@ -5473,7 +5494,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     display: flex;
     flex: 0 0 auto;
     flex-shrink: 0;
-    /* 默认按内容收缩；有 .win-controls 时再按三键宽度占位（见下方 :has） */
+    /* 姒涙顓婚幐澶婂敶鐎硅鏁圭紓鈺嬬幢閺?.win-controls 閺冭泛鍟€閹稿绗侀柨顔碱啍鎼达箑宕版担宥忕礄鐟欎椒绗呴弬?:has閿?*/
     min-width: 0;
     width: max-content;
     height: 100%;
@@ -5507,10 +5528,10 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     flex-shrink: 0;
 }
 
-/* void 绉荤獥鐢?JS startDragging 澶勭悊锛涚鐢ㄥ師鐢?drag-region 閬垮厤鐩栦綇鍚庣画 tab */
+/* void 缂佸宕甸悰銉╂偨?JS startDragging 濠㈣泛瀚幃濠囨晬濞戞凹娲ｉ柣顫妼鐢偊鎮?drag-region 闂侇剙鐏濋崢銈夋儎閺嶏妇绉堕柛姘捣閻?tab */
 
 
-/* tab 鍖烘寜鍐呭鍗犲锛寁oid 鍚冨墿浣欑┖鐧斤紱閬垮厤 void 涓?tab 骞冲垎瀵艰嚧璇姌鍙?*/
+/* tab 闁告牜鍎ょ€垫粓宕橀崨顓у晣闁告濮撮鏃堟晬鐎典狗id 闁告艾鍟晶鎸庢媴濞嗘垟鏁勯柣褎鏋荤槐閬嶆焼閸喖甯?void 濞?tab 妤犵偛鍟块崹搴ｂ偓浣冨閸ぱ呮嫚椤栨稑顫戦柛?*/
 .dockable-workspace.dock-window-control .dv-tabs-and-actions-container .dv-void-container {
     flex: 1 1 0;
     min-width: 0;
@@ -5555,7 +5576,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     display: flex;
     flex: 0 0 auto;
     flex-shrink: 0;
-    /* 无窗控时按 AI/设置内容贴右，避免右侧空一截 */
+    /* 閺冪姷鐛ラ幒褎妞傞幐?AI/鐠佸墽鐤嗛崘鍛啇鐠愭潙褰搁敍宀勪缉閸忓秴褰告笟褏鈹栨稉鈧幋?*/
     min-width: 0;
     width: max-content;
     height: 100%;
@@ -5570,13 +5591,13 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 /*
- * AI 右侧 Dock 打开：dockview 保持全宽（tab 栏自然贯通到窗口右缘），
- * 内容区用 margin-right 避开绝对定位的 AI 侧栏；
- * 左右分栏时非最右列取消 margin（AI 只压最右列）。
- * 左右列的可视均分由 JS（rebalanceHorizontalSplitsForAiDock）重算。
+ * AI 閸欏厖鏅?Dock 閹垫挸绱戦敍姝瀘ckview 娣囨繃瀵旈崗銊ヮ啍閿涘澅ab 閺嶅繗鍤滈悞鎯扮柈闁艾鍩岀粣妤€褰涢崣宕囩喘閿涘绱?
+ * 閸愬懎顔愰崠铏规暏 margin-right 闁灝绱戠紒婵嗩嚠鐎规矮缍呴惃?AI 娓氀勭埉閿?
+ * 瀹革箑褰搁崚鍡樼埉閺冨爼娼張鈧崣鍐插灙閸欐牗绉?margin閿涘湏I 閸欘亜甯囬張鈧崣鍐插灙閿涘鈧?
+ * 瀹革箑褰搁崚妤冩畱閸欘垵顫嬮崸鍥у瀻閻?JS閿涘澁ebalanceHorizontalSplitsForAiDock閿涘鍣哥粻妞尖偓?
  */
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-groupview > .dv-content-container {
-    /* 内容避开右侧 AI，tab 栏仍全宽 */
+    /* 閸愬懎顔愰柆鍨磻閸欏厖鏅?AI閿涘ab 閺嶅繋绮涢崗銊ヮ啍 */
     margin-right: min(var(--ai-dock-w, 0px), 50vw);
 }
 
@@ -5591,7 +5612,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 }
 
 .workspace:has(.ai-dockview.open) .dockable-workspace.dock-window-control .dv-right-actions-container {
-    /* 高于 .ai-dockview.open(z-index:6)，避免侧栏叠层挡住顶栏 AI 开关 */
+    /* 妤傛ü绨?.ai-dockview.open(z-index:6)閿涘矂浼╅崗宥勬櫠閺嶅繐褰旂仦鍌涘皡娴ｅ繘銆婇弽?AI 瀵偓閸?*/
     position: relative;
     z-index: 10;
 }
@@ -5613,7 +5634,7 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     min-width: var(--shell-win-controls-width);
 }
 
-/* 无窗控三键（macOS / Web）：chrome 区按内容收缩并贴右，避免 AI 旁留出 Windows 占位空白 */
+/* 閺冪姷鐛ラ幒褌绗侀柨顕嗙礄macOS / Web閿涘绱癱hrome 閸栫儤瀵滈崘鍛啇閺€鍓佺級楠炴儼鍒涢崣绛圭礉闁灝鍘?AI 閺冧胶鏆€閸?Windows 閸楃姳缍呯粚铏规 */
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dv-right-actions-container,
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions,
 html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window-title-actions--mac,
@@ -5737,7 +5758,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     transition: color 0.12s, background 0.12s;
 }
 
-/* 宸︿晶 header 娣诲姞鎸夐挳鐢变笂鏂?.dv-left-actions-container 瑙勫垯瑕嗙洊楂樺害 */
+/* 鐎归潻缂氶弲?header 婵烇綀顕ф慨鐐哄箰婢舵劖灏﹂柣銏犲綁缁楀倿寮?.dv-left-actions-container 閻熸瑥瀚崹顖滄啺閸℃瑦纾板Δ鍌浢€?*/
 
 .dockable-workspace .dock-panel-add-btn:hover,
 .dockable-workspace .dock-panel-close-btn:hover {
@@ -5798,7 +5819,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     vertical-align: bottom;
 }
 
-/* rc-dock TabCache 鍦?title 澶栧寘 DragDropDiv锛屽叧闂寜閽负 .dock-tab-close-btn */
+/* rc-dock TabCache 闁?title 濠㈣埖鐗曠€?DragDropDiv闁挎稑鑻崣褔姊婚鐔风樆闂佺瓔鍠曠拹?.dock-tab-close-btn */
 .rc-dock-wrap .dock-layout {
     position: absolute;
     inset: 0;
@@ -5810,7 +5831,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     border-color: var(--border);
 }
 
-/* 鈹€鈹€ Tab 鏍?鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾 Tab 闁?闁冲厜鍋撻柍鍏夊亾 */
 .rc-dock-wrap .dock-bar {
     background: var(--bg-deeper);
     border-bottom: 1px solid var(--border);
@@ -5863,7 +5884,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     padding: 0;
 }
 
-/* TabCache 鏍囩鍐呭锛欴ragDropDiv.drag-initiator 鍐呭惈 title + 鍏抽棴鎸夐挳 */
+/* TabCache 闁哄秴娲ㄩ鐑藉礃閸涱収鍟囬柨娑欘儚ragDropDiv.drag-initiator 闁告劕鎳庨幆?title + 闁稿繑濞婂Λ鎾箰婢舵劖灏?*/
 .rc-dock-wrap .dock-tab-btn>.drag-initiator {
     display: inline-flex;
     align-items: center;
@@ -5919,7 +5940,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     padding-right: var(--sp-3);
 }
 
-/* rc-dock TabCache 鍐呯疆鍏抽棴鎸夐挳锛堜緷璧?::before 鏄剧ず 脳锛?*/
+/* rc-dock TabCache 闁告劕鎳愰悿鍡涘礂閹惰姤锛旈柟绋款樀閹告娊鏁嶉崼婊呰穿閻?::before 闁哄嫬澧介妵?閼存娊鏁?*/
 .rc-dock-wrap .dock-tab-btn .dock-tab-close-btn {
     position: static;
     flex-shrink: 0;
@@ -5949,7 +5970,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
 }
 
 .rc-dock-wrap .dock-tab-btn .dock-tab-close-btn::before {
-    content: "脳";
+    content: "×";
     display: block;
     font-family: inherit;
     font-size: 15px;
@@ -5970,7 +5991,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     transform: none;
 }
 
-/* 娴姩闈㈡澘鏍囬鏍忎笂鐨勫叧闂叏閮ㄦ寜閽?*/
+/* 婵炴惌鍠栨慨鈺呮閵忊剝绶查柡宥呮喘椤ｄ粙寮借箛搴ｇ憪闁汇劌瀚崣褔姊婚鐐插伎闂侇喓鍔嶇€垫粓鏌?*/
 .rc-dock-wrap .dock-extra-content .dock-tab-close-btn {
     position: relative;
     opacity: 1;
@@ -5987,7 +6008,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     display: none;
 }
 
-/* 鈹€鈹€ 鍒嗗睆鎷栨嫿鍒嗛殧鏉★紙瀵归綈 .dock-handle 椋庢牸锛?鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾 闁告帒妫楅惈鍡涘箯閺嶃劌顏奸柛鎺戞濞堁囧级閳藉懐绀勯悗闈涚秺缂?.dock-handle 濡炲瀛╅悧鎼佹晬?闁冲厜鍋撻柍鍏夊亾 */
 .rc-dock-wrap .dock-divider {
     flex: 0 0 5px !important;
     transform: none !important;
@@ -6121,7 +6142,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     background: var(--bg);
 }
 
-/* 缁堢妯″潡宸ヤ綔鍖猴紙鍏煎鏃х被鍚嶏紝鏍峰紡宸茶縼鍏?.module-root-dock锛?*/
+/* 缂備礁鐗忛顒€螣閳ヨ櫕鍋ョ€规悶鍎扮紞鏃堝礌閻氬绀勯柛蹇曞帶椤旀劙寮鐞氼偊宕ュ蹇曠闁哄秴鍢茬槐鈥愁啅閼煎墎璁ｉ柛?.module-root-dock闁?*/
 .term-workspace-dock.dockable-workspace {
     flex: 1;
     min-height: 0;
@@ -6152,7 +6173,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     flex-direction: column;
 }
 
-/* 鏃х増缁堢宸ヤ綔鍖猴紙淇濈暀渚涜縼绉诲弬鑰冿紝宸茬敱 dockview 鏇夸唬锛?*/
+/* 闁哄唲鍛暭缂備礁鐗忛顒€顔忛妷銈囩▕闁告牜灏ㄧ槐娆愮┍濠靛牊娈屽〒姘缁鸿偐绮旂拠鎻掓闁兼澘鍠涚槐婵嗩啅閼碱剚鏆?dockview 闁哄洤銇橀崬顒勬晬?*/
 .term-workspace {
     flex: 1;
     min-height: 0;
@@ -6184,7 +6205,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     font-size: 13px;
 }
 
-/* AdvanceTerminal：通栏会话顶 + 终端/侧栏并排 */
+/* AdvanceTerminal閿涙岸鈧碍鐖导姘崇樈妞?+ 缂佸牏顏?娓氀勭埉楠炶埖甯?*/
 .advance-terminal {
     flex: 1;
     min-height: 0;
@@ -6239,7 +6260,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     min-width: 0;
 }
 
-/* 终端侧栏顶部入口（并入会话栏） */
+/* 缂佸牏顏笟褎鐖い鍫曞劥閸忋儱褰涢敍鍫濊嫙閸忋儰绱扮拠婵囩埉閿?*/
 .advance-terminal-side-entry {
     --advance-side-tab-font: 12px;
     z-index: 6;
@@ -6293,7 +6314,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     white-space: nowrap;
 }
 
-/* ===== 终端右侧工具面板（无 dockview / 无竖 tab） ===== */
+/* ===== 缂佸牏顏崣鍏呮櫠瀹搞儱鍙块棃銏℃緲閿涘牊妫?dockview / 閺冪姷鐝?tab閿?===== */
 .advance-terminal-side {
     min-width: 0;
     min-height: 0;
@@ -6314,7 +6335,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     overflow: hidden;
 }
 
-/* 拖拽分隔条：展开态显示，收起态不渲染 */
+/* 閹锋牗瀚块崚鍡涙閺夆槄绱扮仦鏇炵磻閹焦妯夌粈鐚寸礉閺€鎯版崳閹椒绗夊〒鍙夌厠 */
 .advance-terminal-side-resizer {
     width: 5px;
     height: 100%;
@@ -6514,7 +6535,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     min-width: 0;
 }
 
-/* 缁堢鍙充晶杩涚▼闈㈡澘锛氬灞傚儚 SFTP 涓€鏍疯窡闅?dock 瀹瑰櫒鏀剁缉锛?   琛ㄦ牸浠嶄娇鐢ㄩ€氱敤杩涚▼琛ㄨ嚜宸辩殑鍒楀 / min-width锛屽彧鍦ㄥ垪琛ㄥ鍣ㄥ唴閮ㄦ粴鍔ㄣ€?*/
+/* 缂備礁鐗忛顒勫矗閸忓懏娅犻弶鈺傜〒閳诲ジ妫冮姀鈩冪凡闁挎稒鑹鹃ˇ鑽や沪閸屾艾鍓?SFTP 濞戞挴鍋撻柡宥囨焿缁愶繝姊?dock 閻庡湱鎳撳▍鎺楀绩閸撲胶绱氶柨?   閻炴稏鍔嶉悧鍛婄瀹ュ嫬鈻忛柣顫姂閳ь剚姘ㄩ弫銈嗘交濞戞埃鏌ら悶娑栧姀閸ゆ粌顔忔潏鈺傜暠闁告帗顨呴?/ min-width闁挎稑鑻ぐ褔宕烽妸銉ョ仚閻炴稏鍔岄鎰板闯閵娿儱鏁堕梺顔哄妽缁挳宕濋妸锝傚亾?*/
 .advance-terminal-side .proc-panel {
     flex: 1 1 auto;
     min-height: 0;
@@ -6560,7 +6581,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     border-radius: 999px;
 }
 
-/* 终端侧栏内 SFTP / Tunnel / 本地文件面板布局 */
+/* 缂佸牏顏笟褎鐖崘?SFTP / Tunnel / 閺堫剙婀撮弬鍥︽闂堛垺婢樼敮鍐ㄧ湰 */
 .advance-terminal-side .sftp-panel,
 .advance-terminal-side .local-file-panel,
 .advance-terminal-side .tunnel-panel {
@@ -6823,7 +6844,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     color: var(--danger);
 }
 
-/* 鏁版嵁搴撴ā鍧楀伐浣滃尯 */
+/* 闁轰胶澧楀畵浣规償閹捐尐渚€宕稿Δ鈧导鎰媴濠婂啫闅?*/
 .db-workspace.db-workspace {
     flex: 1;
     min-height: 0;
@@ -6840,7 +6861,7 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
     height: 100%;
 }
 
-/* 鈹€鈹€鈹€ Sidebar 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Sidebar 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾 */
 .sidebar {
     grid-column: 1;
     grid-row: 1;
@@ -6856,16 +6877,16 @@ html[data-platform="macos"] .dockable-workspace.dock-window-control .dock-window
 }
 
 /*
- * 侧栏顶条与右侧 Tab 栏同高对齐，使窗口顶部形成贯通色带。
- * 规则放在 unlayered，否则会被上方 .sidebar 的 padding 盖掉（@layer components 优先级更低）。
- * 侧栏宽度与 Windows 共用 tokens `--sidebar-w`（56px）。
+ * 娓氀勭埉妞よ埖娼稉搴″礁娓?Tab 閺嶅繐鎮撴妯侯嚠姒绘劧绱濇担璺ㄧ崶閸欙綁銆婇柈銊ヨ埌閹存劘鐤柅姘冲鐢负鈧?
+ * 鐟欏嫬鍨弨鎯ф躬 unlayered閿涘苯鎯侀崚娆庣窗鐞氼偂绗傞弬?.sidebar 閻?padding 閻╂牗甯€閿涘湌layer components 娴兼ê鍘涚痪褎娲挎担搴礆閵?
+ * 娓氀勭埉鐎硅棄瀹虫稉?Windows 閸忚京鏁?tokens `--sidebar-w`閿?6px閿涘鈧?
  */
 html[data-platform="macos"] .app {
-    /* 主壳右侧仅 AI 一键，勿再按 Windows 三键宽度占位（否则 AI 左侧/右侧会留空） */
+    /* 娑撹锛撻崣鍏呮櫠娴?AI 娑撯偓闁款噯绱濋崟鍨晙閹?Windows 娑撳鏁€硅棄瀹抽崡鐘辩秴閿涘牆鎯侀崚?AI 瀹革缚鏅?閸欏厖鏅舵导姘辨殌缁岀尨绱?*/
     --shell-win-controls-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
 }
 
-/* Web：无自定义窗控三键，右侧仅 AI + 设置，勿按桌面三键宽度占位 */
+/* Web閿涙碍妫ら懛顏勭暰娑斿鐛ラ幒褌绗侀柨顕嗙礉閸欏厖鏅舵禒?AI + 鐠佸墽鐤嗛敍灞藉瑏閹稿顢戦棃顫瑏闁款喖顔旀惔锕€宕版担?*/
 html[data-shell="web"] .app {
     --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
 }
@@ -6896,7 +6917,7 @@ html[data-shell="web"] .app {
 }
 
 html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-top-chrome {
-    /* 56px 侧栏内放下 3×12 + 2×6 红绿灯：左右略收紧 */
+    /* 56px 娓氀勭埉閸愬懏鏂佹稉?3鑴?2 + 2鑴? 缁俱垻璞㈤悘顖ょ窗瀹革箑褰搁悾銉︽暪缁?*/
     padding: 0 4px;
     gap: 6px;
 }
@@ -6930,7 +6951,7 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     margin-bottom: var(--sp-3);
 }
 
-/* Windows：logo 落在与右侧 Tab 栏同高的顶条内，取消下方导航区那套外边距 */
+/* Windows閿涙ogo 閽€钘夋躬娑撳骸褰告笟?Tab 閺嶅繐鎮撴妯兼畱妞よ埖娼崘鍜冪礉閸欐牗绉锋稉瀣煙鐎佃壈鍩呴崠娲亝婵傛顦绘潏纭呯獩 */
 .sidebar.sidebar--win .sidebar-top-chrome .sidebar-logo {
     width: 28px;
     height: 28px;
@@ -7004,6 +7025,40 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
 .sidebar-item svg {
     width: 20px;
     height: 20px;
+}
+
+/* Shell chrome: no web Tab focus rings (active/hover already communicate state). */
+.sidebar-item:focus,
+.sidebar-item:focus-visible,
+.sidebar-logo:focus,
+.sidebar-logo:focus-visible,
+.sidebar-user-btn:focus,
+.sidebar-user-btn:focus-visible,
+.sidebar-guest-entry-btn:focus,
+.sidebar-guest-entry-btn:focus-visible,
+.sidebar-team-switch-btn:focus,
+.sidebar-team-switch-btn:focus-visible,
+.sidebar-user-menu__item:focus,
+.sidebar-user-menu__item:focus-visible,
+.sidebar-team-switch-menu__item:focus,
+.sidebar-team-switch-menu__item:focus-visible,
+.sidebar-team-switch-menu__edit:focus,
+.sidebar-team-switch-menu__edit:focus-visible,
+.sidebar-miniapp-dialog__close:focus,
+.sidebar-miniapp-dialog__close:focus-visible,
+.topbar .topbar-btn:focus,
+.topbar .topbar-btn:focus-visible,
+.topbar .dock-chrome-ai-btn:focus,
+.topbar .dock-chrome-ai-btn:focus-visible,
+.win-btn:focus,
+.win-btn:focus-visible,
+.statusbar-button:focus,
+.statusbar-button:focus-visible,
+.statusbar-chip:focus,
+.statusbar-chip:focus-visible,
+.statusbar-action-bar__segment-btn:focus,
+.statusbar-action-bar__segment-btn:focus-visible {
+    outline: none;
 }
 
 .sidebar-spacer {
@@ -7282,7 +7337,7 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     pointer-events: none;
 }
 
-/* 未登录：头像上方常驻登录入口（切团队槽位） */
+/* 閺堫亞娅ヨぐ鏇窗婢舵潙鍎氭稉濠冩煙鐢悂鈹楅惂璇茬秿閸忋儱褰涢敍鍫濆瀼閸ャ垽妲﹀Σ鎴掔秴閿?*/
 .sidebar-guest-entry-btn {
     position: relative;
     overflow: visible;
@@ -7358,7 +7413,7 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     flex-shrink: 0;
 }
 
-/* 侧栏底部：头像上方的切换团队按钮 + 弹出菜单 */
+/* 娓氀勭埉鎼存洟鍎撮敍姘仈閸嶅繋绗傞弬鍦畱閸掑洦宕查崶銏ゆЕ閹稿鎸?+ 瀵懓鍤懣婊冨礋 */
 .sidebar-team-switch-btn {
     position: relative;
 }
@@ -7498,7 +7553,7 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     font-size: 12px;
 }
 
-/* 切换团队：全屏阻塞加载 */
+/* 閸掑洦宕查崶銏ゆЕ閿涙艾鍙忕仦蹇涙▎婵夌偛濮炴潪?*/
 .sidebar-team-switch-loading {
     position: fixed;
     inset: 0;
@@ -7695,10 +7750,10 @@ html[data-platform="macos"] .sidebar.sidebar--mac .sidebar-win-controls .win-btn
     margin: var(--sp-2) 0;
 }
 
-/* 全局 icon 按钮 hover 统一线框形式（accent-soft 背景 + accent 混合边框 + accent 文字）。
-   放在 unlayered 区域，优先级高于 @layer utilities，无需 !important。
-   仅覆盖 ghost/outline/icon 这类「轻量」variant 的 icon 尺寸按钮；
-   default/primary/destructive 等实心按钮保持各自填充语义。 */
+/* 閸忋劌鐪?icon 閹稿鎸?hover 缂佺喍绔寸痪鎸庮攱瑜般垹绱￠敍鍧卌cent-soft 閼冲本娅?+ accent 濞ｅ嘲鎮庢潏瑙勵攱 + accent 閺傚洤鐡ч敍澶堚偓?
+   閺€鎯ф躬 unlayered 閸栧搫鐓欓敍灞肩喘閸忓牏楠囨妯圭艾 @layer utilities閿涘本妫ら棁鈧?!important閵?
+   娴犲懓顩惄?ghost/outline/icon 鏉╂瑧琚妴宀冧氦闁插繈鈧撤ariant 閻?icon 鐏忓搫顕幐澶愭尦閿?
+   default/primary/destructive 缁涘鐤勮箛鍐╁瘻闁筋喕绻氶幐浣告倗閼奉亜锝為崗鍛邦嚔娑斿鈧?*/
 button[data-slot="button"][data-size^="icon"] {
     border: 1px solid transparent;
 }
@@ -7715,7 +7770,7 @@ button[data-slot="button"][data-variant="icon"][data-size^="icon"]:active:not(:d
     background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-/* 线框强调按钮（与数据库表工具栏激活态同源：透明底 + accent 边框/文字） */
+/* 缁炬寧顢嬪楦跨殶閹稿鎸抽敍鍫滅瑢閺佺増宓佹惔鎾广€冨銉ュ徔閺嶅繑绺哄ú缁樷偓浣告倱濠ф劧绱伴柅蹇旀鎼?+ accent 鏉堣顢?閺傚洤鐡ч敍?*/
 .omni-btn-outline-accent,
 button[data-slot="button"].omni-btn-outline-accent {
     background: transparent !important;
@@ -7734,7 +7789,7 @@ button[data-slot="button"].omni-btn-outline-accent:disabled {
     opacity: 0.45;
 }
 
-/* 轻量工具按钮：默认透明边，hover/active 切到线框强调 */
+/* 鏉炲鍣哄銉ュ徔閹稿鎸抽敍姘剁帛鐠併倝鈧繑妲戞潏鐧哥礉hover/active 閸掑洤鍩岀痪鎸庮攱瀵缚鐨?*/
 .omni-btn-tool,
 button.omni-btn-tool {
     border: 1px solid transparent;
@@ -7758,10 +7813,10 @@ button.omni-btn-tool[aria-pressed="true"] {
     color: var(--accent);
 }
 
-/* 鈹€鈹€鈹€ Component Classes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Component Classes 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾 */
 @layer components {
 
-    /* 通用资源状态点（StatusDot 组件）：SSH / 数据库 / Docker / 第三方服务 / 文件 / 云侧边栏共用 */
+    /* 闁氨鏁ょ挧鍕爱閻樿埖鈧胶鍋ｉ敍鍦玹atusDot 缂佸嫪娆㈤敍澶涚窗SSH / 閺佺増宓佹惔?/ Docker / 缁楊兛绗侀弬瑙勬箛閸?/ 閺傚洣娆?/ 娴滄垳鏅舵潏瑙勭埉閸忚京鏁?*/
     .status-dot {
         width: 6px;
         height: 6px;
@@ -7894,8 +7949,8 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .btn:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 1px;
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--border-focus, var(--accent)) 35%, transparent);
     }
 
     .btn:disabled {
@@ -8733,7 +8788,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         height: 100%;
     }
 
-    /* 与主窗口 tab 栏同高同色：作为 Tab 行右侧延续（拖拽区 + 窗口按钮） */
+    /* 娑撳簼瀵岀粣妤€褰?tab 閺嶅繐鎮撴妯烘倱閼硅绱版担婊€璐?Tab 鐞涘苯褰告笟褍娆㈢紒顓ㄧ礄閹锋牗瀚块崠?+ 缁愭褰涢幐澶愭尦閿?*/
     .ai-dock-chrome {
         display: flex;
         align-items: stretch;
@@ -8803,7 +8858,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         width: 46px;
     }
 
-    /* 内容层工具栏：标题下拉 + Agent 徽章 + 当前现场（同行）+ 分散操作（在 chrome 之下） */
+    /* 閸愬懎顔愮仦鍌氫紣閸忛攱鐖敍姘垼妫版ü绗呴幏?+ Agent 瀵扮晫鐝?+ 瑜版挸澧犻悳鏉挎簚閿涘牆鎮撶悰宀嬬礆+ 閸掑棙鏆庨幙宥勭稊閿涘牆婀?chrome 娑斿绗呴敍?*/
     .ai-panel-toolbar {
         display: flex;
         align-items: center;
@@ -9647,7 +9702,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--fg);
     }
 
-    /* Snap Layout 原生遮罩会拦截指针，:hover 不触发；插件会加 .is-hovered */
+    /* Snap Layout 閸樼喓鏁撻柆顔惧兊娴兼碍瀚ら幋顏呭瘹闁藉牞绱?hover 娑撳秷袝閸欐埊绱遍幓鎺嶆娴兼艾濮?.is-hovered */
     .win-btn.maximize.is-hovered {
         background: var(--surface-hover);
         color: var(--fg);
@@ -9672,7 +9727,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         height: 10px;
     }
 
-    /* macOS traffic lights（仿原生：关闭 / 最小化 / 缩放） */
+    /* macOS traffic lights閿涘牅璞㈤崢鐔烘晸閿涙艾鍙ч梻?/ 閺堚偓鐏忓繐瀵?/ 缂傗晜鏂侀敍?*/
     .win-controls--mac {
         display: flex;
         flex-direction: row;
@@ -9754,7 +9809,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         opacity: 1;
     }
 
-    /* 侧栏红绿灯高度/padding 见文件前部 unlayered 规则（须压过 .sidebar padding） */
+    /* 娓氀勭埉缁俱垻璞㈤悘顖炵彯鎼?padding 鐟欎焦鏋冩禒璺哄闁?unlayered 鐟欏嫬鍨敍鍫ャ€忛崢瀣箖 .sidebar padding閿?*/
 
     .dock-mac-traffic-lights.win-controls--mac {
         height: 100%;
@@ -9796,7 +9851,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         justify-content: flex-start;
     }
 
-    /* 主窗顶栏贴边通高以 chrome-flush.css 为准（Topbar 直接 import，避开本文件 HMR） */
+    /* 娑撹崵鐛ユい鑸电埉鐠愮绔熼柅姘剁彯娴?chrome-flush.css 娑撳搫鍣敍鍦眔pbar 閻╁瓨甯?import閿涘矂浼╁鈧張顒佹瀮娴?HMR閿?*/
     .topbar-btn,
     .topbar-actions .dock-chrome-ai-btn {
         width: var(--topbar-h);
@@ -9861,7 +9916,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: var(--accent-soft);
     }
 
-    /* AI Drawer 鈥?Markdown prose */
+    /* AI Drawer 闁?Markdown prose */
     .prose-ai {
         font-size: 13px;
         line-height: 1.65;
@@ -9977,7 +10032,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin: 0.75em 0;
     }
 
-    /* assistant-ui Markdown 鈥?aligned with .prose-ai / OmniPanel tokens */
+    /* assistant-ui Markdown 闁?aligned with .prose-ai / OmniPanel tokens */
     .aui-md {
         font-size: 13px;
         line-height: 1.65;
@@ -10345,7 +10400,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     .statusbar {
         height: 28px;
         display: flex;
-        align-items: center;
+        align-items: stretch;
         padding: 0 8px;
         background: var(--bg-deeper);
         border-top: 1px solid var(--border);
@@ -10353,12 +10408,13 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--meta);
         gap: 6px;
         flex-shrink: 0;
+        box-sizing: border-box;
     }
 
     .statusbar-left,
     .statusbar-right {
         display: flex;
-        align-items: center;
+        align-items: stretch;
         gap: 6px;
         min-width: 0;
         flex-shrink: 1;
@@ -10369,39 +10425,54 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .statusbar-item {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         gap: var(--sp-1);
+        align-self: stretch;
+        height: auto;
+        font-size: 11px;
+        line-height: 1;
+        box-sizing: border-box;
     }
 
-    /* 底栏统一芯片：安静、可点、不抢戏 */
+    /* 鎼存洘鐖紒鐔剁閼侯垳澧栭敍姘濠娾€崇俺閺嶅繘鐝惔锕€鍟€鐏炲懍鑵戦敍宀勪缉閸?22px 閼侯垳澧栭崷?28px 閺夛繝鍣烽崥鍕暬閸氬嫮娈戞稉顓犲殠 */
     .statusbar-chip {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 5px;
         max-width: min(360px, 42vw);
-        height: 20px;
-        padding: 0 7px;
+        align-self: stretch;
+        height: auto;
+        padding: 0 8px;
         border: 1px solid transparent;
         border-radius: 4px;
         background: transparent;
         color: var(--meta);
-        font: inherit;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: inherit;
         line-height: 1;
         cursor: default;
         white-space: nowrap;
+        box-sizing: border-box;
         transition: background 0.12s, color 0.12s, border-color 0.12s;
     }
 
     button.statusbar-chip {
         cursor: pointer;
+        margin: 0;
+        appearance: none;
+        -webkit-appearance: none;
     }
+
 
     .statusbar-chip__label {
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        line-height: 1;
     }
 
     .statusbar-chip__pulse {
@@ -10410,6 +10481,8 @@ button.omni-btn-tool[aria-pressed="true"] {
         border-radius: 999px;
         background: var(--accent);
         flex-shrink: 0;
+        /* CJK 閸忓顒熸稉顓炵妇閻ｃ儵鐝禍搴″殤娴ｆ洑鑵戣箛鍐跨窗缂佽法鍋ｆ稉濠勑?1px */
+        transform: translateY(-1px);
     }
 
     .statusbar-chip__pulse--warn {
@@ -10420,10 +10493,42 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--meta);
     }
 
+    /* 閸嬨儱鎮嶉幀浣风瑝閹躲垺鍨欓敍姘￥閼规彃娼￠敍宀€璞㈤崣顏嗘殌缂佹瑥鐨悙?*/
     .statusbar-chip--ok {
-        color: color-mix(in srgb, var(--success) 85%, var(--fg-2));
-        background: color-mix(in srgb, var(--success) 8%, transparent);
-        border-color: color-mix(in srgb, var(--success) 22%, transparent);
+        color: var(--meta);
+        background: transparent;
+        border-color: transparent;
+    }
+
+    .statusbar-chip__pulse--ok {
+        background: var(--success);
+    }
+
+    .statusbar-chip__pulse--off {
+        background: color-mix(in srgb, var(--meta) 55%, transparent);
+    }
+
+    .statusbar-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        align-self: stretch;
+        height: auto;
+        max-width: min(240px, 30vw);
+        min-width: 0;
+        color: var(--meta);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        line-height: 1;
+        box-sizing: border-box;
+    }
+
+    .statusbar-meta + .statusbar-meta::before {
+        content: "\00B7";
+        color: color-mix(in srgb, var(--meta) 55%, transparent);
+        flex-shrink: 0;
     }
 
     .statusbar-chip--warn {
@@ -10542,8 +10647,13 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .statusbar-action-bar__label {
+        display: inline-flex;
+        align-items: center;
+        height: 22px;
         color: var(--meta);
         white-space: nowrap;
+        font-size: 11px;
+        line-height: 1;
     }
 
     .statusbar-action-bar__segment {
@@ -10570,7 +10680,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--meta);
         font: inherit;
         font-size: 10px;
-        line-height: 1;
+        line-height: 18px;
         cursor: pointer;
         transition: background 0.12s, color 0.12s;
     }
@@ -10586,8 +10696,8 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .statusbar-action-bar__segment-btn:focus-visible {
-        outline: 1px solid var(--accent, var(--primary));
-        outline-offset: 1px;
+        outline: none;
+        outline-offset: 0;
     }
 
     .statusbar-action-bar__trigger {
@@ -10689,7 +10799,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         cursor: pointer;
     }
 
-    /* flex 容器本身不会出现省略号，文案放在子元素里截断 */
+    /* flex 鐎圭懓娅掗張顒冮煩娑撳秳绱伴崙铏瑰箛閻胶鏆愰崣鍑ょ礉閺傚洦顢嶉弨鎯ф躬鐎涙劕鍘撶槐鐘诲櫡閹搭亝鏌?*/
     .statusbar-log-text {
         min-width: 0;
         flex: 1 1 auto;
@@ -10792,7 +10902,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         white-space: nowrap;
     }
 
-    /* 鈹€鈹€鈹€ 鍚庡彴浠诲姟鍒楄〃 SubWindow 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+    /* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?闁告艾楠歌ぐ瀛樼鐠囨彃顫ら柛鎺擃殙閵?SubWindow 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
     .background-tasks-window .subwindow-body {
         background: var(--bg-deeper);
     }
@@ -11110,23 +11220,51 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--fg);
     }
 
-    /* 鈹€鈹€鈹€ Statusbar 宸ヤ綔鍖烘寜閽?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+    /* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Statusbar 鐎规悶鍎扮紞鏃堝礌閻戞ê鐦婚梺?闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
     .statusbar-workspace-controls {
         display: inline-flex;
-        align-items: center;
+        align-items: stretch;
+        align-self: stretch;
         gap: 2px;
+        height: auto;
+    }
+
+    /* WorkspaceSwitcher 婢舵牕鐪版妯款吇閺?block閿涘奔绱伴幎濠傚敶闁?statusbar-button 閸椻€虫躬 ~16px */
+    .statusbar-workspace-controls .workspace-switcher {
+        display: inline-flex;
+        align-items: stretch;
+        align-self: stretch;
+        height: auto;
+        min-width: 0;
     }
 
     .statusbar-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        align-self: stretch;
+        height: auto;
         background: transparent;
         border: 1px solid transparent;
         color: var(--meta);
         cursor: pointer;
-        padding: 1px 6px;
+        padding: 0 6px;
         border-radius: var(--r-sm);
-        font: inherit;
+        font-family: inherit;
+        font-size: 11px;
+        line-height: 1;
+        margin: 0;
+        appearance: none;
+        -webkit-appearance: none;
+        box-sizing: border-box;
         transition: background 0.12s, color 0.12s, border-color 0.12s;
     }
+
+    .statusbar-button svg {
+        flex-shrink: 0;
+        display: block;
+    }
+
 
     .statusbar-button:hover {
         background: var(--surface-hover);
@@ -11144,9 +11282,13 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        line-height: 1;
     }
 
     .statusbar-button-chevron {
+        display: inline-flex;
+        align-items: center;
+        line-height: 0;
         transition: transform 0.15s;
     }
 
@@ -11202,7 +11344,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--danger);
     }
 
-    /* 鈹€鈹€鈹€ 宸ヤ綔鍖哄脊灞?(WorkspacePopover) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+    /* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?鐎规悶鍎扮紞鏃堝礌閸濆嫯鍓ㄩ悘?(WorkspacePopover) 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾 */
     .workspace-popover-backdrop {
         position: fixed;
         inset: 0;
@@ -12014,7 +12156,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         font-size: 13px;
     }
 
-    /* table-layout:fixed 只认 col / 首行宽度；写在 tbody td 上无效 */
+    /* table-layout:fixed 閸欘亣顓?col / 妫ｆ牞顢戠€硅棄瀹抽敍娑樺晸閸?tbody td 娑撳﹥妫ら弫?*/
     .builtin-tools-table__col-name {
         width: 18rem;
     }
@@ -12909,9 +13051,9 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin-top: 2px;
     }
 
-    /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+    /* 闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺?
      Dashboard (index.html)
-     鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
+     闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺?*/
     .dashboard {
         flex: 1;
         overflow: hidden;
@@ -13717,7 +13859,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         line-height: 1;
     }
 
-    /* AI Dock：打开时绝对定位到 tab 栏下方，主区 tab 自然贯通到右缘 */
+    /* AI Dock閿涙碍澧﹀鈧弮鍓佺卜鐎电懓鐣炬担宥呭煂 tab 閺嶅繋绗呴弬鐧哥礉娑撹灏?tab 閼奉亞鍔х拹顖炩偓姘煂閸欏磭绱?*/
     .ai-dockview {
         width: 0;
         flex-shrink: 0;
@@ -13732,7 +13874,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .workspace.is-ai-dock-resizing .ai-dockview {
-        /* 拖拽时由 handle 写 inline width，禁止过渡以免拖尾 */
+        /* 閹锋牗瀚块弮鍓佹暠 handle 閸?inline width閿涘瞼顩﹀銏ｇ箖濞撯€蹭簰閸忓秵瀚嬬亸?*/
         transition: none;
     }
 
@@ -13752,8 +13894,8 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     /*
-     * 插件工作台没有 dockview tab 栏，不能用「侧栏盖住 + 内容让边距」。
-     * AI 参与 workspace-body 横向 flex，把编辑器挤开。
+     * 閹绘帊娆㈠銉ょ稊閸欑増鐥呴張?dockview tab 閺嶅骏绱濇稉宥堝厴閻劊鈧奔鏅堕弽蹇曟磰娴?+ 閸愬懎顔愮拋鈺勭珶鐠烘縿鈧秲鈧?
+     * AI 閸欏倷绗?workspace-body 濡亜鎮?flex閿涘本濡哥紓鏍帆閸ｃ劍灏嬪鈧妴?
      */
     .workspace.workspace--ai-dock-reflow .ai-dockview.open {
         position: relative;
@@ -14002,7 +14144,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin-top: 6px;
     }
 
-    /* 子会话视图模式顶部 banner */
+    /* 鐎涙劒绱扮拠婵婎潒閸ョ偓膩瀵繘銆婇柈?banner */
     .ai-sub-conv-banner {
         display: flex;
         align-items: center;
@@ -14223,7 +14365,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     /* ================================================================
-     * Task Center 任务中心
+     * Task Center 娴犺濮熸稉顓炵妇
      * ================================================================ */
 
     .task-center-panel {
@@ -14238,9 +14380,9 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-height: 0;
     }
 
-    /* 侧栏：复用 vsplit-sidebar + fm-conn-item（与文件管理一致） */
+    /* 娓氀勭埉閿涙艾顦查悽?vsplit-sidebar + fm-conn-item閿涘牅绗岄弬鍥︽缁狅紕鎮婃稉鈧懛杈剧礆 */
     .task-center-sidebar {
-        /* 与 module-left-column / 数据库 schema 侧栏一致 */
+        /* 娑?module-left-column / 閺佺増宓佹惔?schema 娓氀勭埉娑撯偓閼?*/
         background: var(--bg);
         min-height: 0;
         height: 100%;
@@ -14404,7 +14546,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         gap: 8px;
     }
 
-    /* === Task Card 通用 === */
+    /* === Task Card 闁氨鏁?=== */
     .task-card {
         padding: 10px 12px;
         border: 1px solid var(--border-soft, #333);
@@ -14625,7 +14767,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         padding: 2px 0;
     }
 
-    /* === 状态颜色 === */
+    /* === 閻樿埖鈧線顤侀懝?=== */
     .status-running {
         color: var(--accent, #4a9);
         background: color-mix(in oklch, var(--accent, #4a9) 15%, transparent);
@@ -14651,7 +14793,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: color-mix(in oklch, var(--text-muted, #888) 10%, transparent);
     }
 
-    /* === 风险颜色 === */
+    /* === 妞嬪酣娅撴０婊嗗 === */
     .risk-critical {
         color: #fff;
         background: var(--danger, #c00);
@@ -14672,7 +14814,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: color-mix(in oklch, var(--success, #4a4) 15%, transparent);
     }
 
-    /* === Loading / Error 状态 === */
+    /* === Loading / Error 閻樿埖鈧?=== */
     .task-center-loading,
     .task-center-error {
         display: flex;
@@ -14690,7 +14832,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--danger, #e44);
     }
 
-    /* === History 子标签 === */
+    /* === History 鐎涙劖鐖ｇ粵?=== */
     .task-center-subtabs {
         display: flex;
         align-items: center;
@@ -15178,7 +15320,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         z-index: 40;
     }
 
-    /* 底栏菜单必须向上展开（覆盖上方 base top，避免被裁切） */
+    /* 鎼存洘鐖懣婊冨礋韫囧懘銆忛崥鎴滅瑐鐏炴洖绱戦敍鍫ｎ洬閻╂牔绗傞弬?base top閿涘矂浼╅崗宥堫潶鐟佷礁鍨忛敍?*/
     .user-todo-menu-pop.user-todo-menu-pop--up {
         top: auto;
         bottom: calc(100% + 8px);
@@ -15298,7 +15440,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin-left: auto;
     }
 
-    /* === History 表格 === */
+    /* === History 鐞涖劍鐗?=== */
     .task-center-table {
         display: flex;
         flex-direction: column;
@@ -15390,7 +15532,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: color-mix(in oklch, var(--danger, #e44) 10%, transparent);
     }
 
-    /* === 工具执行记录表（少一列，重写 grid） === */
+    /* === 瀹搞儱鍙块幍褑顢戠拋鏉跨秿鐞涱煉绱欑亸鎴滅閸掓绱濋柌宥呭晸 grid閿?=== */
     .task-center-table:has(.task-center-table__cell--source) .task-center-table__head,
     .task-center-table:has(.task-center-table__cell--source) .task-center-table__row {
         grid-template-columns:
@@ -15402,7 +15544,7 @@ button.omni-btn-tool[aria-pressed="true"] {
             minmax(200px, 2fr) /* detail */;
     }
 
-    /* === 左侧 icon rail 自定义徽章 === */
+    /* === 瀹革缚鏅?icon rail 閼奉亜鐣炬稊澶婄獦缁?=== */
     .task-center-rail-icon {
         position: relative;
         display: inline-flex;
@@ -15458,7 +15600,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         max-height: none;
     }
 
-    /* 热区加宽便于拖拽，高亮仍用细线 */
+    /* 閻戭厼灏崝鐘差啍娓氬じ绨幏鏍ㄥ閿涘矂鐝禍顔荤矝閻劎绮忕痪?*/
     .ai-dockview-resize-handle::before {
         content: "";
         position: absolute;
@@ -15523,7 +15665,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         opacity: 0.85;
     }
 
-    /* 鈹€鈹€ Message list 鈹€鈹€ */
+    /* 闁冲厜鍋撻柍鍏夊亾 Message list 闁冲厜鍋撻柍鍏夊亾 */
     .ai-message-list {
         flex: 1;
         overflow-y: auto;
@@ -15559,7 +15701,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         gap: 8px;
     }
 
-    /* 鈹€鈹€ Empty state 鈹€鈹€ */
+    /* 闁冲厜鍋撻柍鍏夊亾 Empty state 闁冲厜鍋撻柍鍏夊亾 */
     .ai-empty-state {
         position: relative;
         z-index: 1;
@@ -15690,7 +15832,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         padding: 16px;
     }
 
-    /* 鈹€鈹€ Message bubbles 鈹€鈹€ */
+    /* 闁冲厜鍋撻柍鍏夊亾 Message bubbles 闁冲厜鍋撻柍鍏夊亾 */
     .ai-msg {
         position: relative;
         z-index: 1;
@@ -16028,7 +16170,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         line-height: 1.45;
     }
 
-    /* AI Session List 鈥?aligned with resource-rail / resource-item */
+    /* AI Session List 闁?aligned with resource-rail / resource-item */
     .ai-session-list {
         display: flex;
         flex-direction: column;
@@ -16180,7 +16322,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         opacity: 0.35;
     }
 
-    /* AI 鍘嗗彶浼氳瘽鎸夐挳锛堝祵鍏?chat pane 鍙充笂瑙掞級 */
+    /* AI 闁告ê妫楄ぐ鑸靛濮樺磭妯堥柟绋款樀閹告娊鏁嶉崼婵堛偟闁?chat pane 闁告瑥鍘栫粭鍌滄喆閹虹偟绀?*/
     .ai-history-btn {
         position: absolute;
         top: 8px;
@@ -16214,7 +16356,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         height: 16px;
     }
 
-    /* AI 鍘嗗彶浼氳瘽 popover */
+    /* AI 闁告ê妫楄ぐ鑸靛濮樺磭妯?popover */
     .ai-session-popover {
         position: absolute;
         top: 42px;
@@ -16663,9 +16805,9 @@ button.omni-btn-tool[aria-pressed="true"] {
         flex-shrink: 0;
     }
 
-    /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+    /* 闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺?
      Server (server.html)
-     鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
+     闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺?*/
     .server-sidebar {
         width: 100%;
         min-width: 0;
@@ -16918,13 +17060,13 @@ button.omni-btn-tool[aria-pressed="true"] {
         gap: 12px;
     }
 
-    /* 新建网站 / 证书 / 计划任务：左侧类型 + 右侧表单（覆盖 .modal-body 的 column） */
+    /* 閺傛澘缂撶純鎴犵彲 / 鐠囦椒鍔?/ 鐠佲€冲灊娴犺濮熼敍姘箯娓氀呰閸?+ 閸欏厖鏅剁悰銊ュ礋閿涘牐顩惄?.modal-body 閻?column閿?*/
     .modal-body.server-create-split {
         display: flex;
         flex-direction: row;
         align-items: stretch;
         gap: 0;
-        /* 固定高度，切换类型时窗口不跳动；略增高以容纳更多字段与脚本编辑器 */
+        /* 閸ュ搫鐣炬妯哄閿涘苯鍨忛幑銏㈣閸ㄥ妞傜粣妤€褰涙稉宥堢儲閸旑煉绱遍悾銉ヮ杻妤傛ü浜掔€瑰湱鎾奸弴鏉戭樋鐎涙顔屾稉搴ゅ壖閺堫剛绱潏鎴濇珤 */
         height: min(720px, calc(90vh - 140px));
         min-height: min(720px, calc(90vh - 140px));
         max-height: min(720px, calc(90vh - 140px));
@@ -17113,7 +17255,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: hidden;
     }
 
-    /* 对齐数据库/文件侧栏：主段吃剩余空间，autoSize/折叠段按内容占位 */
+    /* 鐎靛綊缍堥弫鐗堝祦鎼?閺傚洣娆㈡笟褎鐖敍姘瘜濞堥潧鎮嗛崜鈺€缍戠粚娲？閿涘畮utoSize/閹舵ê褰斿▓鍨瘻閸愬懎顔愰崡鐘辩秴 */
     .server-tree-scoped-search .server-sidebar {
         display: flex;
         flex-direction: column;
@@ -17871,7 +18013,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     .server-app-card--clickable:focus-visible {
-        outline: 2px solid var(--accent);
+        outline: 2px solid color-mix(in srgb, var(--border-focus, var(--accent)) 55%, transparent);
         outline-offset: 2px;
     }
 
@@ -18725,9 +18867,9 @@ button.omni-btn-tool[aria-pressed="true"] {
         }
     }
 
-    /* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+    /* 闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺?
      Settings (settings.html)
-     鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
+     闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺?*/
     .settings-workspace {
         display: flex;
         flex: 1;
@@ -18919,7 +19061,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: var(--bg);
     }
 
-    /* 勿被 .settings-panel.active:has(.skills-layout) 误改结构 */
+    /* 閸曡儻顫?.settings-panel.active:has(.skills-layout) 鐠囶垱鏁肩紒鎾寸€?*/
     .settings-panel.active.agent-config-workspace,
     .settings-panel.active.agent-config-workspace:has(.skills-layout) {
         display: flex !important;
@@ -18975,7 +19117,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         overflow: hidden;
     }
 
-    /* Skills / 内置工具嵌在智能体右栏：强制左列表 + 右详情 */
+    /* Skills / 閸愬懐鐤嗗銉ュ徔瀹撳苯婀弲楦垮厴娴ｆ挸褰搁弽蹇ョ窗瀵搫鍩楀锕€鍨悰?+ 閸欏疇顕涢幆?*/
     .agent-config-main .skills-section {
         flex: 1;
         min-height: 0;
@@ -19425,7 +19567,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         font-size: 13px;
     }
 
-    /* table-layout:fixed 只认 col / 首行宽度；写在 tbody td 上无效 */
+    /* table-layout:fixed 閸欘亣顓?col / 妫ｆ牞顢戠€硅棄瀹抽敍娑樺晸閸?tbody td 娑撳﹥妫ら弫?*/
     .builtin-tools-table__col-name {
         width: 18rem;
     }
@@ -20115,7 +20257,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         min-width: 0;
     }
 
-    /* TextInput 有清空/复制时外层是 .input-field，需作为 flex 子项才能与按钮同行 */
+    /* TextInput 閺堝绔荤粚?婢跺秴鍩楅弮璺侯樆鐏炲倹妲?.input-field閿涘矂娓舵担婊€璐?flex 鐎涙劙銆嶉幍宥堝厴娑撳孩瀵滈柦顔兼倱鐞?*/
     .ai-provider-models-toolbar > .input-field,
     .ai-provider-models-toolbar > .ai-provider-models-search,
     .ai-provider-models-toolbar > .ai-provider-models-add-input {
@@ -20541,7 +20683,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: color-mix(in oklch, var(--danger) 12%, transparent);
     }
 
-    /* ACP Services (涓?AI 妯″瀷鍏辩敤鍒楄〃/鍗＄墖鏍峰紡锛屼粎杩藉姞 active 鎬佷笌 activate 鎸夐挳) */
+    /* ACP Services (濞?AI 婵☆垪鈧磭鈧兘宕楁潏鈺傛殢闁告帗顨夐妴?闁告绱曟晶鏍冀瀹勬壆纭€闁挎稑濂旂划搴㈡交閽樺顫?active 闁诡兛妞掔粭?activate 闁圭顦甸幐? */
     .ai-provider-card--active {
         border-color: color-mix(in oklch, var(--accent) 50%, var(--border));
         background: color-mix(in oklch, var(--accent) 6%, var(--surface));
@@ -20603,14 +20745,14 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin-top: var(--sp-3);
     }
 
-    /* === SkillsSection：左侧列表 + 右侧详情 === */
+    /* === SkillsSection閿涙艾涔忔笟褍鍨悰?+ 閸欏厖鏅剁拠锔藉剰 === */
     .settings-main:has(.skills-layout) {
         display: flex;
         flex-direction: column;
         overflow: hidden;
     }
 
-    /* 智能体工作区自管左右分栏，勿套用 column */
+    /* 閺呴缚鍏樻担鎾充紣娴ｆ粌灏懛顏嗩吀瀹革箑褰搁崚鍡樼埉閿涘苯瀣佹總妤冩暏 column */
     .settings-panel.active:has(.skills-layout):not(.agent-config-workspace),
     .settings-section:has(.skills-layout) {
         flex: 1;
@@ -20916,7 +21058,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         justify-content: center;
     }
 
-    /* VS Code 风格 Quick Input：靠近顶部的单字段输入条 */
+    /* VS Code 妞嬪孩鐗?Quick Input閿涙岸娼潻鎴︺€婇柈銊ф畱閸楁洖鐡у▓浣冪翻閸忋儲娼?*/
     .quick-input-overlay {
         position: fixed;
         inset: 0;
@@ -20928,7 +21070,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: rgba(0, 0, 0, 0.32);
     }
 
-    /* 外层仅作定位容器，视觉上与内部 input 同尺寸 */
+    /* 婢舵牕鐪版禒鍛稊鐎规矮缍呯€圭懓娅掗敍宀冾潒鐟欏绗傛稉搴″敶闁?input 閸氬苯鏄傜€?*/
     .quick-input {
         position: relative;
         width: min(720px, 100%);
@@ -21030,9 +21172,9 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 
     /*
-     * 全局弹窗铬，对齐窗口栏（44px）和单行输入（32px）：
-     * 顶栏 40px / 标题 13px / 关闭 28px，正文 16px，字段间距 12px。
-     * 底栏不另起一条色带，按钮与关闭同高。
+     * 閸忋劌鐪鍦崶闁绢剨绱濈€靛綊缍堢粣妤€褰涢弽蹇ョ礄44px閿涘鎷伴崡鏇☆攽鏉堟挸鍙嗛敍?2px閿涘绱?
+     * 妞よ埖鐖?40px / 閺嶅洭顣?13px / 閸忔娊妫?28px閿涘本顒滈弬?16px閿涘苯鐡у▓鐢告？鐠?12px閵?
+     * 鎼存洘鐖稉宥呭綗鐠ц渹绔撮弶陇澹婄敮锔肩礉閹稿鎸虫稉搴″彠闂傤厼鎮撴妯糕偓?
      */
     .modal-header {
         display: flex;
@@ -21073,7 +21215,7 @@ button.omni-btn-tool[aria-pressed="true"] {
         margin: 0;
     }
 
-    /* 纯文字的二选一，不要沿用引擎图标卡片的高度 */
+    /* 缁绢垱鏋冪€涙娈戞禍宀勨偓澶夌閿涘奔绗夌憰浣归儴閻劌绱╅幙搴℃禈閺嶅洤宕遍悧鍥╂畱妤傛ê瀹?*/
     .modal-body .engine-chip:not(:has(.engine-chip-icon)) {
         flex-direction: row;
         justify-content: center;
@@ -21122,6 +21264,113 @@ button.omni-btn-tool[aria-pressed="true"] {
     .modal-footer-spacer {
         flex: 1;
     }
+
+    /* 缁屾椽妫跨拋銈夘暙閿涙碍鐖ｆ０妯哄隘閻ｆ瑧娅?+ 闁銆嶉崡锛勫 */
+    .space-claim-dialog.form-dialog--sm {
+        width: 460px;
+    }
+
+    .space-claim-dialog .modal-header {
+        align-items: flex-start;
+        gap: 12px;
+        min-height: 0;
+        padding: 22px 16px 0 22px;
+        border-bottom: none;
+    }
+
+    .space-claim-dialog .modal-header h3 {
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 1.45;
+        letter-spacing: 0.01em;
+    }
+
+    .space-claim-dialog .modal-header .workbench-panel-header-action-btn[data-variant="icon"],
+    .space-claim-dialog .modal-header .workbench-panel-header-action-btn[data-size^="icon"] {
+        margin-top: 2px;
+    }
+
+    .space-claim-dialog__body {
+        gap: 16px;
+        padding: 14px 22px 22px;
+    }
+
+    .space-claim-dialog__lead {
+        margin: 0;
+        padding-right: 12px;
+        font-size: 13px;
+        line-height: 1.65;
+        color: var(--muted);
+    }
+
+    .space-claim-choices {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 2px;
+    }
+
+    .space-claim-choice {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+        width: 100%;
+        margin: 0;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--r-md);
+        background: var(--bg-elevated, var(--bg));
+        color: var(--fg);
+        text-align: left;
+        cursor: pointer;
+        transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .space-claim-choice:hover {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+    }
+
+    .space-claim-choice:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+
+    .space-claim-choice--recommended {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+    }
+
+    .space-claim-choice__title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .space-claim-choice__title {
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.3;
+    }
+
+    .space-claim-choice__badge {
+        margin-left: auto;
+        padding: 1px 7px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+    }
+
+    .space-claim-choice__hint {
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--muted);
+    }
+
 
     /* Zoomable image */
     .zoomable-image {
@@ -22552,8 +22801,8 @@ button.omni-btn-tool[aria-pressed="true"] {
     white-space: pre-wrap;
 }
 
-/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
-   Splash 鈥?鍚姩娆㈣繋椤?   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲 */
+/* 闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺?
+   Splash 闁?闁告凹鍨版慨鈺佲枎閵忥絿绠ｅ?   闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺呮煡鍩￠幇銊︽珳闁崇儤鍔忛弲鏌ュ煛閹般劍娅滈柍鐑樺姀閺?*/
 .splash {
     position: fixed;
     inset: 0;
@@ -23059,7 +23308,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     justify-content: center;
 }
 
-/* 纵向放不下时：品牌在左、登录面板在右 */
+/* 缁鹃潧鎮滈弨鍙ョ瑝娑撳妞傞敍姘惂閻楀苯婀锔衡偓浣烘瑜版洟娼伴弶鍨躬閸?*/
 @media (max-height: 760px) and (min-width: 780px) {
     .login-page {
         align-items: center;
@@ -23109,7 +23358,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 }
 
-/* 高度极矮但宽度不够左右排：缩小间距并允许滚动 */
+/* 妤傛ê瀹抽弸浣虹叝娴ｅ棗顔旀惔锔跨瑝婢剁喎涔忛崣铏笓閿涙氨缂夌亸蹇涙？鐠烘繂鑻熼崗浣筋啅濠婃艾濮?*/
 @media (max-height: 700px) and (max-width: 779px) {
     .login-page__content {
         gap: var(--sp-3);
@@ -23460,7 +23709,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     }
 }
 
-/* ====== Tab Content Transition (legacy 鈥?animation lives in @layer components) ====== */
+/* ====== Tab Content Transition (legacy 闁?animation lives in @layer components) ====== */
 
 /* ====== Toast Animation ====== */
 @keyframes toastIn {
@@ -23762,7 +24011,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 }
 
 
-/* 鈹€鈹€ Knowledge Module: Additional Classes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾 Knowledge Module: Additional Classes 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
 .knowledge-categories {
     padding: var(--sp-2) 0;
 }
@@ -23896,7 +24145,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     gap: 3px;
 }
 
-/* 鈹€鈹€鈹€ Database workspace dock 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Database workspace dock 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
 .db-dock-host {
     flex: 1;
     min-width: 0;
@@ -23933,9 +24182,9 @@ button.omni-btn-tool[aria-pressed="true"] {
     color: var(--meta);
 }
 
-/* 鈹€鈹€鈹€ File Manager 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?File Manager 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
 
-/* 绾靛悜鍒嗗壊渚ф爮锛堟暟鎹簱 Schema銆佹枃浠惰繛鎺ョ瓑妯″潡澶嶇敤锛?*/
+/* 缂侀箖娼ч幃婊堝礆閸℃顥忓〒姘€鍕焿闁挎稑鐗婇弳鐔煎箲椤旇偐姘?Schema闁靛棔鐒﹂弸鍐╃閹壆绠鹃柟鎭掑劤閻℃垵螣閳ヨ櫕鍋ュ璺虹Ф閺併倝鏁?*/
 .vsplit-sidebar,
 .schema-sidebar {
     width: 100%;
@@ -23947,11 +24196,11 @@ button.omni-btn-tool[aria-pressed="true"] {
     overflow: hidden;
     container-type: inline-size;
     container-name: vsplit-sidebar;
-    /* 涓?database schema-tree / sql-query-file-tree 涓€鑷?*/
+    /* 濞?database schema-tree / sql-query-file-tree 濞戞挴鍋撻柤?*/
     --vsplit-sidebar-content-padding: var(--sp-2);
 }
 
-/* 各模块侧栏分区内容滚动区统一 box-sizing */
+/* 閸氬嫭膩閸фぞ鏅堕弽蹇撳瀻閸栧搫鍞寸€硅绮撮崝銊ュ隘缂佺喍绔?box-sizing */
 .vsplit-sidebar :is(
     .schema-tree,
     .sql-query-file-tree,
@@ -23969,9 +24218,9 @@ button.omni-btn-tool[aria-pressed="true"] {
 }
 
 /*
- * Schema 虚拟树：右侧贴齐。
- * - 无层 !important 压过 @layer components
- * - overlay 滚动条不挤占内容宽度（经典滚动条会在右侧留出约 8px「假 padding」）
+ * Schema 閾忔碍瀚欓弽鎴窗閸欏厖鏅剁拹鎾秷閵?
+ * - 閺冪姴鐪?!important 閸樺绻?@layer components
+ * - overlay 濠婃艾濮╅弶鈥茬瑝閹搞倕宕伴崘鍛啇鐎硅棄瀹抽敍鍫㈢病閸忓憡绮撮崝銊︽蒋娴兼艾婀崣鍏呮櫠閻ｆ瑥鍤痪?8px閵嗗苯浜?padding閵嗗稄绱?
  */
 .vsplit-sidebar .schema-tree.schema-tree--virtual {
     padding: 0 !important;
@@ -23998,7 +24247,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     margin-right: 0;
 }
 
-/* SQL 查询文件树吸顶：只留底部内边距，避免祖先行被上内边距顶开 */
+/* SQL 閺屻儴顕楅弬鍥︽閺嶆垵鎯涙い璁圭窗閸欘亞鏆€鎼存洟鍎撮崘鍛扮珶鐠烘繐绱濋柆鍨帳缁佹牕鍘涚悰宀冾潶娑撳﹤鍞存潏纭呯獩妞よ泛绱?*/
 .vsplit-sidebar .sql-query-file-tree.sidebar-tree-sticky {
     padding: 0 0 var(--vsplit-sidebar-content-padding);
 }
@@ -24022,14 +24271,14 @@ button.omni-btn-tool[aria-pressed="true"] {
     flex: 0 0 auto;
 }
 
-/* 所有折叠段统一从上往下排，不贴底 */
+/* 閹碘偓閺堝濮岄崣鐘愁唽缂佺喍绔存禒搴濈瑐瀵扳偓娑撳甯撻敍灞肩瑝鐠愭潙绨?*/
 
 .vsplit-sidebar-section--sized {
     flex: 0 0 auto;
     min-height: 0;
 }
 
-/* 最后一个展开的自动高度段：撑满剩余空间（须在 --sized 之后覆盖 flex） */
+/* 閺堚偓閸氬簼绔存稉顏勭潔瀵偓閻ㄥ嫯鍤滈崝銊╃彯鎼达附顔岄敍姘嫼濠娾€冲⒖娴ｆ瑧鈹栭梻杈剧礄妞よ婀?--sized 娑斿鎮楃憰鍡欐磰 flex閿?*/
 .vsplit-sidebar-section--fill {
     flex: 1 1 auto;
 }
@@ -24105,7 +24354,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     -webkit-app-region: no-drag;
 }
 
-/* Tauri data-tauri-drag-region 会穿透子节点；交互区必须显式 false */
+/* Tauri data-tauri-drag-region 娴兼氨鈹涢柅蹇撶摍閼哄倻鍋ｉ敍娑楁唉娴滄帒灏箛鍛淬€忛弰鎯х础 false */
 .vsplit-sidebar-section__header-row [data-tauri-drag-region="false"],
 .schema-sidebar-section__header-row [data-tauri-drag-region="false"] {
     -webkit-app-region: no-drag;
@@ -24139,7 +24388,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     flex-shrink: 0;
 }
 
-/* VerticalSplitSidebar 鍒嗘鏍囬鏍忓唴鑱斿伐鍏锋爮锛堝悇妯″潡澶嶇敤锛?*/
+/* VerticalSplitSidebar 闁告帒妫欓宀勫冀閸ヮ剦鏆柡宥呯箰閸炴挳鎳曢弬澶哥矗闁稿繘鏀遍悥顕€鏁嶉崼婵囧€楁俊顖椻偓铏仴濠㈣泛绉堕弫銈夋晬?*/
 .schema-toolbar {
     padding: var(--sp-2) var(--sp-3);
     border-bottom: 1px solid var(--border);
@@ -24175,7 +24424,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     padding: 0;
 }
 
-/* 仅限制工具栏图标按钮圆角，勿波及下拉菜单内文字按钮 */
+/* 娴犲懘妾洪崚璺轰紣閸忛攱鐖崶鐐垼閹稿鎸抽崷鍡氼潡閿涘苯瀣佸▔銏犲挤娑撳濯洪懣婊冨礋閸愬懏鏋冪€涙瀵滈柦?*/
 .schema-toolbar.schema-toolbar--inline > [data-slot="button"],
 .schema-toolbar.schema-toolbar--inline > .btn-icon,
 .schema-toolbar.schema-toolbar--inline > button,
@@ -24191,7 +24440,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     border-radius: 0;
 }
 
-/* 工具栏内下拉触发器：展开/聚焦时不要单独描边方框，与旁路 icon 一致 */
+/* 瀹搞儱鍙块弽蹇撳敶娑撳濯虹憴锕€褰傞崳顭掔窗鐏炴洖绱?閼辨氨鍔嶉弮鏈电瑝鐟曚礁宕熼悪顒佸伎鏉堣鏌熷鍡礉娑撳孩姊虹捄?icon 娑撯偓閼?*/
 .schema-toolbar.schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .vsplit-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"],
 .schema-sidebar-section__actions .schema-toolbar--inline > .icon-dropdown-button > [data-slot="button"] {
@@ -24233,7 +24482,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 }
 
 .fm-sidebar {
-    /* 与 module-left-column / 数据库 schema 侧栏一致 */
+    /* 娑?module-left-column / 閺佺増宓佹惔?schema 娓氀勭埉娑撯偓閼?*/
     background: var(--bg);
 }
 
@@ -24310,7 +24559,7 @@ button.omni-btn-tool[aria-pressed="true"] {
 
 .fm-conn-item--selected,
 .fm-favorite-item--selected {
-    /* 与 sidebar-tree --selected 同色：多选 ≠ 打开，两者必须可区分。 */
+    /* 娑?sidebar-tree --selected 閸氬矁澹婇敍姘樋闁?閳?閹垫挸绱戦敍灞艰⒈閼板懎绻€妞よ褰查崠鍝勫瀻閵?*/
     background: color-mix(in srgb, var(--accent) 16%, var(--surface));
     color: var(--fg);
 }
@@ -24502,7 +24751,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     color: var(--muted);
 }
 
-/* 与 sidebar-tree-node / schema 表行对齐的密度 */
+/* 娑?sidebar-tree-node / schema 鐞涖劏顢戠€靛綊缍堥惃鍕槕鎼?*/
 .fm-sidebar-row,
 .fm-quick-item {
     display: flex;
@@ -25043,7 +25292,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     font-size: 11px;
 }
 
-/* ===== LargeLogViewer（大日志文件流式预览器） ===== */
+/* ===== LargeLogViewer閿涘牆銇囬弮銉ョ箶閺傚洣娆㈠ù浣哥础妫板嫯顫嶉崳顭掔礆 ===== */
 .log-viewer {
     display: flex;
     flex-direction: column;
@@ -25526,7 +25775,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     color: var(--danger);
 }
 
-/* 鈹€鈹€鈹€ Content preview (database cell / file preview) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?Content preview (database cell / file preview) 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/
 .content-preview-view {
     display: flex;
     flex-direction: column;
@@ -25623,7 +25872,7 @@ button.omni-btn-tool[aria-pressed="true"] {
     box-sizing: border-box;
 }
 
-/* react-json-view-lite — 旧版哈希类兜底（VirtualJsonView 已改用 json-view-* 语义类） */
+/* react-json-view-lite 閳?閺冄呭閸濆牆绗囩猾璇插幑鎼存洩绱橵irtualJsonView 瀹稿弶鏁奸悽?json-view-* 鐠囶厺绠熺猾浼欑礆 */
 .virtual-json-view {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -25975,7 +26224,7 @@ textarea.content-preview-text--editable {
     min-height: 0;
 }
 
-/* ===== 压缩包条目预览 ===== */
+/* ===== 閸樺缂夐崠鍛蒋閻╊噣顣╃憴?===== */
 .archive-preview {
     display: flex;
     flex: 1;
@@ -26082,7 +26331,7 @@ textarea.content-preview-text--editable {
     font-variant-numeric: tabular-nums;
 }
 
-/* ===== 空 / 加载 / 错误状态 ===== */
+/* ===== 缁?/ 閸旂姾娴?/ 闁挎瑨顕ら悩鑸碘偓?===== */
 .archive-preview-empty,
 .archive-preview-loading {
     display: flex;
@@ -26586,7 +26835,7 @@ textarea.content-preview-text--editable {
     color: var(--fg);
 }
 
-/* 鈹€鈹€鈹€ 宸ヤ綔鍖虹嫭绔嬬獥鍙ｏ紙澶嶇敤鍏ㄥ睆宸ョ▼宸ヤ綔鍖哄竷灞€锛夆攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
+/* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?鐎规悶鍎扮紞鏃堝礌閾忕懓顏紒鏂款儑閻涖儵宕ｉ敐蹇曠濠㈣泛绉堕弫銈夊礂閵娿儳娼岀€规悶鍎抽埢鐓庮啅閵夈倗绋婇柛鏍ф惈缁旈浠﹂埀顒勬晬婢跺棙鏁橀柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾 */
 .workspace-window-root {
     display: flex;
     flex-direction: column;
@@ -26595,13 +26844,13 @@ textarea.content-preview-text--editable {
     overflow: hidden;
     background: var(--bg);
     color: var(--fg);
-    /* 涓庝富绐?.app 瀵归綈锛歞ock tab 鏍忛珮搴?/ 绐楀彛鎺у埗鍗犱綅 */
+    /* 濞戞挸绨肩€靛瞼绮?.app 閻庨潧缍婄紞鍫ユ晬濮濈€榗k tab 闁哄秴绻橀悵顔芥償?/ 缂佹劖顨呰ぐ娑㈠箳瑜嶉崺妤呭础閻樿京绉?*/
     --shell-dv-tab-bar-h: var(--topbar-h);
     --shell-win-controls-width: 138px;
 }
 
 html[data-platform="macos"] .workspace-window-root {
-    /* 独立工作区窗：右侧无 Windows 三键，仅 AI */
+    /* 閻欘剛鐝涘銉ょ稊閸栬櫣鐛ラ敍姘礁娓氀勬￥ Windows 娑撳鏁敍灞肩矌 AI */
     --shell-win-controls-width: var(--shell-dv-tab-bar-h, var(--topbar-h));
 }
 
@@ -26650,7 +26899,7 @@ html[data-shell="web"] .workspace-window-root {
     word-break: break-word;
 }
 
-/* 璺ㄧ獥鍙?tab 鎷栨嫿锛氱洰鏍囩獥鍙斁缃彁绀猴紙鏃х増铏氱嚎锛屾湁钀界偣棰勮鏃剁敱 cross-window-drag-drop-preview 鏇夸唬锛?*/
+/* 閻犳亽鍔庨悰銉╁矗?tab 闁归攱鐗楃€氬潡鏁嶅杈ㄧ獥闁哄秴娲ㄩ悰銉╁矗椤栨稒鏉圭紓鍐惧枟瑜颁胶绮堥悮瀵哥闁哄唲鍛暭闁惧繑姘ㄩ崵搴ㄦ晬鐏炵偓绠掗柦鈧悾灞戒化濡澘瀚～宥夊籍閸撲焦鏆?cross-window-drag-drop-preview 闁哄洤銇橀崬顒勬晬?*/
 body.omnipanel-cross-window-dock-drag:not(.omnipanel-cross-window-drag-visual-active)
     .workspace-panel-dock
     .dockable-workspace__dockview,
@@ -26661,7 +26910,7 @@ body.omnipanel-cross-window-module-drag:not(.omnipanel-cross-window-drag-visual-
     outline-offset: -2px;
 }
 
-/* 璺ㄧ獥鎷栨嫿瑙嗚灞傦細ghost tab + 钀界偣楂樹寒 */
+/* 閻犳亽鍔庨悰銉╁箯閺嶃劌顏奸悷娆忔椤海浠﹂崒锔剧獥ghost tab + 闁解偓閻ｅ苯浠Δ鍌浢肩€?*/
 .cross-window-drag-visual-root {
     position: fixed;
     inset: 0;
@@ -26736,7 +26985,7 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     padding: 0;
 }
 
-/* Team Management（独立弹窗） */
+/* Team Management閿涘牏瀚粩瀣剨缁愭绱?*/
 .team-management-subwindow .subwindow-body {
     display: flex;
     flex-direction: column;
@@ -26751,7 +27000,7 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     overflow: auto;
 }
 
-/* 个人中心退出后：与登录页一致的多方式登录 */
+/* 娑擃亙姹夋稉顓炵妇闁偓閸戝搫鎮楅敍姘瑢閻ц缍嶆い鍏哥閼峰娈戞径姘煙瀵繒娅ヨぐ?*/
 .user-center-login-embed {
     display: flex;
     flex: 1;
@@ -26768,7 +27017,7 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     margin: 0 auto;
 }
 
-/* 未登录用户中心：能力说明 + 登录 */
+/* 閺堫亞娅ヨぐ鏇犳暏閹磋渹鑵戣箛鍐跨窗閼宠棄濮忕拠瀛樻 + 閻ц缍?*/
 .user-center-guest-landing {
     display: flex;
     flex: 1;
@@ -29169,8 +29418,8 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
     color: var(--danger);
 }
 
-/* —— 模块独立窗口（无左侧 Sidebar） —— */
-/* 与 .workspace-window-root / .app 一致用 100vh：#root 无高度时 height:100% 会塌成 0 */
+/* 閳ユ柡鈧?濡€虫健閻欘剛鐝涚粣妤€褰涢敍鍫熸￥瀹革缚鏅?Sidebar閿?閳ユ柡鈧?*/
+/* 娑?.workspace-window-root / .app 娑撯偓閼峰鏁?100vh閿?root 閺冪娀鐝惔锔芥 height:100% 娴兼艾顢戦幋?0 */
 html.module-window-root,
 body.module-window-body,
 html.module-window-root #root {
@@ -29194,7 +29443,7 @@ html.module-window-root #root {
 }
 
 html[data-platform="macos"] .module-window {
-    /* 模块窗：AI + 设置，无 Windows 三键 */
+    /* 濡€虫健缁愭绱癆I + 鐠佸墽鐤嗛敍灞炬￥ Windows 娑撳鏁?*/
     --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
 }
 
@@ -29202,7 +29451,7 @@ html[data-shell="web"] .module-window {
     --shell-win-controls-width: calc(var(--shell-dv-tab-bar-h, var(--topbar-h)) * 2);
 }
 
-/* 模块窗内复用主窗 .workspace AI 侧栏布局（脱离 .app 网格） */
+/* 濡€虫健缁愭鍞存径宥囨暏娑撹崵鐛?.workspace AI 娓氀勭埉鐢啫鐪敍鍫ｅ姎缁?.app 缂冩垶鐗搁敍?*/
 .module-window__workspace.workspace {
     grid-column: unset;
     grid-row: unset;
@@ -29242,7 +29491,7 @@ html[data-shell="web"] .module-window {
     color: var(--danger);
 }
 
-/* —— 托盘快捷启动窗 —— */
+/* 閳ユ柡鈧?閹垫娲忚箛顐ｅ祹閸氼垰濮╃粣?閳ユ柡鈧?*/
 html.quick-launcher-root,
 body.quick-launcher-body {
     margin: 0;
@@ -29309,7 +29558,7 @@ body.quick-launcher-body {
     flex-shrink: 0;
 }
 
-/* 打开主窗口：与模块图标区分，不受 SOLO 限制 */
+/* 閹垫挸绱戞稉鑽ょ崶閸欙綇绱版稉搴⒛侀崸妤€娴橀弽鍥у隘閸掑棴绱濇稉宥呭綀 SOLO 闂勬劕鍩?*/
 .quick-launcher__module-btn--main {
     border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 40%, var(--border, #2a2e36));
     background: color-mix(in srgb, var(--accent, #3b82f6) 10%, transparent);
@@ -29517,7 +29766,7 @@ body.quick-launcher-body {
     list-style: none;
     margin: 0;
     padding: 4px 0;
-    /* 与 QuickLauncherRoot LIST_MAX_H 同步；超出则内部滚动，窗高不得大于此 */
+    /* 娑?QuickLauncherRoot LIST_MAX_H 閸氬本顒為敍娑滅Т閸戝搫鍨崘鍛村劥濠婃艾濮╅敍宀€鐛ユ妯圭瑝瀵版銇囨禍搴㈩劃 */
     max-height: 320px;
     overflow-y: auto;
     flex-shrink: 0;
@@ -29737,9 +29986,9 @@ body.quick-launcher-body {
 }
 
 /*
- * ThreadMessagesOnly 的 Viewport 带 overflow-y-hidden；再叠加 content-visibility:auto
- * 会把 scrollHeight 算矮，父级以为已经到底、无法继续下滚。
- * 与终端内嵌一致：让线程随内容撑开，滚动只交给 .quick-launcher__ai-answer。
+ * ThreadMessagesOnly 閻?Viewport 鐢?overflow-y-hidden閿涙稑鍟€閸欑姴濮?content-visibility:auto
+ * 娴兼碍濡?scrollHeight 缁犳鐓敍宀€鍩楃痪褌浜掓稉鍝勫嚒缂佸繐鍩屾惔鏇樷偓浣规￥濞夋洜鎴风紒顓濈瑓濠婃哎鈧?
+ * 娑撳海绮撶粩顖氬敶瀹撳奔绔撮懛杈剧窗鐠佲晝鍤庣粙瀣閸愬懎顔愰幘鎴濈磻閿涘本绮撮崝銊ュ涧娴溿倗绮?.quick-launcher__ai-answer閵?
  */
 .quick-launcher__ai-markdown .aui-thread-root,
 .quick-launcher__ai-markdown .term-warp-ai-thread-root {
@@ -29807,7 +30056,7 @@ body.quick-launcher-body {
 
 
 
-/* 插件设置：来源标签与操作列 */
+/* 閹绘帊娆㈢拋鍓х枂閿涙碍娼靛┃鎰垼缁涘彞绗岄幙宥勭稊閸?*/
 .settings-plugins-tag {
   display: inline-block;
   margin-left: 8px;
@@ -30276,8 +30525,8 @@ body.quick-launcher-body {
   position: relative;
 }
 
-/* CodeMirror 根节点默认随内容增高，会被上层 overflow:hidden 裁掉：
-   锁死为容器高度，滚动走内部 scroller（与 server-create 同方案）。 */
+/* CodeMirror 閺嶇濡悙褰掔帛鐠併倝娈㈤崘鍛啇婢х偤鐝敍灞肩窗鐞氼偂绗傜仦?overflow:hidden 鐟佷焦甯€閿?
+   闁夸焦顒存稉鍝勵啇閸ｃ劑鐝惔锔肩礉濠婃艾濮╃挧鏉垮敶闁?scroller閿涘牅绗?server-create 閸氬本鏌熷鍫礆閵?*/
 .plugin-studio-editor .code-editor__host,
 .plugin-studio-editor .cm-editor {
   height: 100%;
@@ -30783,7 +31032,7 @@ body.quick-launcher-body {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   background: var(--surface);
-  /* 不用 overflow:hidden：双按钮（更新+卸载）在窄卡上会被裁掉一截 */
+  /* 娑撳秶鏁?overflow:hidden閿涙艾寮婚幐澶愭尦閿涘牊娲块弬?閸楁瓕娴囬敍澶婃躬缁愬嫬宕辨稉濠佺窗鐞氼偉顥嗛幒澶夌閹?*/
   overflow: visible;
   isolation: isolate;
 }
@@ -30878,7 +31127,7 @@ body.quick-launcher-body {
   flex-shrink: 0;
   gap: 4px;
   padding: 6px 10px 10px;
-  /* 与圆角卡片对齐，避免底边按钮视觉上被边框切掉 */
+  /* 娑撳骸娓剧憴鎺戝幢閻楀洤顕鎰剁礉闁灝鍘ゆ惔鏇＄珶閹稿鎸崇憴鍡氼潕娑撳﹨顫︽潏瑙勵攱閸掑洦甯€ */
   margin-top: auto;
 }
 
@@ -30892,7 +31141,7 @@ body.quick-launcher-body {
   max-width: 100%;
 }
 
-/* 市场卡片操作：常态可见描边；窄卡可换行，禁止被父级裁切 */
+/* 鐢倸婧€閸楋紕澧栭幙宥勭稊閿涙艾鐖堕幀浣稿讲鐟欎焦寮挎潏鐧哥幢缁愬嫬宕遍崣顖涘床鐞涘矉绱濈粋浣诡剾鐞氼偆鍩楃痪褑顥嗛崚?*/
 .plugin-center-card__action .plugin-center-card__btn.workbench-panel-header-action-btn,
 .plugin-center-row--split .plugin-center-card__btn.workbench-panel-header-action-btn {
   color: var(--text, var(--fg, inherit));

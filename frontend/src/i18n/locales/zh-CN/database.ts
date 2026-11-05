@@ -1435,6 +1435,7 @@ export default {
       meta: "{rows} 行 · {ms}ms · {mode}",
       noConnection: "请先选择数据库连接",
       runHint: "执行 SQL 以查看结果",
+      editRequiresSingleTablePk: "结果只读：列需能唯一归属基表且结果含该表主键（连表仅明确归属列可编）",
       emptySql: "当前没有可执行的 SQL 语句",
       emptySelection: "请先选中要执行的 SQL",
       affected: "执行成功，影响 {rows} 行",
@@ -1848,6 +1849,7 @@ export default {
       subqueryFileTitle: "子查询单独执行时用的连接和库，点击可改",
       subqueryEditTitle: "修改这个子查询单独执行时的库",
       missingConnection: "连接已不存在",
+      run: "只运行此库",
     },
     rowEditor: {
       title: "编辑数据行",

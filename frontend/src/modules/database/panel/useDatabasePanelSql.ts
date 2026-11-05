@@ -15,6 +15,7 @@ import {
   rebindSavedStatementTargets,
   resolveSqlExecUnits,
   sameSavedStatementTargets,
+  type SqlExecTarget,
   statementIndexAt,
 } from "../sqlIntel/sqlStatementTargets";
 import { makeQueryRunId, isQueryCancelledError } from "../sql/queryRun";
@@ -298,6 +299,8 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       freshResult?: boolean;
       statementIndex?: number;
       anchor?: number;
+      /** 只对这个库跑（库标签旁的运行按钮）。 */
+      targetOverride?: SqlExecTarget;
     },
   ) => {
     const tabStore = useDbWorkspaceTabStore.getState();
@@ -376,13 +379,31 @@ export function useDatabasePanelSql(deps: UseDatabasePanelSqlDeps) {
       return;
     }
 
-    const units = resolveSqlExecUnits(
+    let units = resolveSqlExecUnits(
       tabState.sql,
       sqlOverride,
       options?.statementIndex,
       tabState.statementTargets,
       options?.anchor,
     );
+    const targetOverride = options?.targetOverride;
+    if (targetOverride?.connId.trim() && targetOverride.database.trim()) {
+      const seen = new Set<string>();
+      const forced: typeof units = [];
+      for (const unit of units) {
+        const sql = unit.sql.trim();
+        if (!sql || seen.has(sql)) continue;
+        seen.add(sql);
+        forced.push({
+          sql,
+          target: {
+            connId: targetOverride.connId.trim(),
+            database: targetOverride.database.trim(),
+          },
+        });
+      }
+      units = forced;
+    }
     if (units.length === 0) {
       updateSqlTabState(resolvedTabId, { error: t("database.results.emptySql") });
       return;

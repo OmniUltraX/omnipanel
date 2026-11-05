@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Modal } from "../overlay/Modal";
+import { Button } from "../primitives/Button";
 import { WorkbenchActionButton } from "../primitives/WorkbenchActionButton";
 import { useI18n } from "../../../i18n";
 
@@ -53,9 +54,27 @@ export interface FormDialogProps {
 }
 
 function renderAction(action: FormDialogAction, fallbackKey: string) {
+  const key = action.key ?? fallbackKey;
+  const isPrimary = action.variant === "primary" || key === "primary";
+  if (isPrimary) {
+    return (
+      <Button
+        key={key}
+        type="button"
+        variant="primary"
+        size="sm"
+        disabled={action.disabled}
+        onClick={() => {
+          action.onClick?.();
+        }}
+      >
+        {action.label}
+      </Button>
+    );
+  }
   return (
     <WorkbenchActionButton
-      key={action.key ?? fallbackKey}
+      key={key}
       danger={action.variant === "danger"}
       disabled={action.disabled}
       onClick={() => {

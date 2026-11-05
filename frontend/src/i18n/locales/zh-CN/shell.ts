@@ -168,7 +168,20 @@ export default {
       localRuntime: {
         tooltip: "本地运行时 · Ollama: {ollama} · LM Studio: {lms}",
       },
+      terminalLocalReady: "本地终端就绪",
+      terminalSshReady: "SSH 已连接",
       services: "服务",
+      servicesDetail: {
+        title: "服务",
+        router: "Agent Router",
+        mcp: "OmniMCP",
+        ollama: "Ollama",
+        lms: "LM Studio",
+        running: "运行中",
+        notReady: "未就绪",
+        disabled: "未开启",
+        statusWithPort: "{status} (:{port})",
+      },
     },
     connectionPool: {
       summary: "连接 {active}/{total}",
