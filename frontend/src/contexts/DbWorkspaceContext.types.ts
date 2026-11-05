@@ -10,6 +10,7 @@ import type { DbConnectionConfig } from "../modules/database/api";
 import type { DatabaseSchema } from "../modules/database/types";
 import type { SqlEditorOpenMode } from "../modules/database/sql/SqlEditor";
 import type { SchemaTableSelection, SchemaDatabaseSelection } from "../modules/database/schema/SchemaBrowser";
+import type { SqlExecTarget } from "../modules/database/sqlIntel/sqlStatementTargets";
 
 export type DbTabAction = {
   kind: "refresh" | "page" | "pageSize" | "close" | "sort" | "filter";
@@ -27,7 +28,15 @@ export interface DbWorkspaceSharedContextValue {
   runQuery: (
     sqlOverride?: string,
     tabIdOverride?: string,
-    options?: { resultPage?: number; sessionId?: string; freshResult?: boolean; statementIndex?: number },
+    options?: {
+      resultPage?: number;
+      sessionId?: string;
+      freshResult?: boolean;
+      statementIndex?: number;
+      anchor?: number;
+      /** 只对这个库跑（库标签旁的运行按钮）。 */
+      targetOverride?: SqlExecTarget;
+    },
   ) => Promise<void>;
   cancelQuery: (tabIdOverride?: string) => Promise<void>;
   setSqlAutoCommit: (tabId: string, autoCommit: boolean) => Promise<void>;

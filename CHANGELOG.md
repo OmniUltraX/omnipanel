@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.8.54] - 2026-11-05
+
+### 修复
+
+- **CI**：`runQuery` Context 类型补上 `targetOverride` / `anchor`，修复库标签内 ▶ 触发的 TypeScript 构建失败；`cargo fmt` 整理 agent_dev / local_space / plugin_dev。
+
 ## [0.8.53] - 2026-11-05
 
 ### 新增
