@@ -198,10 +198,7 @@ pub fn load_dev_links(app: &AppHandle) -> HashMap<String, DevLink> {
         .unwrap_or_default()
 }
 
-pub fn save_dev_links(
-    app: &AppHandle,
-    links: &HashMap<String, DevLink>,
-) -> Result<(), OmniError> {
+pub fn save_dev_links(app: &AppHandle, links: &HashMap<String, DevLink>) -> Result<(), OmniError> {
     let path = dev_links_path(app)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| OmniError::internal(e.to_string()))?;
@@ -248,12 +245,7 @@ pub async fn install_dir_inner(
 }
 
 /// 注册 / 刷新会话级热重载条目（Agent ensure 复用）。
-pub fn register_watch_entry(
-    app: &AppHandle,
-    project: String,
-    plugin_id: String,
-    dir: PathBuf,
-) {
+pub fn register_watch_entry(app: &AppHandle, project: String, plugin_id: String, dir: PathBuf) {
     if let Ok(mut map) = dev_entries().lock() {
         let fingerprint = fingerprint_dir(&dir);
         map.insert(

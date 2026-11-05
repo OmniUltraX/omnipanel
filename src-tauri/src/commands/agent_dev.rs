@@ -16,9 +16,7 @@ use tauri::State;
 
 use crate::commands::official_catalog::plugin_official_install;
 use crate::commands::plugin::rebuild_and_sync;
-use crate::commands::plugin_dev::{
-    install_dir_inner, load_dev_links, save_dev_links, DevLink,
-};
+use crate::commands::plugin_dev::{DevLink, install_dir_inner, load_dev_links, save_dev_links};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -155,9 +153,7 @@ pub(crate) fn cargo_build_agent(root: &Path, package_name: &str) -> Result<(), S
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let output = cmd
-        .output()
-        .map_err(|e| format!("启动 cargo 失败: {e}"))?;
+    let output = cmd.output().map_err(|e| format!("启动 cargo 失败: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -209,9 +205,8 @@ fn stage_into_install_dir(
 /// 热重载 / 目录导入前：若是官方 Rust Agent，先 cargo build 并把产物写入 `dir/bin/`。
 pub(crate) fn prepare_agent_sidecar_for_dir(dir: &Path) -> Result<(), OmniError> {
     let manifest_path = dir.join("plugin.json");
-    let text = fs::read_to_string(&manifest_path).map_err(|_| {
-        OmniError::not_found(format!("目录缺少 plugin.json: {}", dir.display()))
-    })?;
+    let text = fs::read_to_string(&manifest_path)
+        .map_err(|_| OmniError::not_found(format!("目录缺少 plugin.json: {}", dir.display())))?;
     let manifest = omnipanel_plugin::PluginManifest::from_json(&text)
         .map_err(|e| OmniError::invalid_input(format!("plugin.json 无效: {e}")))?;
     if manifest.kind != PluginKind::Agent {
@@ -221,9 +216,8 @@ pub(crate) fn prepare_agent_sidecar_for_dir(dir: &Path) -> Result<(), OmniError>
         return Ok(());
     };
 
-    let root = workspace_root_from(dir).ok_or_else(|| {
-        OmniError::internal("无法定位仓库根目录，无法编译 Agent sidecar")
-    })?;
+    let root = workspace_root_from(dir)
+        .ok_or_else(|| OmniError::internal("无法定位仓库根目录，无法编译 Agent sidecar"))?;
     cargo_build_agent(&root, spec.package_name).map_err(OmniError::internal)?;
     let binary = find_built_binary(&root, spec.bin_name).ok_or_else(|| {
         OmniError::internal(format!(
@@ -338,10 +332,7 @@ pub async fn agent_dev_ensure_sidecars(
                 plugin_id: spec.plugin_id.to_string(),
                 title: spec.title.to_string(),
                 status: "error".into(),
-                detail: Some(format!(
-                    "找不到已编译的 {}",
-                    bin_file_name(spec.bin_name)
-                )),
+                detail: Some(format!("找不到已编译的 {}", bin_file_name(spec.bin_name))),
             });
             continue;
         };
@@ -366,9 +357,9 @@ pub async fn agent_dev_ensure_sidecars(
     }
 
     if need_sync
-        || items
-            .iter()
-            .any(|item| item.status == "ready" || item.status == "downloaded" || item.status == "built")
+        || items.iter().any(|item| {
+            item.status == "ready" || item.status == "downloaded" || item.status == "built"
+        })
     {
         rebuild_and_sync(&state).await?;
     }
