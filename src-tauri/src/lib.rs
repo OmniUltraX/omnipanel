@@ -28,6 +28,15 @@ fn ensure_rustls_crypto_provider() {
         .expect("install rustls ring crypto provider");
 }
 
+/// 将主窗口拉回前台（二次启动 / splash 保活共用）。
+fn focus_main_window(app: &tauri::AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.unminimize();
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+}
+
 /// 仅在 debug 构建时，用 tauri-specta 导出前端 IPC 类型与 typed client。
 /// 运行期命令注册仍走 `tauri::generate_handler!`，specta 不接管路由，零运行时风险。
 #[cfg(debug_assertions)]
@@ -858,6 +867,11 @@ fn build_and_run_tauri() {
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
     builder
+        // 单实例：已有进程在跑时，二次启动只聚焦主窗并退出新进程。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            tracing::info!("检测到已有 OmniPanel 实例，聚焦主窗口并退出本次启动");
+            focus_main_window(app);
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -1821,11 +1835,7 @@ fn build_and_run_tauri() {
                 }
                 if commands::workspace_window::should_prevent_exit_for_splash_handoff(app_handle) {
                     api.prevent_exit();
-                    if let Some(main) = app_handle.get_webview_window("main") {
-                        let _ = main.unminimize();
-                        let _ = main.show();
-                        let _ = main.set_focus();
-                    }
+                    focus_main_window(app_handle);
                 }
             }
         });
