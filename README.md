@@ -84,7 +84,7 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
 | **Presence guard** | Dangerous ops require Windows Hello / Touch ID or short-lived type-issued token; consumed once per action across DB / Docker / cloud / SSH |
 | **Space sync** | Use a local personal space without signing in; after login, machines merge one cloud repo. Teams can switch to their own S3; keys stay on the machine |
-| **Database** | Edit single-table query results in place; point a statement at its own connection and database |
+| **Database** | Edit query results in place (incl. JOIN when columns map uniquely to a base table with PKs present); ▶ inside a DB chip runs that library only; point a statement at its own connection and database |
 | **Panel apps** | BT installed apps show version/port; MySQL / Redis one-click manage params |
 | **Quick Launcher** | In-panel Ask AI (stream + Markdown); ask history with favorites; scene model chip synced from settings |
 | **Performance** | Keep-alive module switch; hover preloads chunks only; hidden overlays skip layout; idle-unload module windows after 10m hidden; stop widget polling when hidden |
