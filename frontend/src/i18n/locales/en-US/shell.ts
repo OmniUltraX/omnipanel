@@ -109,6 +109,7 @@ export default {
       modeOrder: "Order",
       modeGroup: "Group",
       modeRecent: "Recent",
+      unsavedChanges: "Unsaved changes",
     },
     statusbar: {
       backendLogs: "Backend Logs",

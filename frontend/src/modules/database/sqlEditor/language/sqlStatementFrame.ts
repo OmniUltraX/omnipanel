@@ -150,6 +150,18 @@ function statementAtCursor(text: string, head: number): SqlStatementPart | null 
     const stmt = parts[i];
     if (head >= stmt.from && head < stmt.to) return withTrailingSemicolon(text, stmt, limitOf(i));
   }
+  
+  // 检查光标是否在完全空白的行上（不在任何语句内部）
+  const lineStart = text.lastIndexOf("\n", head - 1) + 1;
+  const lineEnd = text.indexOf("\n", head);
+  const currentLine = text.slice(lineStart, lineEnd < 0 ? text.length : lineEnd);
+  const isBlankLine = /^\s*$/.test(currentLine);
+  
+  // 如果光标在完全空白的行上，不回退到前一个语句
+  if (isBlankLine) {
+    return null;
+  }
+  
   // 切分范围不含结尾分号。光标在分号上或分号后的空白里，仍高亮这一整条。
   for (let i = 0; i < parts.length; i += 1) {
     const stmt = parts[i];

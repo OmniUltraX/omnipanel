@@ -107,6 +107,7 @@ export default {
       modeOrder: "顺序",
       modeGroup: "分组",
       modeRecent: "最近",
+      unsavedChanges: "有未保存修改",
     },
     statusbar: {
       backendLogs: "后台日志",

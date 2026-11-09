@@ -353,7 +353,7 @@ export function DockTabOverflowMenu({
                     ) : null}
                     <span className="dock-tab-overflow__text">
                       <span
-                        className={`dock-tab-overflow__label${item.preview ? " is-preview" : ""}`}
+                        className={`dock-tab-overflow__label${item.preview ? " is-preview" : ""}${item.dirty ? " is-dirty" : ""}`}
                       >
                         <HighlightedText text={item.label} query={query} />
                       </span>
@@ -363,9 +363,12 @@ export function DockTabOverflowMenu({
                         </span>
                       ) : null}
                     </span>
-                    {item.dirty ? <span className="dock-tab-dirty" aria-label="未保存" /> : null}
-                    {!item.dirty && item.saved ? (
-                      <span className="dock-tab-saved" aria-label="已保存" />
+                    {item.dirty ? (
+                      <span
+                        className="dock-tab-dirty"
+                        aria-label={t("shell.tabOverflow.unsavedChanges")}
+                        title={t("shell.tabOverflow.unsavedChanges")}
+                      />
                     ) : null}
                     {item.closable ? (
                       <button

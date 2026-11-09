@@ -5379,6 +5379,10 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     font-style: normal;
 }
 
+.dock-tab-label--dirty {
+    font-weight: 600;
+}
+
 .dockable-workspace .dv-default-tab--preview .dock-tab-label,
 .dock-tab-label--preview {
     font-style: italic;
@@ -5393,27 +5397,23 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     height: 7px;
     border-radius: 50%;
     flex-shrink: 0;
-    background: var(--warn);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 40%, transparent);
+    background: var(--meta);
     margin-left: 2px;
 }
 
 .dock-tab-saved {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background: var(--success);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 40%, transparent);
-    margin-left: 2px;
+    display: none;
 }
 
-.dock-tab-dirty--side,
-.dock-tab-saved--side {
+.dock-tab-dirty--side {
     position: absolute;
     top: 4px;
     right: 4px;
     margin-left: 0;
+}
+
+.dock-tab-saved--side {
+    display: none;
 }
 
 .dockable-workspace.dock-header-left .dv-default-tab,

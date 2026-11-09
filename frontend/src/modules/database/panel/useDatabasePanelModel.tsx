@@ -2776,6 +2776,17 @@ export function useDatabasePanelModel() {
     return parts.join("\n");
   });
 
+  const tableDirtyRowsKey = useDbWorkspaceTabStore((state) => {
+    const parts: string[] = [];
+    for (const tab of workspaceTabs) {
+      if (tab.kind !== "table") continue;
+      const dirtyRows = state.tabDirtyRows[tab.id];
+      const rowCount = dirtyRows ? Object.keys(dirtyRows).length : 0;
+      if (rowCount > 0) parts.push(`${tab.id}:${rowCount}`);
+    }
+    return parts.join(",");
+  });
+
   const dockTabs = useMemo(
     () => {
       const tabStates = useDbWorkspaceTabStore.getState();
@@ -2903,15 +2914,17 @@ export function useDatabasePanelModel() {
               ...aside };
           }
           const isTableTab = tablePreviewTabIds.has(tab.id);
-          const dirty = isTableTab ? false : dirtySqlWorkspaceTabIds.has(tab.id);
+          const tableDirtyRows = isTableTab ? tabStates.tabDirtyRows[tab.id] : undefined;
+          const tableDirty = tableDirtyRows ? Object.keys(tableDirtyRows).length > 0 : false;
+          const dirty = isTableTab ? tableDirty : dirtySqlWorkspaceTabIds.has(tab.id);
           const saved = tab.kind === "sql" && Boolean(tab.sqlFileId) && !dirty;
           return {
             id: tab.id,
             label: tab.label,
             panelType: isTableTab ? "database-table" : "database-sql",
-            ...(!isTableTab
-              ? { type: "file" as const, dirty, saved }
-              : {}),
+            type: "file" as const,
+            dirty,
+            saved,
             icon: isTableTab ? ("table" as const) : ("sql" as const),
             tooltip: tab.label,
             closable: true,
@@ -2920,7 +2933,7 @@ export function useDatabasePanelModel() {
           };
         });
     },
-    [workspaceTabs, tablePreviewTabIds, dirtySqlWorkspaceTabIds, isDesignerTabDirty, connections, sqlOverflowBindingKey, t],
+    [workspaceTabs, tablePreviewTabIds, dirtySqlWorkspaceTabIds, tableDirtyRowsKey, isDesignerTabDirty, connections, sqlOverflowBindingKey, t],
   );
 
   const recentClosedActionItems = useMemo(

@@ -52,10 +52,6 @@ export function TopbarStyleDockTabHeader({
     liveMeta.type ?? props.params?.type;
   const dirty =
     pageType === "file" ? Boolean(liveMeta.dirty || props.params?.dirty) : undefined;
-  const saved =
-    pageType === "file"
-      ? !dirty && Boolean(liveMeta.saved ?? props.params?.saved)
-      : undefined;
   const preview =
     liveMeta.rev > 0
       ? Boolean(liveMeta.preview)
@@ -69,9 +65,7 @@ export function TopbarStyleDockTabHeader({
   };
 
   const statusMark = dirty ? (
-    <span className="dock-tab-dirty" aria-label="未保存" />
-  ) : saved ? (
-    <span className="dock-tab-saved" aria-label="已保存" />
+    <span className="dock-tab-dirty" aria-label="有未保存修改" title="有未保存修改" />
   ) : null;
 
   return (
@@ -91,7 +85,7 @@ export function TopbarStyleDockTabHeader({
         <span className={`topbar-tab-dot ${tabStatusClass(status)}`} />
       ) : null}
       <span
-        className={`dock-tab-label${preview ? " dock-tab-label--preview" : ""}`}
+        className={`dock-tab-label${preview ? " dock-tab-label--preview" : ""}${dirty ? " dock-tab-label--dirty" : ""}`}
         style={preview ? { fontStyle: "italic" } : { fontStyle: "normal" }}
       >
         {label}

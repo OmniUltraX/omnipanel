@@ -41,10 +41,6 @@ export function DockTabHeader({
     liveMeta.type ?? props.params?.type;
   const dirty =
     pageType === "file" ? Boolean(liveMeta.dirty || props.params?.dirty) : undefined;
-  const saved =
-    pageType === "file"
-      ? !dirty && Boolean(liveMeta.saved ?? props.params?.saved)
-      : undefined;
   const preview =
     liveMeta.rev > 0
       ? Boolean(liveMeta.preview)
@@ -60,9 +56,7 @@ export function DockTabHeader({
   };
 
   const statusMark = dirty ? (
-    <span className="dock-tab-dirty" aria-label="未保存" />
-  ) : saved ? (
-    <span className="dock-tab-saved" aria-label="已保存" />
+    <span className="dock-tab-dirty" aria-label="有未保存修改" title="有未保存修改" />
   ) : null;
 
   return (
@@ -81,7 +75,7 @@ export function DockTabHeader({
       {!isSide ? (
         <>
           <span
-            className={`dock-tab-label${preview ? " dock-tab-label--preview" : ""}`}
+            className={`dock-tab-label${preview ? " dock-tab-label--preview" : ""}${dirty ? " dock-tab-label--dirty" : ""}`}
             style={preview ? { fontStyle: "italic" } : { fontStyle: "normal" }}
           >
             {label}
@@ -90,15 +84,14 @@ export function DockTabHeader({
         </>
       ) : (
         <>
-          {!icon ? <span className="dock-tab-label">{label}</span> : null}
+          {!icon ? (
+            <span className={`dock-tab-label${dirty ? " dock-tab-label--dirty" : ""}`}>{label}</span>
+          ) : null}
           {statusMark ? (
             <span
-              className={
-                dirty
-                  ? "dock-tab-dirty dock-tab-dirty--side"
-                  : "dock-tab-saved dock-tab-saved--side"
-              }
-              aria-label={dirty ? "未保存" : "已保存"}
+              className="dock-tab-dirty dock-tab-dirty--side"
+              aria-label="有未保存修改"
+              title="有未保存修改"
             />
           ) : null}
         </>
