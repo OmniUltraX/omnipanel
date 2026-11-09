@@ -363,9 +363,12 @@ export function DockTabOverflowMenu({
                         </span>
                       ) : null}
                     </span>
-                    {item.dirty ? <span className="dock-tab-dirty" aria-label="未保存" /> : null}
-                    {!item.dirty && item.saved ? (
-                      <span className="dock-tab-saved" aria-label="已保存" />
+                    {item.dirty ? (
+                      <span
+                        className="dock-tab-dirty"
+                        aria-label={t("ui.dockTab.unsavedChanges")}
+                        title={t("ui.dockTab.unsavedChanges")}
+                      />
                     ) : null}
                     {item.closable ? (
                       <button

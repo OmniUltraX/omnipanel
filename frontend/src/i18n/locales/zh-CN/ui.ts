@@ -45,4 +45,7 @@ export default {
       replacedMatchOnLine: "已替换第 $ 行的匹配",
       replacedMatches: "已替换 $ 处匹配",
     },
+    dockTab: {
+      unsavedChanges: "有未保存修改",
+    },
   } as const;

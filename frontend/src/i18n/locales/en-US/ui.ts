@@ -45,4 +45,7 @@ export default {
       replacedMatchOnLine: "replaced match on line $",
       replacedMatches: "replaced $ matches",
     },
+    dockTab: {
+      unsavedChanges: "Unsaved changes",
+    },
   } as const;
