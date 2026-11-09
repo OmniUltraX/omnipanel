@@ -7,6 +7,7 @@ import type { DockTabPageType } from "./dockableTab";
 import { useDockTabLiveMeta } from "./dockTabLiveMeta";
 import { useDockTabHeaderRuntime } from "./dockTabHeaderRuntime";
 import { useDockTabBarHidden } from "./useDockTabBarHidden";
+import { useI18n } from "../../i18n";
 
 interface PanelParams {
   tabId: string;
@@ -31,6 +32,7 @@ export function DockTabHeader({
   onPointerUp,
   ...props
 }: DockTabHeaderProps) {
+  const { t } = useI18n();
   const tabId = props.params?.tabId ?? props.api.id;
   const liveMeta = useDockTabLiveMeta(tabId);
   const rootRef = useDockTabBarHidden(tabId, Boolean(liveMeta.tabBarHidden));
@@ -41,10 +43,6 @@ export function DockTabHeader({
     liveMeta.type ?? props.params?.type;
   const dirty =
     pageType === "file" ? Boolean(liveMeta.dirty || props.params?.dirty) : undefined;
-  const saved =
-    pageType === "file"
-      ? !dirty && Boolean(liveMeta.saved ?? props.params?.saved)
-      : undefined;
   const preview =
     liveMeta.rev > 0
       ? Boolean(liveMeta.preview)
@@ -59,10 +57,9 @@ export function DockTabHeader({
     runtime?.onTabDoubleClickRef.current?.(tabId);
   };
 
+  const unsavedLabel = t("ui.dockTab.unsavedChanges");
   const statusMark = dirty ? (
-    <span className="dock-tab-dirty" aria-label="未保存" />
-  ) : saved ? (
-    <span className="dock-tab-saved" aria-label="已保存" />
+    <span className="dock-tab-dirty" aria-label={unsavedLabel} title={unsavedLabel} />
   ) : null;
 
   return (
@@ -93,12 +90,9 @@ export function DockTabHeader({
           {!icon ? <span className="dock-tab-label">{label}</span> : null}
           {statusMark ? (
             <span
-              className={
-                dirty
-                  ? "dock-tab-dirty dock-tab-dirty--side"
-                  : "dock-tab-saved dock-tab-saved--side"
-              }
-              aria-label={dirty ? "未保存" : "已保存"}
+              className="dock-tab-dirty dock-tab-dirty--side"
+              aria-label={unsavedLabel}
+              title={unsavedLabel}
             />
           ) : null}
         </>
