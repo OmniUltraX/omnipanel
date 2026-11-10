@@ -45,6 +45,8 @@ COPY plugins/agent-workbuddy/src-agent ./plugins/agent-workbuddy/src-agent
 COPY plugins/agent-workbuddy/plugin.json ./plugins/agent-workbuddy/plugin.json
 COPY plugins/theme-default/plugin.json plugins/theme-default/tokens.json ./plugins/theme-default/
 COPY plugins/addon-everything/plugin.json ./plugins/addon-everything/plugin.json
+# resource-dedupe embeds its manifest, logic, icon and UI through include_str!.
+COPY plugins/addon-resource-dedupe ./plugins/addon-resource-dedupe
 COPY plugins/panel-1panel/plugin.json ./plugins/panel-1panel/plugin.json
 COPY plugins/panel-bt/plugin.json ./plugins/panel-bt/plugin.json
 COPY plugins/panel-hestia/plugin.json plugins/panel-hestia/logic.js ./plugins/panel-hestia/
