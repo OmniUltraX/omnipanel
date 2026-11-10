@@ -29,7 +29,7 @@ pub async fn create_terminal(
         ..Default::default()
     };
     let mut session =
-        Terminal::new(config).map_err(|e| format!("Failed to spawn terminal: {e}"))?;
+        Terminal::new(config).map_err(|e| format!("Failed to spawn terminal: {e:#}"))?;
 
     // Take the reader and spawn a background thread to forward output via events.
     // Events survive React remounts unlike Tauri Channels.

@@ -43,57 +43,73 @@ fn webview_data_directory(app: &AppHandle, label: &str) -> Result<std::path::Pat
     Ok(dir)
 }
 
-fn center_on_cursor_monitor(app: &AppHandle, window: &tauri::WebviewWindow) {
-    let Ok(cursor) = app.cursor_position() else {
-        let _ = window.center();
-        return;
-    };
+mod geometry {
+    include!("launcher_geometry.rs");
+}
+
+fn center_on_cursor_monitor(app: &AppHandle, window: &tauri::WebviewWindow, height: f64) {
     let Ok(monitors) = app.available_monitors() else {
-        let _ = window.center();
         return;
     };
-    let cx = cursor.x.round() as i32;
-    let cy = cursor.y.round() as i32;
+    let cursor = app.cursor_position().ok();
     let target = monitors
         .iter()
         .find(|m| {
-            let p = m.position();
-            let s = m.size();
-            cx >= p.x && cx < p.x + s.width as i32 && cy >= p.y && cy < p.y + s.height as i32
+            cursor.is_some_and(|c| {
+                let p = m.position();
+                let size = m.size();
+                c.x >= p.x as f64
+                    && c.x < p.x as f64 + size.width as f64
+                    && c.y >= p.y as f64
+                    && c.y < p.y as f64 + size.height as f64
+            })
         })
         .or_else(|| monitors.first());
-
     let Some(mon) = target else {
-        let _ = window.center();
         return;
     };
-    let Ok(size) = window.outer_size() else {
-        let _ = window.center();
-        return;
-    };
-    let mx = mon.position().x;
-    let my = mon.position().y;
-    let mw = mon.size().width as i32;
-    let mh = mon.size().height as i32;
-    let ww = size.width as i32;
-    let wh = size.height as i32;
-    let x = mx + ((mw - ww) / 2).max(0);
-    let y = my + ((mh - wh) / 3).max(0);
+    let area = mon.work_area();
+    // GTK resize requests are asynchronous. Cached outer_size() can still be
+    // the parked 1x1 (or stale pre-map allocation); use the requested dimensions.
+    let (x, y, width, height) = geometry::launcher_bounds(
+        area.position.x,
+        area.position.y,
+        area.size.width,
+        area.size.height,
+        mon.scale_factor(),
+        height,
+    );
+    let _ = window.set_min_size(Some(tauri::PhysicalSize::new(
+        width.min((520.0 * mon.scale_factor()).round() as u32),
+        height.min((104.0 * mon.scale_factor()).round() as u32),
+    )));
+    let _ = window.set_size(tauri::PhysicalSize::new(width, height));
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }
 
 /// 停靠到屏外并隐藏，避免 always_on_top / 无边框窗在 Windows 上留下隐形命中区。
 fn park_and_hide_launcher(window: &tauri::WebviewWindow) -> Result<(), String> {
+    // Tao/GTK unwraps the native GdkWindow for cursor passthrough. A newly
+    // created hidden Linux window is not realized yet; calling this aborts the
+    // entire process, even though the returned Result is ignored. Hidden GTK
+    // windows cannot intercept pointer events, so no passthrough is needed.
+    #[cfg(not(target_os = "linux"))]
     let _ = window.set_ignore_cursor_events(true);
     let _ = window.set_always_on_top(false);
-    // 创建时 min 为 520×104，不先放开则 set_size(1×1) 会被钳住，屏外停靠失效时仍占大命中区
-    let _ = window.set_min_size(Some(tauri::LogicalSize::new(1.0, 1.0)));
-    // 先移出屏幕再缩、再 hide：即使 hide 后 HWND 仍参与 hit-test，光标也碰不到
-    let _ = window.set_position(tauri::PhysicalPosition::new(
-        LAUNCHER_PARK_X,
-        LAUNCHER_PARK_Y,
-    ));
-    let _ = window.set_size(tauri::LogicalSize::new(1.0, 1.0));
+    // Off-screen 1x1 parking is a Windows hit-test workaround. GTK remembers
+    // these hidden allocations/positions and remaps the popup outside the work
+    // area on subsequent shows; hide alone is sufficient on Linux.
+    #[cfg(not(target_os = "linux"))]
+    {
+        // 创建时 min 为 520×104，不先放开则 set_size(1×1) 会被钳住，屏外停靠失效时仍占大命中区
+        let _ = window.set_min_size(Some(tauri::LogicalSize::new(1.0, 1.0)));
+        // 先移出屏幕再缩、再 hide：即使 hide 后 HWND 仍参与 hit-test，光标也碰不到
+        let _ = window.set_position(tauri::PhysicalPosition::new(
+            LAUNCHER_PARK_X,
+            LAUNCHER_PARK_Y,
+        ));
+        let _ = window.set_size(tauri::LogicalSize::new(1.0, 1.0));
+    }
     window.hide().map_err(|e| e.to_string())?;
     #[cfg(windows)]
     force_win32_hide(window);
@@ -204,9 +220,32 @@ fn show_launcher(app: &AppHandle, ctrl_held: bool) -> Result<(), String> {
     let _ = window.set_size(tauri::LogicalSize::new(600.0, 104.0));
     let _ = window.set_ignore_cursor_events(false);
     let _ = window.set_always_on_top(true);
-    center_on_cursor_monitor(app, &window);
+    center_on_cursor_monitor(app, &window, 104.0);
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    {
+        // Map/configure events may override a pre-show GTK move. Reapply only
+        // while visible, after the WM has realized the window; no thread sleep.
+        let app = app.clone();
+        let window = window.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            if window.is_visible().unwrap_or(false) {
+                let height = window
+                    .inner_size()
+                    .ok()
+                    .and_then(|size| {
+                        window
+                            .scale_factor()
+                            .ok()
+                            .map(|scale| size.height as f64 / scale)
+                    })
+                    .unwrap_or(104.0);
+                center_on_cursor_monitor(&app, &window, height);
+            }
+        });
+    }
     let _ = app.emit(
         "omnipanel:quick-launcher-shown",
         QuickLauncherShownPayload { ctrl_held },
@@ -267,9 +306,8 @@ pub fn set_quick_launcher_height(app: AppHandle, height: f64) -> Result<(), Stri
     }
     // 顶部模块图标行 + 搜索行，最小约 104
     let h = height.clamp(104.0, 480.0);
-    window
-        .set_size(tauri::LogicalSize::new(600.0, h))
-        .map_err(|e| e.to_string())
+    center_on_cursor_monitor(&app, &window, h);
+    Ok(())
 }
 
 /// 注册 Ctrl+Space；失败仅打日志（常见于被系统/输入法占用）。

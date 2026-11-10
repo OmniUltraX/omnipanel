@@ -1,3 +1,4 @@
+import { normalizeLegacyLocalShellLabel } from "../lib/localTerminalShell";
 import type { LocalShellKind, LocalShellSpec, TerminalSessionInfo, TerminalSessionType, TerminalTab } from "./terminalTypes";
 
 export type TerminalSessionLifecycle = "active" | "suspended" | "ended";
@@ -117,7 +118,7 @@ export function defaultSessionInfo(
     return {
       type: "local",
       resourceId,
-      shellLabel: shellSpec ? shellLabelFromSpec(shellSpec) : "PowerShell",
+      shellLabel: shellSpec ? shellLabelFromSpec(shellSpec) : "Shell",
       cwd: "~",
       purpose: "Local Workspace",
       commandPack: [],
@@ -181,7 +182,9 @@ export function normalizePersistedSession(raw: unknown): TerminalSession | null 
   const session: TerminalSessionInfo = {
     type,
     resourceId: sessionSource.resourceId,
-    shellLabel: typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "Shell",
+    shellLabel: type === "local"
+      ? normalizeLegacyLocalShellLabel(typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "Shell", normalizePersistedShellSpec(sessionSource.shellSpec))
+      : (typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "SSH"),
     cwd: normalizePersistedSessionCwd(
       typeof sessionSource.cwd === "string" ? sessionSource.cwd : "~/",
       type,
@@ -239,7 +242,9 @@ export function migrateLegacyTabsToSessions(
     const entity = createSessionEntity(raw.title, {
       type,
       resourceId,
-      shellLabel: typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "Shell",
+      shellLabel: type === "local"
+      ? normalizeLegacyLocalShellLabel(typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "Shell", normalizePersistedShellSpec(sessionSource.shellSpec))
+      : (typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "SSH"),
       cwd: normalizePersistedSessionCwd(
       typeof sessionSource.cwd === "string" ? sessionSource.cwd : "~/",
       type,

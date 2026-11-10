@@ -25,7 +25,7 @@ jobs:
           sudo apt-get install -y \
             libglib2.0-dev \
             libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
+            libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
             libssl-dev \
@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -72,6 +72,7 @@ jobs:
       - name: DB sidecar isolation + crate tests
         run: |
           set -euo pipefail
+          cargo test --locked -p omnipanel-core --test linux_pty
           cargo test -p omnipanel-db --lib
           cargo test -p omnipanel-db --test sidecar_e2e
           cargo test -p omnipanel-db --lib --no-default-features --features engine-clickhouse

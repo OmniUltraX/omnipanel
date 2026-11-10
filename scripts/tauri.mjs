@@ -4,6 +4,7 @@
  * 用法：node scripts/tauri.mjs dev | build | ...
  */
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,10 +44,15 @@ if (isDevFlavor && !hasConfig) {
   args.splice(1, 0, "--config", "src-tauri/tauri.dev.conf.json");
 }
 
-const result = spawnSync("cargo", ["tauri", ...args], {
+// npm ci --prefix frontend already installs the pinned Tauri CLI. Do not require
+// an unrelated globally installed cargo-tauri (which may have a different version).
+const cli = path.join(repoRoot, "frontend/node_modules/@tauri-apps/cli/tauri.js");
+const command = fs.existsSync(cli) ? process.execPath : "cargo";
+const cliArgs = fs.existsSync(cli) ? [cli, ...args] : ["tauri", ...args];
+const result = spawnSync(command, cliArgs, {
   cwd: repoRoot,
   stdio: "inherit",
-  shell: process.platform === "win32",
+  shell: false,
   env: process.env,
 });
 

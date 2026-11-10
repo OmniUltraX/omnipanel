@@ -291,3 +291,7 @@ MIT © 2026 [OmniUltraX](https://github.com/OmniUltraX)
 <div align="center">
   <p>All in One · 小而全而优而美</p>
 </div>
+
+### Linux 桌面打包
+
+Linux 原生依赖、本地无签名 `.deb` / `.AppImage` 构建及仅上传产物的 CI，见 [Linux 构建与流水线指南](docs/build/linux.md)。安装前端依赖后，在 Linux 上运行 `npm run build:linux`。

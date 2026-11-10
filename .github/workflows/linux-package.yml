@@ -1,0 +1,107 @@
+name: Linux Packages (no publish)
+
+# Build installable test artifacts without OSS, signing keys or a GitHub Release.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'Cargo.*'
+      - '.cargo/**'
+      - 'crates/**'
+      - 'src-tauri/**'
+      - 'frontend/**'
+      - 'packages/**'
+      - 'plugins/**'
+      - 'scripts/build-linux*'
+      - 'scripts/stage-db-engines.mjs'
+      - 'scripts/smoke-db-sidecars.py'
+      - 'scripts/smoke-linux-startup.sh'
+      - '.github/workflows/linux-package.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-package-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_BUILD_JOBS: '2'
+
+jobs:
+  package:
+    # Ubuntu 22.04 establishes the oldest supported glibc baseline.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config dpkg-dev file xvfb xauth dbus-x11 libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+          shared-key: linux-package
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - name: Default UI terminal creation regression
+        working-directory: frontend
+        run: npx vitest run src/hooks/useTerminal.local.test.ts --maxWorkers=2
+      - name: Launcher work-area geometry regression
+        run: |
+          rustc --edition 2024 --test src-tauri/src/commands/launcher_geometry.rs -o /tmp/launcher-geometry-tests
+          /tmp/launcher-geometry-tests
+      - run: npm run test:packaging
+      - run: npm run check:ipc-registry
+      - run: npm run check:plugin-manifests
+      - name: Build unsigned Linux packages (including DB sidecars)
+        run: npm run build:linux
+      - name: Exercise native Linux terminal
+        run: env -u SHELL cargo test --locked --release -p omnipanel-core --test linux_pty
+      - name: Inspect Debian package
+        run: |
+          set -euo pipefail
+          debs=(target/release/bundle/deb/*.deb)
+          deb=${debs[0]}
+          test -n "$deb"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+          mkdir -p /tmp/omnipanel-package
+          dpkg-deb --extract "$deb" /tmp/omnipanel-package
+          for name in omnipanel-app omnipanel-engine-clickhouse omnipanel-engine-mongodb omnipanel-engine-redis; do
+            test -x "/tmp/omnipanel-package/usr/bin/$name"
+          done
+          python3 scripts/smoke-db-sidecars.py /tmp/omnipanel-package/usr/bin
+      - name: Headless desktop startup (not interactive UI acceptance)
+        env:
+          OMNIPANEL_SMOKE_LOG: ${{ runner.temp }}/omnipanel-startup.log
+        run: bash scripts/smoke-linux-startup.sh /tmp/omnipanel-package/usr/bin/omnipanel-app
+      - name: Headless AppImage startup (no FUSE mount required)
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          OMNIPANEL_SMOKE_LOG: ${{ runner.temp }}/omnipanel-appimage-startup.log
+        run: bash scripts/smoke-linux-startup.sh target/release/bundle/appimage/*.AppImage
+      - name: Upload startup diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnipanel-linux-startup-logs
+          path: ${{ runner.temp }}/omnipanel-*startup.log
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omnipanel-linux-x86_64
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 14

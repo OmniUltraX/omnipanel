@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { resolveLocalTerminalShell } from "../lib/localTerminalShell";
 import {
   commands,
 } from "../ipc/bindings";
@@ -23,7 +24,6 @@ import {
   findTerminalPane,
   useTerminalStore,
 } from "../stores/terminalStore";
-import type { LocalShellSpec } from "../stores/terminalTypes";
 import { recordTerminalSessionActivity } from "../stores/terminalSessionActivity";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useSettingsStore } from "../stores/settingsStore";
@@ -622,7 +622,7 @@ function isSessionClosedError(err: unknown): boolean {
 }
 
 /** 远程 pane 走 SSH（ssh_connect_connection），本地 pane 走本地 PTY（create_terminal）。 */
-async function createBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
+export async function createBackendSession(sessionId: string, cols: number, rows: number): Promise<string> {
   const pane = findPaneById(sessionId);
   if (pane?.type === "remote" && pane.resourceId) {
     if (isSshAuthHeld(pane.resourceId)) {
@@ -676,14 +676,7 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
       throw normalizeBackendError(err, "SSH 终端创建失败");
     }
   }
-  // shellSpec 回退：旧持久化数据可能没有 shellSpec 字段（只有 shellLabel）。
-  // 从 shellLabel 推断 WSL/PowerShell/Cmd，避免误启动默认 shell。
-  let resolvedShell = pane?.shellSpec ?? inferShellSpecFromLabel(pane?.shellLabel) ?? null;
-  // CMD 已下线：旧持久化 tab 的 shellSpec.kind="cmd" 回退到 powershell5。
-  // 后端 resolve_shell 也会做同族回退，但这里提前转可让 shellLabel 在 UI 上正确显示。
-  if (resolvedShell?.kind === "cmd") {
-    resolvedShell = { kind: "powershell5", path: null, wslDistro: null };
-  }
+  const resolvedShell = resolveLocalTerminalShell(pane?.shellSpec, pane?.shellLabel);
   return invoke<string>("create_terminal", {
     cols,
     rows,
@@ -691,39 +684,6 @@ async function createBackendSession(sessionId: string, cols: number, rows: numbe
   }).catch((err) => {
     throw normalizeBackendError(err, "本地 PTY 创建失败");
   });
-}
-
-/**
- * 从 shellLabel 推断 ShellSpec（用于旧持久化数据回退）。
- *
- * 新版本 addLocalTerminalTab 会写入完整 shellSpec，但旧版本持久化的 tab
- * 只有 shellLabel（如 "Ubuntu (WSL)"），恢复时 shellSpec 为 null，导致后端
- * detect_shell() 误启动 PowerShell。这里从 label 反推 kind。
- */
-function inferShellSpecFromLabel(label: string | null | undefined): LocalShellSpec | null {
-  if (!label) return null;
-  const text = label.toLowerCase();
-  if (/\bwsl\b/.test(text)) {
-    // "Ubuntu (WSL)" → wslDistro="Ubuntu"
-    const match = label.match(/^([^(]+)/);
-    const distro = match ? match[1].trim() : null;
-    return { kind: "wsl", path: null, wslDistro: distro };
-  }
-  // pwsh / "PowerShell 7" → PowerShell 7+；纯 "PowerShell" → 系统自带 5.1
-  // 系统未装 pwsh 时，ShellKind::PowerShell 会在后端 spawn "pwsh" 失败，
-  // 回退到 powershell5（"powershell.exe" 在所有 Windows 上可用）。
-  if (text.includes("pwsh") || text.includes("powershell 7") || text.includes("powershell core")) {
-    return { kind: "powershell", path: null, wslDistro: null };
-  }
-  if (text.includes("powershell")) {
-    return { kind: "powershell5", path: null, wslDistro: null };
-  }
-  // CMD 已从 shell 列表移除（无 shell integration，核心功能失效）。
-  // 旧持久化 tab 的 shellLabel="CMD" 回退到 powershell5（所有 Windows 可用）。
-  if (text === "cmd" || text === "cmd.exe" || text.includes("命令提示符")) {
-    return { kind: "powershell5", path: null, wslDistro: null };
-  }
-  return null;
 }
 
 /**

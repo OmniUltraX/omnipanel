@@ -1,3 +1,4 @@
+import { normalizeLegacyLocalShellLabel } from "../lib/localTerminalShell";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
@@ -247,7 +248,12 @@ function normalizeLegacyPersistedTab(tab: unknown): TerminalTab | null {
   const session: TerminalSessionInfo = {
     type,
     resourceId,
-    shellLabel: typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "Shell",
+    shellLabel: type === "local"
+      ? normalizeLegacyLocalShellLabel(
+          typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "Shell",
+          normalizePersistedShellSpec(sessionSource.shellSpec),
+        )
+      : (typeof sessionSource.shellLabel === "string" ? sessionSource.shellLabel : "SSH"),
     cwd: typeof sessionSource.cwd === "string" ? sessionSource.cwd : "~/",
     purpose:
       typeof sessionSource.purpose === "string"

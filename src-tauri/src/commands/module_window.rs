@@ -73,6 +73,11 @@ fn force_win32_hide(window: &tauri::WebviewWindow) {
 /// 先穿透光标再 hide，Windows 上再强制 SW_HIDE（与快捷启动窗同策略）。
 /// 不搬位置/尺寸，避免丢失模块窗记忆几何。
 fn hide_window_without_cursor_hit(window: &tauri::WebviewWindow) {
+    // Tao/GTK unwraps the native GdkWindow for cursor passthrough. A newly
+    // created hidden Linux window is not realized yet; calling this aborts the
+    // entire process, even though the returned Result is ignored. Hidden GTK
+    // windows cannot intercept pointer events, so no passthrough is needed.
+    #[cfg(not(target_os = "linux"))]
     let _ = window.set_ignore_cursor_events(true);
     let _ = window.set_skip_taskbar(true);
     let _ = window.hide();
@@ -199,6 +204,11 @@ pub fn ensure_module_window(app: &AppHandle, module_key: &str) -> Result<String,
         .map_err(|e| format!("创建模块窗口失败: {e}"))?;
 
     // 预热即隐藏：先穿透光标，避免隐藏态隐形命中区遮挡光标
+    // Tao/GTK unwraps the native GdkWindow for cursor passthrough. A newly
+    // created hidden Linux window is not realized yet; calling this aborts the
+    // entire process, even though the returned Result is ignored. Hidden GTK
+    // windows cannot intercept pointer events, so no passthrough is needed.
+    #[cfg(not(target_os = "linux"))]
     let _ = window.set_ignore_cursor_events(true);
     let _ = window.set_background_color(Some(tauri::window::Color(26, 23, 23, 255)));
     #[cfg(windows)]

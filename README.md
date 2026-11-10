@@ -290,3 +290,7 @@ MIT © 2026 [OmniUltraX](https://github.com/OmniUltraX)
 <div align="center">
   <p>All in One · Compact · Complete · Excellent · Beautiful</p>
 </div>
+
+### Linux desktop packages
+
+See [Linux build and CI guide](docs/build/linux.md) for native dependencies, unsigned `.deb` / `.AppImage` builds, and artifact-only CI. Run `npm run build:linux` on Linux after installing frontend dependencies.

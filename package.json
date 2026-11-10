@@ -17,7 +17,9 @@
     "tauri:dev": "node scripts/tauri.mjs dev",
     "dev:frontend": "npm run dev --prefix frontend",
     "build:frontend": "npm run build --prefix frontend",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "build:linux": "node scripts/build-linux.mjs",
+    "test:packaging": "node --test scripts/build-linux.test.mjs"
   },
   "devDependencies": {
     "typescript": "~6.0.2"

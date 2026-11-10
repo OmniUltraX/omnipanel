@@ -6,6 +6,11 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      notify:
+        description: '显式允许微信广播（默认不发送通知）'
+        type: boolean
+        required: false
+        default: false
       platforms:
         description: '构建平台（热修可只选 windows，缩短墙钟时间）'
         type: choice
@@ -15,6 +20,7 @@ on:
           - all
           - windows
           - macos
+          - linux
 
 permissions:
   contents: write
@@ -37,7 +43,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Require Aliyun OSS secrets
         shell: bash
@@ -101,8 +107,11 @@ jobs:
             macos)
               MATRIX='[{"platform":"macos-latest","target":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"}]'
               ;;
+            linux)
+              MATRIX='[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","args":"--target x86_64-unknown-linux-gnu --bundles deb,appimage"}]'
+              ;;
             *)
-              MATRIX='[{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","args":""},{"platform":"macos-latest","target":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"}]'
+              MATRIX='[{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","args":""},{"platform":"macos-latest","target":"aarch64-apple-darwin","args":"--target aarch64-apple-darwin"},{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","args":"--target x86_64-unknown-linux-gnu --bundles deb,appimage"}]'
               ;;
           esac
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
@@ -148,9 +157,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential pkg-config dpkg-dev file xvfb xauth dbus-x11 \
             libglib2.0-dev \
             libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
+            libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
             libssl-dev \
@@ -159,7 +169,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -283,17 +293,37 @@ jobs:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
           releaseName: 'OmniPanel v${{ steps.version.outputs.version }}'
           releaseBody: ${{ steps.changelog.outputs.body }}
-          releaseDraft: ${{ github.ref_type != 'tag' }}
+          # Publish only after every platform and OSS verification succeeds.
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
+      - name: Verify packaged Linux runtime and default terminal
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd frontend && npx vitest run src/hooks/useTerminal.local.test.ts --maxWorkers=2)
+          rustc --edition 2024 --test src-tauri/src/commands/launcher_geometry.rs -o /tmp/launcher-geometry-tests
+          /tmp/launcher-geometry-tests
+          env -u SHELL cargo test --locked --release --target "${{ matrix.target }}" -p omnipanel-core --test linux_pty
+          bundle="target/${{ matrix.target }}/release/bundle"
+          debs=("$bundle"/deb/*.deb)
+          images=("$bundle"/appimage/*.AppImage)
+          test -f "${images[0]}.sig"
+          mkdir -p /tmp/omnipanel-release-smoke
+          dpkg-deb --extract "${debs[0]}" /tmp/omnipanel-release-smoke
+          python3 scripts/smoke-db-sidecars.py /tmp/omnipanel-release-smoke/usr/bin
+          OMNIPANEL_SMOKE_LOG=/tmp/native-startup.log bash scripts/smoke-linux-startup.sh /tmp/omnipanel-release-smoke/usr/bin/omnipanel-app
+          APPIMAGE_EXTRACT_AND_RUN=1 OMNIPANEL_SMOKE_LOG=/tmp/appimage-startup.log bash scripts/smoke-linux-startup.sh "${images[0]}"
+
       - name: Broadcast version to WeChat via OmniServer
         # 仅在 Windows 产物构建成功后广播一次，避免矩阵多平台重复通知
         # tag 发版才广播；手动试构建跳过
         # OmniServer 偶发不可达：软失败，不得拖垮发版 / 阻断 publish-oss
-        if: success() && matrix.platform == 'windows-latest' && github.ref_type == 'tag'
+        if: success() && inputs.notify == true && matrix.platform == 'windows-latest' && github.ref_type == 'tag'
         continue-on-error: true
         shell: bash
         env:
@@ -359,7 +389,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Require Aliyun OSS secrets
         shell: bash
@@ -414,3 +444,8 @@ jobs:
             --dir release-assets \
             --tag "${{ github.ref_name }}" \
             --repo "${{ github.repository }}"
+
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --latest
