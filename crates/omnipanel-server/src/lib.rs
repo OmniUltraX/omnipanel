@@ -71,6 +71,7 @@ pub mod terminal;
 pub mod terminal_history;
 pub mod transfer;
 pub mod transfer_host;
+mod web_auth;
 pub mod web_search_cmds;
 pub mod workflow_cmds;
 pub mod ws;

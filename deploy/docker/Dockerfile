@@ -22,8 +22,10 @@ RUN npm run build
 # ---------- 后端：仅编译 omnipanel-server（不含 Tauri） ----------
 FROM rust:bookworm AS rust-builder
 WORKDIR /build
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
+# Optional documented apt setting for environments whose DNS proxy cannot resolve SRV targets.
+ARG APT_ENABLE_SRV_RECORDS=true
+RUN apt-get -o Acquire::EnableSrvRecords=$APT_ENABLE_SRV_RECORDS update \
+  && apt-get -o Acquire::EnableSrvRecords=$APT_ENABLE_SRV_RECORDS install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
     libdbus-1-dev \
@@ -67,22 +69,53 @@ RUN mkdir -p src-tauri/src \
   && printf 'fn main() {}\n' > src-tauri/build.rs
 
 ENV CARGO_INCREMENTAL=0
-RUN cargo build --release -p omnipanel-server
+ARG CARGO_BUILD_JOBS=4
+ENV CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS
+# Keep registry/dependency caches; refresh workspace source mtimes so cache mounts cannot serve a stale binary.
+# BuildKit COPY ignores mtimes, while Cargo freshness uses them. Copy the binary out of the cache mount.
+RUN --mount=type=cache,id=omnipanel-web-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=omnipanel-web-target,target=/build/target \
+    bash -c 'shopt -s globstar nullglob; touch crates/**/*.rs' \
+    && cargo build --locked --release -p omnipanel-server \
+    && cp /build/target/release/omnipanel-server /build/omnipanel-server
+
+# Explicit test target; not part of the runtime image.
+FROM rust-builder AS rust-tests
+RUN --mount=type=cache,id=omnipanel-web-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=omnipanel-web-target,target=/build/target \
+    bash -c 'shopt -s globstar nullglob; touch crates/**/*.rs' \
+    && cargo test --locked --release -p omnipanel-server --lib
+
+# CLI and Compose binaries are static; no daemon/privileged container required.
+FROM docker:28.5.2-cli AS docker-cli
 
 # ---------- 运行时 ----------
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
+# Optional documented apt setting for environments whose DNS proxy cannot resolve SRV targets.
+ARG APT_ENABLE_SRV_RECORDS=true
+RUN apt-get -o Acquire::EnableSrvRecords=$APT_ENABLE_SRV_RECORDS update \
+  && apt-get -o Acquire::EnableSrvRecords=$APT_ENABLE_SRV_RECORDS install -y --no-install-recommends \
     ca-certificates \
     curl \
     libssl3 \
     libdbus-1-3 \
     libudev1 \
+    bash \
+    openssh-client \
   && rm -rf /var/lib/apt/lists/*
+
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+RUN docker --version && docker compose version
+
+ARG OMNIPANEL_VERSION=local
+ARG OMNIPANEL_REVISION=uncommitted
+LABEL org.opencontainers.image.version=$OMNIPANEL_VERSION \
+      org.opencontainers.image.revision=$OMNIPANEL_REVISION
 
 WORKDIR /app
 
-COPY --from=rust-builder /build/target/release/omnipanel-server /usr/local/bin/omnipanel-server
+COPY --from=rust-builder /build/omnipanel-server /usr/local/bin/omnipanel-server
 COPY --from=frontend /build/frontend/dist /app/static
 COPY deploy/docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

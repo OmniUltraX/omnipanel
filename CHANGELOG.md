@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [Docker Web 0.8.57] - 2026-11-10
+
+Docker-only 发行，跟踪标签 `docker-v0.8.57`；不修改桌面 `v0.8.57` 标签或资产。
+
+- 移除公开 runtime-config 中的服务端 API Key；增加服务器访问登录/锁定、短期 HttpOnly 会话、同源 HTTP/WS 校验和安全回归。
+- 运行时补齐 Docker CLI / Compose；默认仅发布回环端口，不自动挂载 Docker socket，未配置密钥时拒绝启动。
+- 根目录构建忽略敏感文件/缓存；Docker 流水线先真实冒烟后发布，手动构建默认不推送，版本与镜像修订明确校验。
+- **升级必读**：旧 runtime-config 曾公开部署密钥，升级时必须轮换 API Key；无头连接凭据 fallback 是数据卷中的 `0600` 明文文件，须保护/加密磁盘与备份。默认不挂载 `docker.sock`，显式挂载即授予所连接宿主的高权限。
+
 ## [0.8.57] - 2026-11-10
 
 ### 新增

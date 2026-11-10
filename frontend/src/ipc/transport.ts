@@ -23,35 +23,26 @@ const WEB_WS_BASE = (() => {
   return `${proto}//${window.location.host}${base}`;
 })();
 
-/** Docker 运行时 config.js 或 Vite 构建期环境变量。 */
-function resolveApiKey(): string | undefined {
-  if (typeof window !== "undefined" && window.__OMNIPANEL_API_KEY__) {
-    return window.__OMNIPANEL_API_KEY__;
-  }
-  const fromEnv = import.meta.env.VITE_OMNIPANEL_API_KEY as string | undefined;
-  return fromEnv?.trim() || undefined;
-}
-
 /**
  * 发送 IPC 命令。Web 模式下等价于 Tauri `invoke`：
  * - 命令成功（HTTP 200 且 `ok:true`）→ resolve `data`
  * - 命令失败（HTTP 200 且 `ok:false`，或网络错误）→ reject error
  */
 export async function webInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const apiKey = resolveApiKey();
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (apiKey) {
-    headers.authorization = `Bearer ${apiKey}`;
-  }
   let resp: Response;
   try {
     resp = await fetch(`${WEB_API_BASE}/ipc/invoke`, {
       method: "POST",
+      credentials: "same-origin",
       headers,
       body: JSON.stringify({ cmd, args: args ?? {} }),
     });
   } catch (e) {
     throw new Error(`IPC 网络错误: ${String(e)}`);
+  }
+  if (resp.status === 401) {
+    window.dispatchEvent(new Event("omnipanel-auth-required"));
   }
   if (!resp.ok) {
     throw new Error(`IPC HTTP ${resp.status}`);
@@ -97,9 +88,9 @@ class WebEventBus {
     }
 
     return new Promise((resolve, reject) => {
-      const apiKey = resolveApiKey();
-      const url = WEB_WS_BASE.replace(/\/$/, "") + "/ipc/events";
-      const ws = new WebSocket(apiKey ? `${url}?token=${encodeURIComponent(apiKey)}` : url);
+          const url = WEB_WS_BASE.replace(/\/$/, "") + "/ipc/events";
+      // Browser sends the HttpOnly session cookie; no key/token in URL or storage.
+      const ws = new WebSocket(url);
       this.ws = ws;
 
       ws.onopen = () => {

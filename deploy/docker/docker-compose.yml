@@ -2,26 +2,26 @@
 #
 # 用法:
 #   cd deploy/docker
-#   cp .env.example .env    # 建议设置 OMNIPANEL_API_KEY
+#   cp .env.example .env    # 必须设置 OMNIPANEL_API_KEY；先确认正式 Docker 工作流成功
 #   docker compose up -d
 #   浏览器打开 http://localhost:8899
 #
-# 管理宿主机 Docker：默认已挂载 /var/run/docker.sock（仅可信内网使用）
+# 默认仅回环监听，不挂载 Docker socket。管理 Engine 需显式附加 engine override。
 
 services:
   omnipanel:
-    image: ghcr.io/omniultrax/omnipanel-web:latest
+    image: ${OMNIPANEL_IMAGE:-ghcr.io/omniultrax/omnipanel-web:0.8.57}
     container_name: omnipanel-web
     ports:
-      - "${OMNIPANEL_PORT:-8899}:8899"
+      - "${OMNIPANEL_BIND_HOST:-127.0.0.1}:${OMNIPANEL_PORT:-8899}:8899"
     environment:
-      OMNIPANEL_API_KEY: ${OMNIPANEL_API_KEY:-}
+      OMNIPANEL_API_KEY: ${OMNIPANEL_API_KEY:?Set OMNIPANEL_API_KEY in .env}
       OMNIPANEL_PORT: "8899"
       OMNIPANEL_BIND: "0.0.0.0"
+      OMNIPANEL_SECURE_COOKIE: ${OMNIPANEL_SECURE_COOKIE:-0}
     volumes:
       - omnipanel-data:/data
-      # 管理宿主机 Docker Engine（高权限；生产务必设置 OMNIPANEL_API_KEY）
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Optional, high privilege: explicitly opt in via docker-compose.engine.yml.
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8899/healthz"]

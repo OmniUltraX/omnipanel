@@ -204,7 +204,7 @@ P0 已打通本地终端链路（`create_terminal`/`write_terminal`/`resize_term
 
 **一键部署到 Koyeb**
 
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=ghcr.io/omniultrax/omnipanel-web:latest&name=omnipanel-web&ports=8899:http)
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](./docs/web/docker.md)
 
 **一键部署到 DigitalOcean**
 
@@ -218,23 +218,18 @@ P0 已打通本地终端链路（`create_terminal`/`write_terminal`/`resize_term
 
 ### Docker 部署
 
-镜像：[ghcr.io/omniultrax/omnipanel-web](https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web)（公开镜像，无需 `docker login`）
+Docker Web 0.8.57 是 Docker-only 发行（跟踪标签 `docker-v0.8.57`），不替换桌面发布资产。Docker 工作流成功后使用精确镜像版本，也可如下本地构建。旧部署必须轮换 API Key；默认不挂 socket，无头凭据 fallback 为权限 0600 的明文文件：
 
 ```bash
-# 方式一：docker run（管理宿主机 Docker 需挂载 docker.sock）
-docker run -d --name omnipanel -p 8899:8899 \
-  -v omnipanel-data:/data \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -e OMNIPANEL_API_KEY=请替换为长随机字符串 \
-  ghcr.io/omniultrax/omnipanel-web:latest
-
-# 方式二：docker compose
-cd deploy/docker && cp .env.example .env && docker compose up -d
+docker build -f deploy/docker/Dockerfile -t omnipanel-web:local .
+# 先在本地环境设置长随机 OMNIPANEL_API_KEY；不要将真实值提交到仓库。
+docker run -d --name omnipanel -p 127.0.0.1:8899:8899 \
+  -v omnipanel-data:/data -e OMNIPANEL_API_KEY omnipanel-web:local
 ```
 
-浏览器打开 <http://localhost:8899>。`OMNIPANEL_API_KEY` **未设置时容器仍可启动**，但会打印安全警告（方案 A：适合本地试用）；生产环境请务必设置。
+打开 <http://127.0.0.1:8899>，输入部署密钥后以 HttpOnly 会话进入工作台。缺少密钥默认拒绝启动；默认不挂载 Docker socket。公网必须使用 HTTPS 与安全 cookie。仅 linux/amd64 已支持；CLI/Compose 在容器运行，宿主路径需显式映射。
 
-详细说明见 [docs/web/docker.md](./docs/web/docker.md)。
+源码构建、可选 Engine 挂载、Compose、安全边界、自动化测试和“仅构建/真正发布”区别见 [Docker 部署文档](./docs/web/docker.md)。
 
 ### 📁 项目结构
 

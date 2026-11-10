@@ -2,17 +2,24 @@ name: Docker Web Image
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the tested image (default: build/test only)"
+        type: boolean
+        default: false
+      image_version:
+        description: "Required for manual publication; must match Cargo workspace version"
+        type: string
+        default: ""
 
 permissions:
   contents: read
   packages: write
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: omniultrax/omnipanel-web
+  IMAGE_NAME: ghcr.io/omniultrax/omnipanel-web
 
 concurrency:
   group: docker-web-${{ github.ref }}
@@ -22,64 +29,93 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        if: github.ref_type == 'tag'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' }}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
-            type=sha,prefix=,format=short,enable=${{ github.ref_type != 'tag' }}
-
-      - name: Build and push
+      - name: Resolve and validate image version
+        id: version
+        env:
+          MANUAL_PUBLISH: ${{ inputs.publish }}
+          REQUESTED_VERSION: ${{ inputs.image_version }}
+        run: |
+          python3 - <<'PY'
+          import os, re, tomllib
+          version = tomllib.load(open('Cargo.toml','rb'))['workspace']['package']['version']
+          tagged = os.environ['GITHUB_REF_TYPE'] == 'tag'
+          publish = tagged or os.environ.get('MANUAL_PUBLISH') == 'true'
+          requested = os.environ['GITHUB_REF_NAME'].removeprefix('v') if tagged else os.environ.get('REQUESTED_VERSION','')
+          if publish:
+              if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', requested):
+                  raise SystemExit('Publication requires an explicit semantic image version')
+              if requested != version:
+                  raise SystemExit(f'Image version {requested} differs from Cargo {version}; bump source versions first')
+          else:
+              requested = version + '-check-' + os.environ['GITHUB_SHA'][:7]
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f'version={requested}\npublish={str(publish).lower()}\n')
+          PY
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and load (never push before runtime verification)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/docker/Dockerfile
-          push: ${{ github.ref_type == 'tag' }}
+          load: true
+          push: false
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: omnipanel-web:ci
+          build-args: |
+            OMNIPANEL_VERSION=${{ steps.version.outputs.version }}
+            OMNIPANEL_REVISION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      # 组织命名空间下 GHCR 包默认 private；GITHUB_TOKEN 无法改可见性，需 PACKAGES_TOKEN。
-      # 注意：step if 不能引用 secrets 上下文（会 Invalid workflow file），改走 env 判断。
-      - name: Make GHCR package public
-        if: github.ref_type == 'tag'
+      - name: Rust Web-server unit/security tests
+        run: docker buildx build -f deploy/docker/Dockerfile --target rust-tests .
+      - name: Prove Docker context excludes secrets and caches
+        run: python3 scripts/test-docker-context.py
+      - name: Auth, runtime, persistence and Docker/Compose regression
         env:
-          GH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-          PACKAGE_NAME: omnipanel-web
+          OMNIPANEL_TEST_DOCKER_SOCKET: /var/run/docker.sock
+        run: python3 scripts/smoke-docker-web.py omnipanel-web:ci
+      - name: Log in only for explicitly enabled publication
+        if: steps.version.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the exact tested image (no rebuild)
+        if: steps.version.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -z "${GH_TOKEN}" ]; then
-            echo "::warning::未配置 PACKAGES_TOKEN，GHCR 包仍为 private。请配置组织 Secret 后运行 GHCR Make Public workflow，"
-            echo "或在 https://github.com/orgs/OmniUltraX/packages/container/omnipanel-web/settings 手动设为 Public"
-            exit 0
+          docker tag omnipanel-web:ci "$IMAGE_NAME:$VERSION"
+          docker push "$IMAGE_NAME:$VERSION"
+          if [[ "$VERSION" != *-* ]]; then
+            MINOR="${VERSION%.*}"
+            docker tag omnipanel-web:ci "$IMAGE_NAME:$MINOR"
+            docker push "$IMAGE_NAME:$MINOR"
+            docker tag omnipanel-web:ci "$IMAGE_NAME:latest"
+            docker push "$IMAGE_NAME:latest"
           fi
-          API="/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE_NAME}"
-          VISIBILITY="$(gh api "$API" --jq .visibility 2>/dev/null || echo unknown)"
-          if [ "$VISIBILITY" = "public" ]; then
-            echo "✓ Package ${PACKAGE_NAME} is already public"
-          else
-            gh api --method PATCH "$API" -f visibility=public
-            echo "✓ Package ${PACKAGE_NAME} visibility set to public"
-          fi
+      - name: Verify public availability and immutable revision
+        if: steps.version.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # No saved registry login: private/missing packages fail the release gate.
+          TEMP_CONFIG=$(mktemp -d)
+          trap 'rm -rf "$TEMP_CONFIG"' EXIT
+          TAGS=("$VERSION")
+          if [[ "$VERSION" != *-* ]]; then TAGS+=("${VERSION%.*}" latest); fi
+          for TAG in "${TAGS[@]}"; do
+            DOCKER_CONFIG="$TEMP_CONFIG" docker pull "$IMAGE_NAME:$TAG"
+            test "$(docker inspect "$IMAGE_NAME:$TAG" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$EXPECTED_REVISION"
+            test "$(docker inspect "$IMAGE_NAME:$TAG" --format '{{ index .Config.Labels "org.opencontainers.image.version" }}')" = "$VERSION"
+          done
+      - name: Explicit build-only summary
+        if: steps.version.outputs.publish != 'true'
+        run: echo "Build and runtime checks passed. No registry login or image publication was performed." >> "$GITHUB_STEP_SUMMARY"

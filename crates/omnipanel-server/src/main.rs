@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     let mut port: u16 = 8899;
     let mut bind: String = "0.0.0.0".to_string();
     let mut static_dir: Option<PathBuf> = None;
-    let mut api_key: Option<String> = None;
+    let mut api_key: Option<String> = std::env::var("OMNIPANEL_API_KEY").ok();
 
     let mut i = 1;
     while i < args.len() {

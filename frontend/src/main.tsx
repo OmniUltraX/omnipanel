@@ -1,4 +1,7 @@
 import { StrictMode, type ReactNode } from "react";
+import { isTauriRuntime } from "./lib/isTauriRuntime";
+import { webAuthStatus } from "./ipc/webAuth";
+import { WebLogin, WebSessionLock } from "./components/shell/WebLogin";
 import { createRoot } from "react-dom/client";
 // CSS 必须静态按序引入：动态 Promise.all 会打乱级联，且 Tailwind v4 入口扫描依赖静态图
 import "./styles/global.css";
@@ -28,12 +31,28 @@ import { dismissHtmlBootSplash } from "./lib/dismissBootSplash";
 initProductionDiagnostics();
 initDesktopShell();
 
+const root = createRoot(document.getElementById("root")!);
+let webAuthenticated = false;
+window.addEventListener("omnipanel-auth-required", () => {
+  if (!isTauriRuntime()) { webAuthenticated = false; mount(<WebLogin onAuthenticated={() => { void boot(); }} />); }
+});
+
 function mount(node: ReactNode): void {
   dismissHtmlBootSplash();
-  createRoot(document.getElementById("root")!).render(<StrictMode>{node}</StrictMode>);
+  root.render(<StrictMode>{node}{webAuthenticated && <WebSessionLock />}</StrictMode>);
 }
 
 async function boot(): Promise<void> {
+  if (!isTauriRuntime()) {
+    try {
+      const status = await webAuthStatus();
+      if (!status.authenticated) { mount(<WebLogin onAuthenticated={() => { void boot(); }} />); return; }
+      webAuthenticated = status.required;
+    } catch {
+      mount(<WebLogin initialError="无法连接服务器 / Server unavailable" onAuthenticated={() => { void boot(); }} />); return;
+    }
+  }
+
   const quickLauncher = isQuickLauncherWindow();
   const moduleWindow = quickLauncher ? null : parseModuleWindowParams();
   const workspaceWindow =

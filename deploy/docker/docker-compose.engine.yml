@@ -1,0 +1,5 @@
+# Optional high-privilege Engine access. Only use with trusted clients and authentication.
+services:
+  omnipanel:
+    volumes:
+      - ${OMNIPANEL_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock

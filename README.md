@@ -207,7 +207,7 @@ P0 covers the local terminal path (`create_terminal` / `write_terminal` / `resiz
 
 **One-click deploy to Koyeb**
 
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=ghcr.io/omniultrax/omnipanel-web:latest&name=omnipanel-web&ports=8899:http)
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](./docs/web/docker.md)
 
 **One-click deploy to DigitalOcean**
 
@@ -221,19 +221,18 @@ P0 covers the local terminal path (`create_terminal` / `write_terminal` / `resiz
 
 ### Docker
 
-Image: [ghcr.io/omniultrax/omnipanel-web](https://github.com/OmniUltraX/omnipanel/pkgs/container/omnipanel-web) (public — no `docker login`)
+Docker Web 0.8.57 is a Docker-only release (tracking tag `docker-v0.8.57`); it does not replace desktop release assets. Use the exact image version after its Docker workflow succeeds, or build locally as below. Existing deployments must rotate their API key; socket access is opt-in and headless credential fallback files are plaintext with mode 0600:
 
 ```bash
-docker run -d --name omnipanel -p 8899:8899 \
-  -v omnipanel-data:/data \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -e OMNIPANEL_API_KEY=replace-with-a-long-random-secret \
-  ghcr.io/omniultrax/omnipanel-web:latest
-
-# Or: cd deploy/docker && cp .env.example .env && docker compose up -d
+docker build -f deploy/docker/Dockerfile -t omnipanel-web:local .
+# Set a long random OMNIPANEL_API_KEY in your local environment; never commit its value.
+docker run -d --name omnipanel -p 127.0.0.1:8899:8899 \
+  -v omnipanel-data:/data -e OMNIPANEL_API_KEY omnipanel-web:local
 ```
 
-Open <http://localhost:8899>. If `OMNIPANEL_API_KEY` is unset, the container still starts but logs a security warning (local trial only). See [docs/web/docker.md](./docs/web/docker.md).
+Open <http://127.0.0.1:8899> and enter the deployment key to obtain an HttpOnly session. Missing keys fail startup by default; Docker socket access is opt-in. Public deployments require HTTPS and secure cookies. Only linux/amd64 is supported; CLI/Compose run inside the container, and host paths require explicit mapping.
+
+See [Docker deployment](./docs/web/docker.md) for Compose, optional Engine access, authentication, automated checks, and build-only versus actual image publication.
 
 ### 📁 Project Structure
 

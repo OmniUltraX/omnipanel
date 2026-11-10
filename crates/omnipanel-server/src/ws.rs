@@ -5,40 +5,32 @@
 //! 前端 shim 收到后按 `event` 字段分发给对应 topic 的 handler。
 
 use axum::extract::{
-    Query, State, WebSocketUpgrade,
+    State, WebSocketUpgrade,
     ws::{Message, WebSocket},
 };
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
-use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::bus::{Event, forward_events_to_ws};
 use crate::server::AppCtx;
 
-/// `GET /ipc/events?token=...` 的 query 参数（API Key 经 query 传递，
-/// 因为浏览器 WebSocket API 无法自定义 header）。
-#[derive(Debug, Deserialize)]
-pub struct EventsQuery {
-    pub token: Option<String>,
-}
-
 /// 升级 `GET /ipc/events` 为 WebSocket，并开始转发事件流。
 pub async fn ws_events(
     ws: WebSocketUpgrade,
     State(ctx): State<AppCtx>,
-    Query(query): Query<EventsQuery>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
-    if let Some(ref expected) = ctx.api_key {
-        let token = query.token.as_deref().unwrap_or("");
-        if token != expected {
-            return axum::http::StatusCode::UNAUTHORIZED.into_response();
-        }
+    if !crate::web_auth::origin_allowed(&headers) {
+        return axum::http::StatusCode::FORBIDDEN.into_response();
     }
-    ws.on_upgrade(move |socket| handle_socket(socket, ctx))
+    if !ctx.auth.authorized(&headers) {
+        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+    }
+    ws.on_upgrade(move |socket| handle_socket(socket, ctx, headers))
 }
 
-async fn handle_socket(socket: WebSocket, ctx: AppCtx) {
+async fn handle_socket(socket: WebSocket, ctx: AppCtx, headers: axum::http::HeaderMap) {
     let (tx, mut rx) = socket.split();
     let bus = ctx.state.bus.clone();
     let events_rx: broadcast::Receiver<Event> = bus.subscribe();
@@ -49,7 +41,12 @@ async fn handle_socket(socket: WebSocket, ctx: AppCtx) {
     });
 
     // 读取循环：消费客户端帧（心跳/关闭），异常即断开。
-    while let Some(Ok(msg)) = rx.next().await {
+    let mut auth_check = tokio::time::interval(std::time::Duration::from_secs(30));
+    loop {
+        let msg = tokio::select! {
+            message = rx.next() => match message { Some(Ok(msg)) => msg, _ => break },
+            _ = auth_check.tick() => { if !ctx.auth.authorized(&headers) { break; } continue; }
+        };
         match msg {
             Message::Close(_) => break,
             Message::Ping(p) => {

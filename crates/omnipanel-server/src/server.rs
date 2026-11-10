@@ -10,7 +10,6 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 
 use crate::ipc::{self, InvokeRequest};
@@ -62,23 +61,29 @@ impl ServerHandle {
 #[derive(Clone)]
 pub struct AppCtx {
     pub(crate) state: Arc<ServerState>,
-    pub(crate) api_key: Option<String>,
+    pub(crate) auth: Arc<crate::web_auth::WebAuth>,
 }
 
 /// 启动 HTTP/WS 服务（阻塞直至端口就绪或失败）。
 pub fn run_server(config: ServerConfig) -> anyhow::Result<ServerHandle> {
     let state = Arc::new(ServerState::new());
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
 
     let app_ctx = AppCtx {
         state,
-        api_key: config.api_key.clone().filter(|k| !k.trim().is_empty()),
+        auth: Arc::new(crate::web_auth::WebAuth::new(config.api_key.clone())),
     };
 
     let mut router = Router::new()
+        .route(
+            "/ipc/auth",
+            get(crate::web_auth::status)
+                .post(crate::web_auth::login)
+                .delete(crate::web_auth::logout),
+        )
+        .route(
+            "/omnipanel-runtime-config.js",
+            get(|| async { StatusCode::NOT_FOUND }),
+        )
         .route("/ipc/invoke", post(invoke_handler))
         .route("/ipc/events", get(ws::ws_events))
         .route("/ipc/status", get(status_handler))
@@ -87,7 +92,7 @@ pub fn run_server(config: ServerConfig) -> anyhow::Result<ServerHandle> {
             "/media/{token}",
             get(media_handler).head(media_head_handler),
         )
-        .layer(cors)
+        .layer(axum::middleware::from_fn(crate::web_auth::origin_guard))
         .with_state(app_ctx);
 
     if let Some(dir) = &config.static_dir {
@@ -125,28 +130,26 @@ fn check_api_key(
     ctx: &AppCtx,
     headers: &axum::http::HeaderMap,
 ) -> Result<(), axum::response::Response> {
-    if let Some(ref expected) = ctx.api_key {
-        let auth = headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let token = auth.strip_prefix("Bearer ").unwrap_or(auth);
-        if token != expected {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "invalid api key" })),
-            )
-                .into_response());
-        }
+    if !ctx.auth.authorized(headers) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error":"authentication required"})),
+        )
+            .into_response());
     }
     Ok(())
 }
 
 async fn healthz() -> impl IntoResponse {
-    Json(serde_json::json!({ "status": "ok", "service": "omnipanel-server" }))
+    Json(
+        serde_json::json!({ "status": "ok", "service": "omnipanel-server", "version": env!("CARGO_PKG_VERSION") }),
+    )
 }
 
-async fn status_handler(State(_ctx): State<AppCtx>) -> impl IntoResponse {
+async fn status_handler(State(ctx): State<AppCtx>, headers: HeaderMap) -> Response {
+    if let Err(response) = check_api_key(&ctx, &headers) {
+        return response;
+    }
     Json(serde_json::json!({
         "service": "omnipanel-server",
         "ipc": "/ipc/invoke",
@@ -163,7 +166,7 @@ async fn status_handler(State(_ctx): State<AppCtx>) -> impl IntoResponse {
         "p4_mcp": ["mcp_list_services", "mcp_upsert_service", "mcp_delete_service", "mcp_set_service_enabled", "mcp_set_service_running", "mcp_list_service_tools", "mcp_call_tool"],
         "p4_s3_multipart": ["file_upload_local_path_multipart", "file_download_s3_range_to_file", "events: files-transfer-progress"],
         "events": ["terminal-output", "terminal-event", "docker-log", "docker-log-end", "docker-stats", "docker-stats-end", "@channel", "files-transfer-progress"],
-    }))
+    })).into_response()
 }
 
 async fn invoke_handler(
