@@ -92,7 +92,7 @@ FROM rust-builder AS rust-tests
 RUN --mount=type=cache,id=omnipanel-web-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=omnipanel-web-target,target=/build/target \
     bash -c 'shopt -s globstar nullglob; touch crates/**/*.rs' \
-    && cargo test --locked --release -p omnipanel-server --lib
+    && cargo test --locked --release -p omnipanel-server --lib -- --test-threads=1
 
 # CLI and Compose binaries are static; no daemon/privileged container required.
 FROM docker:28.5.2-cli AS docker-cli

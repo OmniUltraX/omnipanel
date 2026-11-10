@@ -25,6 +25,7 @@
 - Web 补齐插件中心装载合同：`plugin_list` / `plugin_manifests` / 本地安装与卸载 / 官方目录与官方安装，以及 `plugin_read_asset`（第一方 `omni.addon.resource-dedupe` 的 `ui/main.js` 可从嵌入资产读取，不再记 `ui.invalid_entry`）。云厂商等 download-only 插件不内置进镜像。
 - smoke 增加经应用 IPC 的真实 ClickHouse 查询，以及官方云插件发现/加载、缺失凭据错误路径和数据卷持久化；不对真实阿里云 endpoint 发送测试密钥。真实账户调用仍未验收。
 - 上述 SPA、数据库白屏、插件中心与工作台修复均包含在本 Docker 镜像中。
+- CI：`omnipanel-server` 库测试为每个用例准备独立临时主目录，避免并行打开同一 `~/.omnipd` 时 SQLite 迁移互相冲突（`duplicate column name: tags`）；`rust-tests` 阶段同时串行跑测试。
 
 ## [Docker Web 0.8.57] - 2026-11-10
 

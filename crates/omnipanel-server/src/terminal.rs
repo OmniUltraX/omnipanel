@@ -172,6 +172,34 @@ impl ServerState {
         }
     }
 
+    /// Isolated `ServerState` for unit tests. `ServerState::new()` opens the
+    /// process `~/.omnipd` store and runs SQLite migrations; parallel tests
+    /// otherwise race and fail with `duplicate column name: tags`.
+    #[cfg(test)]
+    pub fn new_for_test() -> (tempfile::TempDir, Self) {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("temp home for ServerState tests");
+        let prev_home = std::env::var_os("HOME");
+        let prev_profile = std::env::var_os("USERPROFILE");
+        unsafe {
+            std::env::set_var("HOME", dir.path());
+            std::env::set_var("USERPROFILE", dir.path());
+        }
+        let state = Self::new();
+        unsafe {
+            match prev_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+            match prev_profile {
+                Some(value) => std::env::set_var("USERPROFILE", value),
+                None => std::env::remove_var("USERPROFILE"),
+            }
+        }
+        (dir, state)
+    }
+
     /// 懒初始化 MCP 管理器（幂等；失败返回 None 时相关 IPC/AI 外部工具会报明确错误）。
     pub async fn ensure_mcp_manager(&self) -> Option<omnipanel_mcp::SharedMcpManager> {
         let mut slot = self.mcp_manager.lock().await;

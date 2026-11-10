@@ -96,7 +96,6 @@ pub struct PluginUpdateInfo {
     pub source_id: String,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevWatchInfo {
@@ -636,7 +635,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_dbx_catalog_returns_a_json_array() {
-        let state = ServerState::new();
+        let (_home, state) = ServerState::new_for_test();
         let list = plugin_dbx_catalog(&state).await.expect("catalog");
         let value = serde_json::to_value(&list).unwrap();
         assert!(
@@ -648,7 +647,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_read_asset_returns_first_party_resource_dedupe_ui() {
-        let state = ServerState::new();
+        let (_home, state) = ServerState::new_for_test();
         let code = plugin_read_asset(
             &state,
             "omni.addon.resource-dedupe".into(),
@@ -664,7 +663,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_read_asset_rejects_path_escape() {
-        let state = ServerState::new();
+        let (_home, state) = ServerState::new_for_test();
         let err = plugin_read_asset(
             &state,
             "omni.addon.resource-dedupe".into(),
@@ -680,7 +679,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_market_catalog_returns_a_json_array() {
-        let state = ServerState::new();
+        let (_home, state) = ServerState::new_for_test();
         let list = plugin_market_catalog(&state, false)
             .await
             .expect("market catalog");
@@ -698,7 +697,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_check_updates_returns_a_json_array() {
-        let state = ServerState::new();
+        let (_home, state) = ServerState::new_for_test();
         let list = plugin_check_updates(&state, false).await.expect("updates");
         let value = serde_json::to_value(&list).unwrap();
         assert!(
@@ -709,7 +708,7 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_registry_sources_list_includes_official() {
-        let state = ServerState::new();
+        let (_home, state) = ServerState::new_for_test();
         let list = plugin_registry_sources_list(&state).await.expect("sources");
         let value = serde_json::to_value(&list).unwrap();
         assert!(value.is_array());
@@ -722,14 +721,16 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_dev_status_returns_a_json_array() {
-        let state = ServerState::new();
+        let (_home, state) = ServerState::new_for_test();
         let list = plugin_dev_status(&state).await.expect("dev status");
         let value = serde_json::to_value(&list).unwrap();
         assert!(
             value.is_array(),
             "soft-degrade of plugin_dev_status was {{}}, which crashed StudioPanel via devList.filter"
         );
-        assert!(list.is_empty(), "web has no session-level dev watches: {list:?}");
+        assert!(
+            list.is_empty(),
+            "web has no session-level dev watches: {list:?}"
+        );
     }
-
 }
