@@ -45,7 +45,9 @@
 .dock-tab-active-indicator {
   position: absolute;
   left: 0;
-  bottom: 0;
+  /* 页头底边 1px 和 overflow 裁在内容盒底边上，贴底的那一行平时画不出来，
+     切换时合成层会把它露出来，看起来先变粗再消失。上移 1px 让 2px 都落在裁剪区内。 */
+  bottom: 1px;
   height: 2px;
   width: 0;
   background: var(--accent);
@@ -59,7 +61,7 @@
 }
 
 .dockable-workspace.dock-header-bottom .dock-tab-active-indicator {
-  top: 0;
+  top: 1px;
   bottom: auto;
 }
 

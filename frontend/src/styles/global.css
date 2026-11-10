@@ -5266,14 +5266,51 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     border-radius: 0;
 }
 
-/* Tab 濡?闁?閻庨潧缍婄紞?.topbar-tab闁挎稑鐗忕划銊╁几閸曞墎绐?dv-tab > .dv-default-tab闁挎稒绋栭崕妤呭疾椤栨粍鏆?dockview + 濞戞挸锕ラ弻?--dv-* 闁告瑦锕㈤崳娲箳瑜嶉崺妤呮晬?*/
-.dockable-workspace .dv-default-tab {
-    display: inline-flex;
+/*
+ * 外层 .dv-tab 才是标签条里的 flex item。dockview 默认 padding 0.25rem 0.5rem，
+ * 关闭按钮的包含块却是内层 .dv-default-tab；再叠加 .dv-react-part 的内联 width:100%
+ * 和内层 max-width，长标题会被钳成同一宽度，按钮落在标题上，标签之间留下双倍内边距。
+ * flex-shrink:0 只表示这个 item 不压缩，宽度仍由内容决定。
+ */
+.dockable-workspace.dock-header-top .dv-tabs-container > .dv-tab,
+.dockable-workspace.dock-header-bottom .dv-tabs-container > .dv-tab {
+    display: flex;
+    align-items: stretch;
+    align-self: stretch;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    width: max-content;
+    max-width: 220px;
+    min-width: 0;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+}
+
+.dockable-workspace.dock-header-top .dv-tab > .dv-react-part,
+.dockable-workspace.dock-header-bottom .dv-tab > .dv-react-part {
+    display: flex;
+    align-items: stretch;
+    width: max-content !important;
+    height: 100% !important;
+    max-width: 220px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.dockable-workspace .dv-tab .dv-default-tab {
+    display: flex;
     align-items: center;
-    gap: var(--sp-2);
-    padding: 0 0 0 var(--sp-4);
+    gap: var(--sp-1);
+    /* 右侧 28px：按钮 20px + 距右 2px + 6px 间隙。按钮绝对定位且平时 visibility:hidden，
+       这段始终留着，标题不会伸到按钮下面，hover/激活时宽度也不变。 */
+    padding: 0 28px 0 var(--sp-2);
     height: 100%;
     min-height: 0;
+    width: auto;
+    max-width: 220px;
+    min-width: 0;
+    flex: 0 1 auto;
     font-size: var(--dv-tabs-and-actions-container-font-size);
     font-weight: 400;
     color: var(--fg-2);
@@ -5282,10 +5319,9 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     border-radius: 0;
     background: transparent;
     white-space: nowrap;
-    flex-shrink: 0;
     cursor: pointer;
     box-sizing: border-box;
-    /* 娑撳秴鎯?border-color閿涙碍绺哄ú缁樺瘹缁€鐑樻蒋韫囧懘銆忛崡铏鐠虹喍绗傞悙鐟板毊閿涘矁绻冨〒鈥茬窗閺勬儳绶遍妴灞肩瑝鐠虹喐澧滈妴?*/
+    position: relative;
     transition: color 0.08s, background-color 0.08s;
 }
 
@@ -5299,40 +5335,63 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     border-bottom-color: var(--accent);
 }
 
-/* 闁稿繑濞婂Λ鎾箰婢舵劖灏?闁?闁衡偓閹佷海闁绘劗鎳撻崵顕€宕犻崫鍕幍濞戞挸楠稿ù姗€寮?*/
 .dockable-workspace .dv-tab.dv-inactive-tab .dv-default-tab .dv-default-tab-action {
-    visibility: visible;
+    visibility: hidden;
 }
 
 .dockable-workspace .dv-default-tab .dv-default-tab-action {
-    width: 26px;
-    height: 26px;
-    min-width: 26px;
-    min-height: 26px;
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    min-height: 20px;
+    margin: 0;
     padding: 0;
+    border: none;
+    appearance: none;
     display: grid;
     place-items: center;
     border-radius: var(--r-sm);
+    background: var(--bg);
+    color: inherit;
+    font: inherit;
+    line-height: 0;
+    cursor: pointer;
     opacity: 0;
-    transition: opacity 0.12s, background 0.12s;
+    pointer-events: none;
+    transition: background-color 0.12s;
+    z-index: 2;
 }
 
 .dockable-workspace .dv-default-tab .dv-default-tab-action svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
+    opacity: 0.7;
 }
 
-.dockable-workspace .dv-tab.dv-active-tab .dv-default-tab .dv-default-tab-action {
-    opacity: 0.75;
+.dockable-workspace .dv-tab.dv-active-tab .dv-default-tab .dv-default-tab-action,
+.dockable-workspace .dv-tab:hover .dv-default-tab .dv-default-tab-action,
+.dockable-workspace .dv-tab:focus-within .dv-default-tab .dv-default-tab-action,
+.dockable-workspace .dv-default-tab .dv-default-tab-action:focus-visible {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    background: var(--bg);
 }
 
-.dockable-workspace .dv-tab .dv-default-tab:hover .dv-default-tab-action {
-    opacity: 0.75;
-}
-
-.dockable-workspace .dv-default-tab .dv-default-tab-action:hover {
+.dockable-workspace .dv-tab .dv-default-tab .dv-default-tab-action:hover,
+.dockable-workspace .dv-tab .dv-default-tab .dv-default-tab-action:focus-visible {
     opacity: 1;
     background: var(--surface-hover);
+    outline: none;
+}
+
+.dockable-workspace .dv-tab .dv-default-tab .dv-default-tab-action:hover svg,
+.dockable-workspace .dv-tab .dv-default-tab .dv-default-tab-action:focus-visible svg {
+    opacity: 1;
 }
 
 /* Tab 闁哄秴绻愬﹢顏呮償閺囥垹鍔ラ柨娑欑缁哄搫煤缂佹ê鐦圭紒鈧悜妯昏拫闁衡偓閻熸澘鐓傚銈嗗劶缁旂喖鏁嶇仦钘夌€婚梻鍛⒒閸ゅ酣寮ㄩ悷鏉跨厒 Tab 闁哄秴绻嬬粭鍌炲棘?*/
@@ -5355,23 +5414,31 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 .dock-tab-header-inner {
     display: inline-flex;
     align-items: center;
-    gap: var(--sp-2);
-    max-width: 220px;
+    gap: var(--sp-1);
     min-width: 0;
+    max-width: none;
+}
+
+.dockable-workspace .dv-tab .dv-default-tab .dv-default-tab-content {
+    flex: 0 1 auto;
+    margin: 0;
+    min-width: 0;
+    max-width: none;
+    overflow: hidden;
 }
 
 .dv-default-tab-content.dock-tab-header-inner {
     display: inline-flex;
     align-items: center;
-    gap: var(--sp-2);
+    gap: var(--sp-1);
     min-width: 0;
-    max-width: 220px;
-    /* 濞寸姴鎳撻ˉ鍡涘礆閸ャ劎鍨煎Λ鐗堬公缁遍亶寮甸鍐閻?鐎规瓕寮撶换姘扁偓娑櫭〒楣冩倷瑜版帗浠樺ǎ鍥ㄧ箖鐎垫棃宕ｉ婵愭綄 */
+    max-width: none;
+    /* 侧栏 dirty 点是绝对定位，内容区不能裁掉它 */
     overflow: visible;
 }
 
 .dock-tab-label {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -5419,6 +5486,22 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
 .dockable-workspace.dock-header-left .dv-default-tab,
 .dockable-workspace.dock-header-right .dv-default-tab {
     position: relative;
+    width: 100%;
+    max-width: none;
+    padding: 0;
+    justify-content: center;
+}
+
+.dockable-workspace.dock-header-left .dv-default-tab .dv-default-tab-action,
+.dockable-workspace.dock-header-right .dv-default-tab .dv-default-tab-action {
+    right: 1px;
+    bottom: 1px;
+    top: auto;
+    transform: none;
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    min-height: 16px;
 }
 
 /* 濞村吋淇洪惁浠嬫偐閼哥鍋撴担鍝勪化闁挎稑婢卭pbar 濡炲瀛╅悧?tab闁?*/
@@ -5476,13 +5559,6 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     height: var(--shell-dv-tab-bar-h);
     min-height: var(--shell-dv-tab-bar-h);
     max-height: var(--shell-dv-tab-bar-h);
-}
-
-.dockable-workspace.dock-window-control .dv-default-tab .dv-default-tab-action {
-    width: 22px;
-    height: 22px;
-    min-width: 22px;
-    min-height: 22px;
 }
 
 .dockable-workspace.dock-window-control .dv-default-tab .dv-default-tab-action svg {

@@ -87,7 +87,11 @@ export function useDockTabActiveIndicator(
     const resize = new ResizeObserver(schedule);
     resize.observe(root);
     root.querySelectorAll(".dv-tabs-container").forEach((node) => resize.observe(node));
-    const mutations = new MutationObserver(schedule);
+    // 激活类在点击当帧就换到新标签，若再等一帧才移动指示条，旧标签会先带着这条 2px 线画出来。
+    // 类变化直接同步位置；尺寸变化仍走下一帧，避免在 ResizeObserver 里来回触发布局。
+    const mutations = new MutationObserver(() => {
+      syncIndicators(root);
+    });
     mutations.observe(root, {
       subtree: true,
       childList: true,

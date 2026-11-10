@@ -92,15 +92,18 @@ export function DockTabChrome({
     >
       <span className="dv-default-tab-content dock-tab-header-inner">{children}</span>
       {closable ? (
-        <div
+        <button
+          type="button"
           className="dv-default-tab-action drag-ignore"
+          aria-label="关闭标签"
+          title="关闭"
           onPointerDown={onBtnPointerDown}
           onClick={onClose}
         >
           <svg width="16" height="16" viewBox="0 0 28 28" fill="none" aria-hidden>
             <path stroke="currentColor" strokeWidth="2" d="M8 8l12 12M20 8L8 20" />
           </svg>
-        </div>
+        </button>
       ) : null}
     </div>
   );
