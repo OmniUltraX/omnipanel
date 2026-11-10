@@ -18,6 +18,7 @@ import {
   DETAIL_HEIGHT_DEFAULT,
   DETAIL_HEIGHT_MIN,
   KIND_FILTERS,
+  collectMarketUpdateIndex,
 } from "./pluginCenterTypes";
 import { PluginDepConfirmDialog } from "./PluginDepConfirmDialog";
 import { ExternalConvertDialog } from "./ExternalConvertDialog";
@@ -28,6 +29,7 @@ import { PluginsMarketPane } from "./PluginsMarketPane";
 import { PluginsSidebar } from "./PluginsSidebar";
 import { PluginSettingsSubWindow } from "./PluginSettingsSubWindow";
 import { usePluginCenter } from "./usePluginCenter";
+import { PanelErrorBoundary } from "../../components/ui/feedback";
 
 const StudioPanel = lazy(() =>
   import("../studio/StudioPanel").then((mod) => ({ default: mod.StudioPanel })),
@@ -73,17 +75,10 @@ export function PluginsPanel() {
   const selected = Boolean(center.selectedInstalled || center.selectedMarket);
   const updatesBusy =
     center.installingMarketId != null || center.installing || center.busyId != null;
-  const { updateIds, latestById } = useMemo(() => {
-    const ids = new Set<string>();
-    const latest = new Map<string, string>();
-    for (const item of center.marketItems) {
-      if (!item.needsUpdate) continue;
-      ids.add(item.id);
-      const version = item.version.trim();
-      if (version) latest.set(item.id, version);
-    }
-    return { updateIds: ids, latestById: latest };
-  }, [center.marketItems]);
+  const { updateIds, latestById } = useMemo(
+    () => collectMarketUpdateIndex(center.marketItems),
+    [center.marketItems],
+  );
 
   const selectedId = center.selectedId;
   const setSelectedId = center.setSelectedId;
@@ -226,7 +221,9 @@ export function PluginsPanel() {
           style={{ display: studioOpen ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}
         >
           <Suspense fallback={null}>
-            <StudioPanel active={studioOpen} />
+            <PanelErrorBoundary title={t("plugins.studio.renderFailed")}>
+              <StudioPanel active={studioOpen} />
+            </PanelErrorBoundary>
           </Suspense>
         </div>
       ) : null}

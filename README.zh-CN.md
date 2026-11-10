@@ -218,7 +218,7 @@ P0 已打通本地终端链路（`create_terminal`/`write_terminal`/`resize_term
 
 ### Docker 部署
 
-Docker Web 0.8.57 是 Docker-only 发行（跟踪标签 `docker-v0.8.57`），不替换桌面发布资产。Docker 工作流成功后使用精确镜像版本，也可如下本地构建。旧部署必须轮换 API Key；默认不挂 socket，无头凭据 fallback 为权限 0600 的明文文件：
+Docker Web 0.8.58 与桌面 `v0.8.58` 同源发布（跟踪标签 `docker-v0.8.58`），不修改已发布的桌面 `v0.8.57` 标签/资产、`docker-v0.8.57` 或镜像标签 `0.8.57`。Docker 工作流成功后使用精确镜像版本，也可如下本地构建。旧部署必须轮换 API Key；默认不挂 socket，无头凭据 fallback 为权限 0600 的明文文件：
 
 ```bash
 docker build -f deploy/docker/Dockerfile -t omnipanel-web:local .

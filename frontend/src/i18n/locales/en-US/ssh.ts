@@ -199,6 +199,7 @@ export default {
     },
     empty: {
       selectHost: "No SSH connections yet. Add a host with + on the left, or sync from ~/.ssh/config",
+      chooseHost: "Select a host on the left",
     },
     tunnels: {
       label: "Port Forwarding",

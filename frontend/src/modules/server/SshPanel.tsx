@@ -26,6 +26,7 @@ import { SshSidebarLinkageProvider } from "./ssh/SshSidebarLinkageContext";
 import { HostDetailPanel } from "./ssh/components/HostDetailPanel";
 import { useSshHostWorkspace } from "./ssh/hooks/useSshHostWorkspace";
 import { useSshHostResources } from "../../stores/connectionStore";
+import { sshEmptyPromptKey } from "./ssh/sshEmptyPrompt";
 import { SidebarNoteKeys } from "../../lib/sidebarNotes";
 import { useSshSelectionStore } from "./ssh/stores/sshSelectionStore";
 import { useSshActiveHostStore } from "./ssh/stores/sshActiveHostStore";
@@ -288,7 +289,7 @@ export function SshPanel() {
           emptyContent={
             <WorkspaceEmptyPage
               title={t("routes.ssh")}
-              prompt={t("ssh.empty.selectHost")}
+              prompt={t(sshEmptyPromptKey(sshResources.length > 0))}
             />
           }
         />

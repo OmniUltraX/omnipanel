@@ -49,6 +49,7 @@ pub mod mcp;
 pub mod monitoring;
 pub mod navicat;
 pub mod panel_cmds;
+pub mod plugin_cmds;
 pub mod plugin_runtime;
 pub mod pool;
 pub mod protocol_cmds;
@@ -77,4 +78,4 @@ pub mod workflow_cmds;
 pub mod ws;
 
 pub use bus::{EventBus, EventPayload, SessionEvent};
-pub use server::{ServerConfig, ServerHandle, run_server};
+pub use server::{ServerConfig, ServerHandle, build_app, run_server, wants_spa_fallback};

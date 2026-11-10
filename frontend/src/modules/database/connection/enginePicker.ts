@@ -135,13 +135,40 @@ function displayLabel(id: string, catalogLabel?: string): string {
   return FIRST_PARTY_LABELS[id] ?? id;
 }
 
+const EMPTY_ENGINE_DESCRIPTORS: EngineDescriptor[] = [];
+const EMPTY_DBX_CATALOG: DbxCatalogDriver[] = [];
+
+/** Web 未注册的 `plugin_dbx_catalog` 会 soft-degrade 成 `{}`，persist 也可能灌入非数组。 */
+export function asEngineDescriptorList(value: unknown): EngineDescriptor[] {
+  if (!Array.isArray(value)) return EMPTY_ENGINE_DESCRIPTORS;
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      return value.filter((entry): entry is EngineDescriptor => !!entry && typeof entry === "object");
+    }
+  }
+  return value;
+}
+
+export function asDbxCatalogDriverList(value: unknown): DbxCatalogDriver[] {
+  if (!Array.isArray(value)) return EMPTY_DBX_CATALOG;
+  for (const item of value) {
+    if (!item || typeof item !== "object" || typeof (item as DbxCatalogDriver).key !== "string") {
+      return value.filter(
+        (entry): entry is DbxCatalogDriver =>
+          !!entry && typeof entry === "object" && typeof (entry as DbxCatalogDriver).key === "string",
+      );
+    }
+  }
+  return value;
+}
+
 export function buildEnginePickerItems(
-  descriptors: EngineDescriptor[],
-  catalog: DbxCatalogDriver[],
+  descriptors: EngineDescriptor[] | unknown,
+  catalog: DbxCatalogDriver[] | unknown,
 ): EnginePickerItem[] {
   const byId = new Map<string, EnginePickerItem>();
 
-  for (const desc of descriptors) {
+  for (const desc of asEngineDescriptorList(descriptors)) {
     if (!desc.supported) continue;
     const id = canonicalPickerEngineId(desc.id);
     byId.set(id, {
@@ -160,7 +187,7 @@ export function buildEnginePickerItems(
     });
   }
 
-  for (const driver of catalog) {
+  for (const driver of asDbxCatalogDriverList(catalog)) {
     const id = canonicalPickerEngineId(driver.key);
     const existing = byId.get(id);
     if (existing) {

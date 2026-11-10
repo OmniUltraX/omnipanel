@@ -6,11 +6,12 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{Path, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use tower_http::services::ServeDir;
+use tower::ServiceExt;
+use tower_http::services::ServeFile;
 
 use crate::ipc::{self, InvokeRequest};
 use crate::terminal::ServerState;
@@ -64,10 +65,94 @@ pub struct AppCtx {
     pub(crate) auth: Arc<crate::web_auth::WebAuth>,
 }
 
-/// 启动 HTTP/WS 服务（阻塞直至端口就绪或失败）。
-pub fn run_server(config: ServerConfig) -> anyhow::Result<ServerHandle> {
-    let state = Arc::new(ServerState::new());
+/// 未知 GET/HEAD 客户端路由回退到 `index.html`（硬刷新 `/dashboard`、锁定后停留在 `/module/*`）。
+/// 已存在的静态文件优先；`/assets`、带静态扩展名的缺失文件、`/ipc` `/healthz` `/media` 不回退。
+pub fn wants_spa_fallback(method: &Method, path: &str) -> bool {
+    if method != Method::GET && method != Method::HEAD {
+        return false;
+    }
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    let lower = path.to_ascii_lowercase();
+    if lower == "/healthz" || lower.starts_with("/healthz/") {
+        return false;
+    }
+    if lower == "/ipc" || lower.starts_with("/ipc/") {
+        return false;
+    }
+    if lower == "/media" || lower.starts_with("/media/") {
+        return false;
+    }
+    if lower == "/omnipanel-runtime-config.js" {
+        return false;
+    }
+    if lower.starts_with("/assets/") {
+        return false;
+    }
+    if let Some(ext) = std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+    {
+        const STATIC_EXT: &[&str] = &[
+            "js", "mjs", "cjs", "css", "map", "svg", "png", "jpg", "jpeg", "gif", "webp", "ico",
+            "woff", "woff2", "ttf", "otf", "eot", "txt", "json", "xml", "wasm", "html", "htm",
+        ];
+        if STATIC_EXT.iter().any(|item| ext.eq_ignore_ascii_case(item)) {
+            return false;
+        }
+    }
+    true
+}
 
+fn existing_static_file(root: &std::path::Path, url_path: &str) -> Option<std::path::PathBuf> {
+    let rel = url_path.split(['?', '#']).next().unwrap_or(url_path);
+    let mut out = root.to_path_buf();
+    if rel != "/" && !rel.is_empty() {
+        for part in rel.split('/') {
+            if part.is_empty() || part == "." {
+                continue;
+            }
+            if part == ".." {
+                return None;
+            }
+            out.push(part);
+        }
+    }
+    if out.is_file() {
+        return Some(out);
+    }
+    if out.is_dir() {
+        let index = out.join("index.html");
+        if index.is_file() {
+            return Some(index);
+        }
+    }
+    None
+}
+
+async fn static_or_spa_response(dir: std::path::PathBuf, req: Request<Body>) -> Response {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    if let Some(file) = existing_static_file(&dir, &path) {
+        return match ServeFile::new(file).oneshot(req).await {
+            Ok(res) => res.into_response(),
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        };
+    }
+    if wants_spa_fallback(&method, &path) {
+        let index = dir.join("index.html");
+        if index.is_file() {
+            return match ServeFile::new(index).oneshot(req).await {
+                Ok(res) => res.into_response(),
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            };
+        }
+    }
+    StatusCode::NOT_FOUND.into_response()
+}
+
+/// 组装路由（测试可直接 `oneshot`，不必绑定端口）。
+pub fn build_app(config: ServerConfig) -> Router {
+    let state = Arc::new(ServerState::new());
     let app_ctx = AppCtx {
         state,
         auth: Arc::new(crate::web_auth::WebAuth::new(config.api_key.clone())),
@@ -95,12 +180,19 @@ pub fn run_server(config: ServerConfig) -> anyhow::Result<ServerHandle> {
         .layer(axum::middleware::from_fn(crate::web_auth::origin_guard))
         .with_state(app_ctx);
 
-    if let Some(dir) = &config.static_dir {
-        let serve = ServeDir::new(dir);
-        router = router.fallback_service(serve);
+    if let Some(dir) = config.static_dir.clone() {
+        router = router.fallback_service(tower::service_fn(move |req: Request<Body>| {
+            let dir = dir.clone();
+            async move { Ok::<_, std::convert::Infallible>(static_or_spa_response(dir, req).await) }
+        }));
     }
+    router
+}
 
+/// 启动 HTTP/WS 服务（阻塞直至端口就绪或失败）。
+pub fn run_server(config: ServerConfig) -> anyhow::Result<ServerHandle> {
     let bind = config.bind_addr.clone();
+    let router = build_app(config);
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let task = tokio::spawn(async move {
         let listener = match tokio::net::TcpListener::bind(&bind).await {
@@ -312,5 +404,127 @@ async fn media_handler(
             apply_media_cors(res.headers_mut());
             res
         }
+    }
+}
+
+#[cfg(test)]
+mod spa_fallback_tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use tower::ServiceExt;
+
+    fn fixture_dir() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "omnipanel-spa-fallback-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        std::fs::write(
+            root.join("index.html"),
+            "<!doctype html><html><body><div id=\"root\">SPA_SHELL</div></body></html>\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets").join("app.js"),
+            "console.log('asset');\n",
+        )
+        .unwrap();
+        root
+    }
+
+    fn app_with_static(dir: std::path::PathBuf) -> Router {
+        build_app(ServerConfig {
+            bind_addr: "127.0.0.1:0".into(),
+            static_dir: Some(dir),
+            api_key: Some("synthetic-spa-test-key".into()),
+        })
+    }
+
+    async fn send(app: Router, method: Method, uri: &str) -> (StatusCode, Vec<u8>) {
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = res.status();
+        let body = to_bytes(res.into_body(), 1024 * 1024).await.unwrap();
+        (status, body.to_vec())
+    }
+
+    #[test]
+    fn spa_paths_are_detected() {
+        assert!(wants_spa_fallback(&Method::GET, "/dashboard"));
+        assert!(wants_spa_fallback(&Method::HEAD, "/module/files"));
+        assert!(wants_spa_fallback(&Method::GET, "/module/database"));
+        assert!(!wants_spa_fallback(&Method::POST, "/dashboard"));
+        assert!(!wants_spa_fallback(&Method::GET, "/assets/app.js"));
+        assert!(!wants_spa_fallback(&Method::GET, "/assets/missing.js"));
+        assert!(!wants_spa_fallback(&Method::GET, "/ipc/invoke"));
+        assert!(!wants_spa_fallback(&Method::GET, "/healthz"));
+        assert!(!wants_spa_fallback(&Method::GET, "/favicon.ico"));
+    }
+
+    #[tokio::test]
+    async fn client_routes_serve_index_and_assets_stay_exact() {
+        let dir = fixture_dir();
+        let index = std::fs::read(dir.join("index.html")).unwrap();
+        let (status, body) = send(app_with_static(dir.clone()), Method::GET, "/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, index);
+
+        for path in ["/dashboard", "/module/files", "/module/database"] {
+            let (status, body) = send(app_with_static(dir.clone()), Method::GET, path).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            assert_eq!(body, index, "{path}");
+        }
+
+        let (status, body) = send(app_with_static(dir.clone()), Method::HEAD, "/dashboard").await;
+        assert_eq!(status, StatusCode::OK);
+        // ServeFile may omit body on HEAD
+        assert!(body.is_empty() || body == index);
+
+        let (status, body) =
+            send(app_with_static(dir.clone()), Method::GET, "/assets/app.js").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"console.log('asset');\n");
+
+        let (status, _) = send(
+            app_with_static(dir.clone()),
+            Method::GET,
+            "/assets/definitely-missing-omnipanel-spa.js",
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = send(app_with_static(dir.clone()), Method::POST, "/dashboard").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, body) = send(app_with_static(dir.clone()), Method::GET, "/healthz").await;
+        assert_eq!(status, StatusCode::OK);
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("ok"), "{text}");
+
+        let (status, _) = send(app_with_static(dir.clone()), Method::GET, "/ipc/invoke").await;
+        assert_ne!(status, StatusCode::OK);
+        assert_ne!(status, StatusCode::OK); // not the SPA shell
+        let (status, body) = send(
+            app_with_static(dir.clone()),
+            Method::GET,
+            "/ipc/does-not-exist",
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(!body.windows(9).any(|w| w == b"SPA_SHELL"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

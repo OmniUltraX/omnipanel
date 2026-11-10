@@ -27,6 +27,13 @@ import {
   type PluginStudioFileWrittenDetail,
 } from "./studioFileEvents";
 import { StudioSubmitDialog } from "./StudioSubmitDialog";
+import {
+  asDevWatchList,
+  asPluginIdSet,
+  asStudioProjectList,
+  studioProjectFiles,
+  watchingDevItems,
+} from "./studioLists";
 
 /** 与 PluginKind 身份对齐（含 knowledge 知识源、agent Agent 来源）。 */
 const PLUGIN_KINDS = [
@@ -106,7 +113,7 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
 
   const dirty = content !== savedContent;
   const current = projects.find((item) => item.name === project);
-  const needsWasm = Boolean(current?.files.some((rel) => rel.endsWith(".wat") || rel.endsWith(".wasm")));
+  const needsWasm = Boolean(studioProjectFiles(current).some((rel) => rel.endsWith(".wat") || rel.endsWith(".wasm")));
   const envTools: EnvTool[] = needsWasm ? ["node", "cargo", "wat2wasm"] : [...ENV_CORE];
   const missingEnv = envTools.filter((tool) => !env?.[tool]);
   const envBusy = installing !== "" || running.startsWith("env:");
@@ -142,7 +149,7 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
 
   const reloadProjects = useCallback(async (select?: string) => {
     try {
-      const list = await unwrapCommand(commands.pluginStudioListProjects(), { quiet: true });
+      const list = asStudioProjectList(await unwrapCommand(commands.pluginStudioListProjects(), { quiet: true }));
       setProjects(list);
       if (select && list.some((item) => item.name === select)) {
         setProject(select);
@@ -168,7 +175,7 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
     let cancelled = false;
     void (async () => {
       try {
-        const list = await unwrapCommand(commands.pluginStudioListProjects(), { quiet: true });
+        const list = asStudioProjectList(await unwrapCommand(commands.pluginStudioListProjects(), { quiet: true }));
         if (!cancelled) setProjects(list);
       } catch (err) {
         if (!cancelled) appendLog(setLog, String(err));
@@ -273,7 +280,7 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
       version: current?.version ?? null,
       displayName: current?.displayName ?? null,
       dirty,
-      files: current?.files ?? [],
+      files: studioProjectFiles(current),
       lastLogTail: tailStudioLog(log),
       lastStatus,
       manifestOk: hint?.ok ?? null,
@@ -424,13 +431,13 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
 
   const reloadDev = useCallback(async () => {
     try {
-      setDevList(await unwrapCommand(commands.pluginDevStatus(), { quiet: true }));
+      setDevList(asDevWatchList(await unwrapCommand(commands.pluginDevStatus(), { quiet: true })));
     } catch {
       // 旧二进制无开发命令时静默
     }
     try {
       const list = await unwrapCommand(commands.pluginList(), { quiet: true });
-      setInstalledIds(new Set(list.map((item) => item.id)));
+      setInstalledIds(asPluginIdSet(list));
     } catch {
       // 同上
     }
@@ -751,9 +758,9 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
     ...(dirty ? [{ text: t("plugins.studio.unsaved") }] : []),
     ...(lastStatus ? [{ text: lastStatus }] : []),
     ...(running ? [{ text: t("plugins.studio.running") }] : []),
-    ...devList
-      .filter((d) => d.watching)
-      .map((d) => ({ text: t("plugins.studio.watchingTag", { id: d.pluginId }) })),
+    ...watchingDevItems(devList).map((d) => ({
+      text: t("plugins.studio.watchingTag", { id: d.pluginId }),
+    })),
   ];
 
   return (
@@ -855,7 +862,7 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
             <section className="plugin-studio-block plugin-studio-block--files">
               <div className="plugin-center-col__head">
                 {t("plugins.studio.files")}
-                <span className="plugin-studio-count">{current.files.length}</span>
+                <span className="plugin-studio-count">{studioProjectFiles(current).length}</span>
                 <span className="plugin-studio-env-actions">
                   <WorkbenchActionButton danger disabled={busy} onClick={() => setRemoveOpen(true)}>
                     {t("plugins.studio.deleteProject")}
@@ -863,7 +870,7 @@ export function StudioPanel({ active = true }: { active?: boolean }) {
                 </span>
               </div>
               <div className="plugin-center-list plugin-studio-files">
-                {current.files.map((rel) => (
+                {studioProjectFiles(current).map((rel) => (
                   <button
                     key={rel}
                     type="button"

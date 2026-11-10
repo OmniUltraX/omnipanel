@@ -79,8 +79,20 @@ impl ProdConfirmer for WebProdConfirmer {
     }
 }
 
-/// 桌面安装目录（Tauri `app_data_dir/plugins`）。Web 读同一处，才能跑已安装的 L2。
+/// Web 优先 `OMNIPANEL_PLUGINS_DIR`，否则 `OMNIPANEL_DATA_DIR/plugins`（Docker 数据卷）。
+/// 未设置时回退桌面安装目录约定（Tauri `app_data_dir/plugins`）。
+/// 不会把 download-only 云插件打进镜像；只决定运行时可安装插件的落盘位置。
 pub fn user_plugins_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("OMNIPANEL_PLUGINS_DIR") {
+        if !dir.is_empty() {
+            return Some(PathBuf::from(dir));
+        }
+    }
+    if let Some(dir) = std::env::var_os("OMNIPANEL_DATA_DIR") {
+        if !dir.is_empty() {
+            return Some(PathBuf::from(dir).join("plugins"));
+        }
+    }
     let id = "com.omnipanel.app";
     #[cfg(windows)]
     {
@@ -387,6 +399,210 @@ impl PluginRuntime {
         };
         self.audit(&plugin_id, status, detail).await;
         result.map_err(Into::into)
+    }
+
+    pub async fn list(&self) -> Vec<omnipanel_plugin::PluginListItem> {
+        self.registry.lock().await.list()
+    }
+
+    pub async fn manifests(&self) -> Vec<crate::plugin_cmds::PluginManifestDto> {
+        let registry = self.registry.lock().await;
+        registry
+            .list()
+            .into_iter()
+            .filter_map(|item| {
+                let entry = registry.get(&item.id)?;
+                Some(crate::plugin_cmds::PluginManifestDto {
+                    manifest_json: serde_json::to_string(&entry.manifest)
+                        .unwrap_or_else(|_| "{}".into()),
+                    id: item.id,
+                    version: item.version,
+                    kind: item.kind,
+                    enabled: item.enabled,
+                    activated: item.activated,
+                    source: item.source,
+                })
+            })
+            .collect()
+    }
+
+    fn evict_logic_instance(&self, plugin_id: &str) {
+        let mut instances = self.instances.lock().unwrap();
+        if let Some(inst) = instances.remove(plugin_id) {
+            inst.lock().unwrap().shutdown();
+        }
+    }
+
+    fn sync_logic_full(&self) {
+        let wanted: Vec<(String, String)> = {
+            let registry = match self.registry.try_lock() {
+                Ok(guard) => guard,
+                Err(_) => return,
+            };
+            registry
+                .list()
+                .into_iter()
+                .filter(|item| item.activated)
+                .filter_map(|item| {
+                    registry.get(&item.id).and_then(|entry| {
+                        entry
+                            .manifest
+                            .logic_entry()
+                            .map(|p| (item.id, p.to_string()))
+                    })
+                })
+                .collect()
+        };
+        let wanted_ids: std::collections::HashSet<String> =
+            wanted.iter().map(|(id, _)| id.clone()).collect();
+        {
+            let mut instances = self.instances.lock().unwrap();
+            let stale: Vec<String> = instances
+                .keys()
+                .filter(|id| !wanted_ids.contains(*id))
+                .cloned()
+                .collect();
+            for id in stale {
+                if let Some(inst) = instances.remove(&id) {
+                    inst.lock().unwrap().shutdown();
+                }
+            }
+        }
+        self.sync_logic_blocking();
+    }
+
+    pub async fn rebuild_and_sync(&self) -> Result<(), OmniError> {
+        let mut new_registry = build_plugin_registry(self.packages_dir.as_deref());
+        {
+            let store = self.storage.lock().await;
+            if let Ok(saved) = store.plugin_enabled_list() {
+                for (id, enabled) in saved {
+                    let _ = new_registry.set_enabled(&id, enabled);
+                }
+            }
+        }
+        activate_current(&mut new_registry);
+        {
+            let mut guard = self.registry.lock().await;
+            *guard = new_registry;
+        }
+        self.sync_logic_full();
+        Ok(())
+    }
+
+    pub async fn install_from_path(
+        &self,
+        pkg_path: PathBuf,
+    ) -> Result<omnipanel_plugin::PluginListItem, OmniError> {
+        let verify_path = pkg_path.clone();
+        let manifest = tokio::task::spawn_blocking(move || {
+            omnipanel_plugin_pkg::verify_file_dev(&verify_path)
+        })
+        .await
+        .map_err(|e| OmniError::internal(e.to_string()))?
+        .map_err(crate::plugin_cmds::pkg_err_to_omni)?;
+        let plugin_id = manifest.id.clone();
+        {
+            let registry = self.registry.lock().await;
+            let conflict = !registry.is_installed(&plugin_id) && registry.get(&plugin_id).is_some();
+            if conflict {
+                return Err(OmniError::invalid_input(format!(
+                    "插件 id 与内置插件冲突: {plugin_id}"
+                )));
+            }
+        }
+        let dest_root = self
+            .packages_dir
+            .clone()
+            .ok_or_else(|| OmniError::internal("无法定位插件安装目录"))?;
+        tokio::fs::create_dir_all(&dest_root)
+            .await
+            .map_err(|e| OmniError::internal(format!("创建插件目录失败: {e}")))?;
+        let dest_for_swap = dest_root.clone();
+        let id_for_swap = plugin_id.clone();
+        let extract_path = pkg_path;
+        tokio::task::spawn_blocking(move || {
+            omnipanel_plugin_pkg::extract_and_swap(&extract_path, &dest_for_swap, &id_for_swap)
+        })
+        .await
+        .map_err(|e| OmniError::internal(e.to_string()))?
+        .map_err(crate::plugin_cmds::pkg_err_to_omni)?;
+        self.evict_logic_instance(&plugin_id);
+        if let Err(err) = self.rebuild_and_sync().await {
+            let dest_for_restore = dest_root.clone();
+            let id_for_restore = plugin_id.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                omnipanel_plugin_pkg::restore_last_good(&dest_for_restore, &id_for_restore)
+            })
+            .await;
+            let _ = self.rebuild_and_sync().await;
+            return Err(err);
+        }
+        let registry = self.registry.lock().await;
+        registry
+            .list()
+            .into_iter()
+            .find(|item| item.id == plugin_id)
+            .ok_or_else(|| OmniError::internal("安装后未在注册表中找到插件"))
+    }
+
+    pub async fn uninstall(&self, plugin_id: String) -> Result<(), OmniError> {
+        {
+            let registry = self.registry.lock().await;
+            if !registry.is_installed(&plugin_id) {
+                return Err(OmniError::invalid_input(format!(
+                    "内置插件不可卸载，仅可禁用: {plugin_id}"
+                )));
+            }
+        }
+        if let Some(dest_root) = self.packages_dir.clone() {
+            let id = plugin_id.clone();
+            tokio::task::spawn_blocking(move || {
+                omnipanel_plugin_pkg::purge_plugin_dirs(&dest_root, &id)
+            })
+            .await
+            .map_err(|e| OmniError::internal(e.to_string()))?
+            .map_err(crate::plugin_cmds::pkg_err_to_omni)?;
+        }
+        {
+            let store = self.storage.lock().await;
+            store.plugin_enabled_delete(&plugin_id)?;
+            let _ = store.plugin_state_delete(&plugin_id);
+        }
+        self.evict_logic_instance(&plugin_id);
+        self.rebuild_and_sync().await
+    }
+
+    pub async fn set_enabled(
+        &self,
+        plugin_id: String,
+        enabled: bool,
+    ) -> Result<omnipanel_plugin::PluginListItem, OmniError> {
+        {
+            let registry = self.registry.lock().await;
+            let Some(entry) = registry.get(&plugin_id) else {
+                return Err(OmniError::not_found(format!("未知插件: {plugin_id}")));
+            };
+            if !enabled && entry.always_on() {
+                return Err(OmniError::invalid_input(format!(
+                    "内置数据库引擎不可关闭: {plugin_id}"
+                )));
+            }
+        }
+        {
+            let store = self.storage.lock().await;
+            store.plugin_enabled_set(&plugin_id, enabled)?;
+        }
+        if !enabled {
+            self.evict_logic_instance(&plugin_id);
+        }
+        self.rebuild_and_sync().await?;
+        let registry = self.registry.lock().await;
+        registry
+            .list()
+            .into_iter()
+            .find(|item| item.id == plugin_id)
+            .ok_or_else(|| OmniError::not_found(format!("未知插件: {plugin_id}")))
     }
 
     pub async fn confirm_resolve(

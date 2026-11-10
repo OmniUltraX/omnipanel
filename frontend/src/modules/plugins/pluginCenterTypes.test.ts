@@ -8,6 +8,8 @@ import {
   sanitizeExternalId,
   shouldConfirmInstallPlan,
   sortMarketItems,
+  asPluginList,
+  collectMarketUpdateIndex,
   updatesFromMarketItems,
   updatesFromMarketplace,
 } from "./pluginCenterTypes";
@@ -357,5 +359,34 @@ describe("categorizeExternalPlugin", () => {
     expect(categorizeExternalPlugin({ npm: "zzz", name: "zzz", description: "", keywords: [] })).toBe(
       "other",
     );
+  });
+});
+
+describe("asPluginList / collectMarketUpdateIndex", () => {
+  it("keeps a real array identity and treats {} / null as empty", () => {
+    const list = [{ id: "omni.addon.everything" }];
+    expect(asPluginList(list)).toBe(list);
+    expect(asPluginList({})).toEqual([]);
+    expect(asPluginList(null)).toEqual([]);
+    expect(asPluginList(undefined)).toEqual([]);
+  });
+
+  it("does not throw TypeError when a soft-degraded catalog {} is iterated", () => {
+    expect(() => collectMarketUpdateIndex({})).not.toThrow();
+    expect(collectMarketUpdateIndex({}).updateIds.size).toBe(0);
+    expect(() => updatesFromMarketItems({})).not.toThrow();
+    expect(updatesFromMarketItems({})).toEqual([]);
+    expect(() => updatesFromMarketplace({})).not.toThrow();
+    expect(updatesFromMarketplace({})).toEqual([]);
+    expect(() => updatesFromMarketItems(null)).not.toThrow();
+  });
+
+  it("still collects updates from a valid market list", () => {
+    const { updateIds, latestById } = collectMarketUpdateIndex([
+      item({ id: "a", name: "A", needsUpdate: true, version: "1.2.0" }),
+      item({ id: "b", name: "B", needsUpdate: false, version: "1.0.0" }),
+    ]);
+    expect([...updateIds]).toEqual(["a"]);
+    expect(latestById.get("a")).toBe("1.2.0");
   });
 });

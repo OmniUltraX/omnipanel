@@ -199,6 +199,7 @@ export default {
     studio: {
       open: "插件工作台",
       openHint: "创建 / 编辑 / 打包插件，不出工作台",
+      renderFailed: "插件工作台渲染失败",
       projects: "工程",
       files: "文件",
       editor: "编辑",

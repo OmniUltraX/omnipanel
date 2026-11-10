@@ -44,6 +44,29 @@ export const MARKET_PAGE_SIZE_OPTIONS = [20, 40, 60, 80, 100] as const;
 export const DETAIL_HEIGHT_DEFAULT = 280;
 export const DETAIL_HEIGHT_MIN = 160;
 
+/** 保持数组同一引用；非数组（Web 未注册命令软降级常为 {} / null）视为空列表。 */
+export function asPluginList<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/** 插件中心更新徽章：从市场行收集需要更新的 id / 最新版本。 */
+export function collectMarketUpdateIndex(marketItems: unknown): {
+  updateIds: Set<string>;
+  latestById: Map<string, string>;
+} {
+  const updateIds = new Set<string>();
+  const latestById = new Map<string, string>();
+  for (const item of asPluginList<{ id?: string; needsUpdate?: boolean; version?: string }>(
+    marketItems,
+  )) {
+    if (!item?.needsUpdate || typeof item.id !== "string" || !item.id) continue;
+    updateIds.add(item.id);
+    const version = typeof item.version === "string" ? item.version.trim() : "";
+    if (version) latestById.set(item.id, version);
+  }
+  return { updateIds, latestById };
+}
+
 export function paginateItems<T>(
   items: T[],
   page: number,
@@ -224,7 +247,7 @@ export function marketplaceToMarketItem(item: MarketplaceItem, name: string): Ma
 
 /** 从合并后的市场行抽出可更新列表（含 DBX 目录；与侧栏「更新」按钮同源）。 */
 export function updatesFromMarketItems(
-  items: MarketItem[],
+  items: MarketItem[] | unknown,
 ): Array<{
   id: string;
   installedVersion: string;
@@ -232,7 +255,7 @@ export function updatesFromMarketItems(
   changelog: string | null;
   sourceId: string;
 }> {
-  return items
+  return asPluginList<MarketItem>(items)
     .filter(
       (item) =>
         item.needsUpdate &&
@@ -252,7 +275,7 @@ export function updatesFromMarketItems(
 
 /** 从官方/注册表市场目录抽出可更新列表（不含仅 DBX 目录项）。 */
 export function updatesFromMarketplace(
-  items: MarketplaceItem[],
+  items: MarketplaceItem[] | unknown,
 ): Array<{
   id: string;
   installedVersion: string;
@@ -260,7 +283,7 @@ export function updatesFromMarketplace(
   changelog: string | null;
   sourceId: string;
 }> {
-  return items
+  return asPluginList<MarketplaceItem>(items)
     .filter(
       (plugin) =>
         plugin.updateAvailable &&

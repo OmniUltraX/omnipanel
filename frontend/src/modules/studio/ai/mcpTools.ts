@@ -3,6 +3,7 @@ import { requireString } from "../../../lib/ai/mcpToolArgs";
 import { runWithToolGate } from "../../../lib/ai/toolGate";
 import { commands, type StudioProject } from "../../../ipc/bindings";
 import { unwrapCommand } from "../../../ipc/result";
+import { asStudioProjectList, studioProjectFiles } from "../studioLists";
 import { notifyPluginStudioFileWritten } from "../studioFileEvents";
 
 function requireContent(args: Record<string, unknown>): string {
@@ -20,12 +21,12 @@ function summarizeProject(item: StudioProject) {
     kind: item.kind ?? null,
     version: item.version ?? null,
     displayName: item.displayName ?? null,
-    files: item.files,
+    files: studioProjectFiles(item),
   };
 }
 
 async function studioListProjects(): Promise<string> {
-  const list = await unwrapCommand(commands.pluginStudioListProjects(), { quiet: true });
+  const list = asStudioProjectList(await unwrapCommand(commands.pluginStudioListProjects(), { quiet: true }));
   return JSON.stringify(
     { count: list.length, projects: list.map(summarizeProject) },
     null,

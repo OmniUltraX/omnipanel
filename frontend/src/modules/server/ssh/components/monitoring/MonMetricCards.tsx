@@ -85,8 +85,9 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate,
   const temp = stats.cpu?.temperature;
   const perCore = stats.cpu?.perCoreUsage ?? [];
 
-  const memPct = safePercent(stats.memory.used, stats.memory.total);
   const memTotal = stats.memory.total ?? 0;
+  const memKnown = memTotal > 0;
+  const memPct = memKnown ? safePercent(stats.memory.used, stats.memory.total) : 0;
   const cached = stats.memory.cached ?? 0;
   const buffers = stats.memory.buffers ?? 0;
   const cachePct = memTotal > 0 ? safePercent(cached + buffers, memTotal) : 0;
@@ -154,7 +155,7 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate,
             <span className="mon-card-icon"><MemoryIcon /></span>
             {t("ssh.overview.memory")}
           </div>
-          <StatusBadgePill badge={memStatusBadge(memPct)} />
+          <StatusBadgePill badge={memStatusBadge(memPct, { known: memKnown })} />
         </div>
         <div className="mon-card-main">
           <MonGauge
@@ -163,10 +164,12 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate,
           />
           <div className="mon-card-stats">
             <div className="mon-card-primary">
-              {formatUsageBytes(stats.memory.used, stats.memory.total)}
+              {memKnown ? formatUsageBytes(stats.memory.used, stats.memory.total) : "—"}
             </div>
             <div className="mon-card-secondary">
-              {t("ssh.overview.memAvailable", { size: formatBytes(stats.memory.available) })}
+              {memKnown
+                ? t("ssh.overview.memAvailable", { size: formatBytes(stats.memory.available) })
+                : "—"}
               {stats.memory.swapTotal && stats.memory.swapTotal > 0
                 ? ` · Swap ${formatUsageBytes(stats.memory.swapUsed, stats.memory.swapTotal)}`
                 : ""}

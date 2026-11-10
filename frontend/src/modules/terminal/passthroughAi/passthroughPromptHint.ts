@@ -56,6 +56,14 @@ export function clearPassthroughPromptHint(sessionId: string): void {
 }
 
 /** 当前屏幕行是否适合显示灰色占位（空提示符、尚无 PTY 回显正文） */
+/**
+ * 不再把灰色占位叠在真实 shell 提示符行上：占位会挡住或看起来像命令正文。
+ * 资格判断仍保留，便于以后改成非叠加提示。
+ */
+export function shouldPaintPassthroughPromptHint(): boolean {
+  return false;
+}
+
 export function passthroughPromptHintEligibleScreenLine(screenLine: string): boolean {
   if (!lineLooksLikeShellPrompt(screenLine)) return false;
   return stripShellPromptPrefix(screenLine).trim().length === 0;
@@ -153,6 +161,11 @@ export function syncPassthroughPromptHint(
   sessionId: string,
   opts: { enabled: boolean; lineEmpty: boolean },
 ): void {
+  if (!shouldPaintPassthroughPromptHint()) {
+    clearPassthroughPromptHint(sessionId);
+    return;
+  }
+
   const text = resolveHintText();
   const gates = getEnterGateFlags(sessionId);
   const busy = useShellAgentStore.getState().isBusy(sessionId);

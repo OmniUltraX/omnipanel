@@ -18,29 +18,6 @@ interface NotifGroup {
   items: NotifItem[];
 }
 
-const NOTIF_GROUPS: NotifGroup[] = [
-  {
-    groupKey: "urgent",
-    items: [
-      { key: "disk", tone: "danger", icon: "alert", unread: true },
-      { key: "ssl", tone: "warn", icon: "server" },
-      { key: "cpu", tone: "warn", icon: "activity", unread: true },
-    ],
-  },
-  {
-    groupKey: "today",
-    items: [
-      { key: "backup", tone: "success", icon: "check" },
-      { key: "container", tone: "accent", icon: "boxes" },
-      { key: "inspect", tone: "success", icon: "clipboard" },
-    ],
-  },
-  {
-    groupKey: "yesterday",
-    items: [{ key: "ratelimit", tone: "accent", icon: "zap" }],
-  },
-];
-
 function NotifIcon({ token }: { token: IconToken }) {
   const common = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2 } as const;
   switch (token) {
@@ -99,7 +76,7 @@ function NotifIcon({ token }: { token: IconToken }) {
 export function NotificationDrawer() {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
-  const [groups, setGroups] = useState<NotifGroup[]>(NOTIF_GROUPS);
+  const [groups, setGroups] = useState<NotifGroup[]>([]);
 
   const toggle = useCallback(() => {
     setIsOpen((prev) => !prev);

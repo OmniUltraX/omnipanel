@@ -128,3 +128,44 @@ export function splitPathForPrefixFallback(
 
   return { parentPath: parent, prefix };
 }
+
+/** POSIX 远端路径：空视为根，折叠重复斜杠。 */
+export function normalizeRemotePosixPath(path: string | undefined | null): string {
+  const raw = (path ?? "").trim();
+  if (!raw || raw === "/") return "/";
+  return `/${raw.split("/").filter(Boolean).join("/")}`;
+}
+
+/** SFTP/FTP 连接的远端根；其它协议返回空串。 */
+export function remoteConnectionRootPath(
+  protocol: string,
+  rootPath: string | undefined | null,
+): string {
+  if (protocol !== "sftp" && protocol !== "ftp") return "";
+  return normalizeRemotePosixPath(rootPath);
+}
+
+/** 当前路径为空时回退到连接 rootPath，避免面包屑把 /home/gui-test 显示成 /。 */
+export function effectiveRemoteBrowsePath(
+  currentPath: string | undefined | null,
+  rootPath: string,
+): string {
+  const current = (currentPath ?? "").trim();
+  if (current) return normalizeRemotePosixPath(current);
+  return rootPath || "/";
+}
+
+export function isRemotePathWithinRoot(path: string, rootPath: string): boolean {
+  const root = normalizeRemotePosixPath(rootPath);
+  const cur = normalizeRemotePosixPath(path);
+  if (root === "/") return true;
+  return cur === root || cur.startsWith(`${root}/`);
+}
+
+/** 不允许浏览连接 rootPath 之上的路径。 */
+export function clampRemotePathToRoot(path: string, rootPath: string): string {
+  const root = normalizeRemotePosixPath(rootPath);
+  const cur = normalizeRemotePosixPath(path);
+  return isRemotePathWithinRoot(cur, root) ? cur : root;
+}
+

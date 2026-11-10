@@ -16,14 +16,36 @@ type DbxCatalogState = {
 
 let inFlight: Promise<void> | null = null;
 
+const EMPTY_DBX_DRIVERS: DbxCatalogDriver[] = [];
+
+export function isDbxCatalogDriver(item: unknown): item is DbxCatalogDriver {
+  return !!item && typeof item === "object" && typeof (item as DbxCatalogDriver).key === "string";
+}
+
+/**
+ * 把未知 catalog 收成数组。已是合法数组时必须返回同一引用，
+ * 否则 Zustand selector 每次 render 都拿到新数组，会触发 React #185（Maximum update depth exceeded）。
+ */
+export function asDbxCatalogDrivers(value: unknown): DbxCatalogDriver[] {
+  if (!Array.isArray(value)) return EMPTY_DBX_DRIVERS;
+  for (const item of value) {
+    if (!isDbxCatalogDriver(item)) {
+      return value.filter(isDbxCatalogDriver);
+    }
+  }
+  return value;
+}
+
 export function sameDbxCatalog(
-  a: DbxCatalogDriver[],
-  b: DbxCatalogDriver[],
+  a: DbxCatalogDriver[] | unknown,
+  b: DbxCatalogDriver[] | unknown,
 ): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    const left = a[i];
-    const right = b[i];
+  const leftList = asDbxCatalogDrivers(a);
+  const rightList = asDbxCatalogDrivers(b);
+  if (leftList.length !== rightList.length) return false;
+  for (let i = 0; i < leftList.length; i += 1) {
+    const left = leftList[i];
+    const right = rightList[i];
     if (!left || !right) return false;
     if (
       left.key !== right.key ||
@@ -51,12 +73,20 @@ export const useDbxCatalogStore = create<DbxCatalogState>()(
         const run = (async () => {
           set({ refreshing: true });
           try {
-            const list = await unwrapCommand(commands.pluginDbxCatalog(), {
-              quiet: true,
-            });
-            const prev = get().drivers;
+            const list = asDbxCatalogDrivers(
+              await unwrapCommand(commands.pluginDbxCatalog(), {
+                quiet: true,
+              }),
+            );
+            const currentDrivers = get().drivers;
+            const prev = asDbxCatalogDrivers(currentDrivers);
             if (sameDbxCatalog(prev, list)) {
-              set({ fetchedAt: Date.now(), refreshing: false });
+              // 不要写入新的 drivers 引用，避免订阅组件进入更新环。
+              if (prev !== currentDrivers) {
+                set({ drivers: prev, fetchedAt: Date.now(), refreshing: false });
+              } else {
+                set({ fetchedAt: Date.now(), refreshing: false });
+              }
               return;
             }
             set({ drivers: list, fetchedAt: Date.now(), refreshing: false });
@@ -74,9 +104,17 @@ export const useDbxCatalogStore = create<DbxCatalogState>()(
       name: STORAGE_KEY,
       storage: createJSONStorage(createSafeLocalStorage),
       partialize: (state) => ({
-        drivers: state.drivers,
+        drivers: asDbxCatalogDrivers(state.drivers),
         fetchedAt: state.fetchedAt,
       }),
+      merge: (persisted, current) => {
+        const incoming = (persisted ?? {}) as Partial<DbxCatalogState>;
+        return {
+          ...current,
+          ...incoming,
+          drivers: asDbxCatalogDrivers(incoming.drivers ?? current.drivers),
+        };
+      },
     },
   ),
 );

@@ -4564,6 +4564,54 @@ pub async fn dispatch(
         "sniffer_get_stats" => {
             InvokeResponse::err(crate::defer_cmds::deferred_error("sniffer_get_stats"))
         }
+        "plugin_list" => respond_omni(crate::plugin_cmds::plugin_list(state).await),
+        "plugin_manifests" => respond_omni(crate::plugin_cmds::plugin_manifests(state).await),
+        "plugin_peek_manifest" => {
+            let path = get_str(&args, "path").unwrap_or_default();
+            respond_omni(crate::plugin_cmds::plugin_peek_manifest(path).await)
+        }
+        "plugin_install_from_file" => {
+            let path = get_str(&args, "path").unwrap_or_default();
+            respond_omni(crate::plugin_cmds::plugin_install_from_file(state, path).await)
+        }
+        "plugin_uninstall" => {
+            let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
+            respond_omni(crate::plugin_cmds::plugin_uninstall(state, plugin_id).await)
+        }
+        "plugin_set_enabled" => {
+            let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
+            let enabled = args
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            respond_omni(crate::plugin_cmds::plugin_set_enabled(state, plugin_id, enabled).await)
+        }
+        "plugin_official_catalog" => {
+            let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+            respond_omni(crate::plugin_cmds::plugin_official_catalog(state, force).await)
+        }
+        "plugin_market_catalog" => {
+            let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+            respond_omni(crate::plugin_cmds::plugin_market_catalog(state, force).await)
+        }
+        "plugin_check_updates" => {
+            let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+            respond_omni(crate::plugin_cmds::plugin_check_updates(state, force).await)
+        }
+        "plugin_registry_sources_list" => {
+            respond_omni(crate::plugin_cmds::plugin_registry_sources_list(state).await)
+        }
+        "plugin_dev_status" => respond_omni(crate::plugin_cmds::plugin_dev_status(state).await),
+        "plugin_official_install" => {
+            let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
+            respond_omni(crate::plugin_cmds::plugin_official_install(state, plugin_id).await)
+        }
+        "plugin_dbx_catalog" => respond_omni(crate::plugin_cmds::plugin_dbx_catalog(state).await),
+        "plugin_read_asset" => {
+            let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
+            let rel_path = get_str(&args, "relPath").unwrap_or_default();
+            respond_omni(crate::plugin_cmds::plugin_read_asset(state, plugin_id, rel_path).await)
+        }
         "plugin_invoke" => {
             let plugin_id = get_str(&args, "pluginId").unwrap_or_default();
             let method = get_str(&args, "method").unwrap_or_default();

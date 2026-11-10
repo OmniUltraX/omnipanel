@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { passthroughPromptHintEligibleScreenLine } from "./passthroughPromptHint";
+import {
+  passthroughPromptHintEligibleScreenLine,
+  shouldPaintPassthroughPromptHint,
+} from "./passthroughPromptHint";
 
 describe("passthroughPromptHintEligibleScreenLine", () => {
   it("空提示符可显示灰色占位", () => {
@@ -21,5 +24,12 @@ describe("passthroughPromptHintEligibleScreenLine", () => {
 
   it("普通输出行不显示", () => {
     expect(passthroughPromptHintEligibleScreenLine("total 128")).toBe(false);
+  });
+});
+
+describe("shouldPaintPassthroughPromptHint", () => {
+  it("does not overlay ghost placeholder text on a live shell prompt", () => {
+    expect(shouldPaintPassthroughPromptHint()).toBe(false);
+    expect(passthroughPromptHintEligibleScreenLine("root@host:~# ")).toBe(true);
   });
 });

@@ -9,6 +9,7 @@ import {
   categoryForEngine,
   filterPickerItems,
   isEngineInstalling,
+  asDbxCatalogDriverList,
 } from "./enginePicker";
 
 function desc(id: string): EngineDescriptor {
@@ -143,3 +144,33 @@ describe("enginePicker", () => {
     expect(after.find((i) => i.id === "dameng")?.available).toBe(false);
   });
 });
+
+describe("enginePicker 非数组目录/描述符", () => {
+  it.each([undefined, null, {}, { drivers: [] }, "oops", 0, true])(
+    "buildEnginePickerItems 在 catalog=%s 时不抛，仍保留第一方引擎",
+    (catalog) => {
+      const items = buildEnginePickerItems([desc("mysql"), desc("postgresql"), desc("sqlite")], catalog);
+      expect(items.map((i) => i.id).sort()).toEqual(["mysql", "postgresql", "sqlite"]);
+    },
+  );
+
+  it("descriptors 非数组时返回空列表而不是抛", () => {
+    expect(buildEnginePickerItems(undefined, [catalog({ key: "oracle", installed: true })])).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "oracle", available: true })]),
+    );
+    expect(buildEnginePickerItems({}, [catalog({ key: "oracle", installed: true })])).toHaveLength(1);
+    expect(buildEnginePickerItems(null, null)).toEqual([]);
+  });
+
+  it("asDbxCatalogDriverList 只保留带 key 的对象", () => {
+    expect(asDbxCatalogDriverList(undefined)).toEqual([]);
+    expect(asDbxCatalogDriverList({})).toEqual([]);
+    expect(asDbxCatalogDriverList([catalog({ key: "hive" }), null, { label: "no-key" }])).toHaveLength(1);
+  });
+});
+
+  it("合法列表保持同一引用", () => {
+    const items = [catalog({ key: "hive" })];
+    expect(asDbxCatalogDriverList(items)).toBe(items);
+    expect(asDbxCatalogDriverList({})).toBe(asDbxCatalogDriverList(undefined));
+  });

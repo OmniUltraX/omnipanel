@@ -89,7 +89,14 @@ import {
   splitLocalBreadcrumb,
 } from "./localFilesystem";
 import { buildS3PublicUrl, parseFileConfigJson } from "./s3PublicUrl";
-import { formatPathForInput, parseFileNavigationPath, splitPathForPrefixFallback } from "./fileNavigationPath";
+import {
+  clampRemotePathToRoot,
+  effectiveRemoteBrowsePath,
+  formatPathForInput,
+  parseFileNavigationPath,
+  remoteConnectionRootPath,
+  splitPathForPrefixFallback,
+} from "./fileNavigationPath";
 import type { FileConnectionPanelSnapshot } from "./filesWorkspaceSession";
 import {
   readStoredFilesDetailVisible,
@@ -227,13 +234,25 @@ export function FileConnectionPanel({
     () => (protocol === "s3" ? buildS3BindKey(storedConnection?.config) : ""),
     [protocol, storedConnection?.config],
   );
+  const remoteRootPath = useMemo(
+    () =>
+      remoteConnectionRootPath(
+        protocol,
+        parseFileConfigJson(storedConnection?.config ?? "{}").rootPath,
+      ),
+    [protocol, storedConnection?.config],
+  );
   const shouldDiscardRestoredPath =
     protocol === "s3" && !!s3BindKey && savedState?.s3BindKey !== s3BindKey;
 
   const setPanelState = useFilesWorkspaceSessionStore((s) => s.setPanelState);
 
+  const initialRemotePath =
+    protocol === "sftp" || protocol === "ftp" ? remoteRootPath : "";
   const [currentPath, setCurrentPath] = useState(
-    shouldDiscardRestoredPath ? "" : (savedState?.currentPath ?? ""),
+    shouldDiscardRestoredPath
+      ? initialRemotePath
+      : (savedState?.currentPath || initialRemotePath),
   );
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -337,7 +356,11 @@ export function FileConnectionPanel({
       setEntries(entriesOverride ?? result.entries);
       setListNextToken(result.nextContinuationToken);
       setHasMoreEntries(result.truncated);
-      setCurrentPath(resolvedPath);
+      setCurrentPath(
+        protocol === "sftp" || protocol === "ftp"
+          ? effectiveRemoteBrowsePath(resolvedPath, remoteRootPath)
+          : resolvedPath,
+      );
       setSelected(null);
       setSelectedPaths(new Set());
       setAnchorPath(null);
@@ -405,7 +428,7 @@ export function FileConnectionPanel({
     } finally {
       if (seq === loadSeq.current) setLoading(false);
     }
-  }, [connId, onPatchStatus, protocol]);
+  }, [connId, onPatchStatus, protocol, remoteRootPath]);
 
   const loadMoreEntries = useCallback(async () => {
     if (protocol !== "s3" || !hasMoreEntries || loadingMore || loading || !listNextToken) return;
@@ -442,16 +465,20 @@ export function FileConnectionPanel({
   ]);
 
   const navigateTo = useCallback((path: string, pushHistory = true) => {
+    const next =
+      protocol === "sftp" || protocol === "ftp"
+        ? clampRemotePathToRoot(path, remoteRootPath)
+        : path;
     clearSearchState();
     if (pushHistory) {
       setHistory((prev) => {
         const base = prev.slice(0, historyIndex + 1);
-        return [...base, path];
+        return [...base, next];
       });
       setHistoryIndex((i) => i + 1);
     }
-    void loadDir(path);
-  }, [clearSearchState, historyIndex, loadDir]);
+    void loadDir(next);
+  }, [clearSearchState, historyIndex, loadDir, protocol, remoteRootPath]);
 
   const flushPanelState = useCallback(() => {
     setPanelState(connId, sessionRef.current);
@@ -865,10 +892,12 @@ export function FileConnectionPanel({
   );
 
   const currentDestDir = useCallback(() => {
-    return protocol === "local"
-      ? currentPath || quickPaths?.home || ""
-      : currentPath || "/";
-  }, [currentPath, protocol, quickPaths?.home]);
+    if (protocol === "local") return currentPath || quickPaths?.home || "";
+    if (protocol === "sftp" || protocol === "ftp") {
+      return effectiveRemoteBrowsePath(currentPath, remoteRootPath);
+    }
+    return currentPath || "/";
+  }, [currentPath, protocol, quickPaths?.home, remoteRootPath]);
 
   const handleUpload = useCallback(async () => {
     const picked = await openFileDialog({ multiple: true });
@@ -902,9 +931,7 @@ export function FileConnectionPanel({
           name: it.name,
           size: it.size,
         })),
-        protocol === "local"
-          ? currentPath || quickPaths?.home || ""
-          : currentPath || "/",
+        currentDestDir(),
         clipboardMode === "cut" ? "move" : "copy",
       );
       if (clipboardMode === "cut") clipboardClear();
@@ -915,10 +942,8 @@ export function FileConnectionPanel({
     clipboardClear,
     clipboardItems,
     clipboardMode,
-    currentPath,
+    currentDestDir,
     enqueueClipboardLike,
-    protocol,
-    quickPaths?.home,
   ]);
 
   const handleEntryDragStart = useCallback(
@@ -971,9 +996,7 @@ export function FileConnectionPanel({
       const destDir =
         entry.kind === "dir"
           ? entry.path
-          : protocol === "local"
-            ? currentPath || quickPaths?.home || ""
-            : currentPath || "/";
+          : currentDestDir();
 
       if (payload?.items.length) {
         // 拖到自身目录无效
@@ -1020,7 +1043,7 @@ export function FileConnectionPanel({
         showToast(fmtError(err));
       }
     },
-    [connId, currentPath, enqueueClipboardLike, entries, loadDir, protocol, quickPaths?.home, t],
+    [connId, currentDestDir, currentPath, enqueueClipboardLike, entries, loadDir, t],
   );
 
   const handlePanelDragEnter = useCallback((e: React.DragEvent) => {
@@ -1060,10 +1083,7 @@ export function FileConnectionPanel({
       e.stopPropagation();
       clearFilesDrag();
 
-      const destDir =
-        protocol === "local"
-          ? currentPath || quickPaths?.home || ""
-          : currentPath || "/";
+      const destDir = currentDestDir();
 
       // 应用内跨连接拖拽优先
       if (internal?.items.length) {
@@ -1101,7 +1121,7 @@ export function FileConnectionPanel({
         showToast(fmtError(err));
       }
     },
-    [connId, currentPath, enqueueClipboardLike, entries, loadDir, protocol, quickPaths?.home, t],
+    [connId, currentDestDir, currentPath, enqueueClipboardLike, entries, loadDir, t],
   );
 
   useEffect(() => {
@@ -1116,10 +1136,7 @@ export function FileConnectionPanel({
       if (!isActive) return;
       const pending = takePendingFilesTabDrop(connId);
       if (!pending?.items.length) return;
-      const destDir =
-        protocol === "local"
-          ? currentPath || quickPaths?.home || ""
-          : currentPath || "/";
+      const destDir = currentDestDir();
       void enqueueClipboardLike(pending.items, destDir, "copy").catch((err) => {
         showToast(fmtError(err));
       });
@@ -1127,7 +1144,7 @@ export function FileConnectionPanel({
     flush();
     window.addEventListener("omnipanel-files-tab-drop", flush);
     return () => window.removeEventListener("omnipanel-files-tab-drop", flush);
-  }, [isActive, connId, currentPath, enqueueClipboardLike, protocol, quickPaths?.home]);
+  }, [isActive, connId, currentDestDir, enqueueClipboardLike]);
 
   const handleMkdir = useCallback(async () => {
     const name = await quickInput({
@@ -1475,8 +1492,12 @@ export function FileConnectionPanel({
     void loadDir("");
   }, [clearSearchState, connId, loadDir, protocol, s3BindKey]);
 
+  const browsePath =
+    protocol === "sftp" || protocol === "ftp"
+      ? effectiveRemoteBrowsePath(currentPath, remoteRootPath)
+      : currentPath;
   const crumbs = splitBreadcrumb(
-    currentPath,
+    browsePath,
     protocol,
     {
       computer: t("files.local.computer"),
@@ -1491,11 +1512,11 @@ export function FileConnectionPanel({
     protocol === "local" ? currentLocalDrive(effectiveLocalPath) : null;
   const pathForInput = useMemo(
     () =>
-      formatPathForInput(currentPath, protocol, {
+      formatPathForInput(browsePath, protocol, {
         homePath: quickPaths?.home,
         platform: localSystemInfo?.platform,
       }),
-    [currentPath, localSystemInfo?.platform, protocol, quickPaths?.home],
+    [browsePath, localSystemInfo?.platform, protocol, quickPaths?.home],
   );
   const canBack = historyIndex > 0;
   const canForward = historyIndex >= 0 && historyIndex < history.length - 1;

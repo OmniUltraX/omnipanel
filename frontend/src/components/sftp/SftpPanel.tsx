@@ -10,6 +10,8 @@ import { ContextMenu } from "../ui/menu/ContextMenu";
 import { IconDropdownButton } from "../ui/menu/IconDropdownButton";
 import { useSshDetailNavigationStore } from "../../stores/sshDetailNavigationStore";
 import { useI18n } from "../../i18n";
+import { useSshHostResources } from "../../stores/connectionStore";
+import { sshEmptyPromptKey } from "../../modules/server/ssh/sshEmptyPrompt";
 import { pathToRemoteDir } from "../../modules/server/ssh/utils/parseCommandPaths";
 import { fmtSftpError, formatSftpSize, type SftpEntry } from "./sftpUtils";
 import {
@@ -143,6 +145,7 @@ function IconTrash() {
 
 export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPanelProps) {
   const { t } = useI18n();
+  const hasSshConnections = useSshHostResources().length > 0;
   const capabilities = resolveSftpCapabilities(adapter);
   const sessionKey = adapter ? (cacheKey ?? "sftp-adapter") : resourceId;
   const startPath = initialPath?.trim() || "/";
@@ -1035,7 +1038,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
       {info && <div className="sftp-info">{info}</div>}
 
       {!sessionKey ? (
-        <div className="sftp-empty sftp-empty--centered">{adapter?.emptyMessage ?? t("ssh.empty.selectHost")}</div>
+        <div className="sftp-empty sftp-empty--centered">{adapter?.emptyMessage ?? t(sshEmptyPromptKey(hasSshConnections))}</div>
       ) : (
         <div
           className={`sftp-table-wrap${dragOver ? " sftp-table-wrap--drag-over" : ""}${uploading ? " sftp-table-wrap--uploading" : ""}`}

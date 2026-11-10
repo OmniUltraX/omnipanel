@@ -221,7 +221,7 @@ P0 covers the local terminal path (`create_terminal` / `write_terminal` / `resiz
 
 ### Docker
 
-Docker Web 0.8.57 is a Docker-only release (tracking tag `docker-v0.8.57`); it does not replace desktop release assets. Use the exact image version after its Docker workflow succeeds, or build locally as below. Existing deployments must rotate their API key; socket access is opt-in and headless credential fallback files are plaintext with mode 0600:
+Docker Web 0.8.58 ships with desktop `v0.8.58` (tracking tag `docker-v0.8.58`). It does not modify the already published desktop `v0.8.57` tag/assets, `docker-v0.8.57`, or image tag `0.8.57`. Use the exact image version after its Docker workflow succeeds, or build locally as below. Existing deployments must rotate their API key; socket access is opt-in and headless credential fallback files are plaintext with mode 0600:
 
 ```bash
 docker build -f deploy/docker/Dockerfile -t omnipanel-web:local .

@@ -3,6 +3,8 @@ import { WorkspaceEmptyPage } from "../../../components/ui/workspace/WorkspaceEm
 import { useI18n } from "../../../i18n";
 import { HostDetailPanel } from "./components/HostDetailPanel";
 import { useSshActiveHostStore } from "./stores/sshActiveHostStore";
+import { useSshHostResources } from "../../../stores/connectionStore";
+import { sshEmptyPromptKey } from "./sshEmptyPrompt";
 import { useUiFollowConsumer } from "../../../lib/ai/uiFollow";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
 import { SSH_PATH } from "./constants";
@@ -24,6 +26,7 @@ export const SshWorkspacePanel = memo(function SshWorkspacePanel({
   const rememberedHostId = useWorkspaceStore((s) => s.selectedResourceByPath[SSH_PATH]);
   const activeHostId = useSshActiveHostStore((s) => s.activeHostId) ?? rememberedHostId ?? null;
   const setActiveHostId = useSshActiveHostStore((s) => s.setActiveHostId);
+  const hasConnections = useSshHostResources().length > 0;
 
   useUiFollowConsumer("ssh", useCallback((intent) => {
     switch (intent.type) {
@@ -47,11 +50,11 @@ export const SshWorkspacePanel = memo(function SshWorkspacePanel({
         {activeHostId ? (
           <HostDetailPanel hostId={activeHostId} />
         ) : (
-          <WorkspaceEmptyPage title={t("routes.ssh")} prompt={t("ssh.empty.selectHost")} />
+          <WorkspaceEmptyPage title={t("routes.ssh")} prompt={t(sshEmptyPromptKey(hasConnections))} />
         )}
       </div>
     );
-  }, [activeHostId, t]);
+  }, [activeHostId, hasConnections, t]);
 
   if (!enabled) {
     return null;

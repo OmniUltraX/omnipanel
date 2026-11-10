@@ -196,6 +196,7 @@ export default {
     },
     empty: {
       selectHost: "暂无 SSH 连接，点击左侧 + 添加主机，或从 ~/.ssh/config 同步",
+      chooseHost: "请在左侧选择一台主机",
     },
     tunnels: {
       label: "端口映射",

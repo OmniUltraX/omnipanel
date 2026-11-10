@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { parsePluginManifest, type PluginManifest } from "@omnipanel/plugin-sdk";
-import { commands, type ExternalVerdictDto, type MarketplaceItem, type PluginListItem, type PluginUpdateInfo, type RegistrySourceDto, type ResolvePlan, type SourceTestResult } from "../../ipc/bindings";
+import { commands, type ExternalVerdictDto, type MarketplaceItem, type PluginListItem, type PluginUpdateInfo, type RegistrySourceDto, type ResolvePlan, type SourceTestResult, type DbxCatalogDriver, type DevWatchInfo } from "../../ipc/bindings";
 import { unwrapCommand } from "../../ipc/result";
 import { PLUGIN_OFFICIAL_CATALOG_UPDATED } from "../../ipc/events";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -16,6 +16,7 @@ import { pluginDisplayName } from "./pluginDisplayName";
 import { firstPartyIdSet, originForInstalled, type PluginOrigin } from "./pluginOrigin";
 import { openPluginOverlay } from "../../lib/pluginHomeLaunch";
 import {
+  asPluginList,
   categorizeExternalPlugin,
   dbxToMarketItem,
   marketplaceToMarketItem,
@@ -67,7 +68,7 @@ export function usePluginCenter() {
   const [npmSearching, setNpmSearching] = useState(false);
   const [extCategory, setExtCategory] = useState<ExternalCategory | "all">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const catalog = useDbxCatalogStore((s) => s.drivers);
+  const catalog = asPluginList<DbxCatalogDriver>(useDbxCatalogStore((s) => s.drivers));
   const catalogRefreshing = useDbxCatalogStore((s) => s.refreshing);
   const refreshDbx = useDbxCatalogStore((s) => s.refresh);
   const syncRuntime = usePluginRuntimeStore((s) => s.reload);
@@ -78,7 +79,7 @@ export function usePluginCenter() {
 
   const reloadInstalled = useCallback(async () => {
     try {
-      const list = await unwrapCommand(commands.pluginList());
+      const list = asPluginList<PluginListItem>(await unwrapCommand(commands.pluginList()));
       setItems(list);
       await syncRuntime();
       setError(null);
@@ -87,7 +88,7 @@ export function usePluginCenter() {
     }
     try {
       const status = await unwrapCommand(commands.pluginDevStatus(), { quiet: true });
-      setDevIds(new Set(status.map((s) => s.pluginId)));
+      setDevIds(new Set(asPluginList<DevWatchInfo>(status).map((s) => s.pluginId)));
     } catch {
       // 旧二进制无开发命令时静默：无徽标、无过滤
     }
@@ -106,14 +107,16 @@ export function usePluginCenter() {
     setMarketRefreshing(true);
     try {
       // 目录自己刷新 cache。更新查询再用 force 会把 GitHub 再拉一遍。
-      const list = await unwrapCommand(commands.pluginMarketCatalog(force), { quiet: true });
+      const list = asPluginList<MarketplaceItem>(
+        await unwrapCommand(commands.pluginMarketCatalog(force), { quiet: true }),
+      );
       setMarketCatalog(list);
       const [nextUpdates, nextSources] = await Promise.all([
         unwrapCommand(commands.pluginCheckUpdates(false), { quiet: true }),
         unwrapCommand(commands.pluginRegistrySourcesList()),
       ]);
-      setUpdates(nextUpdates);
-      setSources(nextSources);
+      setUpdates(asPluginList<PluginUpdateInfo>(nextUpdates));
+      setSources(asPluginList<RegistrySourceDto>(nextSources));
       return true;
     } catch (err) {
       const message = String(err);

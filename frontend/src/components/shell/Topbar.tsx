@@ -98,7 +98,6 @@ export function Topbar({ title, children, hidden = false }: TopbarProps) {
         <div className="topbar-actions">
           <button type="button" className="topbar-btn" title={t("shell.topbar.notifications")} onClick={handleNotifications}>
             <IconBell size={14} />
-            <span className="notif-badge">3</span>
           </button>
           <button type="button" className="topbar-btn" title={t("shell.topbar.commandPalette")} onClick={handleSearch}>
             <IconSearch size={14} />

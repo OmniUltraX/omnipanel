@@ -116,7 +116,8 @@ export function cpuStatusBadge(pct: number): StatusBadge {
   return { label: "正常", tone: "success" };
 }
 
-export function memStatusBadge(pct: number): StatusBadge {
+export function memStatusBadge(pct: number, opts?: { known?: boolean }): StatusBadge {
+  if (opts && opts.known === false) return { label: "未知", tone: "accent" };
   if (pct >= 90) return { label: "紧张", tone: "danger" };
   if (pct >= 70) return { label: "注意", tone: "warn" };
   return { label: "充裕", tone: "success" };

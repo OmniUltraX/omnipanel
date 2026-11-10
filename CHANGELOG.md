@@ -4,7 +4,30 @@
 
 ## [Unreleased]
 
+## [0.8.58] - 2026-11-11
+
+桌面 `v0.8.58` 与 Docker Web（跟踪标签 `docker-v0.8.58`、镜像 `ghcr.io/omniultrax/omnipanel-web:0.8.58`）同源发布。不修改已发布的桌面 `v0.8.57`、`docker-v0.8.57` 或镜像标签 `0.8.57`。按既有约定，稳定 Docker 发行在校验通过后更新 GHCR 精确版本、`0.8` 与 `latest`。
+
+### 修复
+
+- **Web / SPA**：静态托管对客户端路由回退到 `index.html`。硬刷新 `/dashboard`、在 `/module/files` 等路径锁定后重载不再 HTTP 404；已有静态文件优先，缺失的 `/assets`、`/ipc`、`/healthz`、`/media` 不受影响。
+- **数据库**：Web 未注册的 `plugin_dbx_catalog` 曾被 soft-degrade 成 `{}`，进入模块时 `for...of` 抛出 `TypeError: o is not iterable` 导致白屏。现该命令返回数组，前端对非数组目录/缓存做防护。随后修复防护引入的 React #185：`useDbxCatalogStore` selector 对已是数组的 `drivers` 保持同一引用，避免无限更新整页白屏。
+- **通知中心**：不再预置演示告警；默认「暂无通知」，顶栏铃铛不再显示写死的未读数「3」。此为正式产品缺陷，不是测试盒具数据。
+- **SSH**：已有连接但未选主机时改为「请在左侧选择一台主机」，不再误报「暂无 SSH 连接」。内存总量未知（0% / 0 B）时显示「未知」和 —，不再标成「充裕」。
+- **SFTP/FTP**：面包屑与浏览路径使用连接 `rootPath`（例如 `/home/gui-test`），当前路径为空时不再只显示 `/`，并禁止导航到 root 之上。
+- **终端**：直通模式不再把灰色 AI 占位文案叠在真实 shell 提示符上。
+- **插件中心**：打开 `/plugins` 时，Web 未注册的 `plugin_market_catalog` / `plugin_check_updates` 曾软降级成 `{}` / `null`，`useMemo` 对非数组做 `for...of` 抛出 `TypeError: a is not iterable`。现注册这三条市场目录命令（官方目录映射），前端对非数组一律按空列表处理。
+- **插件工作台**：打开 `/plugins?view=studio` 时，Web 未注册的 `plugin_dev_status` 曾软降级成 `{}`，`StudioPanel` 对 `devList.filter` 抛出 `TypeError: W.filter is not a function`，点诊断遮罩「清除」后整页空白。现该命令返回空数组，前端在 IPC 边界把非数组当作空列表，并为工作台加上可恢复的错误边界。
+
+### Docker Web
+
+- 运行时按桌面默认打包第一方 ClickHouse / MongoDB / Redis 引擎 sidecar（Dockerfile 可重现构建并放到 `omnipanel-server` 同目录）。
+- Web 补齐插件中心装载合同：`plugin_list` / `plugin_manifests` / 本地安装与卸载 / 官方目录与官方安装，以及 `plugin_read_asset`（第一方 `omni.addon.resource-dedupe` 的 `ui/main.js` 可从嵌入资产读取，不再记 `ui.invalid_entry`）。云厂商等 download-only 插件不内置进镜像。
+- smoke 增加经应用 IPC 的真实 ClickHouse 查询，以及官方云插件发现/加载、缺失凭据错误路径和数据卷持久化；不对真实阿里云 endpoint 发送测试密钥。真实账户调用仍未验收。
+- 上述 SPA、数据库白屏、插件中心与工作台修复均包含在本 Docker 镜像中。
+
 ## [Docker Web 0.8.57] - 2026-11-10
+
 
 Docker-only 发行，跟踪标签 `docker-v0.8.57`；不修改桌面 `v0.8.57` 标签或资产。
 

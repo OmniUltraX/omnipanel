@@ -199,6 +199,7 @@ export default {
     studio: {
       open: "Plugin Studio",
       openHint: "Create / edit / pack plugins without leaving the workbench",
+      renderFailed: "Plugin Studio failed to render",
       projects: "Projects",
       files: "Files",
       editor: "Editor",

@@ -17,6 +17,7 @@ import { OverviewDetailTab } from "./detail/OverviewDetailTab";
 import { TmuxSessionsDetailTab } from "./detail/TmuxSessionsDetailTab";
 import { SshModuleContextBridge } from "../ai/SshModuleContextBridge";
 import { isProdHost } from "../utils/sshProdGuard";
+import { sshEmptyPromptKey } from "../sshEmptyPrompt";
 
 type Props = {
   hostId: string;
@@ -44,7 +45,7 @@ export function HostDetailPanel({ hostId }: Props) {
   });
 
   if (!activeResource) {
-    return <WorkspaceEmptyPage prompt={t("ssh.empty.selectHost")} />;
+    return <WorkspaceEmptyPage prompt={t(sshEmptyPromptKey(sshResources.length > 0))} />;
   }
 
   const profile = getProfile(activeResource);

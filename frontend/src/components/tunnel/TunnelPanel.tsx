@@ -7,6 +7,8 @@ import { Button } from "../ui/primitives/Button";
 import { Select } from "../ui/form/Select";
 import { TextInput } from "../ui/form/TextInput";
 import { TunnelFlowList } from "../../modules/server/ssh/components/TunnelFlowList";
+import { useSshHostResources } from "../../stores/connectionStore";
+import { sshEmptyPromptKey } from "../../modules/server/ssh/sshEmptyPrompt";
 
 export type TunnelPanelProps = {
   activeResource: WorkspaceResource | null;
@@ -14,6 +16,7 @@ export type TunnelPanelProps = {
 
 export function TunnelPanel({ activeResource }: TunnelPanelProps) {
   const { t } = useI18n();
+  const hasConnections = useSshHostResources().length > 0;
   const [tunnels, setTunnels] = useState<SshTunnelInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -92,7 +95,7 @@ export function TunnelPanel({ activeResource }: TunnelPanelProps) {
   };
 
   if (!activeResource) {
-    return <div className="empty-state compact">{t("ssh.empty.selectHost")}</div>;
+    return <div className="empty-state compact">{t(sshEmptyPromptKey(hasConnections))}</div>;
   }
 
   return (

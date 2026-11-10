@@ -35,7 +35,8 @@ RUN apt-get -o Acquire::EnableSrvRecords=$APT_ENABLE_SRV_RECORDS update \
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 # workspace 成员 sidecar，以及编译期 include_str! 的第一方清单。
-# 云厂商 / Warpgate 是 submodule，运行时读盘，不进这一层。
+# 云厂商 / Warpgate / Nacos / 官方 Agent 是 download-only，不打进运行时镜像。
+# 官方目录种子（registry.json）供 Web 插件中心回退，不含插件逻辑包。
 COPY plugins/agent-cursor/src-agent ./plugins/agent-cursor/src-agent
 COPY plugins/agent-cursor/plugin.json ./plugins/agent-cursor/plugin.json
 COPY plugins/agent-opencode-go/src-agent ./plugins/agent-opencode-go/src-agent
@@ -61,6 +62,7 @@ COPY plugins/db-redis/plugin.json ./plugins/db-redis/plugin.json
 COPY plugins/db-sqlite/plugin.json ./plugins/db-sqlite/plugin.json
 COPY plugins/db-sqlserver/plugin.json ./plugins/db-sqlserver/plugin.json
 COPY plugins/importer-docker-db/plugin.json plugins/importer-docker-db/icon.svg ./plugins/importer-docker-db/
+COPY plugins/registry.json ./plugins/registry.json
 COPY src-tauri/Cargo.toml ./src-tauri/Cargo.toml
 # workspace member 占位，避免拉取完整 Tauri 源码层
 RUN mkdir -p src-tauri/src \
@@ -77,7 +79,13 @@ RUN --mount=type=cache,id=omnipanel-web-registry,target=/usr/local/cargo/registr
     --mount=type=cache,id=omnipanel-web-target,target=/build/target \
     bash -c 'shopt -s globstar nullglob; touch crates/**/*.rs' \
     && cargo build --locked --release -p omnipanel-server \
-    && cp /build/target/release/omnipanel-server /build/omnipanel-server
+        -p omnipanel-engine-clickhouse \
+        -p omnipanel-engine-mongodb \
+        -p omnipanel-engine-redis \
+    && cp /build/target/release/omnipanel-server /build/omnipanel-server \
+    && cp /build/target/release/omnipanel-engine-clickhouse /build/omnipanel-engine-clickhouse \
+    && cp /build/target/release/omnipanel-engine-mongodb /build/omnipanel-engine-mongodb \
+    && cp /build/target/release/omnipanel-engine-redis /build/omnipanel-engine-redis
 
 # Explicit test target; not part of the runtime image.
 FROM rust-builder AS rust-tests
@@ -116,6 +124,10 @@ LABEL org.opencontainers.image.version=$OMNIPANEL_VERSION \
 WORKDIR /app
 
 COPY --from=rust-builder /build/omnipanel-server /usr/local/bin/omnipanel-server
+# Same default first-party engine sidecars as the desktop packages; resolved next to the server.
+COPY --from=rust-builder /build/omnipanel-engine-clickhouse /usr/local/bin/omnipanel-engine-clickhouse
+COPY --from=rust-builder /build/omnipanel-engine-mongodb /usr/local/bin/omnipanel-engine-mongodb
+COPY --from=rust-builder /build/omnipanel-engine-redis /usr/local/bin/omnipanel-engine-redis
 COPY --from=frontend /build/frontend/dist /app/static
 COPY deploy/docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

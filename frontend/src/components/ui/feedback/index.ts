@@ -5,3 +5,4 @@ export { OverlayModuleRoutePanel } from "./OverlayModuleRoutePanel";
 export { RouteModuleFallback } from "./RouteModuleFallback";
 export { SuspendedModulePanel } from "./SuspendedModulePanel";
 export { SkeletonLoader } from "./SkeletonLoader";
+export { PanelErrorBoundary } from "./PanelErrorBoundary";

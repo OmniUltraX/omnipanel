@@ -33,7 +33,7 @@ import { commands } from "../../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../../ipc/result";
 import { GlobalTagEditor } from "../../tags/GlobalTagEditor";
 import { usePluginRuntimeStore } from "../../../stores/pluginRuntimeStore";
-import { useDbxCatalogStore } from "../../../stores/dbxCatalogStore";
+import { asDbxCatalogDrivers, useDbxCatalogStore } from "../../../stores/dbxCatalogStore";
 
 function engineChipMeta(engine: string): { port: string; icon: string } {
   const desc = getEngineDescriptor(engine);
@@ -83,7 +83,7 @@ export function ConnectionDialog({
   const reloadPlugins = usePluginRuntimeStore((s) => s.reload);
   const catalog = useDbxCatalogStore((s) => s.drivers);
   const pickerItems = useMemo(
-    () => buildEnginePickerItems(listEngineDescriptors(), catalog),
+    () => buildEnginePickerItems(listEngineDescriptors(), asDbxCatalogDrivers(catalog)),
     [pluginItems, catalog],
   );
   const [form, setForm] = useState<ConnectionFormData>({ ...EMPTY_FORM });
