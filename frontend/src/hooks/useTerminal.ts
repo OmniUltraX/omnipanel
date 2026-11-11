@@ -62,7 +62,7 @@ import {
 } from "../modules/terminal/commandBar/shellHistorySync";
 import { isInternalHistoryCommand } from "../modules/terminal/commandBar/internalHistoryCommands";
 import { ingestTerminalHistoryOutput } from "../modules/terminal/commandBar/shellHistoryIngest";
-import { containsShellHistorySyncNoise, stripShellHistorySyncNoise } from "../modules/terminal/commandBar/shellHistoryOutputFilter";
+import { preparePtyBytesForXterm, stripShellHistorySyncNoise } from "../modules/terminal/commandBar/shellHistoryOutputFilter";
 import { registerRuntimeBackendSession } from "../modules/terminal/commandBar/shellHistoryFetch";
 import {
   trackTerminalOutputForAutoReturn,
@@ -1520,13 +1520,9 @@ export function useTerminal(
           // silent sync 期间跳过含同步噪声的 chunk（BEGIN/END 标记 / base64 blob），
           // 避免刷屏；其他 chunk（prompt、用户命令输出）正常写入 xterm，
           // 防止 sync 未正常结束时用户命令输出被吞。
-          if (
-            isSilentHistorySync(sessionId) &&
-            containsShellHistorySyncNoise(rawText)
-          ) {
-            // skip xterm write
-          } else {
-            term?.write(rewriteConptyBytesForInlineCard(sessionId, merged));
+          const filtered = preparePtyBytesForXterm(sessionId, merged);
+          if (filtered.length > 0) {
+            term?.write(rewriteConptyBytesForInlineCard(sessionId, filtered));
           }
         }
 
@@ -2119,7 +2115,7 @@ export function useTerminal(
       const rt = runtimeRef.current;
       if (rt.outputBuffer.length === 0) return;
       for (const bytes of rt.outputBuffer) {
-        term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
+        term.write(rewriteConptyBytesForInlineCard(sessionId, preparePtyBytesForXterm(sessionId, bytes)));
       }
       clearSuspendedOutput(rt);
     }
@@ -2333,7 +2329,7 @@ export function useTerminal(
     }
     if (term && rt.outputBuffer.length > 0) {
       for (const bytes of rt.outputBuffer) {
-        term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
+        term.write(rewriteConptyBytesForInlineCard(sessionId, preparePtyBytesForXterm(sessionId, bytes)));
       }
       clearSuspendedOutput(rt);
     }
@@ -2372,7 +2368,7 @@ export function useTerminal(
     const term = termRef.current;
     if (term && rt.outputBuffer.length > 0) {
       for (const bytes of rt.outputBuffer) {
-        term.write(rewriteConptyBytesForInlineCard(sessionId, bytes));
+        term.write(rewriteConptyBytesForInlineCard(sessionId, preparePtyBytesForXterm(sessionId, bytes)));
       }
       clearSuspendedOutput(rt);
     }

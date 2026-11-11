@@ -10,7 +10,7 @@
 
 services:
   omnipanel:
-    image: ${OMNIPANEL_IMAGE:-ghcr.io/omniultrax/omnipanel-web:0.8.58}
+    image: ${OMNIPANEL_IMAGE:-ghcr.io/omniultrax/omnipanel-web:0.8.59}
     container_name: omnipanel-web
     ports:
       - "${OMNIPANEL_BIND_HOST:-127.0.0.1}:${OMNIPANEL_PORT:-8899}:8899"

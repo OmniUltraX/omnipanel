@@ -400,7 +400,7 @@ fn apply_client_identity_headers_with_app(
 /// 绑定出码时「按 app_id 找不到本机设备」类错误（服务端文案不完全统一）。
 /// 命中后应换下一个候选 X-App-Id 重试，而不是立刻失败。
 fn is_binding_device_lookup_miss(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
+    let lower = message.to_lowercase();
     lower.contains("client device not found")
         || lower.contains("ticket not found")
         || lower.contains("device not found")
@@ -515,6 +515,23 @@ fn header_device_name(raw: &str) -> String {
         return trimmed.to_string();
     }
     urlencoding::encode(trimmed).into_owned()
+}
+
+fn login_qrcode_error_message(err: &reqwest::Error) -> &'static str {
+    let text = format_reqwest_error(err).to_ascii_lowercase();
+    if text.contains("dns")
+        || text.contains("failed to lookup")
+        || text.contains("name resolution")
+        || text.contains("nxdomain")
+        || text.contains("no such host")
+        || text.contains("name or service not known")
+    {
+        "无法解析登录服务地址"
+    } else if text.contains("timed out") || text.contains("timeout") {
+        "获取登录二维码超时"
+    } else {
+        "获取登录二维码失败"
+    }
 }
 
 fn format_reqwest_error(err: &reqwest::Error) -> String {
@@ -1210,7 +1227,7 @@ pub async fn auth_login_qrcode(state: State<'_, AppState>) -> Result<AuthLoginQr
         .send()
         .await
         .map_err(|e| {
-            OmniError::new(ErrorCode::Connection, "获取登录二维码失败")
+            OmniError::new(ErrorCode::Connection, login_qrcode_error_message(&e))
                 .with_cause(format_reqwest_error(&e))
         })?;
 

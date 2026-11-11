@@ -1,5 +1,7 @@
 import { useLayoutEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../i18n";
+import { MODULE_PATHS } from "../../lib/paths";
 import { TerminalTabDockPane } from "../../modules/terminal/TerminalTabDockPane";
 import { DatabaseTabDockPane } from "../../modules/database/workspace/DatabaseTabDockPane";
 import { WorkspaceEmptyPage } from "../../components/ui/workspace/WorkspaceEmptyPage";
@@ -44,6 +46,7 @@ export function WorkspaceMirroredPanel({
   hostContext = "workspace-dock",
 }: WorkspaceMirroredPanelProps) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [terminalTabId, setTerminalTabId] = useState<string | null>(null);
 
   // 独立窗口等新上下文中 terminalStore 可能为空：按镜像信息补齐 tab，避免空白。
@@ -105,7 +108,7 @@ export function WorkspaceMirroredPanel({
           title={t("routes.docker")}
           prompt={t("shell.workspacePanel.payloadUnavailable", { module: t("routes.docker") })}
           actions={
-            <WorkbenchActionButton onClick={() => window.location.assign("/module/docker")}>
+            <WorkbenchActionButton onClick={() => navigate(MODULE_PATHS.docker)}>
               {t("shell.workspacePanel.openSourceModule")}
             </WorkbenchActionButton>
           }

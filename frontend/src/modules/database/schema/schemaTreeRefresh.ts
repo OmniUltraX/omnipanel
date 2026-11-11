@@ -18,6 +18,19 @@ import {
   parseViewNodeId,
 } from "./schemaTreeIds";
 import { schemaRefreshDebug } from "./schemaRefreshDebug";
+import { isOmnipanelWebBuild } from "../../../lib/isTauriRuntime";
+
+/** Web IPC 把 invoke 的第二参当作 req.args；桌面 Tauri 命令参数名是 args。 */
+export function buildDbRefreshSchemaNodeInvokeArgs(
+  connection: DbConnectionConfig,
+  nodeKind: string,
+  nodeId: string,
+  options?: { web?: boolean },
+): Record<string, unknown> {
+  const payload = { connection, nodeKind, nodeId };
+  const web = options?.web ?? isOmnipanelWebBuild();
+  return web ? payload : { args: payload };
+}
 
 export type SchemaNodeRefreshResult =
   | {
@@ -61,9 +74,10 @@ export async function refreshSchemaNode(
   nodeKind: string,
   nodeId: string,
 ): Promise<SchemaNodeRefreshResult> {
-  return invoke<SchemaNodeRefreshResult>("db_refresh_schema_node", {
-    args: { connection, nodeKind, nodeId },
-  });
+  return invoke<SchemaNodeRefreshResult>(
+    "db_refresh_schema_node",
+    buildDbRefreshSchemaNodeInvokeArgs(connection, nodeKind, nodeId),
+  );
 }
 
 function patchTableInDatabase(

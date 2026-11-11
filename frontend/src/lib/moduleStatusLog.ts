@@ -15,17 +15,17 @@ export function pathnameToModuleKey(pathname: string): ModuleKey | null {
   return null;
 }
 
-/** 仅当 module 为当前激活模块时写入状态栏日志 */
+/**
+ * 写入该模块自己的状态栏日志。
+ * 不因当前是否激活而丢弃结束态，避免后台完成的刷新留下「正在刷新…」。
+ * 展示仍由 StatusBar 按 activePublisher 选取。
+ */
 export function publishModuleStatusLog(
   module: ModuleKey,
   message: string,
   level: StatusBarLogLevel = "info",
 ): void {
-  const { activePublisher, publish } = useStatusBarLogStore.getState();
-  if (activePublisher !== module) {
-    return;
-  }
-  publish(module, message, level);
+  useStatusBarLogStore.getState().publish(module, message, level);
 }
 
 export function clearModuleStatusLog(module: ModuleKey): void {

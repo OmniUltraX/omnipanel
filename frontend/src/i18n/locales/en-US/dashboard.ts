@@ -52,6 +52,7 @@ export default {
       disk: "Disk",
       cpuPct: "CPU {pct}%",
       diskPct: "Disk {pct}%",
+      unknown: "Unknown",
     },
     time: {
       justNow: "Just now",

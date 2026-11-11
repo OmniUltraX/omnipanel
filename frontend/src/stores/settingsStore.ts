@@ -17,6 +17,7 @@ import {
   normalizeRecentModelIds,
   rememberRecentModelIds,
 } from "../lib/ai/recentModelOptions";
+import { isOmnipanelWebBuild } from "../lib/isTauriRuntime";
 
 export type Locale = "zh-CN" | "en-US";
 export type UiDensity = "compact" | "standard" | "comfortable";
@@ -518,7 +519,7 @@ export const useSettingsStore = create<SettingsState>()(
       themePackId: "omni.theme.default",
       accentColor: "blue",
       proxy: { ...DEFAULT_PROXY },
-      aiDisplayMode: "subwindow",
+      aiDisplayMode: isOmnipanelWebBuild() ? "dockview" : "subwindow",
       aiDataSharing: "minimal",
       aiDockWidth: AI_DOCK_WIDTH_DEFAULT,
       detailPanelMode: "drawer",

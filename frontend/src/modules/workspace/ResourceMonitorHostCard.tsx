@@ -191,7 +191,9 @@ export function ResourceMonitorHostCard({ host }: Props) {
           </div>
           <span className="hm-row-val">
             {stats
-              ? `${formatBytes(memUsed)} / ${formatBytes(memTotal)}`
+              ? memTotal > 0
+                ? `${formatBytes(memUsed)} / ${formatBytes(memTotal)}`
+                : t("ssh.status.unknown")
               : "—"}
           </span>
         </div>

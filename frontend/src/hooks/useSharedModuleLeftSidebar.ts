@@ -12,7 +12,17 @@ import {
 
 export const MODULE_LEFT_SIDEBAR_COLLAPSED_PX = 12;
 
-const SIDEBAR_SYNC_MAX_ATTEMPTS = 12;
+const SIDEBAR_SYNC_MAX_ATTEMPTS = 60;
+
+/** 折叠意图达成，或展开后实际宽度已达到最小可用值，才算同步成功。 */
+export function sharedModuleLeftSidebarApplySucceeded(
+  intendedCollapsed: boolean,
+  actualPx: number | undefined,
+  isCollapsed: boolean,
+): boolean {
+  if (intendedCollapsed) return isCollapsed;
+  return !isCollapsed && actualPx != null && actualPx >= MODULE_LEFT_SIDEBAR_MIN_PX;
+}
 
 export function applySharedModuleLeftSidebarState(
   handle: PanelImperativeHandle | null,
@@ -32,21 +42,26 @@ export function applySharedModuleLeftSidebarState(
     if (!handle.isCollapsed()) {
       handle.collapse();
     }
-    return true;
+    return sharedModuleLeftSidebarApplySucceeded(true, handle.getSize().inPixels, handle.isCollapsed());
   }
 
   if (handle.isCollapsed()) {
     handle.expand();
   }
   handle.resize(`${width}px`);
-  return true;
+  return sharedModuleLeftSidebarApplySucceeded(
+    false,
+    handle.getSize().inPixels,
+    handle.isCollapsed(),
+  );
 }
 
 function rootIsMeasurable(rootRef: RefObject<HTMLElement | null> | undefined): boolean {
   if (!rootRef) return true;
   const root = rootRef.current;
   if (!root) return false;
-  return root.offsetWidth > 0;
+  // 工作区根还不到最小侧栏宽时，组宽基本为 0 或仍被 content-visibility 跳过。
+  return root.offsetWidth >= MODULE_LEFT_SIDEBAR_MIN_PX;
 }
 
 export interface UseSharedModuleLeftSidebarOptions {
@@ -193,9 +208,28 @@ export function useSharedModuleLeftSidebar({
     let attempts = 0;
     let applied = false;
 
+    let observer: ResizeObserver | null = null;
+    let observing: HTMLElement | null = null;
+
+    const observeRoot = () => {
+      const root = visibleRootRef?.current ?? null;
+      if (!root || typeof ResizeObserver === "undefined") return;
+      if (!observer) {
+        observer = new ResizeObserver(() => {
+          if (!cancelled && !applied) tick();
+        });
+      }
+      if (observing !== root) {
+        if (observing) observer.unobserve(observing);
+        observer.observe(root);
+        observing = root;
+      }
+    };
+
     const tick = () => {
       if (cancelled) return;
       if (syncWhenActive && !moduleActiveRef.current) return;
+      observeRoot();
       const measurable = rootIsMeasurable(visibleRootRef);
       if (!leftPanelRef.current || !measurable) {
         if (attempts < SIDEBAR_SYNC_MAX_ATTEMPTS) {
@@ -212,17 +246,36 @@ export function useSharedModuleLeftSidebar({
         }
         return;
       }
-      // 库的 ResizeObserver 会在本次布局之后再算一次，下一帧再对齐本模块自己的宽度
-      if (!applied) {
-        applied = true;
-        raf = requestAnimationFrame(tick);
-      }
+      // 库的 ResizeObserver 会在本次布局之后再算一次；下一帧确认实际宽度后再标成功。
+      raf = requestAnimationFrame(() => {
+        if (cancelled || applied) return;
+        const handle = leftPanelRef.current;
+        if (!handle) {
+          tick();
+          return;
+        }
+        const intendedCollapsed = getModuleLeftSidebarCollapsed(
+          usePanelLayoutStore.getState().moduleLeftSidebarCollapsedByKey,
+          layoutKey,
+        );
+        const confirmed = sharedModuleLeftSidebarApplySucceeded(
+          intendedCollapsed,
+          handle.getSize().inPixels,
+          handle.isCollapsed(),
+        );
+        if (confirmed) {
+          applied = true;
+          return;
+        }
+        tick();
+      });
     };
 
     tick();
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
+      observer?.disconnect();
     };
   }, [hasLeft, syncWhenActive, moduleActive, layoutKey, leftPanelRef, visibleRootRef]);
 

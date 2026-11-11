@@ -389,12 +389,25 @@ function diskUsagePercent(stats: HostSystemStats): number {
   );
 }
 
+/** 未翻译完的 i18n key（如 ssh.status.unknown）不能当展示文案。 */
+export function isUnresolvedI18nKey(value: string): boolean {
+  return /^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9]+)+$/.test(value);
+}
+
+/** 看板在 boot 分片里解析「未知」；若仍拿到 raw key 或空值则回退。 */
+export function resolveDashboardUnknownLabel(label?: string, fallback = "未知"): string {
+  const trimmed = label?.trim() ?? "";
+  if (!trimmed || trimmed === "—" || isUnresolvedI18nKey(trimmed)) return fallback;
+  return trimmed;
+}
+
 export function buildResourceBars(
   statsList: HostSystemStats[],
   connectionNames: Map<string, string>,
-  labels: { cpu: string; memory: string; disk: string },
+  labels: { cpu: string; memory: string; disk: string; unknown?: string },
   maxBars = 6,
 ): DashboardResourceBar[] {
+  const unknownLabel = resolveDashboardUnknownLabel(labels.unknown);
   const bars: DashboardResourceBar[] = [];
 
   for (const stats of statsList) {
@@ -408,11 +421,14 @@ export function buildResourceBars(
       color: metricColor(cpuPct),
     });
 
-    const memPct = safePercent(stats.memory.used, stats.memory.total);
+    const memKnown = (stats.memory.total ?? 0) > 0;
+    const memPct = memKnown ? safePercent(stats.memory.used, stats.memory.total) : 0;
     bars.push({
       id: `${stats.hostId}-mem`,
       label: `${host} — ${labels.memory}`,
-      value: formatUsageBytes(stats.memory.used, stats.memory.total),
+      value: memKnown
+        ? formatUsageBytes(stats.memory.used, stats.memory.total)
+        : unknownLabel,
       width: `${memPct}%`,
       color: metricColor(memPct),
     });

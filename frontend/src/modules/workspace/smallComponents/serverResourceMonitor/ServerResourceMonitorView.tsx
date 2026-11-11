@@ -269,7 +269,10 @@ export function ServerResourceMonitorView({
       kind: "mem",
       label: t("ssh.overview.memory"),
       percent: memPct,
-      detail: formatUsageBytes(stats.memory.used, stats.memory.total),
+      detail:
+        (stats.memory.total ?? 0) > 0
+          ? formatUsageBytes(stats.memory.used, stats.memory.total)
+          : t("ssh.status.unknown"),
       sparkline: sparklines.mem,
     },
     {

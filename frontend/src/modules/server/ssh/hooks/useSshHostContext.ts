@@ -9,6 +9,7 @@ import { findPanelForSsh, parsePanelConfig } from "../../panel/serverConnection"
 import { getProfile } from "../data/hostProfiles";
 import type { LaunchPreset } from "../types";
 import { isBtPanelService, isOnePanelService } from "../../panel/panelPlugin";
+import { t } from "../../../../i18n";
 
 export interface SshHostContext {
   connection: Connection | undefined;
@@ -130,7 +131,9 @@ export function useSshHostContext(
     uptimeSecs: stats?.uptimeSecs ?? null,
     cpuLabel: cpuPct != null ? `${Math.round(cpuPct)}%` : null,
     memoryLabel: stats?.memory
-      ? formatUsageBytes(stats.memory.used, stats.memory.total)
+      ? (stats.memory.total ?? 0) > 0
+        ? formatUsageBytes(stats.memory.used, stats.memory.total)
+        : t("ssh.status.unknown")
       : null,
     diskLabel: diskPct != null ? `${Math.round(diskPct)}%` : null,
     dockerConnection,

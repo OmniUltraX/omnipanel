@@ -52,6 +52,7 @@ export default {
       disk: "磁盘",
       cpuPct: "CPU {pct}%",
       diskPct: "磁盘 {pct}%",
+      unknown: "未知",
     },
     time: {
       justNow: "刚刚",

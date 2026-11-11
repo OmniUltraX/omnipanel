@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from "react";
+import { useCallback, type ReactNode, type Ref } from "react";
 import type { PanelImperativeHandle, PanelProps } from "react-resizable-panels";
 import { DockLayout } from "./DockLayout";
 import { DockPanel } from "./DockPanel";
@@ -71,6 +71,8 @@ interface DockWorkspaceProps {
   bottomHandleDisabled?: boolean;
   /** 用户按下底部分隔条时触发（用于取消程序化 snap 的短暂忽略窗口） */
   onBottomHandlePointerDown?: () => void;
+  /** 工作区根节点（用于判断侧栏组是否已有可测量宽度） */
+  rootRef?: Ref<HTMLDivElement | null>;
   className?: string;
   /** 禁用整组 resize（全屏时避免与 fixed 工作区叠层冲突） */
   disabled?: boolean;
@@ -106,6 +108,7 @@ export function DockWorkspace({
   onBottomResizeEnd,
   bottomHandleDisabled = false,
   onBottomHandlePointerDown,
+  rootRef,
   className,
   disabled,
 }: DockWorkspaceProps) {
@@ -179,7 +182,7 @@ export function DockWorkspace({
   );
 
   return (
-    <div className={`dock-workspace${className ? ` ${className}` : ""}`}>
+    <div ref={rootRef} className={`dock-workspace${className ? ` ${className}` : ""}`}>
       <DockLayout disabled={disabled} onLayoutChanged={handleHorizontalLayoutChanged}>
         {left && (
           <>

@@ -4800,6 +4800,17 @@ body > .cm-tooltip.cm-tooltip-autocomplete {
     contain-intrinsic-size: auto 100%;
 }
 
+/*
+ * keep-layout overlays were already opted in (SSH / files / database / …) so
+ * hidden panels would keep descendant layout. The class was added in JSX but
+ * this exception was never written, so first mount still ran under
+ * content-visibility:hidden. react-resizable-panels then measured a 0-width
+ * group and collapsed the left sidebar until the user dragged it.
+ */
+.route-panel--overlay.route-panel--keep-layout:not(.route-panel--active) {
+    content-visibility: visible;
+}
+
 /* === 鐎规悶鍎扮紞鏃堝礌閸濆嫬寮块悘鐐茬箲閳ь兛绶ょ槐鐧瞣ck 閻庡湱鎳撳▍?position:fixed 闁告濮靛褏鎲撮崱妤€缍?===
    dockview 濠殿喖顑囩划鎾诲捶?WorkspacePreview 闁告劕鎳忕€垫洘娼弬銈囩濞?unmount闁挎稑顧€缁?
    闁稿繈鍔岄惈鍡涘籍閸撲焦鏆?position:fixed 闁肩浜‖?SidebarBottom 闁?panel size 闂傚嫭鍔曢崺妤呭Υ?*/

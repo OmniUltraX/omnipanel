@@ -736,7 +736,7 @@ pub async fn dispatch(
         },
         "db_refresh_schema_node" => {
             let refresh_args: omnipanel_db::SchemaNodeRefreshArgs =
-                match serde_json::from_value(args.clone()) {
+                match serde_json::from_value(args.get("args").cloned().unwrap_or(args.clone())) {
                     Ok(a) => a,
                     Err(e) => {
                         return InvokeResponse::err(format!(

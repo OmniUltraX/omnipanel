@@ -92,6 +92,7 @@ export function ModuleWorkspaceLayout({
   const leftPanelRef = externalLeftPanelRef ?? internalLeftPanelRef;
   const lastSidebarToggleNonceRef = useRef(moduleSidebarToggleNonce);
   const mainPanelRef = useRef<HTMLDivElement | null>(null);
+  const layoutRootRef = useRef<HTMLDivElement | null>(null);
   const leftHandlePointerUpCleanupRef = useRef<(() => void) | null>(null);
 
   const hasSidebarHeader = Boolean(
@@ -111,7 +112,7 @@ export function ModuleWorkspaceLayout({
     updateSidebarCollapsed,
   } = useSharedModuleLeftSidebar({
     leftPanelRef,
-    visibleRootRef: mainPanelRef,
+    visibleRootRef: layoutRootRef,
     syncWhenActive: true,
     moduleActive,
     hasLeft,
@@ -227,6 +228,7 @@ export function ModuleWorkspaceLayout({
 
   return (
     <DockWorkspace
+      rootRef={layoutRootRef}
       className={rootClass}
       leftSizePx={leftDefaultSizePx}
       leftMinPx={leftMinPx}

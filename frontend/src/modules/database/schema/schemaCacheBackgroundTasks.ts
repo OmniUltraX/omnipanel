@@ -30,7 +30,12 @@ const connectionIdsByTaskId = new Map<string, string[]>();
 const originalConnectionIdsByTaskId = new Map<string, string[]>();
 const taskConnectionsDoneCount = new Map<string, number>();
 const reporterByTaskId = new Map<string, SchemaCacheRefreshReporter>();
-/** 任务中是否已有连接级失败（complete 时不要再用成功文案盖掉状态栏） */
+/** submit 返回前就到达的 complete/failed，待绑定 reporter 后补发 */
+const pendingTerminalByTaskId = new Map<
+  string,
+  { type: "complete" } | { type: "failed"; error: string }
+>();
+/** 任务中是否已有连接级失败（状态栏仍要有结束态，避免一直「正在刷新…」） */
 const taskHadConnectionError = new Set<string>();
 /** 全量刷新：connection_done 只缓冲，complete 时一次合并，避免边刷边改树卡死 */
 const pendingEntriesByTaskId = new Map<string, Map<string, SchemaCacheConnectionEntry>>();
@@ -128,6 +133,7 @@ function unmarkTaskRefreshing(taskId: string, options?: { failed?: boolean; canc
   taskConnectionsDoneCount.delete(taskId);
   pendingEntriesByTaskId.delete(taskId);
   reporterByTaskId.delete(taskId);
+  // 保留 pendingTerminalByTaskId：complete 若早于 attachRefreshReporter，稍后补发
   taskHadConnectionError.delete(taskId);
   const runtime = useDbConnectionRuntimeStore.getState();
   if (options?.failed) {
@@ -289,15 +295,24 @@ export function initSchemaCacheBackgroundTasks() {
       } else {
         dispatchRefreshComplete(useDbSchemaCacheStore.getState().snapshot);
       }
-      if (!taskHadConnectionError.has(payload.taskId)) {
-        reporter?.onComplete?.();
+      const terminalReporter = reporter ?? reporterByTaskId.get(payload.taskId);
+      if (terminalReporter) {
+        terminalReporter.onComplete?.();
+      } else {
+        pendingTerminalByTaskId.set(payload.taskId, { type: "complete" });
       }
       unmarkTaskRefreshing(payload.taskId);
       return;
     }
 
     if (payload.eventType === "failed") {
-      reporter?.onError?.(payload.error ?? "Schema 缓存刷新失败");
+      const message = payload.error ?? "Schema 缓存刷新失败";
+      const terminalReporter = reporter ?? reporterByTaskId.get(payload.taskId);
+      if (terminalReporter) {
+        terminalReporter.onError?.(message);
+      } else {
+        pendingTerminalByTaskId.set(payload.taskId, { type: "failed", error: message });
+      }
       unmarkTaskRefreshing(payload.taskId, { failed: true });
     }
   })
@@ -311,6 +326,8 @@ export function initSchemaCacheBackgroundTasks() {
       const reporter = reporterByTaskId.get(task.id);
       if (task.status === "failed") {
         reporter?.onError?.(task.error ?? "Schema 缓存刷新失败");
+      } else {
+        reporter?.onComplete?.();
       }
       unmarkTaskRefreshing(task.id, {
         failed: task.status === "failed",
@@ -377,6 +394,20 @@ function bindRefreshTaskBookkeeping(taskId: string, connIds: string[]) {
   }
 }
 
+function attachRefreshReporter(taskId: string, reporter?: SchemaCacheRefreshReporter) {
+  if (reporter) {
+    reporterByTaskId.set(taskId, reporter);
+  }
+  const pending = pendingTerminalByTaskId.get(taskId);
+  if (!pending || !reporter) return;
+  pendingTerminalByTaskId.delete(taskId);
+  if (pending.type === "failed") {
+    reporter.onError?.(pending.error);
+  } else {
+    reporter.onComplete?.();
+  }
+}
+
 /** 提交 Schema 缓存刷新后台任务，立即返回 taskId。同一连接并发提交会合并为一次。 */
 export async function submitSchemaCacheRefresh(
   connectionIds?: string[],
@@ -393,12 +424,11 @@ export async function submitSchemaCacheRefresh(
       reporter?.onStart?.({ connectionCount: claimed.length });
       const taskId = await submitDbSchemaCacheRefresh(claimed);
       bindRefreshTaskBookkeeping(taskId, claimed);
-      if (reporter) {
-        reporterByTaskId.set(taskId, reporter);
-      }
+      attachRefreshReporter(taskId, reporter);
       return taskId;
     } catch (err) {
       releaseClaimedConnections(claimed);
+      reporter?.onError?.(String(err));
       throw err;
     }
   }
@@ -414,12 +444,11 @@ export async function submitSchemaCacheRefresh(
     // 只刷本次占坑成功的连接，避免与已在跑的单连接任务重复
     const taskId = await submitDbSchemaCacheRefresh(claimed);
     bindRefreshTaskBookkeeping(taskId, claimed);
-    if (reporter) {
-      reporterByTaskId.set(taskId, reporter);
-    }
+    attachRefreshReporter(taskId, reporter);
     return taskId;
   } catch (err) {
     releaseClaimedConnections(claimed);
+    reporter?.onError?.(String(err));
     throw err;
   }
 }

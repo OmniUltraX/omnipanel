@@ -7,6 +7,10 @@ import {
   waitForLogin,
   type LoginQrcodeResponse,
 } from "../../lib/auth/loginApi";
+import {
+  classifyLoginQrcodeError,
+  LOGIN_QRCODE_ERROR_I18N_KEY,
+} from "../../lib/auth/loginQrcodeError";
 import { useAuthStore } from "../../stores/authStore";
 import { useUserProfileStore } from "../../stores/userProfileStore";
 
@@ -104,7 +108,14 @@ export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) 
           return;
         }
         setStatus((prev) => (prev === "expired" ? prev : "error"));
-        setErrorMessage(error instanceof Error ? error.message : String(error));
+        const kind = classifyLoginQrcodeError(error);
+        setErrorMessage(
+          kind === "unknown"
+            ? error instanceof Error
+              ? error.message
+              : String(error)
+            : t(LOGIN_QRCODE_ERROR_I18N_KEY[kind]),
+        );
       }
     })();
 
@@ -112,7 +123,7 @@ export function WechatLoginPanel({ hideHeader = false }: WechatLoginPanelProps) 
       fetchAbort.abort();
       clearWait();
     };
-  }, [clearWait, refreshKey, setSession]);
+  }, [clearWait, refreshKey, setSession, t]);
 
   const statusText =
     status === "loading"

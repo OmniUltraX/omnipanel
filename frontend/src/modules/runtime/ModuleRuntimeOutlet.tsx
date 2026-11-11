@@ -42,6 +42,7 @@ import {
   listShellWarmRequested,
   subscribeModuleShellWarm,
 } from "../../lib/moduleWarmup";
+import { forgetOverlayContentReady } from "../../lib/overlayReveal";
 
 ensureBuiltinModulesRegistered();
 
@@ -137,6 +138,7 @@ export const ModuleRuntimeOutlet = memo(function ModuleRuntimeOutlet() {
     for (const id of prev) {
       if (!keepAliveMounted.has(id)) {
         notifyModuleEvicted(id);
+        forgetOverlayContentReady(id);
       }
     }
   }, [keepAliveMounted]);

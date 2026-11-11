@@ -164,12 +164,12 @@ export function MonMetricCards({ stats, sparklines, diskReadRate, diskWriteRate,
           />
           <div className="mon-card-stats">
             <div className="mon-card-primary">
-              {memKnown ? formatUsageBytes(stats.memory.used, stats.memory.total) : "—"}
+              {memKnown ? formatUsageBytes(stats.memory.used, stats.memory.total) : t("ssh.status.unknown")}
             </div>
             <div className="mon-card-secondary">
               {memKnown
                 ? t("ssh.overview.memAvailable", { size: formatBytes(stats.memory.available) })
-                : "—"}
+                : t("ssh.status.unknown")}
               {stats.memory.swapTotal && stats.memory.swapTotal > 0
                 ? ` · Swap ${formatUsageBytes(stats.memory.swapUsed, stats.memory.swapTotal)}`
                 : ""}

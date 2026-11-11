@@ -385,6 +385,7 @@ export function useDashboardData(): DashboardData {
         cpu: t("dashboard.meta.cpu"),
         memory: t("dashboard.meta.memory"),
         disk: t("dashboard.meta.disk"),
+        unknown: t("dashboard.meta.unknown"),
       }),
     [statsList, names, t],
   );

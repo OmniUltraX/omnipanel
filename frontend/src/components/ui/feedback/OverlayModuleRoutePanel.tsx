@@ -1,5 +1,9 @@
-import { memo, type ReactNode } from "react";
+import { memo, useSyncExternalStore, type ReactNode } from "react";
 import { SuspendedModulePanel } from "./SuspendedModulePanel";
+import {
+  isOverlayVisuallyActive,
+  subscribeOverlayReveal,
+} from "../../../lib/overlayReveal";
 
 interface OverlayModuleRoutePanelProps {
   active: boolean;
@@ -19,6 +23,9 @@ interface OverlayModuleRoutePanelProps {
 /**
  * dock 模块叠层路由：始终 absolute 铺满，仅切 visibility。
  * memo：路由切换时 active/mounted 未变的模块整树跳过重渲（需配合稳定 children 引用）。
+ *
+ * visibility 以 overlayReveal 的 visualActive 为准：新模块未就绪时继续显示上一个，
+ * 避免内容区闪「加载中…」或启动闪屏。
  */
 export const OverlayModuleRoutePanel = memo(function OverlayModuleRoutePanel({
   active,
@@ -28,11 +35,17 @@ export const OverlayModuleRoutePanel = memo(function OverlayModuleRoutePanel({
   panelId,
   children,
 }: OverlayModuleRoutePanelProps) {
+  const id = panelId ?? "module";
+  const visualActive = useSyncExternalStore(
+    subscribeOverlayReveal,
+    () => isOverlayVisuallyActive(id),
+    () => isOverlayVisuallyActive(id),
+  );
   if (!mounted) return null;
 
   const className = [
     "route-panel route-panel--overlay",
-    active ? "route-panel--active" : "",
+    visualActive ? "route-panel--active" : "",
     keepLayout ? "route-panel--keep-layout" : "",
   ]
     .filter(Boolean)
@@ -41,7 +54,8 @@ export const OverlayModuleRoutePanel = memo(function OverlayModuleRoutePanel({
   return (
     <div className={className}>
       <SuspendedModulePanel
-        active={active}
+        active={active || visualActive}
+        visible={visualActive}
         suspendWhenHidden={suspendWhenHidden}
         panelId={panelId}
       >

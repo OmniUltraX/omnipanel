@@ -19,6 +19,7 @@ import { PluginModuleHost } from "../plugin-module/PluginModuleHost";
 import { ensureBuiltinModulesRegistered } from "./builtinModules";
 import { getModule, listModules } from "./registry";
 import type { ModuleDescriptor, ModuleRegistryId } from "./types";
+import { setOverlayRevealTarget } from "../../lib/overlayReveal";
 
 ensureBuiltinModulesRegistered();
 
@@ -103,6 +104,12 @@ export function ModuleHost({
 
   const dashboard = getModule("dashboard");
   const pluginActiveKey = pluginModuleKeyFromPath(pathname);
+  const activeOverlayId =
+    pluginActiveKey && keptPluginKeys.includes(pluginActiveKey)
+      ? `plugin:${pluginActiveKey}`
+      : overlayDescriptors.find((descriptor) => isPathActive(pathname, descriptor))?.id ??
+        (dashboard && isPathActive(pathname, dashboard) ? "dashboard" : null);
+  setOverlayRevealTarget(activeOverlayId);
 
   return (
     <>
