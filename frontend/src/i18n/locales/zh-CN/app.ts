@@ -90,8 +90,8 @@ export default {
     },
     conflict: {
       mark: "冲突",
-      hint: "同一条记录两边都改过。当前用的是云端那份，旁边这份是本机没被采用的内容。",
-      discard: "丢掉",
+      hint: "同一条记录两边都改过。当前用的是云端那份。丢掉的是没被采用的本机副本，不会删除这条连接。",
+      discard: "丢掉副本",
     },
     splash: {
       loading: "OmniPanel 正在启动",

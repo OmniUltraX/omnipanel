@@ -1067,11 +1067,14 @@ impl SshPool {
         let storage = self.storage.lock().await;
         if let Ok(Some(mut conn)) = storage.get_connection(resource_id) {
             if let Ok(mut config_json) = serde_json::from_str::<serde_json::Value>(&conn.config) {
-                if let Some(public_ip) = &public_ip {
-                    config_json["publicIp"] = serde_json::Value::String(public_ip.clone());
-                } else {
-                    config_json["publicIp"] = serde_json::Value::Null;
+                let next = match &public_ip {
+                    Some(ip) => serde_json::Value::String(ip.clone()),
+                    None => serde_json::Value::Null,
+                };
+                if config_json.get("publicIp") == Some(&next) {
+                    return;
                 }
+                config_json["publicIp"] = next;
                 if let Ok(new_config) = serde_json::to_string(&config_json) {
                     conn.config = new_config;
                     conn.updated_at = SystemTime::now()

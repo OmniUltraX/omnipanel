@@ -740,6 +740,92 @@ fn safe_conflict_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 96 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
+/// 字节不同，但记录实质相同：忽略修改时间和创建设备标记，配置 JSON 只比内容。
+fn records_equivalent(left: &[u8], right: &[u8]) -> bool {
+    if left == right {
+        return true;
+    }
+    let (Ok(left), Ok(right)) = (
+        serde_json::from_slice::<Value>(left),
+        serde_json::from_slice::<Value>(right),
+    ) else {
+        return false;
+    };
+    canonical_record(&left) == canonical_record(&right)
+}
+
+fn canonical_record(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            let mut out = serde_json::Map::new();
+            for key in keys {
+                if is_sync_noise_key(key) {
+                    continue;
+                }
+                out.insert(key.clone(), canonical_record(&map[key]));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(canonical_record).collect()),
+        Value::String(text) => canonical_json_string(text),
+        other => other.clone(),
+    }
+}
+
+fn canonical_json_string(text: &str) -> Value {
+    let trimmed = text.trim();
+    let looks_like_json = (trimmed.starts_with('{') && trimmed.ends_with('}'))
+        || (trimmed.starts_with('[') && trimmed.ends_with(']'));
+    if looks_like_json {
+        if let Ok(nested) = serde_json::from_str::<Value>(trimmed) {
+            if nested.is_object() || nested.is_array() {
+                if let Ok(stable) = serde_json::to_string(&canonical_record(&nested)) {
+                    return Value::String(stable);
+                }
+            }
+        }
+    }
+    Value::String(text.to_string())
+}
+
+fn is_sync_noise_key(key: &str) -> bool {
+    matches!(
+        key,
+        "updatedAt" | "updated_at" | "originDeviceId" | "origin_device_id"
+    )
+}
+
+fn read_conflict_body(root: &Path, id: &str) -> Option<Vec<u8>> {
+    if !safe_conflict_id(id) {
+        return None;
+    }
+    let path = root
+        .join(REPO_DIR)
+        .join("conflicts")
+        .join(format!("{id}.json"));
+    let bytes = std::fs::read(path).ok()?;
+    let record = serde_json::from_slice::<ConflictRecord>(&bytes).ok()?;
+    B64.decode(record.body_b64).ok()
+}
+
+fn prune_equivalent_conflicts(root: &Path, files: &BTreeMap<String, Vec<u8>>) -> OmniResult<()> {
+    let listed = list_space_conflicts(root)?;
+    for item in listed {
+        let Some(current) = files.get(&item.path) else {
+            continue;
+        };
+        let Some(body) = read_conflict_body(root, &item.id) else {
+            continue;
+        };
+        if records_equivalent(&body, current) {
+            delete_space_conflict(root, &item.id)?;
+        }
+    }
+    Ok(())
+}
+
 async fn acquire_lock<R: SpaceRepoRemote + ?Sized>(
     remote: &mut R,
     device_id: &str,
@@ -885,15 +971,20 @@ async fn sync_locked<R: SpaceRepoRemote>(
                         }
                         continue;
                     }
-                    if pick.conflict {
-                        if let Some(body) = files.get(&pick.path).cloned() {
-                            write_conflict(root, &pick.path, &body, now)?;
-                        }
-                        conflicts += 1;
-                    }
                     let mut body = Vec::new();
                     for id in &chunks {
                         body.extend(plaintext_chunk(remote, root, key, id, &mut cache).await?);
+                    }
+                    if pick.conflict {
+                        let cosmetic = files
+                            .get(&pick.path)
+                            .is_some_and(|local_body| records_equivalent(local_body, &body));
+                        if !cosmetic {
+                            if let Some(local_body) = files.get(&pick.path).cloned() {
+                                write_conflict(root, &pick.path, &local_body, now)?;
+                            }
+                            conflicts += 1;
+                        }
                     }
                     files.insert(pick.path, body);
                 }
@@ -901,6 +992,9 @@ async fn sync_locked<R: SpaceRepoRemote>(
         }
         supplement_missing_prefixes(&mut files, legacy, remote_index);
     }
+
+    // 修改时间、创建设备标记、JSON 键序不同不是两边都改过。这类副本不再挂在资源旁边。
+    prune_equivalent_conflicts(root, &files)?;
 
     let built = build_space_repo(root, &files)?;
     let index_id = built.index_id;
@@ -1977,6 +2071,133 @@ mod tests {
         assert_eq!(store.get_connection("a").unwrap().unwrap().name, "from-b");
         let conflict_dir = a_root.path().join(REPO_DIR).join("conflicts");
         assert!(conflict_dir.read_dir().unwrap().next().is_some());
+    }
+
+    #[test]
+    fn records_match_when_only_clock_origin_or_key_order_differ() {
+        let left = br#"{"id":"a","name":"alpha","updatedAt":1,"originDeviceId":"dev-a","config":"{\"host\":\"10.0.0.8\",\"port\":22}"}"#;
+        let right = br#"{"config":"{\"port\":22,\"host\":\"10.0.0.8\"}","originDeviceId":"dev-b","name":"alpha","id":"a","updatedAt":30}"#;
+        assert!(records_equivalent(left, right));
+        let renamed = br#"{"id":"a","name":"beta","updatedAt":1,"config":"{\"host\":\"10.0.0.8\",\"port\":22}"}"#;
+        assert!(!records_equivalent(left, renamed));
+    }
+
+    #[tokio::test]
+    async fn timestamp_and_key_order_are_not_conflicts() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = DirRemote::new(remote_dir.path());
+        let a_root = tempfile::tempdir().unwrap();
+        let a = Storage::open_in_memory().unwrap();
+        let mut left = conn("a", "alpha");
+        left.config = r#"{"host":"10.0.0.8","port":22}"#.into();
+        left.updated_at = 1;
+        a.save_connection(&left).unwrap();
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+
+        let b_root = tempfile::tempdir().unwrap();
+        let b = Storage::open_in_memory().unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        b.apply_space_checkout(b_root.path()).unwrap();
+        let mut from_b = b.get_connection("a").unwrap().unwrap();
+        from_b.updated_at = 20;
+        from_b.config = r#"{"port":22,"host":"10.0.0.8"}"#.into();
+        from_b.origin_device_id = "device-b".into();
+        b.save_connection(&from_b).unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+
+        let mut from_a = a.get_connection("a").unwrap().unwrap();
+        from_a.updated_at = 30;
+        from_a.origin_device_id = "device-a".into();
+        a.save_connection(&from_a).unwrap();
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        let report = sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.conflicts, 0);
+        a.apply_space_checkout(a_root.path()).unwrap();
+        assert_eq!(a.get_connection("a").unwrap().unwrap().name, "alpha");
+        let conflict_dir = a_root.path().join(REPO_DIR).join("conflicts");
+        if conflict_dir.exists() {
+            assert!(conflict_dir.read_dir().unwrap().next().is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn equivalent_conflict_copy_is_dropped_on_next_sync() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = DirRemote::new(remote_dir.path());
+        let root = tempfile::tempdir().unwrap();
+        let store = Storage::open_in_memory().unwrap();
+        store.save_connection(&conn("a", "alpha")).unwrap();
+        store.rebuild_space_repo(root.path()).unwrap();
+        sync_local_repo(
+            root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+
+        let path = root.path().join("space/connections/a.json");
+        let mut value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["updatedAt"] = serde_json::json!(99);
+        value["originDeviceId"] = serde_json::json!("other-device");
+        let body = serde_json::to_vec(&value).unwrap();
+        write_conflict(root.path(), "connections/a.json", &body, 1).unwrap();
+        assert_eq!(list_space_conflicts(root.path()).unwrap().len(), 1);
+
+        let report = sync_local_repo(
+            root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.conflicts, 0);
+        assert!(list_space_conflicts(root.path()).unwrap().is_empty());
     }
 
     #[tokio::test]

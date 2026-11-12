@@ -9,11 +9,11 @@ export function SpaceConflictMark({ path }: { path: string }) {
   const dismiss = useSpaceConflictStore((s) => s.dismiss);
   if (!hit) return null;
   return (
-    <span className="sidebar-tag-chip" title={t("app.conflict.hint")}>
+    <span className="sidebar-tag-chip sidebar-conflict-mark" title={t("app.conflict.hint")}>
       {t("app.conflict.mark")}
       <button
         type="button"
-        className="sidebar-tag-chip"
+        className="sidebar-conflict-mark__drop"
         onClick={(event) => {
           event.stopPropagation();
           void dismiss(hit.id);

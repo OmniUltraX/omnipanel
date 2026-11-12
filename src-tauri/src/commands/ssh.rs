@@ -1734,6 +1734,26 @@ pub struct SshConfigSyncResult {
     pub failures: Vec<SshConfigSyncFailure>,
 }
 
+/// 配置、分组、环境都没变时不要重写。重写会改 `updatedAt`，空间同步会把整表看成冲突。
+fn openssh_import_unchanged(existing: &Connection, config_json: &str) -> bool {
+    existing.group == SSH_CONFIG_SYNC_GROUP
+        && existing.env_tag == "unknown"
+        && json_text_equivalent(&existing.config, config_json)
+}
+
+fn json_text_equivalent(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    match (
+        serde_json::from_str::<serde_json::Value>(left),
+        serde_json::from_str::<serde_json::Value>(right),
+    ) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
 /// 将 `~/.ssh/config` 中的 Host 同步到本地持久化连接存储（按 Host 名称匹配更新）。
 /// `aliases` 非空时仅同步列出的别名；为 `None` 时同步全部。
 #[tauri::command]
@@ -1799,6 +1819,10 @@ pub async fn ssh_sync_config_hosts(
                     OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败")
                         .with_cause(e.to_string())
                 })?;
+                if openssh_import_unchanged(existing_conn, &config_json) {
+                    skipped += 1;
+                    continue;
+                }
                 conn.config = config_json;
                 conn.group = SSH_CONFIG_SYNC_GROUP.to_string();
                 conn.env_tag = "unknown".to_string();
@@ -3107,4 +3131,48 @@ pub async fn sftp_log_tail_stop(
         handle.stop().await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod openssh_import_tests {
+    use super::{SSH_CONFIG_SYNC_GROUP, openssh_import_unchanged};
+    use omnipanel_store::{Connection, ConnectionKind};
+
+    fn host(config: &str, group: &str, env: &str) -> Connection {
+        Connection {
+            id: "c".into(),
+            kind: ConnectionKind::Ssh,
+            name: "box".into(),
+            group: group.into(),
+            env_tag: env.into(),
+            tags: vec![],
+            config: config.into(),
+            credential_ref: None,
+            created_at: 1,
+            updated_at: 9,
+            origin_device_id: String::new(),
+        }
+    }
+
+    #[test]
+    fn unchanged_host_is_not_rewritten() {
+        let existing = host(
+            r#"{"host":"10.0.0.1","port":22}"#,
+            SSH_CONFIG_SYNC_GROUP,
+            "unknown",
+        );
+        assert!(openssh_import_unchanged(
+            &existing,
+            r#"{"port":22,"host":"10.0.0.1"}"#,
+        ));
+    }
+
+    #[test]
+    fn changed_host_is_rewritten() {
+        let existing = host(r#"{"host":"10.0.0.1"}"#, SSH_CONFIG_SYNC_GROUP, "unknown");
+        assert!(!openssh_import_unchanged(
+            &existing,
+            r#"{"host":"10.0.0.2"}"#,
+        ));
+    }
 }

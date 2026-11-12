@@ -69,6 +69,25 @@
     flex-shrink: 0;
 }
 
+.sidebar-conflict-mark {
+    gap: 4px;
+    padding-right: 2px;
+}
+
+.sidebar-conflict-mark__drop {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    padding: 0 4px;
+    cursor: pointer;
+}
+
+.sidebar-conflict-mark__drop:hover {
+    color: var(--accent);
+}
+
 /* 有徽标的段头：标题不撑满，徽标紧跟标题文字（仅影响新规范段头，旧段头无 badge 走原样式）。 */
 .vsplit-sidebar-section__header:has(> .sidebar-count-badge) .vsplit-sidebar-section__title,
 .schema-sidebar-section__header:has(> .sidebar-count-badge) .vsplit-sidebar-section__title {

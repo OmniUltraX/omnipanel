@@ -90,8 +90,8 @@ export default {
     },
     conflict: {
       mark: "Conflict",
-      hint: "Both sides changed this record. The current copy is the cloud one. This is the local copy that was not kept.",
-      discard: "Discard",
+      hint: "Both sides changed this record. The current copy is the cloud one. Drop removes the local copy that was not kept, not the connection.",
+      discard: "Drop copy",
     },
     splash: {
       loading: "Starting OmniPanel",
