@@ -1799,6 +1799,13 @@ pub async fn ssh_sync_config_hosts(
                     OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败")
                         .with_cause(e.to_string())
                 })?;
+                // 配置没变就别改 updated_at。否则每次导入都会让同步以为这条连接两边都改过。
+                if config_json == conn.config
+                    && conn.group == SSH_CONFIG_SYNC_GROUP
+                    && conn.env_tag == "unknown"
+                {
+                    continue;
+                }
                 conn.config = config_json;
                 conn.group = SSH_CONFIG_SYNC_GROUP.to_string();
                 conn.env_tag = "unknown".to_string();

@@ -712,6 +712,11 @@ pub fn list_space_conflicts(root: &Path) -> OmniResult<Vec<SpaceConflict>> {
         let Ok(record) = serde_json::from_slice::<ConflictRecord>(&bytes) else {
             continue;
         };
+        if conflict_matches_current(root, &record) {
+            // 留下的只是更新时间或序列化差异。当前连接就是这份，标记可以去掉。
+            let _ = std::fs::remove_file(entry.path());
+            continue;
+        }
         out.push(SpaceConflict {
             id: id.to_string(),
             path: record.path,
@@ -720,6 +725,107 @@ pub fn list_space_conflicts(root: &Path) -> OmniResult<Vec<SpaceConflict>> {
     }
     out.sort_by(|a, b| b.recorded_at.cmp(&a.recorded_at).then(a.path.cmp(&b.path)));
     Ok(out)
+}
+
+/// 冲突副本和当前检出是不是同一条记录。
+/// 更新时间、字段顺序、空间 id、创建设备不算出两边都改过。
+fn conflict_matches_current(root: &Path, record: &ConflictRecord) -> bool {
+    if !safe_key(&record.path) {
+        return false;
+    }
+    let Ok(current) = std::fs::read(root.join(SPACE_DIR).join(&record.path)) else {
+        return false;
+    };
+    let Ok(saved) = B64.decode(record.body_b64.as_bytes()) else {
+        return false;
+    };
+    records_equivalent(&current, &saved)
+}
+
+fn records_equivalent(left: &[u8], right: &[u8]) -> bool {
+    let Ok(mut left) = serde_json::from_slice::<Value>(left) else {
+        return false;
+    };
+    let Ok(mut right) = serde_json::from_slice::<Value>(right) else {
+        return false;
+    };
+    normalize_record(&mut left);
+    normalize_record(&mut right);
+    left == right
+}
+
+fn normalize_record(value: &mut Value) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                normalize_record(item);
+            }
+        }
+        Value::Object(map) => {
+            for key in [
+                "spaceId",
+                "updatedAt",
+                "updated_at",
+                "originDeviceId",
+                "origin_device_id",
+            ] {
+                map.remove(key);
+            }
+            if let Some(Value::Array(tags)) = map.get_mut("tags") {
+                tags.retain(|tag| {
+                    tag.as_str().is_none_or(|text| {
+                        text.trim()
+                            .get(..7)
+                            .is_none_or(|head| !head.eq_ignore_ascii_case("origin:"))
+                    })
+                });
+            }
+            let keys: Vec<String> = map.keys().cloned().collect();
+            for key in keys {
+                let Some(child) = map.get_mut(&key) else {
+                    continue;
+                };
+                if matches!(key.as_str(), "config" | "state") {
+                    if let Value::String(text) = child {
+                        if let Some(parsed) = parse_embedded_json(text) {
+                            *child = parsed;
+                        }
+                    }
+                }
+                if map.get(&key).is_some_and(is_blank_record) {
+                    map.remove(&key);
+                    continue;
+                }
+                if let Some(child) = map.get_mut(&key) {
+                    normalize_record(child);
+                }
+                if map.get(&key).is_some_and(is_blank_record) {
+                    map.remove(&key);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn parse_embedded_json(text: &str) -> Option<Value> {
+    let trimmed = text.trim();
+    let looks_like_json = (trimmed.starts_with('{') && trimmed.ends_with('}'))
+        || (trimmed.starts_with('[') && trimmed.ends_with(']'));
+    if !looks_like_json {
+        return None;
+    }
+    serde_json::from_str(trimmed).ok()
+}
+
+fn is_blank_record(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(text) if text.is_empty() => true,
+        Value::Array(items) if items.is_empty() => true,
+        Value::Object(map) if map.is_empty() => true,
+        _ => false,
+    }
 }
 
 pub fn delete_space_conflict(root: &Path, id: &str) -> OmniResult<()> {
@@ -885,17 +991,23 @@ async fn sync_locked<R: SpaceRepoRemote>(
                         }
                         continue;
                     }
-                    if pick.conflict {
-                        if let Some(body) = files.get(&pick.path).cloned() {
-                            write_conflict(root, &pick.path, &body, now)?;
-                        }
-                        conflicts += 1;
-                    }
                     let mut body = Vec::new();
                     for id in &chunks {
                         body.extend(plaintext_chunk(remote, root, key, id, &mut cache).await?);
                     }
-                    files.insert(pick.path, body);
+                    if pick.conflict {
+                        if let Some(local_body) = files.get(&pick.path) {
+                            if records_equivalent(local_body, &body) {
+                                // 块 id 变了，记录没变。留本机这份，不盖掉，也不贴冲突。
+                                continue;
+                            }
+                        }
+                        if let Some(local_body) = files.get(&pick.path).cloned() {
+                            write_conflict(root, &pick.path, &local_body, now)?;
+                        }
+                        conflicts += 1;
+                    }
+                    files.insert(pick.path.clone(), body);
                 }
             }
         }
@@ -2094,5 +2206,125 @@ mod tests {
         let fresh = loaded.iter().find(|conn| conn.id == "b").unwrap();
         assert_eq!(fresh.origin_device_id, "dev-new");
         assert!(fresh.tags.is_empty());
+    }
+
+    #[test]
+    fn same_connection_with_a_new_timestamp_is_not_a_different_record() {
+        let local = br#"{"id":"a","name":"p2","config":"{\"host\":\"10.0.0.8\",\"port\":22}","updatedAt":3,"originDeviceId":"dev-a","spaceId":"sp"}"#;
+        let remote = br#"{"spaceId":"other","updatedAt":1,"originDeviceId":"dev-b","name":"p2","id":"a","config":"{\"port\":22,\"host\":\"10.0.0.8\"}"}"#;
+        assert!(records_equivalent(local, remote));
+        assert!(!records_equivalent(
+            br#"{"id":"a","name":"p2","config":"{\"host\":\"10.0.0.8\"}"}"#,
+            br#"{"id":"a","name":"p2","config":"{\"host\":\"10.0.0.9\"}"}"#,
+        ));
+    }
+
+    #[test]
+    fn equivalent_conflict_mark_is_removed_and_a_real_one_stays() {
+        let root = tempfile::tempdir().unwrap();
+        let space = root.path().join(SPACE_DIR).join("connections");
+        std::fs::create_dir_all(&space).unwrap();
+        std::fs::write(
+            space.join("same.json"),
+            b"{\"id\":\"same\",\"name\":\"p2\",\"updatedAt\":2}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            space.join("real.json"),
+            b"{\"id\":\"real\",\"name\":\"cloud\"}\n",
+        )
+        .unwrap();
+        write_conflict(
+            root.path(),
+            "connections/same.json",
+            br#"{"name":"p2","id":"same","updatedAt":9,"originDeviceId":"dev-a"}"#,
+            20,
+        )
+        .unwrap();
+        write_conflict(
+            root.path(),
+            "connections/real.json",
+            br#"{"id":"real","name":"local"}"#,
+            10,
+        )
+        .unwrap();
+        let listed = list_space_conflicts(root.path()).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].path, "connections/real.json");
+    }
+
+    #[tokio::test]
+    async fn timestamp_only_divergence_does_not_replace_the_local_connection() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = DirRemote::new(remote_dir.path());
+        let a_root = tempfile::tempdir().unwrap();
+        let store = Storage::open_in_memory().unwrap();
+        let mut original = conn("a", "one");
+        original.updated_at = 1;
+        store.save_connection(&original).unwrap();
+        store.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+
+        let b_root = tempfile::tempdir().unwrap();
+        let store_b = Storage::open_in_memory().unwrap();
+        store_b.rebuild_space_repo(b_root.path()).unwrap();
+        sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        store_b.apply_space_checkout(b_root.path()).unwrap();
+        let mut from_b = conn("a", "one");
+        from_b.updated_at = 2;
+        store_b.save_connection(&from_b).unwrap();
+        store_b.rebuild_space_repo(b_root.path()).unwrap();
+        sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+
+        let mut from_a = conn("a", "one");
+        from_a.updated_at = 3;
+        store.save_connection(&from_a).unwrap();
+        store.rebuild_space_repo(a_root.path()).unwrap();
+        let report = sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.conflicts, 0);
+        let text =
+            std::fs::read_to_string(a_root.path().join(SPACE_DIR).join("connections/a.json"))
+                .unwrap();
+        assert!(text.contains("\"updatedAt\":3") || text.contains("\"updatedAt\": 3"));
+        assert!(list_space_conflicts(a_root.path()).unwrap().is_empty());
+        store.apply_space_checkout(a_root.path()).unwrap();
+        assert_eq!(store.get_connection("a").unwrap().unwrap().name, "one");
+        assert_eq!(store.get_connection("a").unwrap().unwrap().updated_at, 3);
     }
 }

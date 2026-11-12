@@ -6281,6 +6281,7 @@ dependencies = [
  "specta-typescript",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
  "x25519-dalek 2.0.1",
  "zeroize",
