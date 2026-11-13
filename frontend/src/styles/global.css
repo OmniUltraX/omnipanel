@@ -10576,6 +10576,10 @@ button.omni-btn-tool[aria-pressed="true"] {
         background: var(--warn);
     }
 
+    .statusbar-chip__pulse--danger {
+        background: var(--danger);
+    }
+
     .statusbar-chip--muted {
         color: var(--meta);
     }
@@ -28470,6 +28474,13 @@ body.omnipanel-cross-window-drag-visual-active .workspace-panel-dock .dockable-w
 
 .space-sync__footer .space-sync__note {
     margin: 0;
+}
+
+.space-sync__footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
 }
 
 .space-sync__shares-head {

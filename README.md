@@ -83,7 +83,7 @@ state persists across restarts. See [docs/plugins](./docs/plugins/README.md).
 | **Module plugins** | Nacos (download-only): namespace switch, service online/offline, resizable split, Ctrl+F config search |
 | **Sync security** | Team `sync_key_v2` + online-device key relay; import `.omnipanel-sync.key` when no peer; assistant bind v2 encrypted QR |
 | **Presence guard** | Dangerous ops require Windows Hello / Touch ID or short-lived type-issued token; consumed once per action across DB / Docker / cloud / SSH |
-| **Space sync** | Use a local personal space without signing in; after login, machines merge one cloud repo. Teams can switch to their own S3; keys stay on the machine |
+| **Space sync** | Use a local personal space without signing in; after login, machines merge one cloud repo. When both sides change one record, the file stays on the cloud copy and the local copy can be compared on that machine. Teams can switch to their own S3; keys stay on the machine |
 | **Database** | Edit query results in place (incl. JOIN when columns map uniquely to a base table with PKs present); ▶ inside a DB chip runs that library only; point a statement at its own connection and database |
 | **Panel apps** | BT installed apps show version/port; MySQL / Redis one-click manage params |
 | **Quick Launcher** | In-panel Ask AI (stream + Markdown); ask history with favorites; scene model chip synced from settings |
@@ -221,7 +221,7 @@ P0 covers the local terminal path (`create_terminal` / `write_terminal` / `resiz
 
 ### Docker
 
-Docker Web 0.8.59 ships with desktop `v0.8.59` (tracking tag `docker-v0.8.59`). It does not modify the already published desktop `v0.8.57` / `v0.8.58` tags/assets, `docker-v0.8.57` / `docker-v0.8.58`, or image tags `0.8.57` / `0.8.58`. Use the exact image version after its Docker workflow succeeds, or build locally as below. Existing deployments must rotate their API key; socket access is opt-in and headless credential fallback files are plaintext with mode 0600:
+Docker Web 0.8.60 ships with desktop `v0.8.60` (tracking tag `docker-v0.8.60`). It does not modify the already published desktop `v0.8.57` / `v0.8.58` / `v0.8.59` tags/assets, `docker-v0.8.57` / `docker-v0.8.58` / `docker-v0.8.59`, or image tags `0.8.57` / `0.8.58` / `0.8.59`. Use the exact image version after its Docker workflow succeeds, or build locally as below. Existing deployments must rotate their API key; socket access is opt-in and headless credential fallback files are plaintext with mode 0600:
 
 ```bash
 docker build -f deploy/docker/Dockerfile -t omnipanel-web:local .

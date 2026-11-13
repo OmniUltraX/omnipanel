@@ -23,6 +23,7 @@ import { StatusBarServicesIndicator } from "./StatusBarServicesIndicator";
 import { StatusBarActionBar } from "./StatusBarActionBar";
 import { StatusBarInfoBar } from "./StatusBarInfoBar";
 import { useActionDraftStore } from "../../stores/actionDraftStore";
+import { useSpaceConflictStore } from "../../stores/spaceConflictStore";
 import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
 import {
   Dialog,
@@ -66,6 +67,30 @@ function StatusBarApprovalBadge() {
       onKeyDown={handleKeyDown}
     >
       <span className="statusbar-chip__pulse statusbar-chip__pulse--warn" aria-hidden />
+      <span className="statusbar-chip__label">{message}</span>
+    </button>
+  );
+}
+
+/** 有同步冲突时才出现，点开和用户中心同一张总览。 */
+function StatusBarConflictBadge() {
+  const { t } = useI18n();
+  const count = useSpaceConflictStore((s) => s.items.length);
+  const openOverview = useSpaceConflictStore((s) => s.openOverview);
+
+  if (count <= 0) return null;
+
+  const message = t("app.conflict.badge", { count });
+
+  return (
+    <button
+      type="button"
+      className="statusbar-chip statusbar-chip--danger"
+      title={t("app.conflict.hint")}
+      aria-label={message}
+      onClick={openOverview}
+    >
+      <span className="statusbar-chip__pulse statusbar-chip__pulse--danger" aria-hidden />
       <span className="statusbar-chip__label">{message}</span>
     </button>
   );
@@ -357,6 +382,7 @@ export function StatusBar() {
       <div className="statusbar-left">
         <ConnectionPoolIndicator />
         <StatusBarApprovalBadge />
+        <StatusBarConflictBadge />
         <StatusBarBackgroundTaskLog />
         <StatusBarModuleLog />
         {terminalState ? <span className="statusbar-meta">{terminalState}</span> : null}

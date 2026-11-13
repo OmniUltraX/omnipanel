@@ -76,6 +76,10 @@ export const commands = {
 	localSpaceListConflicts: () => typedError<SpaceConflict[], OmniError_Serialize>(__TAURI_INVOKE("local_space_list_conflicts")),
 	/**  丢掉一份冲突记录。当前资源不动。 */
 	localSpaceDeleteConflict: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_space_delete_conflict", { id })),
+	/**  当前检出和本机没被采用的那一份。 */
+	localSpaceReadConflict: (id: string) => typedError<SpaceConflictView, OmniError_Serialize>(__TAURI_INVOKE("local_space_read_conflict", { id })),
+	/**  改用本机没被采用的那一份。 */
+	localSpaceRestoreConflict: (id: string) => typedError<null, OmniError_Serialize>(__TAURI_INVOKE("local_space_restore_conflict", { id })),
 	/**  先把现有仓库抄进自己的桶，写上 refs/latest 之后才改账号上的存储位置。 */
 	localSpaceStorageCopy: (token: string, teamId: number) => typedError<SpaceStorageSettings, OmniError_Serialize>(__TAURI_INVOKE("local_space_storage_copy", { token, teamId })),
 	/**  删除自己桶里的空间对象。官方桶没有删除接口。 */
@@ -6322,6 +6326,14 @@ export type SpaceConflict = {
 	id: string,
 	path: string,
 	recordedAt: number,
+};
+
+export type SpaceConflictView = {
+	id: string,
+	path: string,
+	recordedAt: number,
+	saved: string,
+	current: string,
 };
 
 export type SpaceSyncRequest = {

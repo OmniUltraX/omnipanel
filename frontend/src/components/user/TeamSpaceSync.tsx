@@ -9,6 +9,7 @@ import {
   subscribeSpaceSyncPrefs,
   type SpaceSyncCatchup,
 } from "../../modules/clientSync/spaceSyncPrefs";
+import { useSpaceConflictStore } from "../../stores/spaceConflictStore";
 import { showToast } from "../../stores/toastStore";
 import { WorkbenchActionButton } from "../ui/primitives";
 
@@ -33,6 +34,8 @@ export function TeamSpaceSync({
   const prefs = useSyncExternalStore(subscribeSpaceSyncPrefs, getSpaceSyncPrefs, getSpaceSyncPrefs);
   const lastAt = useSyncExternalStore(subscribeSpaceSyncPrefs, spaceSyncLastAt, spaceSyncLastAt);
   const syncing = useSyncExternalStore(subscribeSyncing, getSyncing, getSyncing);
+  const conflictCount = useSpaceConflictStore((s) => s.items.length);
+  const openOverview = useSpaceConflictStore((s) => s.openOverview);
 
   const syncNow = useCallback(async () => {
     if (!token.trim() || teamId <= 0 || getSyncing()) return;
@@ -119,9 +122,16 @@ export function TeamSpaceSync({
               ? t("userCenter.teams.syncLast", { time: formatLast(lastAt) })
               : t("userCenter.teams.syncLastNever")}
           </p>
-          <WorkbenchActionButton onClick={() => void syncNow()} disabled={syncing || !token.trim() || teamId <= 0}>
-            {syncing ? t("userCenter.teams.syncNowBusy") : t("userCenter.teams.syncNow")}
-          </WorkbenchActionButton>
+          <div className="space-sync__footer-actions">
+            {conflictCount > 0 ? (
+              <WorkbenchActionButton onClick={openOverview}>
+                {t("app.conflict.badge", { count: conflictCount })}
+              </WorkbenchActionButton>
+            ) : null}
+            <WorkbenchActionButton onClick={() => void syncNow()} disabled={syncing || !token.trim() || teamId <= 0}>
+              {syncing ? t("userCenter.teams.syncNowBusy") : t("userCenter.teams.syncNow")}
+            </WorkbenchActionButton>
+          </div>
         </div>
       </div>
     </section>

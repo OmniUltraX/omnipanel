@@ -1,34 +1,38 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n";
 import { useSpaceConflictStore } from "../../stores/spaceConflictStore";
+import { SpaceConflictCompare } from "./SpaceConflictCompare";
+import { SpaceConflictOverview } from "./SpaceConflictOverview";
+import "./SpaceConflictMark.css";
 
-/** 冲突副本贴在资源旁边。丢掉的是本机没被采用的那一份，当前资源不动。 */
+/** 资源旁边只留一颗红色「冲突」，点开对比。批量处理在总览里。 */
 export function SpaceConflictMark({ path }: { path: string }) {
   const { t } = useI18n();
   const hit = useSpaceConflictStore((s) => s.byPath[path]);
-  const dismiss = useSpaceConflictStore((s) => s.dismiss);
+  const [open, setOpen] = useState(false);
   if (!hit) return null;
   return (
-    <span className="sidebar-tag-chip" title={t("app.conflict.hint")}>
-      {t("app.conflict.mark")}
+    <span className="space-conflict-mark" title={t("app.conflict.hint")}>
       <button
         type="button"
-        className="sidebar-tag-chip"
+        className="sidebar-tag-chip space-conflict-mark__open"
         onClick={(event) => {
           event.stopPropagation();
-          void dismiss(hit.id);
+          setOpen(true);
         }}
       >
-        {t("app.conflict.discard")}
+        {t("app.conflict.mark")}
       </button>
+      {open ? <SpaceConflictCompare id={hit.id} onClose={() => setOpen(false)} /> : null}
     </span>
   );
 }
 
 export function SpaceConflictHost() {
   const refresh = useSpaceConflictStore((s) => s.refresh);
+  const overviewOpen = useSpaceConflictStore((s) => s.overviewOpen);
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  return null;
+  return overviewOpen ? <SpaceConflictOverview /> : null;
 }

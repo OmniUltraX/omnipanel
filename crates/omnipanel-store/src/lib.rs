@@ -167,10 +167,10 @@ pub use space_repo::{
     split_chunks, stage_plugin_packs,
 };
 pub use space_sync::{
-    LayoutInput, SpaceConflict, SpaceRepoRemote, SpaceSyncReport, SpaceSyncRequest,
-    apply_database_files, attach_layouts, delete_space_conflict, layout_files,
-    legacy_conversation_files, legacy_module_files, list_space_conflicts, open_bytes, seal_bytes,
-    sync_local_repo,
+    LayoutInput, SpaceConflict, SpaceConflictView, SpaceRepoRemote, SpaceSyncReport,
+    SpaceSyncRequest, apply_database_files, attach_layouts, delete_space_conflict, layout_files,
+    legacy_conversation_files, legacy_module_files, list_space_conflicts, open_bytes,
+    read_space_conflict, restore_space_conflict, seal_bytes, sync_local_repo,
 };
 pub use sql_exec_log::{
     SqlExecAppend, SqlExecListFilter, SqlExecRecord, SqlExecResultPage, append_sql_execution,
@@ -202,8 +202,8 @@ pub use sync_master_key::{
 pub use sync_team_key::{
     SYNC_TEAM_KEY_BYTES, SYNC_TEAM_KEY_EXPORT_VERSION, SYNC_TEAM_KEY_FILE_EXT,
     SyncTeamKeyExportFile, clear_sync_team_key, export_sync_team_key_json, generate_sync_team_key,
-    get_or_create_sync_team_key, import_sync_team_key_json, load_sync_team_key,
-    store_sync_team_key, sync_team_key_fingerprint,
+    get_or_create_sync_team_key, import_sync_team_key_json, load_space_key_for_sync,
+    load_sync_team_key, store_sync_team_key, sync_team_key_fingerprint,
 };
 pub use tag::{
     CREATOR_TAG_KEY, ORIGIN_TAG_KEY, ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode,

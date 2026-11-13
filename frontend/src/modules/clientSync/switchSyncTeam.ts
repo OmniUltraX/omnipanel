@@ -1,6 +1,4 @@
 import { applyLocalTeamScope } from "../../lib/applyLocalTeamScope";
-import { commands } from "../../ipc/bindings";
-import { unwrapCommand } from "../../ipc/result";
 import { useAuthStore } from "../../stores/authStore";
 import { useAiStore, type AiConversation } from "../../stores/aiStore";
 import { useWorkspaceStore, type WorkspaceInfo } from "../../stores/workspaceStore";
@@ -20,6 +18,7 @@ import {
   flushClientModuleSync,
   setClientModuleSyncSuppressed,
 } from "./moduleSync";
+import { invokeLocalSpaceSync } from "./invokeLocalSpaceSync";
 import { withSpaceSyncTask } from "./spaceSyncBackgroundTask";
 import { CLOUD_PULL_DISABLED } from "./syncFlags";
 import { schedulePluginEnsure } from "../../lib/pluginEnsure";
@@ -196,15 +195,15 @@ export async function switchSyncTeam(
       await withSpaceSyncTask(
         "pull",
         async () => {
-          const modulesResult = await unwrapCommand(
-            commands.localSpaceSync({
+          const modulesResult = await invokeLocalSpaceSync(
+            {
               token,
               teamId,
               sshSidebarTreeJson: null,
               folderTreesJson: null,
               customPanelsJson: null,
               workspacesJson: null,
-            }),
+            },
             { quiet: true },
           );
           if (!modulesResult.skipped) {

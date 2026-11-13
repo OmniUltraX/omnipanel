@@ -8,6 +8,7 @@ import {
   type TeamSyncPushModulesResult,
 } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
+import { invokeLocalSpaceSync } from "../../modules/clientSync/invokeLocalSpaceSync";
 import { CLOUD_PULL_DISABLED } from "../../modules/clientSync/syncFlags";
 import { collectModulesSyncPayload } from "../../modules/clientSync/prepareModulesSyncPayload";
 import { applySpaceSyncReport } from "../../modules/clientSync/pullCloudSnapshot";
@@ -49,17 +50,15 @@ export async function pushTeamModules(
     "push",
     async () => {
       const payload = await collectModulesSyncPayload();
-      const report = await unwrapCommand(
-        commands.localSpaceSync({
-          token,
-          teamId,
-          sshSidebarTreeJson: payload.sshSidebarTreeJson,
-          folderTreesJson: payload.folderTreesJson,
-          customPanelsJson: payload.customPanelsJson,
-          workspacesJson: payload.workspacesJson,
-          conversationsJson: payload.conversationsJson,
-        }),
-      );
+      const report = await invokeLocalSpaceSync({
+        token,
+        teamId,
+        sshSidebarTreeJson: payload.sshSidebarTreeJson,
+        folderTreesJson: payload.folderTreesJson,
+        customPanelsJson: payload.customPanelsJson,
+        workspacesJson: payload.workspacesJson,
+        conversationsJson: payload.conversationsJson,
+      });
       await applySpaceSyncReport(report);
       noteSpaceSyncFinished();
       return {
@@ -85,17 +84,15 @@ export async function pullTeamModules(
     "pull",
     async () => {
       const payload = await collectModulesSyncPayload();
-      const report = await unwrapCommand(
-        commands.localSpaceSync({
-          token,
-          teamId,
-          sshSidebarTreeJson: payload.sshSidebarTreeJson,
-          folderTreesJson: payload.folderTreesJson,
-          customPanelsJson: payload.customPanelsJson,
-          workspacesJson: payload.workspacesJson,
-          conversationsJson: payload.conversationsJson,
-        }),
-      );
+      const report = await invokeLocalSpaceSync({
+        token,
+        teamId,
+        sshSidebarTreeJson: payload.sshSidebarTreeJson,
+        folderTreesJson: payload.folderTreesJson,
+        customPanelsJson: payload.customPanelsJson,
+        workspacesJson: payload.workspacesJson,
+        conversationsJson: payload.conversationsJson,
+      });
       await applySpaceSyncReport(report);
       noteSpaceSyncFinished();
       return {

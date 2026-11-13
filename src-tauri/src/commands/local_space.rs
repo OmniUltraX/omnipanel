@@ -8,13 +8,13 @@ use omnipanel_assistant::{
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
     LayoutInput, LocalSpaceRecord, LocalSpaceStatus, SYNC_KIND_CONVERSATIONS, SYNC_KIND_MODULES,
-    SpaceClaimChoice, SpaceClaimStatus, SpaceConflict, SpaceRepoReport, SpaceStorageInput,
-    SpaceStorageSettings, SpaceSyncReport, SpaceSyncRequest, active_team_scope, ai_providers_path,
-    apply_database_files, attach_layouts, copy_team_dir_if_absent, database_connections_path,
-    delete_space_conflict, desktop_plugin_dirs, get_or_create_sync_team_key,
-    http_proxy_config_path, layout_files, legacy_conversation_files, legacy_module_files,
-    list_space_conflicts, restore_plugin_packs, stage_plugin_packs, team_data_dir,
-    web_search_config_path,
+    SpaceClaimChoice, SpaceClaimStatus, SpaceConflict, SpaceConflictView, SpaceRepoReport,
+    SpaceStorageInput, SpaceStorageSettings, SpaceSyncReport, SpaceSyncRequest, active_team_scope,
+    ai_providers_path, apply_database_files, attach_layouts, copy_team_dir_if_absent,
+    database_connections_path, delete_space_conflict, desktop_plugin_dirs, http_proxy_config_path,
+    layout_files, legacy_conversation_files, legacy_module_files, list_space_conflicts,
+    load_space_key_for_sync, read_space_conflict, restore_plugin_packs, restore_space_conflict,
+    stage_plugin_packs, team_data_dir, web_search_config_path,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -111,9 +111,10 @@ async fn run_local_space_sync(
     let team = resolve_sync_team(request.team_id, &me)?;
     let team_id = team.id;
     let auth = build_auth_context(state, &request.token, &identity.device_id).await?;
-    let (key, _) = get_or_create_sync_team_key(team_id)?;
+    let remote_has_repo = team_repo_has_index(&auth, team_id).await.unwrap_or(false);
+    let key = load_space_key_for_sync(team_id, remote_has_repo)?;
     adopt_remote_location(state, &auth, team_id, &key).await;
-    let mut legacy = if team_repo_has_index(&auth, team_id).await.unwrap_or(false) {
+    let mut legacy = if remote_has_repo {
         BTreeMap::new()
     } else {
         load_legacy_modules(&auth, &me, team).await
@@ -379,6 +380,32 @@ pub async fn local_space_delete_conflict(id: String) -> Result<(), OmniError> {
     delete_space_conflict(&team_data_dir()?, &id)
 }
 
+/// 当前检出和本机没被采用的那一份，供对比。
+#[tauri::command]
+#[specta::specta]
+pub async fn local_space_read_conflict(id: String) -> Result<SpaceConflictView, OmniError> {
+    read_space_conflict(&team_data_dir()?, &id)
+}
+
+/// 改用本机没被采用的那一份，并写回当前资源。
+#[tauri::command]
+#[specta::specta]
+pub async fn local_space_restore_conflict(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), OmniError> {
+    let root = team_data_dir()?;
+    restore_space_conflict(&root, &id)?;
+    {
+        let storage = state.storage.lock().await;
+        storage.apply_space_checkout(&root)?;
+    }
+    if let Ok(path) = database_connections_path() {
+        let _ = apply_database_files(&root, &path);
+    }
+    Ok(())
+}
+
 /// 先把现有仓库抄进自己的桶，确认 `refs/latest` 写上之后才改账号上的存储位置。
 #[tauri::command]
 #[specta::specta]
@@ -418,7 +445,7 @@ pub async fn local_space_storage_copy(
     }
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
-    let (key, _) = get_or_create_sync_team_key(team_id)?;
+    let key = load_space_key_for_sync(team_id, true)?;
     sync_s3_space(
         &settings.endpoint,
         &settings.bucket,

@@ -1,5 +1,6 @@
 import {
   lazy,
+  useLayoutEffect,
   useMemo,
   type LazyExoticComponent,
   type ReactElement,
@@ -109,7 +110,9 @@ export function ModuleHost({
       ? `plugin:${pluginActiveKey}`
       : overlayDescriptors.find((descriptor) => isPathActive(pathname, descriptor))?.id ??
         (dashboard && isPathActive(pathname, dashboard) ? "dashboard" : null);
-  setOverlayRevealTarget(activeOverlayId);
+  useLayoutEffect(() => {
+    setOverlayRevealTarget(activeOverlayId);
+  }, [activeOverlayId]);
 
   return (
     <>

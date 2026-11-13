@@ -1,4 +1,5 @@
 import { commands } from "../../ipc/bindings";
+import { invokeLocalSpaceSync } from "./invokeLocalSpaceSync";
 import { unwrapCommand } from "../../ipc/result";
 import { syncAuthProfile } from "../../lib/auth/syncAuthProfile";
 import { runDeviceTagMigration } from "../../lib/deviceTagMigration";
@@ -280,12 +281,12 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
   let result: PullCloudSnapshotResult = empty;
   beginSpaceSyncTask("pull");
   try {
-    const modulesResult = await unwrapCommand(
-      commands.localSpaceSync({
+    const modulesResult = await invokeLocalSpaceSync(
+      {
         token,
         teamId: claimed.teamId,
         ...(await collectModulesSyncPayload()),
-      }),
+      },
       { quiet: true },
     );
     modulesFound = !modulesResult.skipped;
@@ -333,6 +334,9 @@ export async function pullCloudSnapshot(): Promise<PullCloudSnapshotResult> {
     setClientModuleSyncSuppressed(false);
     setClientConversationSyncSuppressed(false);
     setSecretsVaultSyncSuppressed(false);
+    void import("../../stores/spaceConflictStore").then((mod) =>
+      mod.useSpaceConflictStore.getState().refresh(),
+    );
   }
 
   // 拉取结束后迁移设备标签（清掉旧设备名标签并补 creator），再考虑回写，保证推送的是干净标签

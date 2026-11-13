@@ -4475,6 +4475,14 @@ pub async fn dispatch(
             let id = get_str(&args, "id").unwrap_or_default();
             respond_omni(crate::store_ext::local_space_delete_conflict(id).await)
         }
+        "local_space_read_conflict" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond_omni(crate::store_ext::local_space_read_conflict(id).await)
+        }
+        "local_space_restore_conflict" => {
+            let id = get_str(&args, "id").unwrap_or_default();
+            respond_omni(crate::store_ext::local_space_restore_conflict(state, id).await)
+        }
         "sync_master_key_status" => respond_omni(crate::store_ext::sync_master_key_status().await),
         "sync_master_key_get_or_create" => {
             respond_omni(crate::store_ext::sync_master_key_get_or_create().await)

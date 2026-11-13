@@ -15,14 +15,15 @@ use omnipanel_store::{
     AuditEntry, ConnectionKind, LayoutInput, LocalSpaceRecord, LocalSpaceStatus, MasterKey,
     SYNC_KIND_CONVERSATIONS, SYNC_KIND_MODULES, SaveTaskRequest, SecretsVaultEntry,
     SecretsVaultEnvelope, SecretsVaultPlaintext, SpaceClaimChoice, SpaceClaimStatus, SpaceConflict,
-    SpaceRepoReport, SpaceStorageInput, SpaceStorageSettings, SpaceSyncReport, SpaceSyncRequest,
-    Task, TaskStatus, ThirdPartyAccount, UpsertThirdPartyAccountInput, Vault, active_team_scope,
-    ai_providers_path, apply_database_files, attach_layouts, copy_team_dir_if_absent,
-    database_connections_path, decode_salt_b64, decrypt_vault, delete_space_conflict,
-    derive_master_key, desktop_plugin_dirs, encrypt_vault_with_salt, generate_salt,
-    get_or_create_sync_team_key, http_proxy_config_path, layout_files, legacy_conversation_files,
-    legacy_module_files, list_space_conflicts, restore_plugin_packs, stage_plugin_packs,
-    team_data_dir, web_search_config_path,
+    SpaceConflictView, SpaceRepoReport, SpaceStorageInput, SpaceStorageSettings, SpaceSyncReport,
+    SpaceSyncRequest, Task, TaskStatus, ThirdPartyAccount, UpsertThirdPartyAccountInput, Vault,
+    active_team_scope, ai_providers_path, apply_database_files, attach_layouts,
+    copy_team_dir_if_absent, database_connections_path, decode_salt_b64, decrypt_vault,
+    delete_space_conflict, derive_master_key, desktop_plugin_dirs, encrypt_vault_with_salt,
+    generate_salt, http_proxy_config_path, layout_files, legacy_conversation_files,
+    legacy_module_files, list_space_conflicts, load_space_key_for_sync, read_space_conflict,
+    restore_plugin_packs, restore_space_conflict, stage_plugin_packs, team_data_dir,
+    web_search_config_path,
 };
 
 use crate::assistant_cmds::build_auth_context;
@@ -812,7 +813,8 @@ pub async fn local_space_sync(
     let team = resolve_sync_team(request.team_id, &me)?;
     let team_id = team.id;
     let auth = build_auth_context(&request.token, &identity.device_id).await?;
-    let (key, _) = get_or_create_sync_team_key(team_id)?;
+    let remote_has_repo = team_repo_has_index(&auth, team_id).await.unwrap_or(false);
+    let key = load_space_key_for_sync(team_id, remote_has_repo)?;
     if let Ok(Some((location, Some((access_key_id, secret))))) =
         fetch_space_location(&auth, team_id, &key).await
     {
@@ -829,7 +831,7 @@ pub async fn local_space_sync(
             );
         }
     }
-    let mut legacy = if team_repo_has_index(&auth, team_id).await.unwrap_or(false) {
+    let mut legacy = if remote_has_repo {
         BTreeMap::new()
     } else {
         match pull_team_sync_json(&auth, team_id, TEAM_MODULES_LATEST_LEAF).await {
@@ -1029,7 +1031,7 @@ pub async fn local_space_storage_copy(
     }
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&token, &identity.device_id).await?;
-    let (key, _) = get_or_create_sync_team_key(team_id)?;
+    let key = load_space_key_for_sync(team_id, true)?;
     sync_s3_space(
         &settings.endpoint,
         &settings.bucket,
@@ -1095,6 +1097,26 @@ pub async fn local_space_list_conflicts() -> Result<Vec<SpaceConflict>, OmniErro
 
 pub async fn local_space_delete_conflict(id: String) -> Result<(), OmniError> {
     delete_space_conflict(&team_data_dir()?, &id)
+}
+
+pub async fn local_space_read_conflict(id: String) -> Result<SpaceConflictView, OmniError> {
+    read_space_conflict(&team_data_dir()?, &id)
+}
+
+pub async fn local_space_restore_conflict(
+    state: &ServerState,
+    id: String,
+) -> Result<(), OmniError> {
+    let root = team_data_dir()?;
+    restore_space_conflict(&root, &id)?;
+    {
+        let storage = state.storage.lock().await;
+        storage.apply_space_checkout(&root)?;
+    }
+    if let Ok(path) = database_connections_path() {
+        let _ = apply_database_files(&root, &path);
+    }
+    Ok(())
 }
 
 pub async fn write_text_file(path: String, contents: String) -> Result<String, String> {

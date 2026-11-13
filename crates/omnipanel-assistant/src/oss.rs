@@ -220,6 +220,23 @@ pub async fn get_object_bytes_optional(
     }
 }
 
+/// 删掉对象。不存在也算成功。官方桶若没有删除权限，调用方自行忽略错误。
+pub async fn delete_object_bytes(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+) -> OmniResult<()> {
+    let key = strip_bucket_prefix(object_key, &sts.bucket);
+    if key.is_empty() {
+        return Err(map_assistant_error_with_cause(
+            AssistantErrorKind::Upload,
+            "OSS object key 为空",
+            object_key.to_string(),
+        ));
+    }
+    delete_s3_sig_v4(http, sts, &key).await
+}
+
 /// 只问对象在不在，不把密文下回来。
 pub async fn object_exists(
     http: &Client,
@@ -448,6 +465,77 @@ async fn head_s3_sig_v4(
         ));
     }
     Ok(true)
+}
+
+async fn delete_s3_sig_v4(
+    http: &Client,
+    sts: &OssStsCredentials,
+    object_key: &str,
+) -> OmniResult<()> {
+    let key = object_key.trim_start_matches('/');
+    let (url, canonical_uri) = put_target(sts, key);
+    let host = host_from_endpoint(&sts.endpoint)?;
+
+    let now = Utc::now();
+    let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let date_stamp = now.format("%Y%m%d").to_string();
+    let payload_hash = EMPTY_PAYLOAD_HASH;
+    let token = sts.security_token();
+
+    let (canonical_headers, signed_headers) = if let Some(tok) = token {
+        (
+            format!(
+                "host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\nx-amz-security-token:{tok}\n"
+            ),
+            "host;x-amz-content-sha256;x-amz-date;x-amz-security-token",
+        )
+    } else {
+        (
+            format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"),
+            "host;x-amz-content-sha256;x-amz-date",
+        )
+    };
+
+    let canonical_request =
+        format!("DELETE\n{canonical_uri}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
+    let canonical_hash = hex::encode(Sha256::digest(canonical_request.as_bytes()));
+    let credential_scope = format!("{date_stamp}/{}/s3/aws4_request", sts.region);
+    let string_to_sign =
+        format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
+    let signing_key = signing_key(&sts.access_key_secret, &date_stamp, &sts.region, "s3")?;
+    let signature = hex::encode(hmac_sha256(&signing_key, string_to_sign.as_bytes())?);
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}",
+        sts.access_key_id
+    );
+
+    let mut req = http
+        .delete(&url)
+        .header("Host", &host)
+        .header("x-amz-content-sha256", payload_hash)
+        .header("x-amz-date", &amz_date)
+        .header("Authorization", authorization);
+    if let Some(tok) = token {
+        req = req.header("x-amz-security-token", tok);
+    }
+
+    let resp = req.send().await.map_err(|e| {
+        map_assistant_error_with_cause(
+            AssistantErrorKind::Upload,
+            "OSS 删除对象失败",
+            e.to_string(),
+        )
+    })?;
+    let status = resp.status();
+    if status.as_u16() == 404 || status.is_success() {
+        return Ok(());
+    }
+    let text = resp.text().await.unwrap_or_default();
+    Err(map_assistant_error_with_cause(
+        AssistantErrorKind::Upload,
+        format!("OSS 删除对象失败 (HTTP {})", status.as_u16()),
+        text,
+    ))
 }
 
 async fn get_s3_sig_v4(

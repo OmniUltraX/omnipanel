@@ -504,7 +504,7 @@ pub fn open_bytes(key: &[u8; 32], blob: &[u8]) -> OmniResult<Vec<u8>> {
         .map_err(|err| OmniError::new(ErrorCode::Internal, err.to_string()))?;
     cipher
         .decrypt(Nonce::from_slice(nonce), ciphertext)
-        .map_err(|_| OmniError::new(ErrorCode::Auth, "解开空间块失败"))
+        .map_err(|_| OmniError::new(ErrorCode::Auth, "解开空间块失败，本机密钥和云端数据对不上"))
 }
 
 fn chunks_of(index: Option<&SpaceRepoIndex>, path: &str) -> Option<Vec<String>> {
@@ -720,6 +720,76 @@ pub fn list_space_conflicts(root: &Path) -> OmniResult<Vec<SpaceConflict>> {
     }
     out.sort_by(|a, b| b.recorded_at.cmp(&a.recorded_at).then(a.path.cmp(&b.path)));
     Ok(out)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceConflictView {
+    pub id: String,
+    pub path: String,
+    #[specta(type = f64)]
+    pub recorded_at: i64,
+    /// 本机没被采用的正文。
+    pub saved: String,
+    /// 当前检出里的正文。没有文件时为空。
+    pub current: String,
+}
+
+fn read_conflict_record(root: &Path, id: &str) -> OmniResult<(String, ConflictRecord)> {
+    if !safe_conflict_id(id) {
+        return Err(OmniError::invalid_input("冲突记录 id 无效"));
+    }
+    let path = root
+        .join(REPO_DIR)
+        .join("conflicts")
+        .join(format!("{id}.json"));
+    let bytes =
+        std::fs::read(&path).map_err(|_| OmniError::new(ErrorCode::NotFound, "冲突记录不存在"))?;
+    let record = serde_json::from_slice::<ConflictRecord>(&bytes)
+        .map_err(|err| OmniError::new(ErrorCode::Storage, err.to_string()))?;
+    Ok((id.to_string(), record))
+}
+
+fn decode_conflict_body(record: &ConflictRecord) -> OmniResult<Vec<u8>> {
+    B64.decode(record.body_b64.trim()).map_err(|err| {
+        OmniError::new(ErrorCode::Storage, "冲突正文无法解码").with_cause(err.to_string())
+    })
+}
+
+pub fn read_space_conflict(root: &Path, id: &str) -> OmniResult<SpaceConflictView> {
+    let (id, record) = read_conflict_record(root, id)?;
+    let saved = String::from_utf8_lossy(&decode_conflict_body(&record)?).into_owned();
+    let current = if safe_key(&record.path) {
+        std::fs::read(root.join(SPACE_DIR).join(&record.path))
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Ok(SpaceConflictView {
+        id,
+        path: record.path,
+        recorded_at: record.recorded_at,
+        saved,
+        current,
+    })
+}
+
+/// 把没被采用的正文写回检出，并删掉冲突记录。
+pub fn restore_space_conflict(root: &Path, id: &str) -> OmniResult<String> {
+    let (id, record) = read_conflict_record(root, id)?;
+    if !safe_key(&record.path) {
+        return Err(OmniError::invalid_input("冲突路径无效"));
+    }
+    let body = decode_conflict_body(&record)?;
+    let file = root.join(SPACE_DIR).join(&record.path);
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?;
+    }
+    std::fs::write(&file, body).map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?;
+    delete_space_conflict(root, &id)?;
+    Ok(record.path)
 }
 
 pub fn delete_space_conflict(root: &Path, id: &str) -> OmniResult<()> {
@@ -2094,5 +2164,33 @@ mod tests {
         let fresh = loaded.iter().find(|conn| conn.id == "b").unwrap();
         assert_eq!(fresh.origin_device_id, "dev-new");
         assert!(fresh.tags.is_empty());
+    }
+
+    #[test]
+    fn conflict_view_reads_saved_copy_and_restore_writes_checkout() {
+        let root = tempfile::tempdir().unwrap();
+        write_conflict(
+            root.path(),
+            "connections/a.json",
+            br#"{"name":"local"}"#,
+            10,
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.path().join(SPACE_DIR).join("connections")).unwrap();
+        std::fs::write(
+            root.path().join(SPACE_DIR).join("connections/a.json"),
+            br#"{"name":"cloud"}"#,
+        )
+        .unwrap();
+        let listed = list_space_conflicts(root.path()).unwrap();
+        let view = read_space_conflict(root.path(), &listed[0].id).unwrap();
+        assert_eq!(view.path, "connections/a.json");
+        assert!(view.saved.contains("local"));
+        assert!(view.current.contains("cloud"));
+        restore_space_conflict(root.path(), &view.id).unwrap();
+        let text = std::fs::read_to_string(root.path().join(SPACE_DIR).join("connections/a.json"))
+            .unwrap();
+        assert!(text.contains("local"));
+        assert!(list_space_conflicts(root.path()).unwrap().is_empty());
     }
 }

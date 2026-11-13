@@ -44,12 +44,12 @@ export function AuthProfileSync() {
     void (async () => {
       await syncAuthProfile();
       await startTeamMesh();
+      await ensureSyncDeviceAuth();
       try {
         const { pullCloudSnapshot } = await import("../../modules/clientSync");
         await pullCloudSnapshot();
       } catch {
       }
-      await ensureSyncDeviceAuth();
     })();
     // 冷启动已登录：补一次快照，避免助手端长期看不到数据
     scheduleAssistantSnapshotSync();

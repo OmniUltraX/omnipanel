@@ -63,6 +63,23 @@ pub fn get_or_create_sync_team_key(team_id: i64) -> OmniResult<([u8; SYNC_TEAM_K
     Ok((key, true))
 }
 
+/// 同步用的团队密钥。云端已有仓库时，本机没有钥匙就直接失败，避免生成一把解不开旧数据的新钥匙。
+pub fn load_space_key_for_sync(
+    team_id: i64,
+    remote_has_repo: bool,
+) -> OmniResult<[u8; SYNC_TEAM_KEY_BYTES]> {
+    if let Some(existing) = load_sync_team_key(team_id)? {
+        return Ok(existing);
+    }
+    if remote_has_repo {
+        return Err(OmniError::new(
+            ErrorCode::Auth,
+            "本机还没有这台空间的同步密钥，请先从已登录的电脑接收",
+        ));
+    }
+    Ok(get_or_create_sync_team_key(team_id)?.0)
+}
+
 fn decode_key_b64(raw: &str) -> OmniResult<[u8; SYNC_TEAM_KEY_BYTES]> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(raw.trim())

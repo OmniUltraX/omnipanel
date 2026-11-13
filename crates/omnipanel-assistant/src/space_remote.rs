@@ -65,8 +65,14 @@ impl SpaceRepoRemote for OssSpaceRemote {
         .await
     }
 
-    async fn delete(&mut self, _key: &str) -> OmniResult<()> {
-        Ok(())
+    async fn delete(&mut self, key: &str) -> OmniResult<()> {
+        let object = self.object_key(key)?;
+        let sts = self.sts.clone();
+        crate::oss::with_deadline(async move {
+            let http = crate::oss::space_http_client();
+            crate::oss::delete_object_bytes(&http, &sts, &object).await
+        })
+        .await
     }
 
     async fn list(&mut self, _prefix: &str) -> OmniResult<Vec<String>> {
