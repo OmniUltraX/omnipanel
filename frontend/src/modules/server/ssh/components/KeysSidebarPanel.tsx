@@ -27,6 +27,7 @@ import { SshSidebarHeaderIconBtn, SshSidebarModal } from "./SshSidebarModal";
 import { SidebarIcon, SidebarRefreshIcon } from "../../../../components/ui/module-sidebar";
 import { formatOmniError } from "../utils/formatOmniError";
 import { SpaceConflictMark } from "../../../clientSync/SpaceConflictMark";
+import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../../../clientSync/moduleSync";
 
 function sshKeyTypeTreeKey(keyType: string) {
   return `ssh-key-type:${keyType.toLowerCase()}`;
@@ -167,8 +168,8 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
     [ensureExpanded],
   );
 
-  const loadKeys = useCallback(async () => {
-    setLoading(true);
+  const loadKeys = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
       const res = await commands.sshListKeys();
       if (res.status === "ok") {
@@ -181,12 +182,20 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
       setError(String(e));
       return null;
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void loadKeys();
+  }, [loadKeys]);
+
+  useEffect(() => {
+    const onSynced = () => {
+      void loadKeys(true);
+    };
+    window.addEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+    return () => window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
   }, [loadKeys]);
 
   useEffect(() => {

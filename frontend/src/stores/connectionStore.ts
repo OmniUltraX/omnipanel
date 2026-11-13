@@ -155,6 +155,8 @@ export async function persistResourceTag(
   }
 }
 
+let connectionRefreshSeq = 0;
+
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connections: [],
   loaded: false,
@@ -162,15 +164,18 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   error: null,
 
   refresh: async () => {
+    const seq = ++connectionRefreshSeq;
     set({ loading: true, error: null });
     try {
       const res = await commands.connList();
+      if (seq !== connectionRefreshSeq) return;
       if (res.status === "ok") {
         set({ connections: res.data, loaded: true, loading: false });
       } else {
         set({ error: res.error.message, loaded: true, loading: false });
       }
     } catch (e) {
+      if (seq !== connectionRefreshSeq) return;
       // 非 Tauri 环境（纯 vite 预览）或 IPC 不可用：优雅降级到空态。
       set({ error: String(e), loaded: true, loading: false });
     }

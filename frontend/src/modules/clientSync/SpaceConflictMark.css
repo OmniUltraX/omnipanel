@@ -1,3 +1,10 @@
+.sidebar-tag-chip.creator-mark {
+    max-width: 8em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--meta, var(--fg-2));
+}
+
 .space-conflict-mark {
     display: inline-flex;
     align-items: center;

@@ -14,6 +14,7 @@ import { ScopedSearch } from "../../components/ui/ScopedSearch";
 import { ContextMenu, type ContextMenuItem } from "../../components/ui/menu";
 import { contextMenuIcons } from "../../components/ui/menu/contextMenuIcons";
 import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { CreatorMark } from "../clientSync/CreatorMark";
 import { SpaceConflictMark } from "../clientSync/SpaceConflictMark";
 import {
   buildKnowledgeTree,
@@ -191,6 +192,7 @@ function TreeRow({
           {!isFolder && vectorized ? (
             <span className="knowledge-tree-vector-dot" title="已向量化" aria-hidden />
           ) : null}
+          <CreatorMark tags={entry.tags} />
           <SpaceConflictMark path={`knowledge/${entry.id}.json`} />
         </>
       }

@@ -136,6 +136,10 @@ export default {
         other: "Other",
       },
     },
+    creator: {
+      hint: "Created by {name}",
+      other: "Another device",
+    },
     splash: {
       loading: "Starting OmniPanel",
       logsPending: "Waiting for startup tasks…",

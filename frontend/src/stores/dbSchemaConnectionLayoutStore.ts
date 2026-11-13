@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
+import { mergeNullableParents } from "../lib/mergeLayoutTree";
 
 export type SchemaConnectionFolder = {
   id: string;
@@ -249,12 +250,22 @@ export function applyDatabaseSidebarTree(
     }
     return;
   }
-  if (mode === "merge" && parsed.folders.length === 0) {
-    const localFolders = useDbSchemaConnectionLayoutStore.getState().folders;
-    if (localFolders.length > 0) return;
+  const current = useDbSchemaConnectionLayoutStore.getState();
+  if (mode === "replace") {
+    useDbSchemaConnectionLayoutStore.setState({
+      folders: parsed.folders,
+      connectionParents: parsed.connectionParents,
+    });
+    return;
   }
+  const merged = mergeNullableParents(
+    parsed.folders,
+    current.folders,
+    parsed.connectionParents,
+    current.connectionParents,
+  );
   useDbSchemaConnectionLayoutStore.setState({
-    folders: parsed.folders,
-    connectionParents: parsed.connectionParents,
+    folders: merged.folders,
+    connectionParents: merged.parents,
   });
 }

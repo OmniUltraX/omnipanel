@@ -1,5 +1,5 @@
 import { fetchDevices } from "./auth/loginApi";
-import { getCachedDeviceName, initDeviceNameCache } from "./deviceIdentity";
+import { getCachedDeviceName, initDeviceNameCache, rememberDeviceRoster } from "./deviceIdentity";
 import { commands } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
 import { useAuthStore } from "../stores/authStore";
@@ -37,6 +37,7 @@ async function migrate(): Promise<boolean> {
 
   await initDeviceNameCache();
   const devices = await fetchDevices(token, { quiet: true });
+  rememberDeviceRoster(devices);
   const deviceNames = devices
     .map((d) => d.deviceName?.trim())
     .filter((n): n is string => Boolean(n));

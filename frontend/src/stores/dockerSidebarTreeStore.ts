@@ -6,6 +6,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { createIndexedDBStorage } from "@/lib/indexedDbStorage";
 import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
+import { mergePlacementTree } from "../lib/mergeLayoutTree";
 
 export type DockerSidebarFolder = {
   id: string;
@@ -448,13 +449,23 @@ export function applyDockerSidebarTree(
     }
     return;
   }
-  if (mode === "merge" && parsed.folders.length === 0) {
-    const localFolders = useDockerSidebarTreeStore.getState().folders;
-    if (localFolders.length > 0) return;
+  const current = useDockerSidebarTreeStore.getState();
+  if (mode === "replace") {
+    useDockerSidebarTreeStore.setState({
+      folders: parsed.folders,
+      connectionFolderId: parsed.connectionFolderId,
+      orderByParent: parsed.orderByParent,
+    });
+    return;
   }
+  const merged = mergePlacementTree(parsed, {
+    folders: current.folders,
+    connectionFolderId: current.connectionFolderId,
+    orderByParent: current.orderByParent,
+  });
   useDockerSidebarTreeStore.setState({
-    folders: parsed.folders,
-    connectionFolderId: parsed.connectionFolderId,
-    orderByParent: parsed.orderByParent,
+    folders: merged.folders,
+    connectionFolderId: merged.connectionFolderId,
+    orderByParent: merged.orderByParent,
   });
 }

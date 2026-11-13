@@ -26,6 +26,7 @@ import {
 } from "../../lib/sidebarNotes";
 import { useSidebarNoteStore } from "../../stores/sidebarNoteStore";
 import { ScopedSearch } from "../ui/ScopedSearch";
+import { CreatorMark } from "../../modules/clientSync/CreatorMark";
 import { SpaceConflictMark } from "../../modules/clientSync/SpaceConflictMark";
 import {
   syncFromOpenSshConfig,
@@ -1006,7 +1007,12 @@ export function HostListPanel({
             </span>
           }
           note={note}
-          afterLabel={<SpaceConflictMark path={`connections/${host.id}.json`} />}
+          afterLabel={
+            <>
+              <CreatorMark connectionId={host.id} />
+              <SpaceConflictMark path={`connections/${host.id}.json`} />
+            </>
+          }
           trailing={<HostPanelIcons sshId={host.id} />}
           hasChildren={false}
           expanded={false}

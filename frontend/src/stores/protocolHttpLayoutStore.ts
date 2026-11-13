@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createSafeLocalStorage } from "../lib/zustandPersistStorage";
 import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
+import { mergeProtocolLayout } from "../lib/mergeLayoutTree";
 
 export type ProtocolHttpFolder = {
   id: string;
@@ -502,17 +503,35 @@ export function applyProtocolHttpLayout(
     }
     return;
   }
-  if (mode === "merge" && parsed.folders.length === 0) {
-    const localFolders = useProtocolHttpLayoutStore.getState().folders;
-    if (localFolders.length > 0) return;
+  const current = useProtocolHttpLayoutStore.getState();
+  if (mode === "replace") {
+    useProtocolHttpLayoutStore.setState({
+      folders: parsed.folders,
+      collectionParents: parsed.collectionParents,
+      requestParents: parsed.requestParents,
+      entryParents: parsed.entryParents,
+      siblingOrder: parsed.siblingOrder,
+      expandedFolderIds: parsed.expandedFolderIds,
+      expandedCollectionIds: parsed.expandedCollectionIds,
+    });
+    return;
   }
+  const merged = mergeProtocolLayout(parsed, {
+    folders: current.folders,
+    collectionParents: current.collectionParents,
+    requestParents: current.requestParents,
+    entryParents: current.entryParents,
+    siblingOrder: current.siblingOrder,
+    expandedFolderIds: current.expandedFolderIds,
+    expandedCollectionIds: current.expandedCollectionIds,
+  });
   useProtocolHttpLayoutStore.setState({
-    folders: parsed.folders,
-    collectionParents: parsed.collectionParents,
-    requestParents: parsed.requestParents,
-    entryParents: parsed.entryParents,
-    siblingOrder: parsed.siblingOrder,
-    expandedFolderIds: parsed.expandedFolderIds,
-    expandedCollectionIds: parsed.expandedCollectionIds,
+    folders: merged.folders,
+    collectionParents: merged.collectionParents,
+    requestParents: merged.requestParents,
+    entryParents: merged.entryParents,
+    siblingOrder: merged.siblingOrder as Record<string, ProtocolTreeNodeKey[]>,
+    expandedFolderIds: merged.expandedFolderIds,
+    expandedCollectionIds: merged.expandedCollectionIds,
   });
 }

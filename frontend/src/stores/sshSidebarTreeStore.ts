@@ -7,6 +7,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { createIndexedDBStorage } from "@/lib/indexedDbStorage";
 import { notifyClientModuleSync } from "../lib/clientModuleSyncBridge";
 import { normalizeSshGroup, OPENSSH_CONFIG_GROUP } from "../lib/sshGroups";
+import { mergePlacementTree } from "../lib/mergeLayoutTree";
 
 export type SshSidebarFolder = {
   id: string;
@@ -536,8 +537,9 @@ const EMPTY_SSH_SIDEBAR_TREE: SshSidebarTreeSnapshot = {
 
 /**
  * 云端拉取后写入本机。
- * merge：旧快照无此字段时保留本机；远端 folders 为空而本机仍有文件夹时也保留（防空快照误覆盖）。
- * replace：切换团队时缺字段则清空，避免串数据。
+ * merge：和本机文件夹取并集。同名同父级合成一个；只在一边的分组留下。
+ * 远端 folders 为空而本机仍有文件夹时保留本机，避免空快照把分组清掉。
+ * replace：切换团队时整份换成远端，缺字段则清空。
  */
 export function applySshSidebarTreeJson(
   raw: string | null | undefined,
@@ -551,17 +553,38 @@ export function applySshSidebarTreeJson(
     return;
   }
   const current = useSshSidebarTreeStore.getState();
-  if (mode === "merge" && parsed.folders.length === 0 && current.folders.length > 0) {
+  if (mode === "replace") {
+    useSshSidebarTreeStore.setState({
+      folders: parsed.folders,
+      connectionFolderId: parsed.connectionFolderId,
+      orderByParent: parsed.orderByParent,
+      groupsMigrated: true,
+      dismissedAutoFolders: parsed.dismissedAutoFolders ?? [],
+    });
     return;
   }
+  const merged = mergePlacementTree(
+    {
+      folders: parsed.folders,
+      connectionFolderId: parsed.connectionFolderId,
+      orderByParent: parsed.orderByParent,
+    },
+    {
+      folders: current.folders,
+      connectionFolderId: current.connectionFolderId,
+      orderByParent: current.orderByParent,
+    },
+  );
+  const dismissed = new Set([
+    ...(parsed.dismissedAutoFolders ?? []),
+    ...current.dismissedAutoFolders,
+  ]);
   useSshSidebarTreeStore.setState({
-    folders: parsed.folders,
-    connectionFolderId: parsed.connectionFolderId,
-    orderByParent: parsed.orderByParent,
-    groupsMigrated: true,
-    dismissedAutoFolders:
-      parsed.dismissedAutoFolders ??
-      (mode === "replace" ? [] : current.dismissedAutoFolders),
+    folders: merged.folders,
+    connectionFolderId: merged.connectionFolderId,
+    orderByParent: merged.orderByParent,
+    groupsMigrated: parsed.groupsMigrated || current.groupsMigrated,
+    dismissedAutoFolders: [...dismissed],
   });
 }
 

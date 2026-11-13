@@ -24,6 +24,8 @@ interface DbConnectionListState {
   hydrate: (list: DbConnectionConfig[]) => void;
 }
 
+let dbConnectionRefreshSeq = 0;
+
 export const useDbConnectionListStore = create<DbConnectionListState>((set, get) => ({
   connections: [],
   loaded: false,
@@ -38,16 +40,19 @@ export const useDbConnectionListStore = create<DbConnectionListState>((set, get)
   },
 
   refresh: async () => {
+    const seq = ++dbConnectionRefreshSeq;
     set({ loading: true });
     try {
       // 动态导入避免与 database/api 形成顶层循环依赖
       const { listConnections } = await import("../modules/database/api");
       const list = await listConnections();
+      if (seq !== dbConnectionRefreshSeq) return get().connections;
       const enabled = list.filter(isEnabled);
       set({ connections: enabled, loaded: true, loading: false });
       window.dispatchEvent(new Event(DB_CONNECTIONS_CHANGED_EVENT));
       return enabled;
     } catch {
+      if (seq !== dbConnectionRefreshSeq) return get().connections;
       set({ loaded: true, loading: false });
       return get().connections;
     }

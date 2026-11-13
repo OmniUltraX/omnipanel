@@ -136,6 +136,10 @@ export default {
         other: "其他",
       },
     },
+    creator: {
+      hint: "由 {name} 创建",
+      other: "其他设备",
+    },
     splash: {
       loading: "OmniPanel 正在启动",
       logsPending: "等待启动任务…",

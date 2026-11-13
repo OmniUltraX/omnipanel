@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18n } from "@/i18n";
+import { CreatorMark } from "@/modules/clientSync/CreatorMark";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/menu";
 import { contextMenuIcons } from "@/components/ui/menu/contextMenuIcons";
 import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
@@ -582,6 +583,7 @@ export function DockerPanelTreeSidebar({
             </span>
           }
           note={sidebarNotes[SidebarNoteKeys.dockerConnection(connection.connectionId)]}
+          afterLabel={<CreatorMark connectionId={connection.connectionId} />}
           hasChildren
           expanded={connectionExpanded}
           active={activeNavKey === connectionKey || activeConnectionId === connection.connectionId}

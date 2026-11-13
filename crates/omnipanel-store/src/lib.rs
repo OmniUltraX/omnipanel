@@ -37,6 +37,7 @@ mod siyuan_sync;
 mod skill;
 mod skill_db;
 mod skill_seed;
+mod space_layout_merge;
 mod space_repo;
 mod space_sync;
 mod sql_exec_log;

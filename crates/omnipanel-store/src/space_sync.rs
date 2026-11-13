@@ -517,6 +517,10 @@ fn chunks_of(index: Option<&SpaceRepoIndex>, path: &str) -> Option<Vec<String>> 
     })
 }
 
+fn is_layout_path(path: &str) -> bool {
+    path == "tree/ssh.json" || path == "tree/folders.json"
+}
+
 fn merge_paths(
     base: Option<&SpaceRepoIndex>,
     local: &SpaceRepoIndex,
@@ -955,15 +959,25 @@ async fn sync_locked<R: SpaceRepoRemote>(
                         }
                         continue;
                     }
-                    if pick.conflict {
-                        if let Some(body) = files.get(&pick.path).cloned() {
-                            write_conflict(root, &pick.path, &body, now)?;
-                        }
-                        conflicts += 1;
-                    }
                     let mut body = Vec::new();
                     for id in &chunks {
                         body.extend(plaintext_chunk(remote, root, key, id, &mut cache).await?);
+                    }
+                    if is_layout_path(&pick.path) {
+                        if let Some(local_body) = files.get(&pick.path) {
+                            if let Some(merged) = crate::space_layout_merge::merge_layout_document(
+                                &pick.path, local_body, &body,
+                            ) {
+                                files.insert(pick.path, merged);
+                                continue;
+                            }
+                        }
+                    }
+                    if pick.conflict {
+                        if let Some(saved) = files.get(&pick.path).cloned() {
+                            write_conflict(root, &pick.path, &saved, now)?;
+                        }
+                        conflicts += 1;
                     }
                     files.insert(pick.path, body);
                 }
