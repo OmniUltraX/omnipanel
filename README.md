@@ -221,7 +221,7 @@ P0 covers the local terminal path (`create_terminal` / `write_terminal` / `resiz
 
 ### Docker
 
-Docker Web 0.8.60 ships with desktop `v0.8.60` (tracking tag `docker-v0.8.60`). It does not modify the already published desktop `v0.8.57` / `v0.8.58` / `v0.8.59` tags/assets, `docker-v0.8.57` / `docker-v0.8.58` / `docker-v0.8.59`, or image tags `0.8.57` / `0.8.58` / `0.8.59`. Use the exact image version after its Docker workflow succeeds, or build locally as below. Existing deployments must rotate their API key; socket access is opt-in and headless credential fallback files are plaintext with mode 0600:
+Docker Web 0.8.61 ships with desktop `v0.8.61` (tracking tag `docker-v0.8.61`). It does not modify the already published desktop `v0.8.57` / `v0.8.58` / `v0.8.59` tags/assets, `docker-v0.8.57` / `docker-v0.8.58` / `docker-v0.8.59` / `docker-v0.8.60`, or image tags `0.8.57` / `0.8.58` / `0.8.59` / `0.8.60`. Desktop packages for `v0.8.60` were not published. Use the exact image version after its Docker workflow succeeds, or build locally as below. Existing deployments must rotate their API key; socket access is opt-in and headless credential fallback files are plaintext with mode 0600:
 
 ```bash
 docker build -f deploy/docker/Dockerfile -t omnipanel-web:local .

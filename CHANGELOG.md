@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [0.8.61] - 2026-11-13
+
+桌面 `v0.8.61` 与 Docker Web（跟踪标签 `docker-v0.8.61`、镜像 `ghcr.io/omniultrax/omnipanel-web:0.8.61`）同源发布。`v0.8.60` 的 Docker 镜像已经发布，桌面安装包没有生成。本版不修改已发布的桌面 `v0.8.57` / `v0.8.58` / `v0.8.59`、`docker-v0.8.57` / `docker-v0.8.58` / `docker-v0.8.59` / `docker-v0.8.60` 或镜像标签 `0.8.57` / `0.8.58` / `0.8.59` / `0.8.60`。
+
+### 修复
+
+- **桌面打包**：`tauri-build` 2.6.2 按旧的 `OUT_DIR` 层数找产物目录。新版 Cargo 把构建目录拆成 `build/<包名>/<哈希>/out` 后，数据库 sidecar 被拷进 `target/.../build/`。Linux 因目标是目录而失败，macOS 因不能删除该目录而失败。升级到 `tauri-build` 2.7.4，sidecar 回到 `target/.../release/`。
+
+### Docker Web
+
+- 应用内容与 `0.8.60` 相同，并带上上述打包修复。镜像构建不依赖 `tauri-build`。
+- 不覆盖已发布的 `0.8.57`、`0.8.58`、`0.8.59`、`0.8.60` 固定标签。
+
 ## [0.8.60] - 2026-11-13
 
 桌面 `v0.8.60` 与 Docker Web（跟踪标签 `docker-v0.8.60`、镜像 `ghcr.io/omniultrax/omnipanel-web:0.8.60`）同源发布。不修改已发布的桌面 `v0.8.57` / `v0.8.58` / `v0.8.59`、`docker-v0.8.57` / `docker-v0.8.58` / `docker-v0.8.59` 或镜像标签 `0.8.57` / `0.8.58` / `0.8.59`。按既有约定，稳定 Docker 发行在校验通过后更新 GHCR 精确版本、`0.8` 与 `latest`。

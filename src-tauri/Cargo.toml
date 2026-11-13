@@ -24,7 +24,9 @@ debug-inspector = ["tauri/devtools"]
 dev-mcp = ["dep:tauri-plugin-mcp-bridge"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+# 2.7.4 起按 OUT_DIR 向上找到真正的 target 目录。2.6.2 在新 Cargo 布局下
+# 会把 sidecar 写进 target/.../build/，删目录失败，桌面打包中断。
+tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png", "dynamic-acl"] }
