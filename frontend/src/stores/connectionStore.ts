@@ -17,7 +17,9 @@ import {
   type ResourceType,
   type WorkspaceResource,
 } from "../lib/resourceRegistry";
-import { getOpenSshHostResource } from "../lib/sshConfigHosts";
+import { listen } from "@tauri-apps/api/event";
+import { SSH_KEY_REBOUND } from "../ipc/events";
+import { SSH_LOCAL_KEYS_IMPORTED_EVENT, getOpenSshHostResource } from "../lib/sshConfigHosts";
 import { isNameOnlyChange } from "../lib/nameOnlyChange";
 import { normalizeSshGroup, sanitizeSshGroupInput } from "../lib/sshGroups";
 import { modulePathForType } from "../lib/paths";
@@ -288,9 +290,19 @@ export function useWorkspaceResources(): WorkspaceResource[] {
   }, [connections]);
 }
 
+let keyReboundListening = false;
+
 /** 应用启动时拉取一次后端连接。 */
 export async function initConnections(): Promise<void> {
   await useConnectionStore.getState().refresh();
+  if (keyReboundListening) return;
+  keyReboundListening = true;
+  listen(SSH_KEY_REBOUND, () => {
+    void useConnectionStore.getState().refresh();
+    window.dispatchEvent(new CustomEvent(SSH_LOCAL_KEYS_IMPORTED_EVENT));
+  }).catch(() => {
+    keyReboundListening = false;
+  });
 }
 
 /** 将 `~/.ssh/config` 同步到本地持久化存储，并刷新连接列表。
@@ -307,6 +319,7 @@ export async function syncFromOpenSshConfig(
     if (res.status === "ok") {
       await useConnectionStore.getState().refresh();
       notifyAssistantSnapshotSync();
+      window.dispatchEvent(new CustomEvent(SSH_LOCAL_KEYS_IMPORTED_EVENT));
       return res.data;
     }
     useConnectionStore.setState({ error: res.error.message });

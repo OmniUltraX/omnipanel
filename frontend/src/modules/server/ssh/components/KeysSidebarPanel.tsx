@@ -28,6 +28,7 @@ import { SidebarIcon, SidebarRefreshIcon } from "../../../../components/ui/modul
 import { formatOmniError } from "../utils/formatOmniError";
 import { SpaceConflictMark } from "../../../clientSync/SpaceConflictMark";
 import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "../../../clientSync/moduleSync";
+import { SSH_LOCAL_KEYS_IMPORTED_EVENT } from "../../../../lib/sshConfigHosts";
 
 function sshKeyTypeTreeKey(keyType: string) {
   return `ssh-key-type:${keyType.toLowerCase()}`;
@@ -119,12 +120,23 @@ type Props = {
 
 type SidebarForm = "none" | "generate" | "import";
 
+function isMissingLocalSecret(error: unknown): boolean {
+  const text = formatOmniError(error);
+  return /no matching entry|凭据不存在|\[notFound\]/i.test(text);
+}
+
+function notifyError(message: string) {
+  showToast(message, { tone: "error" });
+}
+
+function notifySuccess(message: string) {
+  showToast(message, { tone: "success" });
+}
+
 export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureExpanded }: Props) {
   const { t } = useI18n();
   const [keys, setKeys] = useState<SshKeyInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState<SidebarForm>("none");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [keyDetail, setKeyDetail] = useState<{
@@ -176,10 +188,10 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         setKeys(res.data);
         return res.data;
       }
-      setError(formatOmniError(res.error));
+      notifyError(formatOmniError(res.error));
       return null;
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
       return null;
     } finally {
       if (!quiet) setLoading(false);
@@ -195,7 +207,11 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
       void loadKeys(true);
     };
     window.addEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
-    return () => window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+    window.addEventListener(SSH_LOCAL_KEYS_IMPORTED_EVENT, onSynced);
+    return () => {
+      window.removeEventListener(CLIENT_SYNC_MODULES_APPLIED_EVENT, onSynced);
+      window.removeEventListener(SSH_LOCAL_KEYS_IMPORTED_EVENT, onSynced);
+    };
   }, [loadKeys]);
 
   useEffect(() => {
@@ -213,8 +229,6 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
     (next: SidebarForm) => {
       onEnsureExpanded?.();
       setForm((current) => (current === next ? "none" : next));
-      setError(null);
-      setSuccess(null);
     },
     [onEnsureExpanded],
   );
@@ -258,8 +272,6 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
 
   const handleGenerate = async () => {
     setGenerating(true);
-    setError(null);
-    setSuccess(null);
     try {
       const res = await commands.sshGenerateKey(
         genKeyType,
@@ -275,13 +287,13 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         setGenPassphrase("");
         selectKey(res.data.name);
         expandKeyType(res.data.keyType);
-        setSuccess(t("ssh.keys.generateSuccess", { name: res.data.name }));
+        notifySuccess(t("ssh.keys.generateSuccess", { name: res.data.name }));
         await loadKeys();
       } else {
-        setError(formatOmniError(res.error));
+        notifyError(formatOmniError(res.error));
       }
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
     } finally {
       setGenerating(false);
     }
@@ -289,12 +301,10 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
 
   const handleImport = async () => {
     if (!importName.trim() || !importKey.trim()) {
-      setError(t("ssh.keys.nameAndKeyRequired"));
+      notifyError(t("ssh.keys.nameAndKeyRequired"));
       return;
     }
     setImporting(true);
-    setError(null);
-    setSuccess(null);
     try {
       const res = await commands.sshImportKey(importName.trim(), importKey.trim());
       if (res.status === "ok") {
@@ -303,21 +313,19 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         setImportKey("");
         selectKey(res.data.name);
         expandKeyType(res.data.keyType);
-        setSuccess(t("ssh.keys.importSuccess", { name: res.data.name }));
+        notifySuccess(t("ssh.keys.importSuccess", { name: res.data.name }));
         await loadKeys();
       } else {
-        setError(formatOmniError(res.error));
+        notifyError(formatOmniError(res.error));
       }
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
     } finally {
       setImporting(false);
     }
   };
 
   const handleDelete = async (name: string) => {
-    setError(null);
-    setSuccess(null);
     try {
       const res = await commands.sshDeleteKey(name);
       if (res.status === "ok") {
@@ -327,10 +335,10 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         }
         await loadKeys();
       } else {
-        setError(formatOmniError(res.error));
+        notifyError(formatOmniError(res.error));
       }
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
     }
   };
 
@@ -347,21 +355,19 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         if (nextName == null) return;
         const trimmed = nextName.trim();
         if (!trimmed || trimmed === key.name) return;
-        setError(null);
-        setSuccess(null);
         try {
           const res = await commands.sshRenameKey(key.name, trimmed);
           if (res.status === "ok") {
             if (activeKeyName === key.name) {
               selectKey(res.data.name);
             }
-            setSuccess(t("ssh.keys.renameSuccess", { name: res.data.name }));
+            notifySuccess(t("ssh.keys.renameSuccess", { name: res.data.name }));
             await loadKeys();
           } else {
-            setError(formatOmniError(res.error));
+            notifyError(formatOmniError(res.error));
           }
         } catch (e) {
-          setError(String(e));
+          notifyError(String(e));
         }
       })();
     },
@@ -371,14 +377,13 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
   const handleCopyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      showToast(t("common.copied"));
+      showToast(t("common.copied"), { tone: "success" });
     } catch {
-      setError(t("ssh.keys.copyFailed"));
+      notifyError(t("ssh.keys.copyFailed"));
     }
   };
 
   const handleViewDetails = async (name: string) => {
-    setError(null);
     setDetailLoading(true);
     try {
       const [publicRes, privateRes] = await Promise.all([
@@ -386,24 +391,26 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
         commands.sshReadKeyPrivate(name),
       ]);
       if (publicRes.status !== "ok") {
-        setError(formatOmniError(publicRes.error));
+        notifyError(formatOmniError(publicRes.error));
         return;
       }
-      if (privateRes.status !== "ok") {
-        setError(formatOmniError(privateRes.error));
-        return;
+      let privateKey: string | null = null;
+      if (privateRes.status === "ok") {
+        privateKey = privateRes.data;
+      } else if (!isMissingLocalSecret(privateRes.error)) {
+        notifyError(formatOmniError(privateRes.error));
       }
-      if (!publicRes.data && !privateRes.data) {
-        setError(t("ssh.keys.noKeyMaterial"));
+      if (!publicRes.data && !privateKey) {
+        showToast(t("ssh.keys.noKeyMaterial"), { tone: "warning" });
         return;
       }
       setKeyDetail({
         name,
         publicKey: publicRes.data,
-        privateKey: privateRes.data,
+        privateKey,
       });
     } catch (e) {
-      setError(String(e));
+      notifyError(String(e));
     } finally {
       setDetailLoading(false);
     }
@@ -469,9 +476,6 @@ export function KeysSidebarPanel({ onCountChange, onHeaderMetaChange, onEnsureEx
   return (
     <div className="ssh-sidebar-list-panel">
       {createPortal(modals, document.body)}
-
-      {error ? <div className="ssh-sidebar-list-panel__error">{error}</div> : null}
-      {success ? <div className="ssh-sidebar-list-panel__success">{success}</div> : null}
 
       {form === "generate" ? (
         <div className="ssh-sidebar-form">

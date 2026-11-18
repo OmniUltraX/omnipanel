@@ -24,6 +24,7 @@ import {
 } from "../../stores/filesFavoritesStore";
 import { quickInput } from "../../stores/quickInputStore";
 import { showToast } from "../../stores/toastStore";
+import { useToastNotice } from "../../hooks/useToastNotice";
 import { VirtualFileList, VirtualFileGrid } from "./VirtualFileList";
 import {
   clearFilesDrag,
@@ -257,6 +258,7 @@ export function FileConnectionPanel({
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  useToastNotice(error, "error");
   const [listNextToken, setListNextToken] = useState<string | null>(null);
   const [hasMoreEntries, setHasMoreEntries] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1749,7 +1751,6 @@ export function FileConnectionPanel({
             </button>
           </div>
         </div>
-        {error && <div className="fm-error-banner">{error}</div>}
         {copyToast && <div className="fm-copy-toast">{copyToast}</div>}
         <div
           className={`fm-content-wrap${osDragOver ? " fm-content-wrap--drag-over" : ""}`}

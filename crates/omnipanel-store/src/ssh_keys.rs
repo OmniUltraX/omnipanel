@@ -35,6 +35,41 @@ pub fn ssh_key_passphrase_ref(key_id: &str) -> String {
     format!("ssh-key-pass-{key_id}")
 }
 
+fn merge_existing_ssh_key(
+    storage: &Storage,
+    mut existing: SshKeyRecord,
+    private_pem: &str,
+    key_type: &str,
+    fingerprint: &str,
+    comment: &str,
+    public_key: &str,
+    source_path: &str,
+    passphrase: Option<&str>,
+) -> OmniResult<SshKeyRecord> {
+    Vault::store(&ssh_key_private_ref(&existing.id), private_pem)?;
+    if let Some(pp) = passphrase.filter(|s| !s.is_empty()) {
+        Vault::store(&ssh_key_passphrase_ref(&existing.id), pp)?;
+    }
+    if !fingerprint.is_empty() {
+        existing.fingerprint = fingerprint.to_string();
+    }
+    if !public_key.is_empty() {
+        existing.public_key = public_key.to_string();
+    }
+    if !comment.is_empty() {
+        existing.comment = comment.to_string();
+    }
+    if !source_path.is_empty() {
+        existing.source_path = source_path.to_string();
+    }
+    if !key_type.is_empty() {
+        existing.key_type = key_type.to_string();
+    }
+    existing.updated_at = now_secs();
+    storage.save_ssh_key_record(&existing)?;
+    Ok(existing)
+}
+
 fn now_secs() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -131,6 +166,28 @@ impl Storage {
             )
             .map_err(map_sqlite)?;
         let mut rows = stmt.query([fingerprint]).map_err(map_sqlite)?;
+        if let Some(row) = rows.next().map_err(map_sqlite)? {
+            return Ok(Some(row_to_record(&row).map_err(map_sqlite)?));
+        }
+        Ok(None)
+    }
+
+    pub fn find_ssh_key_by_source_path(
+        &self,
+        source_path: &str,
+    ) -> OmniResult<Option<SshKeyRecord>> {
+        let source_path = source_path.trim();
+        if source_path.is_empty() {
+            return Ok(None);
+        }
+        let mut stmt = self
+            .conn()
+            .prepare(
+                "SELECT id, name, key_type, fingerprint, comment, public_key, source_path, created_at, updated_at
+                 FROM ssh_keys WHERE source_path = ?1 LIMIT 1",
+            )
+            .map_err(map_sqlite)?;
+        let mut rows = stmt.query([source_path]).map_err(map_sqlite)?;
         if let Some(row) = rows.next().map_err(map_sqlite)? {
             return Ok(Some(row_to_record(&row).map_err(map_sqlite)?));
         }
@@ -261,42 +318,49 @@ impl Storage {
             ));
         }
 
-        let store_secrets = |id: &str| -> OmniResult<()> {
-            Vault::store(&ssh_key_private_ref(id), private_pem)?;
-            if let Some(pp) = passphrase.filter(|s| !s.is_empty()) {
-                Vault::store(&ssh_key_passphrase_ref(id), pp)?;
-            }
-            Ok(())
-        };
-
-        if let Some(existing) = self.get_ssh_key_by_name(name)? {
-            store_secrets(&existing.id)?;
-            let mut updated = existing;
-            if !fingerprint.is_empty() {
-                updated.fingerprint = fingerprint.to_string();
-            }
-            if !public_key.is_empty() {
-                updated.public_key = public_key.to_string();
-            }
-            if !comment.is_empty() {
-                updated.comment = comment.to_string();
-            }
-            if !source_path.is_empty() {
-                updated.source_path = source_path.to_string();
-            }
-            if !key_type.is_empty() {
-                updated.key_type = key_type.to_string();
-            }
-            updated.updated_at = now_secs();
-            self.save_ssh_key_record(&updated)?;
-            return Ok(updated);
-        }
-
+        // 同一把钥匙优先按指纹对齐，这样本机文件名和库里的显示名不一样也能把私钥补上。
         if !fingerprint.is_empty() {
             if let Some(existing) = self.find_ssh_key_by_fingerprint(fingerprint)? {
-                store_secrets(&existing.id)?;
-                return Ok(existing);
+                return merge_existing_ssh_key(
+                    self,
+                    existing,
+                    private_pem,
+                    key_type,
+                    fingerprint,
+                    comment,
+                    public_key,
+                    source_path,
+                    passphrase,
+                );
             }
+        }
+        if !source_path.is_empty() {
+            if let Some(existing) = self.find_ssh_key_by_source_path(source_path)? {
+                return merge_existing_ssh_key(
+                    self,
+                    existing,
+                    private_pem,
+                    key_type,
+                    fingerprint,
+                    comment,
+                    public_key,
+                    source_path,
+                    passphrase,
+                );
+            }
+        }
+        if let Some(existing) = self.get_ssh_key_by_name(name)? {
+            return merge_existing_ssh_key(
+                self,
+                existing,
+                private_pem,
+                key_type,
+                fingerprint,
+                comment,
+                public_key,
+                source_path,
+                passphrase,
+            );
         }
 
         let now = now_secs();
@@ -311,7 +375,10 @@ impl Storage {
             created_at: now,
             updated_at: now,
         };
-        store_secrets(&record.id)?;
+        Vault::store(&ssh_key_private_ref(&record.id), private_pem)?;
+        if let Some(pp) = passphrase.filter(|s| !s.is_empty()) {
+            Vault::store(&ssh_key_passphrase_ref(&record.id), pp)?;
+        }
         self.save_ssh_key_record(&record)?;
         Ok(record)
     }

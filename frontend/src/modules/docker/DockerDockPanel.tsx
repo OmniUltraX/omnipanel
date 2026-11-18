@@ -10,6 +10,7 @@ import type { DockerConnectionInfo, DockerContainerSummary } from "../../ipc/bin
 import { formatIpcError } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
+import { useToastNotice } from "../../hooks/useToastNotice";
 import { useDockerPanelDockStore } from "../../stores/dockerPanelDockStore";
 import {
   DockerContainerListTable,
@@ -166,6 +167,7 @@ export function DockerDockPanel({
   /** 折叠中的 Compose 项目；默认空 = 全部展开 */
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  useToastNotice(error ?? actionError, "error");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortState>({ column: "name", direction: "asc" });
 
@@ -496,10 +498,6 @@ export function DockerDockPanel({
               <p className="docker-dock-panel__subtitle">{panelSubtitle ?? connection.hostLabel}</p>
             </div>
           </div>
-        ) : null}
-
-        {error || actionError ? (
-          <div className="docker-dock-panel__error">{error ?? actionError}</div>
         ) : null}
 
         <div className="docker-dock-panel__content">

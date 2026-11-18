@@ -7,6 +7,7 @@ import { useAgentSourcesStore } from "../../stores/agentSourcesStore";
 import { TextInput } from "../ui/form/TextInput";
 import { FormDialog } from "../ui/form/FormDialog";
 import { WorkbenchActionButton } from "../ui/primitives/WorkbenchActionButton";
+import { useToastNotice } from "../../hooks/useToastNotice";
 
 const MODEL_PAGE_SIZE = 21;
 const NO_DISABLED_MODELS: string[] = [];
@@ -77,6 +78,7 @@ export function AiProvidersSection() {
   const refreshingId = useAgentSourcesStore((s) => s.refreshingId);
   const ensuringDev = useAgentSourcesStore((s) => s.ensuringDev);
   const ensureDevError = useAgentSourcesStore((s) => s.ensureDevError);
+  useToastNotice(ensureDevError, "error");
   const ensureDevSidecars = useAgentSourcesStore((s) => s.ensureDevSidecars);
   const refresh = useAgentSourcesStore((s) => s.refresh);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -113,11 +115,6 @@ export function AiProvidersSection() {
 
         {ensuringDev ? (
           <p className="section-desc">{t("settings.agentSources.preparingHint")}</p>
-        ) : null}
-        {ensureDevError ? (
-          <p className="ai-provider-refresh-notice ai-provider-refresh-notice--err">
-            {ensureDevError}
-          </p>
         ) : null}
 
         {sources.length === 0 && !ensuringDev ? (

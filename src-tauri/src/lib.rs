@@ -5,6 +5,7 @@ mod log_store;
 mod media_stream;
 mod mesh_relay;
 mod output_buffer;
+mod ssh_key_recovery;
 mod ssh_tmux;
 mod state;
 mod transfer_bridge;
@@ -863,10 +864,16 @@ fn build_and_run_tauri() {
     let builder = tauri::Builder::default();
 
     // 开发期 MCP Bridge：仅在 `--features dev-mcp` 下激活，
-    // 启动 WebSocket server (默认 0.0.0.0:9223) 供 @hypothesi/tauri-mcp-server 连接。
+    // 启动 WebSocket server 供 @hypothesi/tauri-mcp-server 连接。
+    // 安全：显式绑定 127.0.0.1，禁止局域网/外部主机连接。
+    // 插件默认值是 0.0.0.0（为"远程设备支持"设计），这里必须覆盖。
     // 生产构建 (release) 该插件为零代码路径，不影响打包。
     #[cfg(feature = "dev-mcp")]
-    let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+    let builder = builder.plugin(
+        tauri_plugin_mcp_bridge::Builder::new()
+            .bind_address("127.0.0.1")
+            .build(),
+    );
 
     builder
         // 单实例：已有进程在跑时，二次启动只聚焦主窗并退出新进程。

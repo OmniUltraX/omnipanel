@@ -125,6 +125,61 @@ pub fn discover_ssh_identity_file() -> Option<PathBuf> {
     default_ssh_dir().and_then(|dir| discover_ssh_identity_file_in(&dir))
 }
 
+/// OpenSSH 未写 IdentityFile 时会依次尝试的默认私钥（存在的全部，不只第一把）。
+pub fn list_default_identity_files_in(ssh_dir: &Path) -> Vec<PathBuf> {
+    if !ssh_dir.is_dir() {
+        return Vec::new();
+    }
+    DEFAULT_IDENTITY_FILE_NAMES
+        .iter()
+        .map(|name| ssh_dir.join(name))
+        .filter(|path| is_private_key_file(path))
+        .collect()
+}
+
+pub fn list_default_identity_files() -> Vec<PathBuf> {
+    default_ssh_dir()
+        .map(|dir| list_default_identity_files_in(&dir))
+        .unwrap_or_default()
+}
+
+/// 这台主机实际会用到的私钥：写了 IdentityFile 就用那一把，否则用默认身份文件。
+pub fn identity_files_for_entry(entry: &SshConfigEntry) -> Vec<PathBuf> {
+    if let Some(path) = entry.identity_file.as_deref() {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return vec![path];
+        }
+        return Vec::new();
+    }
+    list_default_identity_files()
+}
+
+/// 从私钥文本抽出公钥、SHA256 指纹、类型和注释。加密私钥解不开时返回 None。
+pub fn ssh_private_key_public_meta(private_pem: &str) -> Option<(String, String, String, String)> {
+    use russh::keys::decode_secret_key;
+    use russh::keys::ssh_key::HashAlg;
+
+    let key = decode_secret_key(private_pem.trim(), None).ok()?;
+    let public = key.public_key();
+    let fingerprint = public.fingerprint(HashAlg::Sha256).to_string();
+    let public_line = public.to_openssh().ok()?;
+    let algorithm = public.algorithm();
+    let key_type = match algorithm.as_str() {
+        "ssh-ed25519" => "ed25519".to_string(),
+        "ssh-rsa" => "rsa".to_string(),
+        "ssh-dss" => "dsa".to_string(),
+        other if other.starts_with("ecdsa-") => "ecdsa".to_string(),
+        other => other.to_string(),
+    };
+    Some((
+        public_line,
+        fingerprint,
+        key_type,
+        public.comment().to_string(),
+    ))
+}
+
 /// 列出指定 `.ssh` 目录中的全部私钥路径（默认文件名优先，其余按名称排序）。
 pub fn list_ssh_private_key_paths_in(ssh_dir: &Path) -> Vec<PathBuf> {
     if !ssh_dir.is_dir() {
@@ -488,6 +543,29 @@ Host *
         std::fs::write(base.join("id_rsa.pub"), "ssh-rsa AAAA").unwrap();
 
         assert!(discover_ssh_identity_file_in(&base).is_none());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn default_identities_keep_every_standard_key() {
+        let base = std::env::temp_dir().join(format!(
+            "omnipanel-ssh-test-defaults-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----\n";
+        std::fs::write(base.join("id_rsa"), pem).unwrap();
+        std::fs::write(base.join("id_ed25519"), pem).unwrap();
+        std::fs::write(base.join("custom_key"), pem).unwrap();
+
+        let names: Vec<_> = list_default_identity_files_in(&base)
+            .iter()
+            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+            .map(str::to_string)
+            .collect();
+        assert_eq!(names, vec!["id_rsa".to_string(), "id_ed25519".to_string()]);
 
         let _ = std::fs::remove_dir_all(&base);
     }

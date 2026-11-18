@@ -1,9 +1,9 @@
 # OmniPanel Web — Docker 部署与验证
 
-> Docker Web **0.8.62** 与桌面 `v0.8.62` 同源发布，跟踪标签 `docker-v0.8.62`。不修改已发布的桌面 `v0.8.57` / `v0.8.58` / `v0.8.59` / `v0.8.60` / `v0.8.61` 标签或资产、`docker-v0.8.57` / `docker-v0.8.58` / `docker-v0.8.59` / `docker-v0.8.60` / `docker-v0.8.61` 或镜像标签 `0.8.57` / `0.8.58` / `0.8.59` / `0.8.60` / `0.8.61`。以 [Docker 工作流](https://github.com/OmniUltraX/omnipanel/actions/workflows/docker-web.yml) 的发布/匿名拉取校验成功为准；不要把桌面发布、仅构建成功或旧 `latest` 当成新镜像已发布。生产应固定版本及 digest。
+> Docker Web **0.8.63** 与桌面 `v0.8.63` 同源发布，跟踪标签 `docker-v0.8.63`。不修改已发布的桌面 `v0.8.57` / `v0.8.58` / `v0.8.59` / `v0.8.60` / `v0.8.61` / `v0.8.62` 标签或资产、`docker-v0.8.57` / `docker-v0.8.58` / `docker-v0.8.59` / `docker-v0.8.60` / `docker-v0.8.61` / `docker-v0.8.62` 或镜像标签 `0.8.57` / `0.8.58` / `0.8.59` / `0.8.60` / `0.8.61` / `0.8.62`。以 [Docker 工作流](https://github.com/OmniUltraX/omnipanel/actions/workflows/docker-web.yml) 的发布/匿名拉取校验成功为准；不要把桌面发布、仅构建成功或旧 `latest` 当成新镜像已发布。生产应固定版本及 digest。
 
 ```bash
-docker pull ghcr.io/omniultrax/omnipanel-web:0.8.62
+docker pull ghcr.io/omniultrax/omnipanel-web:0.8.63
 # 检查镜像 org.opencontainers.image.version / revision，并保留发布 digest。
 ```
 
@@ -45,12 +45,12 @@ docker run -d --name omnipanel -p 127.0.0.1:8899:8899 \
 cd deploy/docker
 cp .env.example .env
 # 在本地编辑 .env 设置 OMNIPANEL_API_KEY
-# 默认精确版本 ghcr.io/omniultrax/omnipanel-web:0.8.62，先确认 Docker 发布成功。
+# 默认精确版本 ghcr.io/omniultrax/omnipanel-web:0.8.63，先确认 Docker 发布成功。
 # 本地源码测试则在 .env 设置 OMNIPANEL_IMAGE=omnipanel-web:local 并先完成构建。
 docker compose up -d
 ```
 
-默认仅发布回环端口，不挂载 Docker socket，镜像固定为 Docker Web 0.8.62。**不要继续运行早于该修复版的旧镜像。** 必须确认发布工作流与匿名拉取通过；生产可把 `OMNIPANEL_IMAGE` 进一步固定到已校验的 digest。已发布的 `0.8.57`、`0.8.58`、`0.8.59`、`0.8.60`、`0.8.61` 固定标签不会被覆盖。本地源码构建仍可显式选择 `omnipanel-web:local`。
+默认仅发布回环端口，不挂载 Docker socket，镜像固定为 Docker Web 0.8.63。**不要继续运行早于该修复版的旧镜像。** 必须确认发布工作流与匿名拉取通过；生产可把 `OMNIPANEL_IMAGE` 进一步固定到已校验的 digest。已发布的 `0.8.57`、`0.8.58`、`0.8.59`、`0.8.60`、`0.8.61`、`0.8.62` 固定标签不会被覆盖。本地源码构建仍可显式选择 `omnipanel-web:local`。
 
 ## 认证与反向代理
 
@@ -79,13 +79,13 @@ docker compose -f docker-compose.yml -f docker-compose.engine.yml up -d
 
 运行时镜像按桌面默认随包提供第一方 ClickHouse / MongoDB / Redis 引擎 sidecar（与 `omnipanel-server` 同目录，Dockerfile 可重现构建）。MySQL / Postgres 默认仍走进程内驱动。云厂商、Nacos、官方 Agent、Warpgate 等是市场 **download-only** 插件，**不会**打进镜像；请在插件中心从官方目录安装，或安装已签名的 `.omni-plugin`。安装后出现在对应入口，并随 `/data` 持久化。不要把 download-only 插件改成镜像内置默认值。
 
-无头容器没有桌面系统钥匙串；当前凭据 fallback 会把连接密钥保存为 `/data/omnipd/secrets/*.secret` 文件（权限 `0600`，不是额外的加密密钥库）。Docker/宿主管理员仍可读取数据卷和容器环境中的部署密钥；请保护并加密宿主磁盘/备份。共享部署密钥代表整个工作台的管理权限，当前不是多租户隔离边界。
+无头容器没有桌面系统钥匙串。主密钥落在 `/data/omnipd/secrets/` 的 fallback 文件（权限 `0600`），业务凭据放在同目录的加密 `vault.bundle`。能读数据卷的人仍能同时读到主密钥和解开凭据。Docker/宿主管理员仍可读取数据卷和容器环境中的部署密钥；请保护并加密宿主磁盘/备份。共享部署密钥代表整个工作台的管理权限，当前不是多租户隔离边界。
 
 ## 环境变量
 
 | 变量 | 用途 | 默认 |
 | --- | --- | --- |
-| `OMNIPANEL_IMAGE` | Compose 精确发布镜像；本地构建可覆盖 | `ghcr.io/omniultrax/omnipanel-web:0.8.62` |
+| `OMNIPANEL_IMAGE` | Compose 精确发布镜像；本地构建可覆盖 | `ghcr.io/omniultrax/omnipanel-web:0.8.63` |
 | `OMNIPANEL_API_KEY` | 必填服务端部署密钥；不要编译进前端 | 无 |
 | `OMNIPANEL_PORT` | 容器内部端口（基础 Compose 固定为 8899，外部端口用同名 .env 变量） | `8899` |
 | `OMNIPANEL_BIND` | 容器内监听地址 | `0.0.0.0` |
@@ -103,4 +103,4 @@ Render / DigitalOcean 模板已要求生成/配置密钥；Railway / Fly.io / Ze
 
 `Docker Web Image` 工作流先 build+load，再运行上述冒烟；通过后才允许推送**同一个已测镜像**。`workflow_dispatch` 默认 `publish=false`，只有明确选择发布并提供与 Cargo workspace 一致的 `image_version` 才推送。tag 触发也必须与源码版本一致。正式发布更新精确版本、主次版本别名（例如 `0.8`）和 `latest`，预发布只更新精确版本 tag。发布后匿名拉取、version/revision 标签校验也必须通过；包必须预先设为 public，工作流不会悄悄更改组织权限。
 
-推送桌面标签 `v0.8.62` 会同时触发桌面发布与 Docker 工作流（版本必须与 Cargo workspace 一致）。跟踪标签 `docker-v0.8.62` 不匹配桌面 `v*` 触发器，用于 Docker 发行说明，且不会取代 GitHub 上的桌面 latest。只有全部测试通过的同一个镜像会更新 GHCR `0.8.62`、`0.8`、`latest`；已有 `0.8.57`、`0.8.58`、`0.8.59`、`0.8.60`、`0.8.61` 固定标签保持不变。后续匿名校验必须通过。
+推送桌面标签 `v0.8.63` 会同时触发桌面发布与 Docker 工作流（版本必须与 Cargo workspace 一致）。跟踪标签 `docker-v0.8.63` 不匹配桌面 `v*` 触发器，用于 Docker 发行说明，且不会取代 GitHub 上的桌面 latest。只有全部测试通过的同一个镜像会更新 GHCR `0.8.63`、`0.8`、`latest`；已有 `0.8.57`、`0.8.58`、`0.8.59`、`0.8.60`、`0.8.61`、`0.8.62` 固定标签保持不变。后续匿名校验必须通过。

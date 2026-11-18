@@ -7,12 +7,15 @@ import { TextInput } from "../../../../components/ui/form/TextInput";
 import { useI18n } from "../../../../i18n";
 import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
 import { WorkbenchPanelHeader } from "../../../../components/ui/primitives/WorkbenchPanelHeader";
+import { useToastNotice } from "../../../../hooks/useToastNotice";
+import { SSH_LOCAL_KEYS_IMPORTED_EVENT } from "../../../../lib/sshConfigHosts";
 
 export function KeysModuleView() {
   const { t } = useI18n();
   const [keys, setKeys] = useState<SshKeyInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useToastNotice(error, "error");
   const [showGenerate, setShowGenerate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -48,6 +51,14 @@ export function KeysModuleView() {
 
   useEffect(() => {
     loadKeys();
+  }, [loadKeys]);
+
+  useEffect(() => {
+    const onImported = () => {
+      void loadKeys();
+    };
+    window.addEventListener(SSH_LOCAL_KEYS_IMPORTED_EVENT, onImported);
+    return () => window.removeEventListener(SSH_LOCAL_KEYS_IMPORTED_EVENT, onImported);
   }, [loadKeys]);
 
   const handleGenerate = async () => {
@@ -167,8 +178,6 @@ export function KeysModuleView() {
           </>
         }
       />
-
-      {error && <div className="sftp-error">{error}</div>}
 
       {showGenerate && (
         <div className="panel" style={{ margin: "0 24px 8px" }}>

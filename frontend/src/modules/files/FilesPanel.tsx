@@ -37,6 +37,7 @@ import {
 } from "../../stores/filesFavoritesStore";
 import { useFilesWorkspaceSessionStore } from "../../stores/filesWorkspaceSessionStore";
 import { showToast } from "../../stores/toastStore";
+import { useToastNotice } from "../../hooks/useToastNotice";
 import { quickInput } from "../../stores/quickInputStore";
 import { FileConnectionDialog, type FileProtocol } from "./FileConnectionDialog";
 import { FileConnectionPanel, buildS3BindKey } from "./FileConnectionPanel";
@@ -142,6 +143,7 @@ function FilesBrowserView() {
   } | null>(null);
   const [localSystemInfo, setLocalSystemInfo] = useState<FileLocalSystemInfo | null>(null);
   const [connBanner, setConnBanner] = useState<{ kind: "info" | "error"; text: string } | null>(null);
+  useToastNotice(connBanner?.text, connBanner?.kind === "error" ? "error" : "success");
   const [indexStatuses, setIndexStatuses] = useState<Record<string, FileIndexStatus>>({});
   const activeNavigateRef = useRef<((path: string) => void) | null>(null);
   const activeNavigateConnIdRef = useRef<string | null>(null);
@@ -1156,11 +1158,6 @@ function FilesBrowserView() {
         }
       >
         <div className="fm-main">
-          {connBanner && (
-            <div className={connBanner.kind === "error" ? "fm-error-banner" : "fm-info-banner"}>
-              {connBanner.text}
-            </div>
-          )}
           <div
             className="fm-workspace-drop-zone"
             onDragOver={handleWorkspaceDragOver}

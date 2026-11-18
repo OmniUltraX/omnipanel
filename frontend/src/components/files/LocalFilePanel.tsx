@@ -4,6 +4,7 @@ import { TextInput } from "../ui/form/TextInput";
 import { FileEntryIcon } from "../ui/icons/FileEntryIcon";
 import { ContextMenu } from "../ui/menu/ContextMenu";
 import { useI18n } from "../../i18n";
+import { useToastNotice } from "../../hooks/useToastNotice";
 import type { FileEntry } from "../../ipc/bindings";
 import {
   deleteRemote,
@@ -61,6 +62,7 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useToastNotice(error, "error");
   const [composer, setComposer] = useState<ComposerMode>(null);
   const [mkdirName, setMkdirName] = useState("");
   const [composerBusy, setComposerBusy] = useState(false);
@@ -441,8 +443,6 @@ export function LocalFilePanel({ initialPath }: { initialPath?: string } = {}) {
           submitting={composerBusy}
         />
       )}
-
-      {error && <div className="sftp-error">{error}</div>}
 
       <div className="sftp-table-wrap">
         {loading ? (

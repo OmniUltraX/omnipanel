@@ -16,6 +16,7 @@ import { containerRowLabel } from "./dockerResourceLabels";
 import { useDockerContainerGrid } from "./hooks/useDockerContainerGrid";
 import { refreshDockerConnectionSidebarCache } from "./hooks/useDockerConnectionResources";
 import { useDockerLiveConnection } from "./DockerSidebarLinkageContext";
+import { useToastNotice } from "../../hooks/useToastNotice";
 import type { DockerContainerSubWindowKind } from "./DockerDockPanel";
 
 type OpenContainerSubWindow = {
@@ -61,6 +62,7 @@ export function DockerContainerDockPanel({
   const [openSubWindow, setOpenSubWindow] = useState<OpenContainerSubWindow | null>(null);
   const [pendingActions, setPendingActions] = useState<Record<string, true>>({});
   const [actionError, setActionError] = useState<string | null>(null);
+  useToastNotice(error ?? actionError, "error");
 
   const normalizedId = normalizeContainerKey(containerId);
 
@@ -157,10 +159,6 @@ export function DockerContainerDockPanel({
             </p>
           </div>
         </div>
-
-        {error || actionError ? (
-          <div className="docker-container-workspace__error">{error ?? actionError}</div>
-        ) : null}
 
         {loading && !container ? (
           <div className="docker-container-workspace__loading">{t("docker.dockPanel.loading")}</div>

@@ -27,6 +27,9 @@ export const DOCKER_STATS = "docker-stats" as const;
 /** Docker stats 流结束 */
 export const DOCKER_STATS_END = "docker-stats-end" as const;
 
+/** SSH 连接在本机补齐私钥后改写了绑定（payload: connectionId + keyId） */
+export const SSH_KEY_REBOUND = "ssh-key-rebound" as const;
+
 /** SSH 连接池会话变更 */
 export const SSH_POOL_SESSION = "ssh-pool-session" as const;
 

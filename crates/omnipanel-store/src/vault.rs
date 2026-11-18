@@ -1,3 +1,8 @@
+use std::collections::BTreeMap;
+use std::sync::Mutex;
+
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
 use keyring::Entry;
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
 
@@ -11,11 +16,13 @@ const MASTER_KEY_ACCOUNT: &str = "__sqlcipher_master_key__";
 /// 自动降级为本地文件（权限 0600），保证连接凭据可持久化。
 const FILE_SECRETS_DIR: &str = "omnipd/secrets";
 
-/// 系统钥匙串凭据保管。敏感数据（密码/私钥/Token、SQLCipher 主密钥）只存这里，
-/// 本地库仅保存 `credential_ref` 关联。
+/// 系统钥匙串凭据保管。敏感数据（密码/私钥/Token）放进主密钥加密的本地包，
+/// 钥匙串里只留 SQLCipher 主密钥这一条。macOS 更新后登录钥匙串会按程序指纹逐条要求
+/// Touch ID；合成一把之后，更新或重新打开只问这一次。本地库仅保存 `credential_ref`。
 ///
 /// ## 降级策略
-/// - 优先系统钥匙串（桌面端）。
+/// - 优先系统钥匙串里的主密钥，业务秘密放加密包。
+/// - 旧的逐条钥匙串项在第一次读到时迁入包内并删除。
 /// - keyring 后端初始化失败（无 D-Bus / 无桌面会话）或操作报
 ///   `PlatformFailure` / `NoStorageAccess` 等后端不可用错误时，自动降级为
 ///   `~/.omnipd/secrets/<reference>.secret` 文件（0600 权限）。
@@ -44,59 +51,274 @@ pub fn plugin_secret_ref(plugin_id: &str, key: &str) -> OmniResult<String> {
 impl Vault {
     /// 写入/更新一条凭据。
     pub fn store(reference: &str, secret: &str) -> OmniResult<()> {
-        match entry(reference).and_then(|e| e.set_password(secret).map_err(map_keyring)) {
-            Ok(()) => Ok(()),
-            Err(e) if keyring_backend_unavailable(&e) => file_store(reference, secret),
-            Err(e) => Err(e),
+        if reference == MASTER_KEY_ACCOUNT {
+            let stored = raw_store(reference, secret);
+            if stored.is_ok() {
+                cache_master(secret);
+            }
+            return stored;
         }
+        bundle_insert(reference, secret)
     }
 
     /// 读取一条凭据。
     pub fn get(reference: &str) -> OmniResult<String> {
-        match entry(reference).and_then(|e| e.get_password().map_err(map_keyring)) {
-            Ok(secret) => Ok(secret),
-            Err(e) if keyring_backend_unavailable(&e) => file_get(reference),
-            Err(e) => Err(e),
+        if reference == MASTER_KEY_ACCOUNT {
+            return Self::master_key();
         }
+        bundle_get(reference)
     }
 
     /// 删除一条凭据；不存在时视为成功（幂等）。
     pub fn delete(reference: &str) -> OmniResult<()> {
-        match entry(reference) {
-            Ok(e) => match e.delete_credential() {
-                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-                Err(err) => {
-                    let mapped = map_keyring(err);
-                    if keyring_backend_unavailable(&mapped) {
-                        file_delete(reference)
-                    } else {
-                        Err(mapped)
-                    }
-                }
-            },
-            Err(_) => file_delete(reference),
+        if reference == MASTER_KEY_ACCOUNT {
+            clear_master_cache();
+            return raw_delete(reference);
         }
+        bundle_remove(reference)
     }
 
     /// 读取 SQLCipher 主密钥；首次运行生成 32 字节随机密钥写入 keyring（或 fallback 文件）。
+    /// 进程内只问一次钥匙串，后面的业务秘密用这把密钥解开本地包。
     pub fn master_key() -> OmniResult<String> {
-        match Self::get(MASTER_KEY_ACCOUNT) {
-            Ok(key) => Ok(key),
+        if let Some(key) = lock(&MASTER_CACHE).clone() {
+            return Ok(key);
+        }
+        let key = match raw_get(MASTER_KEY_ACCOUNT) {
+            Ok(key) => key,
             Err(e) if e.code == ErrorCode::NotFound => {
                 let key = generate_key()?;
-                Self::store(MASTER_KEY_ACCOUNT, &key)?;
-                Ok(key)
+                raw_store(MASTER_KEY_ACCOUNT, &key)?;
+                key
             }
             Err(e) if keyring_backend_unavailable(&e) => {
-                // 与 get 的降级一致：文件也不存在时生成并写入
-                let key = file_get(MASTER_KEY_ACCOUNT).or_else(|_| {
+                file_get(MASTER_KEY_ACCOUNT).or_else(|_| {
                     generate_key().and_then(|k| file_store(MASTER_KEY_ACCOUNT, &k).map(|_| k))
-                })?;
-                Ok(key)
+                })?
             }
-            Err(e) => Err(e),
+            Err(e) => return Err(e),
+        };
+        cache_master(&key);
+        Ok(key)
+    }
+}
+
+fn cache_master(key: &str) {
+    *lock(&MASTER_CACHE) = Some(key.to_string());
+}
+
+fn clear_master_cache() {
+    *lock(&MASTER_CACHE) = None;
+    *lock(&BUNDLE_CACHE) = None;
+}
+
+fn raw_store(reference: &str, secret: &str) -> OmniResult<()> {
+    match entry(reference).and_then(|e| e.set_password(secret).map_err(map_keyring)) {
+        Ok(()) => Ok(()),
+        Err(e) if keyring_backend_unavailable(&e) => file_store(reference, secret),
+        Err(e) => Err(e),
+    }
+}
+
+fn raw_get(reference: &str) -> OmniResult<String> {
+    match entry(reference).and_then(|e| e.get_password().map_err(map_keyring)) {
+        Ok(secret) => Ok(secret),
+        Err(e) if keyring_backend_unavailable(&e) => file_get(reference),
+        Err(e) => Err(e),
+    }
+}
+
+fn raw_delete(reference: &str) -> OmniResult<()> {
+    match entry(reference) {
+        Ok(e) => match e.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(err) => {
+                let mapped = map_keyring(err);
+                if keyring_backend_unavailable(&mapped) {
+                    file_delete(reference)
+                } else {
+                    Err(mapped)
+                }
+            }
+        },
+        Err(_) => file_delete(reference),
+    }
+}
+
+static MASTER_CACHE: Mutex<Option<String>> = Mutex::new(None);
+static BUNDLE_CACHE: Mutex<Option<BTreeMap<String, String>>> = Mutex::new(None);
+static BUNDLE_IO: Mutex<()> = Mutex::new(());
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|err| err.into_inner())
+}
+
+fn bundle_get(reference: &str) -> OmniResult<String> {
+    let _io = lock(&BUNDLE_IO);
+    let mut cache = lock(&BUNDLE_CACHE);
+    if cache.is_none() {
+        *cache = Some(read_bundle()?);
+    }
+    if let Some(value) = cache.as_ref().and_then(|map| map.get(reference)).cloned() {
+        return Ok(value);
+    }
+    let migrated = match raw_get(reference) {
+        Ok(value) => value,
+        Err(err) if err.code == ErrorCode::NotFound || keyring_backend_unavailable(&err) => {
+            match file_get(reference) {
+                Ok(value) => value,
+                Err(_) if err.code == ErrorCode::NotFound => return Err(err),
+                Err(file_err) => return Err(file_err),
+            }
+        }
+        Err(err) => return Err(err),
+    };
+    if let Some(map) = cache.as_mut() {
+        map.insert(reference.to_string(), migrated.clone());
+        if let Err(err) = write_bundle(map) {
+            map.remove(reference);
+            return Err(err);
         }
     }
+    drop(cache);
+    let _ = raw_delete(reference);
+    let _ = file_delete(reference);
+    Ok(migrated)
+}
+
+fn bundle_insert(reference: &str, secret: &str) -> OmniResult<()> {
+    let _io = lock(&BUNDLE_IO);
+    let mut cache = lock(&BUNDLE_CACHE);
+    if cache.is_none() {
+        *cache = Some(read_bundle()?);
+    }
+    let Some(map) = cache.as_mut() else {
+        return Err(OmniError::new(ErrorCode::Storage, "凭据包未就绪"));
+    };
+    let previous = map.insert(reference.to_string(), secret.to_string());
+    if let Err(err) = write_bundle(map) {
+        match previous {
+            Some(old) => {
+                map.insert(reference.to_string(), old);
+            }
+            None => {
+                map.remove(reference);
+            }
+        }
+        return Err(err);
+    }
+    drop(cache);
+    let _ = raw_delete(reference);
+    let _ = file_delete(reference);
+    Ok(())
+}
+
+fn bundle_remove(reference: &str) -> OmniResult<()> {
+    let _io = lock(&BUNDLE_IO);
+    let mut cache = lock(&BUNDLE_CACHE);
+    if cache.is_none() {
+        *cache = Some(read_bundle()?);
+    }
+    if let Some(map) = cache.as_mut() {
+        if let Some(old) = map.remove(reference) {
+            if let Err(err) = write_bundle(map) {
+                map.insert(reference.to_string(), old);
+                return Err(err);
+            }
+        }
+    }
+    drop(cache);
+    raw_delete(reference)?;
+    file_delete(reference)
+}
+
+fn bundle_path() -> OmniResult<std::path::PathBuf> {
+    Ok(file_secrets_dir()?.join("vault.bundle"))
+}
+
+fn read_bundle() -> OmniResult<BTreeMap<String, String>> {
+    let path = bundle_path()?;
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(err) => {
+            return Err(
+                OmniError::new(ErrorCode::Storage, "读取凭据包失败").with_cause(err.to_string())
+            );
+        }
+    };
+    if bytes.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    open_bundle(&Vault::master_key()?, &bytes)
+}
+
+fn write_bundle(map: &BTreeMap<String, String>) -> OmniResult<()> {
+    let dir = file_secrets_dir()?;
+    std::fs::create_dir_all(&dir).map_err(|err| {
+        OmniError::new(ErrorCode::Storage, "创建凭据目录失败").with_cause(err.to_string())
+    })?;
+    let bytes = seal_bundle(&Vault::master_key()?, map)?;
+    let path = bundle_path()?;
+    std::fs::write(&path, bytes).map_err(|err| {
+        OmniError::new(ErrorCode::Storage, "写入凭据包失败").with_cause(err.to_string())
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
+fn bundle_key_bytes(master_hex: &str) -> OmniResult<[u8; 32]> {
+    if master_hex.len() != 64 {
+        return Err(OmniError::new(ErrorCode::Storage, "主密钥长度无效"));
+    }
+    let mut key = [0u8; 32];
+    for (index, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&master_hex[index * 2..index * 2 + 2], 16)
+            .map_err(|_| OmniError::new(ErrorCode::Storage, "主密钥不是十六进制"))?;
+    }
+    Ok(key)
+}
+
+fn seal_bundle(master_hex: &str, map: &BTreeMap<String, String>) -> OmniResult<Vec<u8>> {
+    let plain = serde_json::to_vec(map).map_err(|err| {
+        OmniError::new(ErrorCode::Internal, "序列化凭据包失败").with_cause(err.to_string())
+    })?;
+    let mut nonce_bytes = [0u8; 12];
+    getrandom::getrandom(&mut nonce_bytes).map_err(|err| {
+        OmniError::new(ErrorCode::Storage, "生成凭据包随机数失败").with_cause(err.to_string())
+    })?;
+    let cipher = Aes256Gcm::new_from_slice(&bundle_key_bytes(master_hex)?).map_err(|err| {
+        OmniError::new(ErrorCode::Internal, "初始化凭据包加密失败").with_cause(err.to_string())
+    })?;
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plain.as_ref())
+        .map_err(|err| {
+            OmniError::new(ErrorCode::Internal, "加密凭据包失败").with_cause(err.to_string())
+        })?;
+    let mut out = b"OVB1".to_vec();
+    out.extend(nonce_bytes);
+    out.extend(ciphertext);
+    Ok(out)
+}
+
+fn open_bundle(master_hex: &str, bytes: &[u8]) -> OmniResult<BTreeMap<String, String>> {
+    if bytes.len() < 16 || &bytes[..4] != b"OVB1" {
+        return Err(OmniError::new(ErrorCode::Storage, "凭据包格式无效"));
+    }
+    let nonce = Nonce::from_slice(&bytes[4..16]);
+    let cipher = Aes256Gcm::new_from_slice(&bundle_key_bytes(master_hex)?).map_err(|err| {
+        OmniError::new(ErrorCode::Internal, "初始化凭据包加密失败").with_cause(err.to_string())
+    })?;
+    let plain = cipher
+        .decrypt(nonce, &bytes[16..])
+        .map_err(|_| OmniError::new(ErrorCode::Storage, "解开凭据包失败"))?;
+    serde_json::from_slice(&plain).map_err(|err| {
+        OmniError::new(ErrorCode::Storage, "凭据包内容无效").with_cause(err.to_string())
+    })
 }
 
 fn entry(account: &str) -> OmniResult<Entry> {
@@ -216,6 +438,21 @@ mod tests {
     fn file_secrets_dir_is_under_home() {
         let dir = file_secrets_dir().unwrap();
         assert!(dir.ends_with("omnipd/secrets"));
+    }
+
+    #[test]
+    fn bundle_roundtrip_keeps_entries() {
+        let key = generate_key().unwrap();
+        let mut map = BTreeMap::new();
+        map.insert(
+            "ssh-key-priv-a".into(),
+            "-----BEGIN OPENSSH PRIVATE KEY-----\n".into(),
+        );
+        map.insert("db-password-b".into(), "s3cret".into());
+        let sealed = seal_bundle(&key, &map).unwrap();
+        let opened = open_bundle(&key, &sealed).unwrap();
+        assert_eq!(opened, map);
+        assert!(open_bundle(&generate_key().unwrap(), &sealed).is_err());
     }
 
     #[test]

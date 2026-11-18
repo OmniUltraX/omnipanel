@@ -8,6 +8,7 @@ import { WorkbenchPanelHeader } from "../../../../components/ui/primitives/Workb
 import { Select } from "../../../../components/ui/form/Select";
 import { TextInput } from "../../../../components/ui/form/TextInput";
 import { TunnelFlowList } from "./TunnelFlowList";
+import { useToastNotice } from "../../../../hooks/useToastNotice";
 
 type Props = {
   sshResources: WorkspaceResource[];
@@ -24,6 +25,7 @@ export function TunnelsModuleView({ sshResources }: Props) {
   const [remotePort, setRemotePort] = useState("");
   const [connectionId, setConnectionId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  useToastNotice(error, "error");
 
   const hostNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -123,8 +125,6 @@ export function TunnelsModuleView({ sshResources }: Props) {
           </WorkbenchActionButton>
         }
       />
-
-      {error && <div className="sftp-error">{error}</div>}
 
       {showCreate && (
         <div className="panel" style={{ margin: "0 24px 8px" }}>

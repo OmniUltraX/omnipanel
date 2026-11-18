@@ -11,11 +11,14 @@ use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_ssh::{
     SftpEntry, SshAuth, SshConfig, SshConfigEntry, SshEvent, SshProcessDetail, SshProcessInfo,
     SshSession, SshSink, StreamChunk, default_ssh_dir, discover_ssh_identity_file,
-    find_ssh_config_entry, is_private_key_pem_content, list_ssh_private_key_paths_in,
-    load_ssh_config_hosts, ssh_config_from_json, ssh_config_to_connect_config, ssh_public_key_meta,
+    find_ssh_config_entry, identity_files_for_entry, is_private_key_pem_content,
+    list_ssh_private_key_paths, list_ssh_private_key_paths_in, load_ssh_config_hosts,
+    ssh_config_from_json, ssh_config_to_connect_config, ssh_private_key_public_meta,
+    ssh_public_key_meta,
 };
 use omnipanel_store::{
     AuditEntry, Connection, ConnectionKind, SshKeyRecord, Vault, inject_ssh_vault_into_config,
+    ssh_key_private_ref,
 };
 use serde::Serialize;
 use specta::Type;
@@ -238,18 +241,49 @@ pub async fn ssh_connect_connection(
     let tags = conn.tags.clone();
     let origin = conn.origin_device_id.clone();
     let config = crate::commands::connection::resolve_ssh_config(&conn)?;
+    let recovery = crate::ssh_key_recovery::plan_private_key_recovery(&storage, &config)?;
     ensure_private_key_present(&conn)?;
     drop(storage);
     let host = config.host.clone();
     let port = config.port;
-    crate::mesh_relay::ssh_connect_rewritten(
+    let connect = crate::mesh_relay::ssh_connect_rewritten(
         &host,
         port,
         &origin,
         &tags,
-        ssh_connect(state, config, cols, rows, pane_id),
-    )
-    .await?
+        ssh_connect(state.clone(), config, cols, rows, pane_id),
+    );
+    let (connected, winner) = match recovery {
+        Some(attempts) => omnipanel_ssh::with_ssh_key_attempts(attempts, connect).await,
+        None => (connect.await, None),
+    };
+    let session_id = connected??;
+    if let Some(winner) = winner {
+        let storage = state.storage.lock().await;
+        match crate::ssh_key_recovery::apply_recovered_private_key(
+            &storage,
+            &connection_id,
+            &winner,
+        ) {
+            Ok(bound) => {
+                let key_id = bound.key_id.clone();
+                drop(storage);
+                state
+                    .ssh_pool
+                    .remember_private_key(&connection_id, bound.auth)
+                    .await;
+                crate::ssh_key_recovery::emit_ssh_key_rebound(
+                    &state.app_handle,
+                    &connection_id,
+                    &key_id,
+                );
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "SSH 私钥匹配成功，但写回绑定失败");
+            }
+        }
+    }
+    Ok(session_id)
 }
 
 /// 写入远端 shell。
@@ -1754,6 +1788,7 @@ pub async fn ssh_sync_config_hosts(
     {
         let storage = state.storage.lock().await;
         let existing = storage.list_connections_by_kind(ConnectionKind::Ssh)?;
+        refresh_known_private_keys_from_ssh_dir(&storage);
 
         for host in hosts {
             if let Some(ref filter) = alias_filter {
@@ -1772,7 +1807,15 @@ pub async fn ssh_sync_config_hosts(
                     continue;
                 }
             };
-            if let Err(e) = bind_ssh_identity_to_key_store(&storage, &mut ssh_config) {
+            let matches: Vec<Connection> = existing
+                .iter()
+                .filter(|conn| conn.name == host.alias)
+                .cloned()
+                .collect();
+            let keep_key_id = matches.first().and_then(|conn| connection_key_id(conn));
+            if let Err(e) =
+                import_host_private_keys(&storage, &host, &mut ssh_config, keep_key_id.as_deref())
+            {
                 failures.push(SshConfigSyncFailure {
                     alias: host.alias.clone(),
                     reason: e.to_string(),
@@ -1780,9 +1823,31 @@ pub async fn ssh_sync_config_hosts(
                 skipped += 1;
                 continue;
             }
-            if let Some(existing_conn) = existing.iter().find(|c| c.name == host.alias) {
+            if matches.is_empty() {
+                let config_json = serde_json::to_string(&ssh_config).map_err(|e| {
+                    OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败")
+                        .with_cause(e.to_string())
+                })?;
+                let conn = Connection {
+                    id: conn_gen_id(),
+                    kind: ConnectionKind::Ssh,
+                    name: host.alias.clone(),
+                    group: SSH_CONFIG_SYNC_GROUP.to_string(),
+                    env_tag: "unknown".to_string(),
+                    tags: vec![],
+                    config: config_json,
+                    credential_ref: None,
+                    created_at: now,
+                    updated_at: now,
+                    origin_device_id: String::new(),
+                };
+                storage.save_connection(&conn)?;
+                added += 1;
+                continue;
+            }
+            for existing_conn in &matches {
                 let mut conn = existing_conn.clone();
-                let mut merged_config = ssh_config;
+                let mut merged_config = ssh_config.clone();
                 let secret = resolve_connection_secret(existing_conn);
                 if let Ok((patched, _)) = inject_ssh_vault_into_config(
                     &existing_conn.config,
@@ -1805,26 +1870,6 @@ pub async fn ssh_sync_config_hosts(
                 conn.updated_at = now;
                 storage.save_connection(&conn)?;
                 updated += 1;
-            } else {
-                let config_json = serde_json::to_string(&ssh_config).map_err(|e| {
-                    OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败")
-                        .with_cause(e.to_string())
-                })?;
-                let conn = Connection {
-                    id: conn_gen_id(),
-                    kind: ConnectionKind::Ssh,
-                    name: host.alias.clone(),
-                    group: SSH_CONFIG_SYNC_GROUP.to_string(),
-                    env_tag: "unknown".to_string(),
-                    tags: vec![],
-                    config: config_json,
-                    credential_ref: None,
-                    created_at: now,
-                    updated_at: now,
-                    origin_device_id: String::new(),
-                };
-                storage.save_connection(&conn)?;
-                added += 1;
             }
         }
     }
@@ -2091,6 +2136,216 @@ fn load_private_pem_for_auth(auth: &SshAuth) -> Option<(String, Option<PathBuf>)
         }
         _ => None,
     }
+}
+
+fn connection_key_id(conn: &Connection) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(&conn.config).ok()?;
+    let id = value
+        .pointer("/auth/keyId")
+        .and_then(|item| item.as_str())
+        .or_else(|| value.pointer("/auth/key_id").and_then(|item| item.as_str()))?;
+    let id = id.trim();
+    if id.is_empty() {
+        None
+    } else {
+        Some(id.to_string())
+    }
+}
+
+fn key_material_for_file(path: &Path, private_pem: &str) -> (String, String, String, String) {
+    if let Some((public_key, fingerprint, key_type, comment)) =
+        ssh_private_key_public_meta(private_pem)
+    {
+        if !public_key.trim().is_empty() {
+            return (public_key, fingerprint, key_type, comment);
+        }
+    }
+    let public_key = path
+        .with_extension("pub")
+        .is_file()
+        .then(|| std::fs::read_to_string(path.with_extension("pub")).ok())
+        .flatten()
+        .unwrap_or_default();
+    let (fingerprint, comment) = ssh_public_key_meta(&public_key);
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("imported-key");
+    (
+        public_key,
+        fingerprint,
+        detect_private_key_type(name, private_pem),
+        comment,
+    )
+}
+
+fn import_private_key_file(
+    storage: &omnipanel_store::Storage,
+    path: &Path,
+) -> Result<SshKeyRecord, OmniError> {
+    let private_pem = std::fs::read_to_string(path).map_err(|err| {
+        OmniError::new(ErrorCode::Io, "读取 SSH 私钥失败")
+            .with_cause(format!("{}: {err}", path.display()))
+    })?;
+    if !is_private_key_pem_content(&private_pem) {
+        return Err(OmniError::new(
+            ErrorCode::InvalidInput,
+            format!("SSH 私钥内容无效: {}", path.display()),
+        ));
+    }
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("imported-key");
+    let (public_key, fingerprint, key_type, comment) = key_material_for_file(path, &private_pem);
+    storage
+        .upsert_ssh_key_from_private_pem(
+            name,
+            &private_pem,
+            &key_type,
+            &fingerprint,
+            &comment,
+            &public_key,
+            &path.to_string_lossy(),
+            None,
+        )
+        .map_err(|err| {
+            OmniError::new(ErrorCode::Storage, "写入 SSH 密钥库失败").with_cause(err.to_string())
+        })
+}
+
+/// 库里已经有的钥匙，如果本机 `~/.ssh` 里能对上指纹或原来的路径，就把私钥补上或覆盖。
+fn refresh_known_private_keys_from_ssh_dir(storage: &omnipanel_store::Storage) {
+    let Ok(known) = storage.list_ssh_keys() else {
+        return;
+    };
+    if known.is_empty() {
+        return;
+    }
+    for path in list_ssh_private_key_paths() {
+        let Ok(private_pem) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if !is_private_key_pem_content(&private_pem) {
+            continue;
+        }
+        let source = path.to_string_lossy().to_string();
+        let (_, fingerprint, _, _) = key_material_for_file(&path, &private_pem);
+        let matched = known.iter().any(|record| {
+            (!fingerprint.is_empty() && record.fingerprint == fingerprint)
+                || (!record.source_path.is_empty() && record.source_path == source)
+        });
+        if matched {
+            let _ = import_private_key_file(storage, &path);
+        }
+    }
+}
+
+fn attach_key_id(config: &mut SshConfig, key_id: &str) {
+    if let SshAuth::PrivateKey {
+        pem,
+        key_path,
+        key_id: slot,
+        ..
+    } = &mut config.auth
+    {
+        *slot = Some(key_id.to_string());
+        *key_path = None;
+        *pem = None;
+    }
+}
+
+fn ssh_key_has_private(key_id: &str) -> bool {
+    Vault::get(&ssh_key_private_ref(key_id))
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn identity_file_name(record: &SshKeyRecord) -> String {
+    std::path::Path::new(&record.source_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(record.name.as_str())
+        .to_ascii_lowercase()
+}
+
+/// 没写 IdentityFile 时要选一把写进连接。ed25519 优先，rsa 只在没有更合适的钥匙时才用。
+fn default_identity_rank(record: &SshKeyRecord) -> u8 {
+    match identity_file_name(record).as_str() {
+        "id_ed25519" => 0,
+        "id_ecdsa" => 1,
+        "id_rsa" => 3,
+        "id_dsa" => 4,
+        _ if record.key_type.eq_ignore_ascii_case("ed25519") => 2,
+        _ => 5,
+    }
+}
+
+fn preferred_default_key_id(
+    storage: &omnipanel_store::Storage,
+    imported: &[String],
+) -> Result<Option<String>, OmniError> {
+    let mut best: Option<(u8, String)> = None;
+    for id in imported {
+        let Some(record) = storage.get_ssh_key(id)? else {
+            continue;
+        };
+        let rank = default_identity_rank(&record);
+        if best.as_ref().is_none_or(|current| rank < current.0) {
+            best = Some((rank, id.clone()));
+        }
+    }
+    Ok(best.map(|item| item.1))
+}
+
+/// 把这台主机对应的本机私钥写入密钥库，并写回连接配置。
+/// 配置里写了 IdentityFile 就绑那一把。没写时，单独指定过的钥匙保持不变；
+/// 没有钥匙、私钥是空的，或当前只是默认的 id_rsa，则改用 id_ed25519（没有才退回 id_rsa）。
+fn import_host_private_keys(
+    storage: &omnipanel_store::Storage,
+    host: &SshConfigEntry,
+    config: &mut SshConfig,
+    keep_key_id: Option<&str>,
+) -> Result<(), OmniError> {
+    let explicit = host.identity_file.is_some();
+    let paths = identity_files_for_entry(host);
+    if explicit && paths.is_empty() {
+        return Err(OmniError::new(
+            ErrorCode::Auth,
+            format!(
+                "IdentityFile 不存在: {}",
+                host.identity_file.as_deref().unwrap_or_default()
+            ),
+        ));
+    }
+    let mut imported: Vec<String> = Vec::new();
+    for path in &paths {
+        match import_private_key_file(storage, path) {
+            Ok(record) => imported.push(record.id),
+            Err(err) if explicit => return Err(err),
+            Err(_) => {}
+        }
+    }
+    if explicit {
+        if let Some(key_id) = imported.first() {
+            attach_key_id(config, key_id);
+        }
+        return Ok(());
+    }
+    if let Some(key_id) = keep_key_id.filter(|id| !id.is_empty()) {
+        if let Some(record) = storage.get_ssh_key(key_id)? {
+            let guessed_rsa = identity_file_name(&record) == "id_rsa";
+            if ssh_key_has_private(key_id) && !guessed_rsa {
+                attach_key_id(config, key_id);
+                return Ok(());
+            }
+        }
+    }
+    if let Some(key_id) = preferred_default_key_id(storage, &imported)? {
+        attach_key_id(config, &key_id);
+    }
+    Ok(())
 }
 
 fn bind_ssh_identity_to_key_store(
@@ -2521,6 +2776,7 @@ pub async fn ssh_rename_key(
 pub(crate) fn materialize_ssh_connection_keys_for_sync(
     storage: &omnipanel_store::Storage,
 ) -> Result<(), OmniError> {
+    refresh_known_private_keys_from_ssh_dir(storage);
     for conn in storage.list_connections_by_kind(ConnectionKind::Ssh)? {
         let Ok(mut cfg) = ssh_config_from_json(&conn.config, None) else {
             continue;

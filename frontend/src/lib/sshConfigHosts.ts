@@ -8,6 +8,9 @@ import { MODULE_PATHS } from "./paths";
 
 export const OPENSSH_HOST_ID_PREFIX = "openssh:";
 
+/** 从本机 ~/.ssh/config 导入后，密钥库可能新增或更新了私钥。 */
+export const SSH_LOCAL_KEYS_IMPORTED_EVENT = "omnipanel:ssh-local-keys-imported";
+
 let cachedHosts: WorkspaceResource[] = [];
 let cachedEntries = new Map<string, SshConfigEntry>();
 

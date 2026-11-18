@@ -13,6 +13,7 @@ import type { DockerConnectionInfo, DockerVolumeSummary } from "../../ipc/bindin
 import { unwrapCommand, unwrapCommandResult } from "../../ipc/result";
 import { appConfirm } from "../../lib/appConfirm";
 import { showToast } from "../../stores/toastStore";
+import { useToastNotice } from "../../hooks/useToastNotice";
 import { DbPanelMetaRefreshButton } from "../database/workspace/DbPanelMetaRefreshButton";
 import { peekDockerSidebarCache, publishDockerSidebarCategory } from "./dockerSidebarCacheSeed";
 import {
@@ -49,6 +50,7 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
   const [error, setError] = useState<string | null>(
     () => peekDockerSidebarCache(connection.connectionId).error,
   );
+  useToastNotice(error, "error");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
@@ -203,8 +205,6 @@ export function DockerVolumePanel({ connection, isActive = false }: DockerVolume
           {selectedVolume?.mountpoint ? ` · ${selectedVolume.mountpoint}` : ""}
         </p>
       </div>
-
-      {error ? <div className="docker-volume-panel__error">{error}</div> : null}
 
       <div className="docker-volume-panel__body">
         <DockLayout direction="horizontal" className="docker-volume-panel__split">

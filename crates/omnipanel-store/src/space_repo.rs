@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::connection::{Connection, ConnectionKind};
+use crate::ssh_keys::{ssh_key_passphrase_ref, ssh_key_private_ref};
+use crate::ssh_vault::{db_password_ref, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref};
 use crate::storage::{Storage, map_sqlite};
 use crate::todo::TodoTaskQuery;
 
@@ -185,13 +188,17 @@ fn stampable_space_path(path: &str) -> bool {
         && PREFIXES.iter().any(|prefix| path.starts_with(prefix))
 }
 
-fn attach_known_vault_files(files: &mut BTreeMap<String, Vec<u8>>) {
+#[cfg_attr(test, allow(dead_code))]
+fn attach_known_vault_files(storage: &Storage, files: &mut BTreeMap<String, Vec<u8>>) {
     for reference in [
         "space-gateway-key",
         "http-proxy-password",
         "embedding-api-key",
     ] {
         attach_vault_file(files, reference);
+    }
+    for reference in synced_secret_refs(storage) {
+        attach_vault_file(files, &reference);
     }
     let Some(bytes) = files.get("ai/providers.json").cloned() else {
         return;
@@ -217,6 +224,71 @@ fn attach_known_vault_files(files: &mut BTreeMap<String, Vec<u8>>) {
     }
 }
 
+/// 已经随空间记录走的秘密。本机钥匙（同步密钥、库主密钥、助手绑定、空间存储账号）不在这里。
+#[cfg_attr(test, allow(dead_code))]
+fn synced_secret_refs(storage: &Storage) -> Vec<String> {
+    let mut refs = Vec::new();
+    if let Ok(keys) = storage.list_ssh_keys() {
+        for key in keys {
+            refs.push(ssh_key_private_ref(&key.id));
+            refs.push(ssh_key_passphrase_ref(&key.id));
+        }
+    }
+    if let Ok(connections) = storage.list_connections() {
+        for conn in connections {
+            refs.extend(connection_secret_refs(&conn));
+        }
+    }
+    if let Ok(databases) = crate::database::load_database_connections() {
+        for db in databases {
+            refs.push(db_password_ref(&db.id));
+        }
+    }
+    refs.retain(|reference| !is_device_local_secret(reference));
+    refs.sort();
+    refs.dedup();
+    refs
+}
+
+fn connection_secret_refs(conn: &Connection) -> Vec<String> {
+    let mut refs = match conn.kind {
+        ConnectionKind::Ssh => vec![
+            ssh_password_ref(&conn.id),
+            ssh_pem_ref(&conn.id),
+            ssh_passphrase_ref(&conn.id),
+        ],
+        ConnectionKind::File => vec![format!("file-cred-{}", conn.id)],
+        ConnectionKind::Panel => vec![format!("panel-key-{}", conn.id)],
+        ConnectionKind::Docker => vec![
+            format!("docker-ssh-password-{}", conn.id),
+            format!("docker-ssh-pem-{}", conn.id),
+            format!("docker-onepanel-{}", conn.id),
+            format!("docker-btpanel-{}", conn.id),
+        ],
+        ConnectionKind::Database => vec![db_password_ref(&conn.id)],
+        ConnectionKind::Cloud | ConnectionKind::Protocol | ConnectionKind::Service => Vec::new(),
+    };
+    if let Some(reference) = conn
+        .credential_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|reference| !reference.is_empty())
+    {
+        if !refs.iter().any(|item| item == reference) {
+            refs.push(reference.to_string());
+        }
+    }
+    refs
+}
+
+fn is_device_local_secret(reference: &str) -> bool {
+    reference == "__sqlcipher_master_key__"
+        || reference.starts_with("__sync_team_key__")
+        || reference.starts_with("__assistant_binding_pubkey__")
+        || reference.starts_with("space-s3:")
+}
+
+#[cfg_attr(test, allow(dead_code))]
 fn attach_vault_file(files: &mut BTreeMap<String, Vec<u8>>, reference: &str) {
     if reference.is_empty() || reference.contains('/') || reference.contains('\\') {
         return;
@@ -868,7 +940,7 @@ impl Storage {
             files.insert(path.clone(), bytes.clone());
         }
         #[cfg(not(test))]
-        attach_known_vault_files(&mut files);
+        attach_known_vault_files(self, &mut files);
         let previous = self.local_space_id()?.unwrap_or_default();
         let adopted = space_id_in(&files).unwrap_or_else(|| previous.clone());
         if !adopted.is_empty() && adopted != previous {
@@ -1091,6 +1163,21 @@ mod tests {
             updated_at: 1,
             origin_device_id: String::new(),
         }
+    }
+
+    #[test]
+    fn ssh_connection_secrets_are_synced_and_device_keys_are_not() {
+        let mut conn = sample_conn("host-1", "mac");
+        conn.credential_ref = Some("__sync_team_key__:10".into());
+        let refs = connection_secret_refs(&conn);
+        assert!(refs.iter().any(|item| item == "ssh-password-host-1"));
+        assert!(refs.iter().any(|item| item == "ssh-pem-host-1"));
+        assert!(refs.iter().any(|item| item == "ssh-passphrase-host-1"));
+        assert!(refs.iter().any(|item| item == "__sync_team_key__:10"));
+        assert!(is_device_local_secret("__sync_team_key__:10"));
+        assert!(is_device_local_secret("__sqlcipher_master_key__"));
+        assert!(is_device_local_secret("space-s3:10"));
+        assert!(!is_device_local_secret("ssh-key-priv-sshkey-1"));
     }
 
     #[test]

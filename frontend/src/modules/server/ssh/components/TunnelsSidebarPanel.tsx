@@ -11,6 +11,7 @@ import { SshSidebarHeaderIconBtn } from "./SshSidebarModal";
 import { SidebarIcon, SidebarRefreshIcon, SidebarStatusDot } from "../../../../components/ui/module-sidebar";
 import { SidebarTreeEmpty, SidebarTreeNode, SidebarTreeRoot } from "../../../../components/ui/sidebar-tree";
 import { WorkbenchActionButton } from "../../../../components/ui/primitives/WorkbenchActionButton";
+import { useToastNotice } from "../../../../hooks/useToastNotice";
 
 type Props = {
   sshResources: WorkspaceResource[];
@@ -29,6 +30,7 @@ export function TunnelsSidebarPanel({
   const [tunnels, setTunnels] = useState<SshTunnelInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useToastNotice(error, "error");
   const [showCreate, setShowCreate] = useState(false);
   const [tunnelType, setTunnelType] = useState<"local" | "remote" | "dynamic">("local");
   const [localPort, setLocalPort] = useState("");
@@ -177,8 +179,6 @@ export function TunnelsSidebarPanel({
 
   return (
     <div className="ssh-sidebar-list-panel">
-      {error ? <div className="ssh-sidebar-list-panel__error">{error}</div> : null}
-
       {showCreate ? (
         <div className="ssh-sidebar-form">
           <Select

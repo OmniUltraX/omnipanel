@@ -24,6 +24,7 @@ import {
 } from "../../../../lib/panelDriverRegistry";
 import { appConfirm } from "../../../../lib/appConfirm";
 import { showToast } from "../../../../stores/toastStore";
+import { useToastNotice } from "../../../../hooks/useToastNotice";
 import type { ServerEntry } from "../serverConnection";
 import {
   panelHasCapability,
@@ -149,6 +150,7 @@ export function ServerCronjobsTab({ server }: Props) {
     next.sort((a, b) => compareText(a[sortColumn], b[sortColumn], sortDirection));
     return next;
   }, [filteredRows, sortColumn, sortDirection]);
+  useToastNotice(gridRows.length > 0 ? error : null, "error");
 
   const toggleSort = (columnId: string) => {
     const next = columnId as CronSortColumn;
@@ -469,7 +471,6 @@ export function ServerCronjobsTab({ server }: Props) {
           </Button>
         </div>
       </div>
-      {error && gridRows.length > 0 ? <div className="db-tables-panel-error">{error}</div> : null}
       <div className="db-tables-panel-grid-wrap server-websites-grid-wrap">{renderTable()}</div>
       <CreateCronjobDialog
         open={(createOpen && inproc && !pluginCreate) || (editId != null && inproc)}

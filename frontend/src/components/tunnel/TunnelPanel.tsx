@@ -9,6 +9,7 @@ import { TextInput } from "../ui/form/TextInput";
 import { TunnelFlowList } from "../../modules/server/ssh/components/TunnelFlowList";
 import { useSshHostResources } from "../../stores/connectionStore";
 import { sshEmptyPromptKey } from "../../modules/server/ssh/sshEmptyPrompt";
+import { useToastNotice } from "../../hooks/useToastNotice";
 
 export type TunnelPanelProps = {
   activeResource: WorkspaceResource | null;
@@ -25,6 +26,7 @@ export function TunnelPanel({ activeResource }: TunnelPanelProps) {
   const [remoteHost, setRemoteHost] = useState("");
   const [remotePort, setRemotePort] = useState("");
   const [error, setError] = useState<string | null>(null);
+  useToastNotice(error, "error");
 
   const hostId = activeResource?.id ?? "";
 
@@ -115,7 +117,6 @@ export function TunnelPanel({ activeResource }: TunnelPanelProps) {
           </svg>
         </Button>
       </div>
-      {error && <div className="sftp-error">{error}</div>}
       {showCreate && (
         <div className="tunnel-create" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "8px 0" }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>

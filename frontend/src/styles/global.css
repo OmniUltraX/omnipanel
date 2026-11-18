@@ -23878,6 +23878,21 @@ button.omni-btn-tool[aria-pressed="true"] {
     pointer-events: auto;
 }
 
+.app-toast--success {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+}
+
+.app-toast--warning {
+    color: var(--warning, var(--warn, #e5a100));
+    border-color: color-mix(in srgb, var(--warning, var(--warn, #e5a100)) 45%, var(--border));
+}
+
+.app-toast--error {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
 .app-toast--visible {
     animation: toastIn 0.28s ease-out forwards;
 }

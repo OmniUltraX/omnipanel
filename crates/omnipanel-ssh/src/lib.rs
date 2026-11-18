@@ -42,9 +42,11 @@ pub use media::{
 };
 pub use openssh_config::{
     SshConfigEntry, default_ssh_config_path, default_ssh_dir, discover_ssh_identity_file,
-    discover_ssh_identity_file_in, find_ssh_config_entry, is_private_key_pem_content,
+    discover_ssh_identity_file_in, find_ssh_config_entry, identity_files_for_entry,
+    is_private_key_pem_content, list_default_identity_files, list_default_identity_files_in,
     list_ssh_private_key_paths, list_ssh_private_key_paths_in, load_ssh_config_hosts,
-    load_ssh_config_hosts_from, ssh_config_to_connect_config, ssh_public_key_meta,
+    load_ssh_config_hosts_from, ssh_config_to_connect_config, ssh_private_key_public_meta,
+    ssh_public_key_meta,
 };
 pub use process::{
     SshProcessDetail, SshProcessInfo, SshProcessPort, attach_ports, merge_ports,
@@ -57,8 +59,8 @@ pub use stats::{
     parse_proc_stat_sample, parse_remote_stats_output,
 };
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
@@ -91,11 +93,39 @@ pub enum SshAuth {
 
 tokio::task_local! {
     static SSH_DIAL_OVERRIDE: (String, u16);
+    static SSH_KEY_ATTEMPTS: Arc<KeyAttemptScope>;
 }
 
 /// 本任务内把 SSH TCP 拨到跳板监听，逻辑主机名仍留在 `SshConfig.host`。
 pub async fn with_ssh_dial<F: std::future::Future>(host: String, port: u16, fut: F) -> F::Output {
     SSH_DIAL_OVERRIDE.scope((host, port), fut).await
+}
+
+/// 选定钥匙在本机没有私钥时，按给定顺序尝试。`id` 由调用方用来写回绑定，不会发给服务器。
+#[derive(Clone)]
+pub struct SshKeyAttempt {
+    pub id: String,
+    pub pem: String,
+    pub passphrase: Option<String>,
+}
+
+struct KeyAttemptScope {
+    attempts: Vec<SshKeyAttempt>,
+    winner: Mutex<Option<String>>,
+}
+
+/// 在这次连接里只试 `attempts`，不再扫描 `~/.ssh`。返回连接结果和服务器接受的那一把 `id`。
+pub async fn with_ssh_key_attempts<F: std::future::Future>(
+    attempts: Vec<SshKeyAttempt>,
+    fut: F,
+) -> (F::Output, Option<String>) {
+    let scope = Arc::new(KeyAttemptScope {
+        attempts,
+        winner: Mutex::new(None),
+    });
+    let output = SSH_KEY_ATTEMPTS.scope(scope.clone(), fut).await;
+    let winner = scope.winner.lock().ok().and_then(|slot| slot.clone());
+    (output, winner)
 }
 
 fn dial_endpoint(config: &SshConfig) -> (String, u16) {
@@ -169,7 +199,41 @@ async fn authenticate_private_key(
     key_path: &Option<String>,
     passphrase: &Option<String>,
 ) -> OmniResult<bool> {
+    let pem_ready = pem.as_deref().is_some_and(|value| !value.trim().is_empty());
+    if !pem_ready {
+        if let Ok(scope) = SSH_KEY_ATTEMPTS.try_with(|scope| scope.clone()) {
+            let keys = scope
+                .attempts
+                .iter()
+                .map(|attempt| {
+                    (
+                        attempt.id.clone(),
+                        attempt.pem.clone(),
+                        attempt.passphrase.clone(),
+                    )
+                })
+                .collect();
+            return authenticate_labeled_keys(session, user, keys, Some(scope)).await;
+        }
+    }
+
     let candidates = private_key_candidates_from_auth(pem, key_path)?;
+    let keys = candidates
+        .into_iter()
+        .map(|(label, key_pem)| (label, key_pem, passphrase.clone()))
+        .collect();
+    authenticate_labeled_keys(session, user, keys, None).await
+}
+
+async fn authenticate_labeled_keys(
+    session: &mut client::Handle<Client>,
+    user: &str,
+    keys: Vec<(String, String, Option<String>)>,
+    scope: Option<Arc<KeyAttemptScope>>,
+) -> OmniResult<bool> {
+    if keys.is_empty() {
+        return Err(OmniError::new(ErrorCode::Auth, "没有可用的私钥"));
+    }
     let hash = session
         .best_supported_rsa_hash()
         .await
@@ -178,7 +242,7 @@ async fn authenticate_private_key(
 
     let mut attempted = false;
     let mut last_error: Option<String> = None;
-    for (label, key_pem) in candidates {
+    for (label, key_pem, passphrase) in keys {
         let key = match decode_secret_key(&key_pem, passphrase.as_deref()) {
             Ok(key) => key,
             Err(e) => {
@@ -195,6 +259,11 @@ async fn authenticate_private_key(
                     .with_cause(format!("{label}: {e}"))
             })?;
         if result.success() {
+            if let Some(scope) = &scope {
+                if let Ok(mut slot) = scope.winner.lock() {
+                    *slot = Some(label);
+                }
+            }
             return Ok(true);
         }
         last_error = Some(format!("{label}: SSH 公钥认证被拒绝"));

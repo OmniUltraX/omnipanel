@@ -7,6 +7,7 @@ import { useI18n } from "../../i18n";
 import { appConfirm } from "../../lib/appConfirm";
 import type { DockerConnectionInfo } from "../../ipc/bindings";
 import { useDockerPanelDockStore } from "../../stores/dockerPanelDockStore";
+import { useToastNotice } from "../../hooks/useToastNotice";
 import {
   getComposeProjectMeta,
   invalidateComposeProjectMeta,
@@ -137,6 +138,9 @@ export function DockerComposePanel({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  useToastNotice(filesError ?? actionError, "error");
+  useToastNotice(saveMessage, "success");
+  useToastNotice(actionMessage, "success");
   const [composeActionPending, setComposeActionPending] = useState<
     "stop" | "restart" | "rebuild" | "down" | null
   >(null);
@@ -648,15 +652,9 @@ export function DockerComposePanel({
                 ? t("docker.composePanel.downing")
                 : t("docker.composePanel.down")}
             </WorkbenchActionButton>
-            {saveMessage ? <span className="docker-compose-panel__toast">{saveMessage}</span> : null}
-            {actionMessage ? <span className="docker-compose-panel__toast">{actionMessage}</span> : null}
           </>
         }
       />
-
-      {filesError || actionError ? (
-        <div className="docker-compose-panel__error">{filesError ?? actionError}</div>
-      ) : null}
 
       <div className="docker-compose-panel__body">
         <DockLayout direction="horizontal" className="docker-compose-panel__split">

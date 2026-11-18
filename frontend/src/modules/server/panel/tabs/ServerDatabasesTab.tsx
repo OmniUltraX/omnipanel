@@ -16,6 +16,7 @@ import {
   type PanelDatabaseItem,
 } from "../../../../lib/panelDriverRegistry";
 import { showToast } from "../../../../stores/toastStore";
+import { useToastNotice } from "../../../../hooks/useToastNotice";
 import type { ServerEntry } from "../serverConnection";
 import { panelHasCapability, panelTabCreateSpec } from "../panelPlugin";
 import { CreateDatabaseDialog } from "../CreateDatabaseDialog";
@@ -93,6 +94,7 @@ export function ServerDatabasesTab({ server }: Props) {
     next.sort((a, b) => compareText(a[sortColumn], b[sortColumn], sortDirection));
     return next;
   }, [gridRows, sortColumn, sortDirection]);
+  useToastNotice(gridRows.length > 0 ? error : null, "error");
 
   const toggleSort = (columnId: string) => {
     const next = columnId as DbSortColumn;
@@ -244,12 +246,11 @@ export function ServerDatabasesTab({ server }: Props) {
           </Button>
         </div>
       </div>
-      {error ? <div className="db-tables-panel-error">{error}</div> : null}
       <div className="db-tables-panel-grid-wrap">
         {loading && gridRows.length === 0 ? (
           <div className="db-tables-panel-empty">{t("common.loading")}</div>
         ) : gridRows.length === 0 ? (
-          <div className="db-tables-panel-empty">{t("server.databases.empty")}</div>
+          <div className="db-tables-panel-empty">{error ?? t("server.databases.empty")}</div>
         ) : (
           <DbTablesPanelGrid
             variant="processlist"

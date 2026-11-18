@@ -932,6 +932,14 @@ impl SshPool {
 
     /// 获取或建立连接池中的 SSH 会话（`connect_no_shell`）。
     /// 若池中会话已断开（keepalive 失败 / 服务器主动关闭），自动移除并重建。
+    /// 匹配到私钥后更新内存里的认证，避免下一次建连再把全部钥匙试一遍。
+    pub async fn remember_private_key(&self, resource_id: &str, auth: SshAuth) {
+        let mut entries = self.entries.lock().await;
+        if let Some(entry) = entries.get_mut(resource_id) {
+            entry.config.auth = auth;
+        }
+    }
+
     pub async fn ensure_session(&self, resource_id: &str) -> OmniResult<Arc<SshSession>> {
         // 快速路径：池中存在且仍然存活
         {
@@ -997,17 +1005,47 @@ impl SshPool {
         };
         let host = config.host.clone();
         let port = config.port;
-        let session = match crate::mesh_relay::ssh_connect_rewritten(
+        let recovery = {
+            let storage = self.storage.lock().await;
+            crate::ssh_key_recovery::plan_private_key_recovery(&storage, &config)?
+        };
+        let connect = crate::mesh_relay::ssh_connect_rewritten(
             &host,
             port,
             &tags.1,
             &tags.0,
             SshSession::connect_no_shell(config.clone()),
-        )
-        .await
-        .and_then(|inner| inner)
-        {
+        );
+        let (connected, winner) = if let Some(attempts) = recovery {
+            omnipanel_ssh::with_ssh_key_attempts(attempts, connect).await
+        } else {
+            (connect.await, None)
+        };
+        let session = match connected.and_then(|inner| inner) {
             Ok(session) => {
+                if let Some(winner) = winner {
+                    let storage = self.storage.lock().await;
+                    match crate::ssh_key_recovery::apply_recovered_private_key(
+                        &storage,
+                        resource_id,
+                        &winner,
+                    ) {
+                        Ok(bound) => {
+                            drop(storage);
+                            self.remember_private_key(resource_id, bound.auth).await;
+                            if let Some(handle) = self.app_handle.lock().await.clone() {
+                                crate::ssh_key_recovery::emit_ssh_key_rebound(
+                                    &handle,
+                                    resource_id,
+                                    &bound.key_id,
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            warn!(error = %err, "SSH 私钥匹配成功，但写回绑定失败");
+                        }
+                    }
+                }
                 self.connect_holds.lock().await.remove(resource_id);
                 Arc::new(session)
             }

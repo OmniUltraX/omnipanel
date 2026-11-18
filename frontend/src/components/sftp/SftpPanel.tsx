@@ -34,6 +34,7 @@ import { LOCAL_CONNECTION_ID } from "../../modules/files/utils";
 import type { SftpPanelAdapter } from "./sftpAdapter";
 import { resolveSftpCapabilities } from "./sftpAdapter";
 import { SftpComposer } from "./SftpComposer";
+import { useToastNotice } from "../../hooks/useToastNotice";
 import {
   buildFileEntryContextMenuItems,
   type FileEntryCtxLabels,
@@ -173,6 +174,7 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  useToastNotice(error && info ? `${info}：${error}` : (error ?? info), error ? "error" : "warning");
   const [composer, setComposer] = useState<ComposerMode>(null);
   const [mkdirName, setMkdirName] = useState("");
   const [composerBusy, setComposerBusy] = useState(false);
@@ -1033,9 +1035,6 @@ export function SftpPanel({ resourceId, adapter, cacheKey, initialPath }: SftpPa
           inputStyle={{ maxWidth: 96 }}
         />
       )}
-
-      {error && <div className="sftp-error">{error}</div>}
-      {info && <div className="sftp-info">{info}</div>}
 
       {!sessionKey ? (
         <div className="sftp-empty sftp-empty--centered">{adapter?.emptyMessage ?? t(sshEmptyPromptKey(hasSshConnections))}</div>

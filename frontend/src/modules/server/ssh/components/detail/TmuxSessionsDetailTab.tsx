@@ -15,6 +15,7 @@ import type { WorkspaceResource } from "@/lib/resourceRegistry";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useTerminalStore } from "@/stores/terminalStore";
 import { showToast } from "@/stores/toastStore";
+import { useToastNotice } from "@/hooks/useToastNotice";
 import { isProdHost } from "@/modules/server/ssh/utils/sshProdGuard";
 import { useTmuxPaneSessionIndex } from "@/modules/terminal/tmuxPaneSessionIndex";
 import { WorkbenchActionButton } from "@/components/ui/primitives/WorkbenchActionButton";
@@ -52,6 +53,7 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
   const [tabStats, setTabStats] = useState<TmuxTabStat[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useToastNotice(error, "error");
   const [killing, setKilling] = useState<string | null>(null);
   const [attaching, setAttaching] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -314,13 +316,11 @@ export function TmuxSessionsDetailTab({ activeResource }: Props) {
         </div>
       </div>
 
-      {error ? <div className="tmux-sessions__error">{error}</div> : null}
-
       {loading && sessions.length === 0 ? (
         <div className="tmux-sessions__empty">{t("common.loading")}</div>
       ) : null}
 
-      {!loading && !error && sessions.length === 0 ? (
+      {!loading && sessions.length === 0 ? (
         <div className="tmux-sessions__empty">{t("ssh.tmuxSessions.empty")}</div>
       ) : null}
 
