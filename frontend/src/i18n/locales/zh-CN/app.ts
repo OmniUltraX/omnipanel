@@ -96,6 +96,8 @@ export default {
       current: "云端，正在用",
       saved: "本机，还没换上",
       same: "两边内容一致",
+      stampKept: "更新日期已采用较新的一份",
+      stampResolving: "正在采用较新的更新日期…",
       keep: "采用云端",
       useSaved: "采用本机",
       loading: "正在读取两边内容…",

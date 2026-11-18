@@ -343,11 +343,56 @@ export async function fetchDevices(
     quiet: options?.quiet,
     logLabel: "[auth]",
   });
-  return list.map((d) => ({
-    ...d,
-    id: d.id ?? 0,
-    syncTrusted: Boolean(d.syncTrusted),
-  }));
+  return collapseDevices(
+    list.map((d) => ({
+      ...d,
+      id: d.id ?? 0,
+      syncTrusted: Boolean(d.syncTrusted),
+    })),
+  );
+}
+
+/**
+ * 同一台物理设备会因 app_id 从 `default` 迁到 `omni-client` 而留下两行。
+ * 按角色 + 设备号收成一行，留下仍在使用的那条，避免列表 key 重复、同一台机器出现两次。
+ */
+export function collapseDevices(devices: AuthDevice[]): AuthDevice[] {
+  const best = new Map<string, AuthDevice>();
+  for (const device of devices) {
+    const deviceId = device.deviceId.trim();
+    const key = deviceId
+      ? `${device.role.trim().toLowerCase()}\0${deviceId}`
+      : `row\0${device.id}`;
+    const current = best.get(key);
+    if (!current || compareDevices(device, current) > 0) best.set(key, device);
+  }
+  return [...best.values()].sort(
+    (a, b) => compareDevices(b, a),
+  );
+}
+
+function compareDevices(a: AuthDevice, b: AuthDevice): number {
+  return (
+    deviceScore(a) - deviceScore(b)
+    || timeValue(a.updatedAt) - timeValue(b.updatedAt)
+    || timeValue(a.lastLoginAt) - timeValue(b.lastLoginAt)
+    || a.id - b.id
+  );
+}
+
+function deviceScore(device: AuthDevice): number {
+  const appId = device.appId.trim();
+  let score = 0;
+  if (appId === "omni-client" || appId === "omni-assistant") score += 8;
+  if (appId && appId !== "default") score += 4;
+  if (device.online) score += 2;
+  if (device.syncTrusted) score += 1;
+  return score;
+}
+
+function timeValue(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /** 经 Tauri 后端代理删除设备（DELETE /api/devices/{device_id}?app_id=）。 */

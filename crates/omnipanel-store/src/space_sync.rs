@@ -17,6 +17,7 @@ use serde_json::Value;
 use crate::space_repo::{
     REPO_DIR, SPACE_DIR, SpaceRepoIndex, build_space_repo, read_latest_index, sha256_hex,
 };
+use crate::space_stamp::{STAMP_RESOLVED, StampFold, fold_update_stamps};
 use crate::storage::Storage;
 use crate::vault::Vault;
 
@@ -683,6 +684,102 @@ fn write_conflict(root: &Path, path: &str, body: &[u8], now: i64) -> OmniResult<
     std::fs::write(file, bytes).map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))
 }
 
+/// 已经记下的冲突里，更新日期直接收成较新的一份。只有日期不同的记录删掉。
+fn settle_stamp_conflicts(
+    root: &Path,
+    mut files: Option<&mut BTreeMap<String, Vec<u8>>>,
+) -> OmniResult<()> {
+    let dir = root.join(REPO_DIR).join("conflicts");
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    let mut ids = Vec::new();
+    for entry in
+        std::fs::read_dir(&dir).map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?
+    {
+        let entry = entry.map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?;
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Some(id) = name.strip_suffix(".json") else {
+            continue;
+        };
+        if safe_conflict_id(id) {
+            ids.push(id.to_string());
+        }
+    }
+    for id in ids {
+        settle_one_stamp_conflict(root, &id, files.as_mut().map(|slot| &mut **slot))?;
+    }
+    Ok(())
+}
+
+/// 记录被删掉时返回 true。
+fn settle_one_stamp_conflict(
+    root: &Path,
+    id: &str,
+    files: Option<&mut BTreeMap<String, Vec<u8>>>,
+) -> OmniResult<bool> {
+    let (id, mut record) = match read_conflict_record(root, id) {
+        Ok(pair) => pair,
+        Err(err) if err.code == ErrorCode::NotFound => return Ok(false),
+        Err(err) => return Err(err),
+    };
+    if !safe_key(&record.path) {
+        return Ok(false);
+    }
+    let saved = match decode_conflict_body(&record) {
+        Ok(body) => body,
+        Err(_) => return Ok(false),
+    };
+    let file = root.join(SPACE_DIR).join(&record.path);
+    let current = match std::fs::read(&file) {
+        Ok(body) => body,
+        Err(_) => return Ok(false),
+    };
+    match fold_update_stamps(&saved, &current) {
+        StampFold::Untouched => Ok(false),
+        StampFold::OnlyStamp(body) => {
+            if body != current {
+                write_checkout_file(&file, &body)?;
+            }
+            if let Some(files) = files {
+                files.insert(record.path.clone(), body);
+            }
+            delete_space_conflict(root, &id)?;
+            Ok(true)
+        }
+        StampFold::Content { current, saved } => {
+            if current != std::fs::read(&file).unwrap_or_default() {
+                write_checkout_file(&file, &current)?;
+            }
+            if let Some(files) = files {
+                files.insert(record.path.clone(), current);
+            }
+            if B64.encode(&saved) != record.body_b64 {
+                record.body_b64 = B64.encode(saved);
+                let path = root
+                    .join(REPO_DIR)
+                    .join("conflicts")
+                    .join(format!("{id}.json"));
+                let bytes = serde_json::to_vec(&record)
+                    .map_err(|err| OmniError::new(ErrorCode::Internal, err.to_string()))?;
+                std::fs::write(path, bytes)
+                    .map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?;
+            }
+            Ok(false)
+        }
+    }
+}
+
+fn write_checkout_file(file: &Path, body: &[u8]) -> OmniResult<()> {
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?;
+    }
+    std::fs::write(file, body).map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SpaceConflict {
@@ -693,6 +790,7 @@ pub struct SpaceConflict {
 }
 
 pub fn list_space_conflicts(root: &Path) -> OmniResult<Vec<SpaceConflict>> {
+    settle_stamp_conflicts(root, None)?;
     let dir = root.join(REPO_DIR).join("conflicts");
     if !dir.is_dir() {
         return Ok(Vec::new());
@@ -761,6 +859,9 @@ fn decode_conflict_body(record: &ConflictRecord) -> OmniResult<Vec<u8>> {
 }
 
 pub fn read_space_conflict(root: &Path, id: &str) -> OmniResult<SpaceConflictView> {
+    if settle_one_stamp_conflict(root, id, None)? {
+        return Err(OmniError::new(ErrorCode::NotFound, STAMP_RESOLVED));
+    }
     let (id, record) = read_conflict_record(root, id)?;
     let saved = String::from_utf8_lossy(&decode_conflict_body(&record)?).into_owned();
     let current = if safe_key(&record.path) {
@@ -926,6 +1027,7 @@ async fn sync_locked<R: SpaceRepoRemote>(
     let local = read_latest_index(root)?;
     let remote_index = load_remote_index(remote, key).await?;
     let mut files = read_space_files(root)?;
+    settle_stamp_conflicts(root, Some(&mut files))?;
     let mut conflicts = 0u32;
 
     if remote_index.is_none() {
@@ -975,9 +1077,25 @@ async fn sync_locked<R: SpaceRepoRemote>(
                     }
                     if pick.conflict {
                         if let Some(saved) = files.get(&pick.path).cloned() {
-                            write_conflict(root, &pick.path, &saved, now)?;
+                            match fold_update_stamps(&saved, &body) {
+                                StampFold::OnlyStamp(merged) => {
+                                    files.insert(pick.path, merged);
+                                    continue;
+                                }
+                                StampFold::Content { current, saved } => {
+                                    write_conflict(root, &pick.path, &saved, now)?;
+                                    conflicts += 1;
+                                    files.insert(pick.path, current);
+                                    continue;
+                                }
+                                StampFold::Untouched => {
+                                    write_conflict(root, &pick.path, &saved, now)?;
+                                    conflicts += 1;
+                                }
+                            }
+                        } else {
+                            conflicts += 1;
                         }
-                        conflicts += 1;
                     }
                     files.insert(pick.path, body);
                 }
@@ -2206,5 +2324,93 @@ mod tests {
             .unwrap();
         assert!(text.contains("local"));
         assert!(list_space_conflicts(root.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn stamp_only_conflict_drops_the_record_and_keeps_the_newer_time() {
+        let root = tempfile::tempdir().unwrap();
+        write_conflict(
+            root.path(),
+            "workspaces/default.json",
+            br#"{"name":"default","updatedAt":1794795976763}"#,
+            10,
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.path().join(SPACE_DIR).join("workspaces")).unwrap();
+        std::fs::write(
+            root.path().join(SPACE_DIR).join("workspaces/default.json"),
+            br#"{"name":"default","updatedAt":1794884856297}"#,
+        )
+        .unwrap();
+        let id = std::fs::read_dir(root.path().join(REPO_DIR).join("conflicts"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .trim_end_matches(".json")
+            .to_string();
+        let err = read_space_conflict(root.path(), &id).unwrap_err();
+        assert!(err.to_string().contains("更新日期已采用较新的一份"));
+        assert!(list_space_conflicts(root.path()).unwrap().is_empty());
+        let text =
+            std::fs::read_to_string(root.path().join(SPACE_DIR).join("workspaces/default.json"))
+                .unwrap();
+        assert!(text.contains("1794884856297"));
+    }
+
+    #[test]
+    fn newer_local_stamp_is_written_back_without_asking() {
+        let root = tempfile::tempdir().unwrap();
+        write_conflict(
+            root.path(),
+            "workspaces/default.json",
+            br#"{"name":"default","updatedAt":20}"#,
+            11,
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.path().join(SPACE_DIR).join("workspaces")).unwrap();
+        std::fs::write(
+            root.path().join(SPACE_DIR).join("workspaces/default.json"),
+            br#"{"name":"default","updatedAt":10}"#,
+        )
+        .unwrap();
+        let id = list_space_conflicts(root.path())
+            .unwrap()
+            .into_iter()
+            .next()
+            .map(|item| item.id);
+        assert!(id.is_none());
+        let text =
+            std::fs::read_to_string(root.path().join(SPACE_DIR).join("workspaces/default.json"))
+                .unwrap();
+        assert_eq!(text, r#"{"name":"default","updatedAt":20}"#);
+    }
+
+    #[test]
+    fn content_conflict_keeps_the_record_but_both_copies_use_the_newer_stamp() {
+        let root = tempfile::tempdir().unwrap();
+        write_conflict(
+            root.path(),
+            "workspaces/default.json",
+            br#"{"name":"local","updatedAt":1}"#,
+            12,
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.path().join(SPACE_DIR).join("workspaces")).unwrap();
+        std::fs::write(
+            root.path().join(SPACE_DIR).join("workspaces/default.json"),
+            br#"{"name":"cloud","updatedAt":9}"#,
+        )
+        .unwrap();
+        let listed = list_space_conflicts(root.path()).unwrap();
+        assert_eq!(listed.len(), 1);
+        let view = read_space_conflict(root.path(), &listed[0].id).unwrap();
+        assert!(view.current.contains("\"name\":\"cloud\""));
+        assert!(view.saved.contains("\"name\":\"local\""));
+        assert!(view.current.contains("\"updatedAt\":9"));
+        assert!(view.saved.contains("\"updatedAt\":9"));
+        assert!(!view.saved.contains("\"updatedAt\":1"));
     }
 }

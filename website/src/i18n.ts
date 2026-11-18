@@ -127,7 +127,7 @@ const zh: Dict = {
   "highlights.panel.h": "同步安全",
   "highlights.panel.p": "新设备小程序扫码配对；主设备自动传钥；密码不进 modules 快照",
   "highlights.ssh.h": "空间同步",
-  "highlights.ssh.p": "同一份云端仓库合并；可自动同步。同一条两边都改过时可对比，采用云端或本机。团队可改用自己的 S3，密钥留在本机。",
+  "highlights.ssh.p": "同一份云端仓库合并；可自动同步。同一条两边都改过时可对比，采用云端或本机。只有更新日期不同时采用较新的一份，不记成冲突。团队可改用自己的 S3，密钥留在本机。",
   "highlights.termAi.h": "知识库与工作室",
   "highlights.termAi.p": "思源只走插件（S3 / 图片标签）；工作室工程中心、链接工程与热重载",
   "highlights.db.h": "数据库",
@@ -137,7 +137,7 @@ const zh: Dict = {
   "modules.eyebrow": "Core Modules",
   "modules.title": "核心模块与插件，覆盖日常开发运维完整闭环",
   "mod.terminal.p": "多标签分屏、Blocks 输出分组、命令历史、危险命令二次确认，VT100/VT220 高兼容。",
-  "mod.ssh.p": "连接管理、SFTP、端口转发、跳板机；tmux 远端会话治理与主机监控。",
+  "mod.ssh.p": "连接管理、SFTP、端口转发、跳板机；tmux 远端会话治理与主机监控。状态栏可看组网，其他设备上的内网主机经那台设备转发。",
   "mod.files.p": "本地 / 远程浏览、收藏与全局收藏、跨连接文件传输、统一预览壳。",
   "mod.db.p": "SQL 编辑器、百万行虚拟滚动网格、ER 图、NL2SQL、结果预览与数据同步导出。",
   "mod.docker.p": "容器、镜像、Compose、网络、卷；本地 / 远程 Engine / SSH 宿主机 / 1Panel / 宝塔。",
@@ -198,7 +198,7 @@ const zh: Dict = {
   "use.3.p": "选中服务器分组后统一执行命令，结果按机器聚合对比。批量分发、模板化执行。",
   "deploy.eyebrow": "Deploy",
   "deploy.title": "部署",
-  "deploy.lead": "Web 版支持 Docker 等平台部署。Docker Web 0.8.61 需确认正式镜像发布成功并配置部署密钥；浏览器以 HttpOnly 会话访问，公网需 HTTPS。",
+  "deploy.lead": "Web 版支持 Docker 等平台部署。Docker Web 0.8.62 需确认正式镜像发布成功并配置部署密钥；浏览器以 HttpOnly 会话访问，公网需 HTTPS。",
   "deploy.render": "一键部署到 Render",
   "deploy.zeabur": "一键部署到 Zeabur",
   "deploy.railway": "一键部署到 Railway",
@@ -378,7 +378,7 @@ const en: Dict = {
   "highlights.panel.h": "Sync security",
   "highlights.panel.p": "New devices pair via mini-program scan; primary PC auto key transfer; passwords stay out of modules",
   "highlights.ssh.h": "Space sync",
-  "highlights.ssh.p": "Machines merge one cloud repo, with optional auto sync. A record changed on both sides can be compared, then kept from the cloud or restored from this machine. Teams can use their own S3; keys stay on the machine.",
+  "highlights.ssh.p": "Machines merge one cloud repo, with optional auto sync. A record changed on both sides can be compared, then kept from the cloud or restored from this machine. A difference of only the update time keeps the newer one and is not listed as a conflict. Teams can use their own S3; keys stay on the machine.",
   "highlights.termAi.h": "Knowledge & Studio",
   "highlights.termAi.p": "SiYuan plugin-only (S3 / image tags); project-centric studio, linked projects, hot reload",
   "highlights.db.h": "Database",
@@ -390,7 +390,7 @@ const en: Dict = {
   "mod.terminal.p":
     "Split panes, Blocks grouping, command history, dangerous-command confirmation; VT100/VT220 compatible.",
   "mod.ssh.p":
-    "Connection manager, SFTP, port forwarding, jump hosts; tmux governance and host monitoring.",
+    "Connection manager, SFTP, port forwarding, jump hosts; tmux governance and host monitoring. The status bar shows the mesh; intranet hosts added on another device are forwarded through that device.",
   "mod.files.p":
     "Local / remote browsing, favorites, cross-connection transfer, unified preview shell.",
   "mod.db.p":
@@ -457,7 +457,7 @@ const en: Dict = {
   "use.3.p": "Run templated commands across a server group and compare results per host.",
   "deploy.eyebrow": "Deploy",
   "deploy.title": "Deployment",
-  "deploy.lead": "Web edition: Docker and cloud platforms. Verify the Docker Web 0.8.61 release workflow, set a deployment key, and use HttpOnly sessions; public access requires HTTPS.",
+  "deploy.lead": "Web edition: Docker and cloud platforms. Verify the Docker Web 0.8.62 release workflow, set a deployment key, and use HttpOnly sessions; public access requires HTTPS.",
   "deploy.render": "Deploy to Render",
   "deploy.zeabur": "Deploy on Zeabur",
   "deploy.railway": "Deploy on Railway",

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FormDialog } from "../../components/ui/FormDialog";
 import { commands, type SpaceConflictView } from "../../ipc/bindings";
 import { formatIpcError, unwrapCommand } from "../../ipc/result";
 import { useI18n } from "../../i18n";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { showToast } from "../../stores/toastStore";
 import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "./moduleSync";
+import { isUpdateStampField, stampOnlyDecision } from "./spaceConflictStamps";
 import { SpaceConflictTextDiff } from "./SpaceConflictTextDiff";
 import { useSpaceConflictStore } from "../../stores/spaceConflictStore";
 
@@ -50,6 +52,7 @@ function buildSections(current: string, saved: string): CompareSection[] {
   const sections: CompareSection[] = [];
   for (const field of fields) {
     if (JSON.stringify(left[field] ?? null) === JSON.stringify(right[field] ?? null)) continue;
+    if (isUpdateStampField(field)) continue;
     if (SECRET.test(field)) {
       sections.push({ key: field, mode: "secret", field });
       continue;
@@ -77,6 +80,7 @@ export function SpaceConflictCompare({
   const [view, setView] = useState<SpaceConflictView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const decided = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,17 +89,59 @@ export function SpaceConflictCompare({
         if (!cancelled) setView(next);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(formatIpcError(err));
+        if (cancelled) return;
+        const message = formatIpcError(err);
+        if (message.includes("更新日期已采用") || message.includes("冲突记录不存在")) {
+          if (message.includes("更新日期已采用")) showToast(t("app.conflict.stampKept"));
+          void refreshConflicts().finally(onClose);
+          return;
+        }
+        setError(message);
       });
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, onClose, refreshConflicts, t]);
 
   const sections = useMemo(
     () => (view ? buildSections(view.current, view.saved) : []),
     [view],
   );
+  const decision = useMemo(
+    () => (view ? stampOnlyDecision(view.current, view.saved) : null),
+    [view],
+  );
+
+  useEffect(() => {
+    if (!view || !decision || decided.current) return;
+    decided.current = true;
+    setBusy(true);
+    const apply =
+      decision === "saved"
+        ? unwrapCommand(commands.localSpaceRestoreConflict(id)).then(async () => {
+            const { scheduleClientModuleSync } = await import("./moduleSync");
+            scheduleClientModuleSync();
+          })
+        : unwrapCommand(commands.localSpaceDeleteConflict(id));
+    void apply
+      .then(async () => {
+        showToast(t("app.conflict.stampKept"));
+        await refreshConflicts();
+        await useConnectionStore.getState().refresh();
+        window.dispatchEvent(new CustomEvent(CLIENT_SYNC_MODULES_APPLIED_EVENT));
+        onClose();
+      })
+      .catch((err: unknown) => {
+        const message = formatIpcError(err);
+        if (message.includes("更新日期已采用") || message.includes("冲突记录不存在")) {
+          if (message.includes("更新日期已采用")) showToast(t("app.conflict.stampKept"));
+          void refreshConflicts().finally(onClose);
+          return;
+        }
+        setError(message);
+        setBusy(false);
+      });
+  }, [decision, id, onClose, refreshConflicts, t, view]);
 
   async function afterChange() {
     await refreshConflicts();
@@ -117,7 +163,7 @@ export function SpaceConflictCompare({
         {
           key: "keep",
           label: t("app.conflict.keep"),
-          disabled: busy || !view,
+          disabled: busy || !view || decision != null,
           onClick: () => {
             setBusy(true);
             void unwrapCommand(commands.localSpaceDeleteConflict(id))
@@ -131,7 +177,7 @@ export function SpaceConflictCompare({
         {
           key: "use",
           label: t("app.conflict.useSaved"),
-          disabled: busy || !view,
+          disabled: busy || !view || decision != null,
           onClick: () => {
             setBusy(true);
             void unwrapCommand(commands.localSpaceRestoreConflict(id))
@@ -150,7 +196,8 @@ export function SpaceConflictCompare({
       status={error ? { kind: "error", message: error } : null}
     >
       {!view && !error ? <p>{t("app.conflict.loading")}</p> : null}
-      {view && sections.length === 0 ? <p>{t("app.conflict.same")}</p> : null}
+      {decision ? <p>{t("app.conflict.stampResolving")}</p> : null}
+      {view && !decision && sections.length === 0 ? <p>{t("app.conflict.same")}</p> : null}
       {sections.map((section) => (
         <section key={section.key} className="space-conflict-section">
           {section.field ? <h4 className="space-conflict-section__field">{section.field}</h4> : null}

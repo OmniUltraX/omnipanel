@@ -96,6 +96,8 @@ export default {
       current: "Cloud, in use",
       saved: "Local, not applied",
       same: "Both sides match",
+      stampKept: "Kept the newer update time",
+      stampResolving: "Keeping the newer update time…",
       keep: "Use cloud",
       useSaved: "Use local",
       loading: "Reading both copies…",

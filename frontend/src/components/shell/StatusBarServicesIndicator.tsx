@@ -242,27 +242,27 @@ export function StatusBarServicesIndicator() {
         : "statusbar-chip__pulse--off";
 
   return (
-    <>
+    <span
+      className="statusbar-hover-anchor"
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+    >
       <button
         ref={anchorRef}
         type="button"
         className={`statusbar-chip ${chipTone}`}
-        onMouseEnter={handleEnter}
-        onMouseLeave={handleLeave}
         aria-label={ariaLabel}
       >
         <span className={`statusbar-chip__pulse ${pulseClass}`} aria-hidden />
         <span className="statusbar-chip__label">{t("shell.statusbar.services")}</span>
       </button>
       {open && anchorRef.current ? (
-        <div onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
-          <ServicesPopover
-            anchorRect={anchorRef.current.getBoundingClientRect()}
-            onClose={() => setOpen(false)}
-            rows={rows}
-          />
-        </div>
+        <ServicesPopover
+          anchorRect={anchorRef.current.getBoundingClientRect()}
+          onClose={() => setOpen(false)}
+          rows={rows}
+        />
       ) : null}
-    </>
+    </span>
   );
 }

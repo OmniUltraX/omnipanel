@@ -11,7 +11,7 @@ use omnipanel_error::{ErrorCode, OmniError};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{Manager, State};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tracing::{info, warn};
 
 use crate::commands::sync_team_key::sync_team_key_wrap_for_relay;
@@ -520,15 +520,7 @@ async fn handle_sync_key_conn(
     expected_team_id: i64,
     app: tauri::AppHandle,
 ) -> Result<(), OmniError> {
-    let req = tokio::time::timeout(Duration::from_secs(10), async {
-        let mut reader = BufReader::new(&mut stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).await?;
-        Ok::<String, std::io::Error>(line)
-    })
-    .await
-    .map_err(|_| OmniError::new(ErrorCode::Timeout, "读取 mesh 请求超时"))?
-    .map_err(|e| OmniError::new(ErrorCode::Io, "读取 mesh 请求失败").with_cause(e.to_string()))?;
+    let req = read_mesh_line(&mut stream).await?;
 
     let value: serde_json::Value = match serde_json::from_str(req.trim()) {
         Ok(v) => v,
@@ -663,12 +655,12 @@ async fn handle_tcp_relay(
         .await?;
         return Ok(());
     }
-    if port == 0 || !crate::mesh_relay::is_intranet_host(&host) {
+    if port == 0 || !crate::mesh_relay::relay_target_allowed(&host).await {
         write_json_line(
             &mut stream,
             &MeshSyncKeyErr {
                 ok: false,
-                error: "relay target must be an intranet address".into(),
+                error: "这台设备解析不到该内网地址".into(),
             },
         )
         .await?;
@@ -710,6 +702,27 @@ async fn handle_tcp_relay(
     let mut outbound = outbound;
     let _ = tokio::io::copy_bidirectional(&mut stream, &mut outbound).await;
     Ok(())
+}
+
+async fn read_mesh_line(stream: &mut tailscale::netstack::TcpStream) -> Result<String, OmniError> {
+    let mut line = Vec::new();
+    let mut byte = [0u8; 1];
+    loop {
+        let n = tokio::time::timeout(Duration::from_secs(10), stream.read(&mut byte))
+            .await
+            .map_err(|_| OmniError::new(ErrorCode::Timeout, "读取 mesh 请求超时"))?
+            .map_err(|e| {
+                OmniError::new(ErrorCode::Io, "读取 mesh 请求失败").with_cause(e.to_string())
+            })?;
+        if n == 0 {
+            break;
+        }
+        line.push(byte[0]);
+        if byte[0] == b'\n' || line.len() > 8192 {
+            break;
+        }
+    }
+    Ok(String::from_utf8_lossy(&line).into_owned())
 }
 
 async fn write_json_line<T: Serialize>(

@@ -1,8 +1,9 @@
 //! 内网资源经添加设备转发。
 //!
-//! 公网地址直接拨。已标记由其他设备添加的内网地址（RFC1918、回环、链路本地、
-//! IPv6 ULA）不先直连：两个局域网可以有同一个 192.168.1.10。成员连到添加设备的
-//! tailnet 地址，由那台设备拨真正的目标。Tailscale 不负责网段路由。
+//! 公网地址直接拨。其他设备添加的内网地址不先直连：两个局域网可以有同一个
+//! 192.168.1.10。主机名在本机解析不到、或解析到内网地址时，也交给添加设备解析，
+//! 避免本机 DNS 把名字拨到另一张网。成员连到添加设备的 tailnet 地址，由那台设备
+//! 拨真正的目标。Tailscale 不负责网段路由。
 //! 添加设备离线或已离开该内网时，资源不可达，不改找其他成员。
 //! 还没有任何创建设备标记的拨号（新建、测试连接、旧数据）由本机直连：
 //! 此时不知道该转给哪台设备。
@@ -18,7 +19,7 @@ use omnipanel_store::{active_team_scope, creator_device_name, resolve_origin_dev
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::commands::auth::{current_device_id, current_device_name};
 use crate::commands::mesh::{MESH_LISTEN_PORT, mesh_hostname};
@@ -58,13 +59,7 @@ pub(crate) async fn clear_mesh_devices() {
 /// 只允许把流量转到内网地址，避免这台设备变成公网代理。
 /// Tailscale CGNAT（100.64.0.0/10）不算内网跳板目标。
 pub(crate) fn is_intranet_host(host: &str) -> bool {
-    let Ok(ip) = host.trim().parse::<IpAddr>() else {
-        return false;
-    };
-    match ip {
-        IpAddr::V4(v4) => is_v4_intranet(v4),
-        IpAddr::V6(v6) => is_v6_intranet(v6),
-    }
+    host.trim().parse::<IpAddr>().is_ok_and(is_intranet_ip)
 }
 
 fn is_v4_intranet(ip: Ipv4Addr) -> bool {
@@ -98,6 +93,74 @@ fn is_v6_intranet(ip: Ipv6Addr) -> bool {
 fn active_team_id() -> Option<i64> {
     let scope = active_team_scope();
     scope.parse::<i64>().ok().filter(|id| *id > 0)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DialHostClass {
+    Intranet,
+    Public,
+    Name,
+}
+
+fn classify_dial_host(host: &str) -> DialHostClass {
+    match host.parse::<IpAddr>() {
+        Ok(ip) if is_intranet_ip(ip) => DialHostClass::Intranet,
+        Ok(_) => DialHostClass::Public,
+        Err(_) => DialHostClass::Name,
+    }
+}
+
+fn is_intranet_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_v4_intranet(v4),
+        IpAddr::V6(v6) => is_v6_intranet(v6),
+    }
+}
+
+/// 主机名要不要交给添加设备。本机能解析成公网地址就直接拨；解析失败或落到内网则转发。
+async fn name_needs_origin(host: &str) -> bool {
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(800),
+        tokio::net::lookup_host((host, 1)),
+    )
+    .await
+    {
+        Ok(Ok(addrs)) => {
+            let ips: Vec<IpAddr> = addrs.map(|addr| addr.ip()).collect();
+            ips.is_empty() || ips.iter().copied().any(is_intranet_ip)
+        }
+        _ => true,
+    }
+}
+
+/// 当前空间的网优先。空间还是本机目录、但只有一张网在线时，用那一张。
+async fn relay_team_id() -> Option<i64> {
+    let active = active_team_id();
+    let map = mesh_devices().lock().await;
+    if let Some(id) = active {
+        return map.contains_key(&id).then_some(id);
+    }
+    if map.len() == 1 {
+        return map.keys().next().copied();
+    }
+    None
+}
+
+/// 添加设备只接受内网目标。主机名在那台设备上解析，解析结果必须是内网地址。
+pub(crate) async fn relay_target_allowed(host: &str) -> bool {
+    match classify_dial_host(host) {
+        DialHostClass::Intranet => true,
+        DialHostClass::Public => false,
+        DialHostClass::Name => match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            tokio::net::lookup_host((host, 1)),
+        )
+        .await
+        {
+            Ok(Ok(addrs)) => addrs.map(|addr| addr.ip()).any(is_intranet_ip),
+            _ => false,
+        },
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,24 +202,41 @@ pub(crate) async fn rewrite_dial(
     tags: &[String],
 ) -> Result<(String, u16), OmniError> {
     let host = host.trim();
-    if host.is_empty() || !is_intranet_host(host) {
+    if host.is_empty() {
         return Ok((host.to_string(), port));
     }
-    let Some(team_id) = active_team_id() else {
+    let class = classify_dial_host(host);
+    if class == DialHostClass::Public {
         return Ok((host.to_string(), port));
-    };
+    }
 
     let self_id = current_device_id().unwrap_or_default();
     match intranet_dial(origin_device_id, tags, &self_id, &current_device_name()) {
         IntranetDial::Direct => Ok((host.to_string(), port)),
-        IntranetDial::Relay(origin) => {
-            let local_port = ensure_forward(team_id, &origin, host, port).await?;
-            Ok(("127.0.0.1".to_string(), local_port))
-        }
         IntranetDial::UnboundOrigin => Err(OmniError::new(
             ErrorCode::Connection,
             "内网资源还没有绑定创建设备，请在添加它的那台设备上重新保存一次",
         )),
+        IntranetDial::Relay(origin) => {
+            if class == DialHostClass::Name && !name_needs_origin(host).await {
+                return Ok((host.to_string(), port));
+            }
+            let Some(team_id) = relay_team_id().await else {
+                return Err(OmniError::new(
+                    ErrorCode::Connection,
+                    "本机还没加入组网，无法经添加设备转发这个内网地址",
+                ));
+            };
+            info!(
+                team_id,
+                origin = %origin,
+                host,
+                port,
+                "内网地址改经添加设备转发"
+            );
+            let local_port = ensure_forward(team_id, &origin, host, port).await?;
+            Ok(("127.0.0.1".to_string(), local_port))
+        }
     }
 }
 
@@ -251,13 +331,20 @@ pub(crate) async fn connect_team_peer(
             .ok_or_else(|| OmniError::new(ErrorCode::Connection, "本机尚未加入该团队 mesh"))?
     };
     let hostname = mesh_hostname(origin);
-    let peer = device
-        .peer_by_name(&hostname)
-        .await
-        .map_err(|e| {
+    let mut peer = None;
+    for attempt in 0..5 {
+        peer = device.peer_by_name(&hostname).await.map_err(|e| {
             OmniError::new(ErrorCode::Connection, "查找添加设备失败").with_cause(e.to_string())
-        })?
-        .ok_or_else(|| OmniError::new(ErrorCode::Connection, "添加该资源的设备不在线"))?;
+        })?;
+        if peer.is_some() {
+            break;
+        }
+        if attempt < 4 {
+            tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+        }
+    }
+    let peer =
+        peer.ok_or_else(|| OmniError::new(ErrorCode::Connection, "添加该资源的设备不在线"))?;
     let ip = node_ip(&peer)
         .ok_or_else(|| OmniError::new(ErrorCode::Connection, "添加设备没有 tailnet 地址"))?;
     let remote = SocketAddr::new(ip, MESH_LISTEN_PORT);
@@ -360,7 +447,7 @@ async fn read_line_exact<R: AsyncReadExt + Unpin>(stream: &mut R) -> io::Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{IntranetDial, intranet_dial, is_intranet_host};
+    use super::{DialHostClass, IntranetDial, classify_dial_host, intranet_dial, is_intranet_host};
 
     #[test]
     fn classifies_intranet_without_cgnat() {
@@ -374,6 +461,9 @@ mod tests {
         assert!(!is_intranet_host("100.64.0.1"));
         assert!(!is_intranet_host("8.8.8.8"));
         assert!(!is_intranet_host("db.internal"));
+        assert_eq!(classify_dial_host("192.168.1.10"), DialHostClass::Intranet);
+        assert_eq!(classify_dial_host("8.8.8.8"), DialHostClass::Public);
+        assert_eq!(classify_dial_host("nas.lan"), DialHostClass::Name);
         assert!(is_intranet_host("::1"));
         assert!(is_intranet_host("fd00::1"));
         assert!(is_intranet_host("fe80::1"));

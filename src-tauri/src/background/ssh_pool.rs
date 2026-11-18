@@ -723,10 +723,10 @@ impl SshPool {
         port: u16,
         origin_device_id: &str,
         tags: &[String],
-    ) -> bool {
+    ) -> Result<bool, String> {
         match crate::mesh_relay::rewrite_dial(host, port, origin_device_id, tags).await {
-            Ok((dial_host, dial_port)) => Self::probe_ssh_port(&dial_host, dial_port).await,
-            Err(_) => false,
+            Ok((dial_host, dial_port)) => Ok(Self::probe_ssh_port(&dial_host, dial_port).await),
+            Err(error) => Err(error.user_message()),
         }
     }
 
@@ -740,22 +740,31 @@ impl SshPool {
         origin_device_id: &str,
         log: &LogStore,
     ) {
-        let open = Self::probe_endpoint(&config.host, config.port, origin_device_id, tags).await;
-        let (status, error): (&str, Option<String>) = if open {
-            info!("SSH 池：{} 端口 {} 开放", name, config.port);
-            log.log(
-                "ssh-pool",
-                "info",
-                &format!("{} 端口 {} 开放", name, config.port),
-            )
-            .await;
-            ("connected", None)
-        } else {
-            let msg = format!("SSH 端口 {} 未开放或不可达", config.port);
-            warn!("SSH 池：{} {msg}", name);
-            log.log("ssh-pool", "warn", &format!("{} {msg}", name))
+        let probed = Self::probe_endpoint(&config.host, config.port, origin_device_id, tags).await;
+        let (status, error): (&str, Option<String>) = match probed {
+            Ok(true) => {
+                info!("SSH 池：{} 端口 {} 开放", name, config.port);
+                log.log(
+                    "ssh-pool",
+                    "info",
+                    &format!("{} 端口 {} 开放", name, config.port),
+                )
                 .await;
-            ("error", Some(msg))
+                ("connected", None)
+            }
+            Ok(false) => {
+                let msg = format!("SSH 端口 {} 未开放或不可达", config.port);
+                warn!("SSH 池：{} {msg}", name);
+                log.log("ssh-pool", "warn", &format!("{} {msg}", name))
+                    .await;
+                ("error", Some(msg))
+            }
+            Err(msg) => {
+                warn!("SSH 池：{} {msg}", name);
+                log.log("ssh-pool", "warn", &format!("{} {msg}", name))
+                    .await;
+                ("error", Some(msg))
+            }
         };
 
         let mut pool = entries.lock().await;
@@ -816,8 +825,8 @@ impl SshPool {
                     let host = config.host.clone();
                     let port = config.port;
                     async move {
-                        let open = Self::probe_endpoint(&host, port, &origin, &tags).await;
-                        (resource_id, open)
+                        let outcome = Self::probe_endpoint(&host, port, &origin, &tags).await;
+                        (resource_id, outcome)
                     }
                 }),
         )
@@ -828,7 +837,7 @@ impl SshPool {
             holds.keys().cloned().collect::<HashSet<_>>()
         };
         let mut pool = entries.lock().await;
-        for (resource_id, open) in probes {
+        for (resource_id, outcome) in probes {
             let Some(entry) = pool.get_mut(&resource_id) else {
                 continue;
             };
@@ -836,14 +845,22 @@ impl SshPool {
                 // 认证已被拒绝：端口开着也不代表能登录，不要刷回 connected 诱发重试。
                 continue;
             }
-            if open {
-                entry.status = "connected".into();
-                entry.error = None;
-                emit_status(app_handle, &resource_id, "connected", None);
-            } else {
-                entry.status = "error".into();
-                entry.error = Some(format!("SSH 端口 {} 未开放或不可达", entry.config.port));
-                emit_status(app_handle, &resource_id, "error", entry.error.as_deref());
+            match outcome {
+                Ok(true) => {
+                    entry.status = "connected".into();
+                    entry.error = None;
+                    emit_status(app_handle, &resource_id, "connected", None);
+                }
+                Ok(false) => {
+                    entry.status = "error".into();
+                    entry.error = Some(format!("SSH 端口 {} 未开放或不可达", entry.config.port));
+                    emit_status(app_handle, &resource_id, "error", entry.error.as_deref());
+                }
+                Err(msg) => {
+                    entry.status = "error".into();
+                    entry.error = Some(msg);
+                    emit_status(app_handle, &resource_id, "error", entry.error.as_deref());
+                }
             }
         }
     }
@@ -864,28 +881,39 @@ impl SshPool {
         let name = &entry.host_name;
         log.log("ssh-pool", "info", &format!("重新探测 {name} 端口…"))
             .await;
-        let open = Self::probe_endpoint(
+        let outcome = Self::probe_endpoint(
             &entry.config.host,
             entry.config.port,
             &entry.origin_device_id,
             &entry.tags,
         )
         .await;
-        if open {
-            entry.status = "connected".into();
-            entry.error = None;
-            info!("SSH 池：{name} 端口开放");
-            log.log("ssh-pool", "info", &format!("{name} 端口开放"))
-                .await;
-        } else {
-            let msg = format!("SSH 端口 {} 未开放或不可达", entry.config.port);
-            entry.status = "error".into();
-            entry.error = Some(msg);
-            warn!("SSH 池：{name} 端口不可达");
-            log.log("ssh-pool", "warn", &format!("{name} 端口不可达"))
-                .await;
+        match outcome {
+            Ok(true) => {
+                entry.status = "connected".into();
+                entry.error = None;
+                info!("SSH 池：{name} 端口开放");
+                log.log("ssh-pool", "info", &format!("{name} 端口开放"))
+                    .await;
+                true
+            }
+            Ok(false) => {
+                let msg = format!("SSH 端口 {} 未开放或不可达", entry.config.port);
+                entry.status = "error".into();
+                entry.error = Some(msg);
+                warn!("SSH 池：{name} 端口不可达");
+                log.log("ssh-pool", "warn", &format!("{name} 端口不可达"))
+                    .await;
+                false
+            }
+            Err(msg) => {
+                entry.status = "error".into();
+                entry.error = Some(msg.clone());
+                warn!("SSH 池：{name} {msg}");
+                log.log("ssh-pool", "warn", &format!("{name} {msg}")).await;
+                false
+            }
         }
-        open
     }
 
     /// 重新探测所有 disconnected/error 的主机端口。

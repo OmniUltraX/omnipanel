@@ -10553,6 +10553,15 @@ button.omni-btn-tool[aria-pressed="true"] {
         -webkit-appearance: none;
     }
 
+    /* 状态栏浮层走 portal。锚点始终只有芯片一个占位，打开时不能再插入节点把旁边挤开。 */
+    .statusbar-hover-anchor {
+        display: inline-flex;
+        align-items: stretch;
+        align-self: stretch;
+        width: max-content;
+        flex: 0 0 auto;
+    }
+
 
     .statusbar-chip__label {
         min-width: 0;
@@ -10991,6 +11000,17 @@ button.omni-btn-tool[aria-pressed="true"] {
         color: var(--meta);
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
+    }
+
+    .connection-pool-popover--wide {
+        min-width: 260px;
+        max-width: 380px;
+    }
+
+    .connection-pool-popover-hint {
+        margin: 8px 0 0;
+        color: var(--meta);
+        line-height: 1.45;
     }
 
     /* 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?闁告艾楠歌ぐ瀛樼鐠囨彃顫ら柛鎺擃殙閵?SubWindow 闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋撻柍鍏夊亾闁冲厜鍋?*/

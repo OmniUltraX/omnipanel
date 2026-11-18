@@ -117,13 +117,15 @@ export function ConnectionPoolIndicator() {
     summary.active > 0 ? "statusbar-chip__pulse--ok" : "statusbar-chip__pulse--off";
 
   return (
-    <>
+    <span
+      className="statusbar-hover-anchor"
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+    >
       <button
         ref={anchorRef}
         type="button"
         className="statusbar-chip statusbar-chip--muted connection-pool-indicator"
-        onMouseEnter={handleEnter}
-        onMouseLeave={handleLeave}
         title={label}
         aria-label={label}
       >
@@ -131,13 +133,11 @@ export function ConnectionPoolIndicator() {
         <span className="statusbar-chip__label">{label}</span>
       </button>
       {open && anchorRef.current ? (
-        <div onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
-          <ConnectionPoolPopover
-            anchorRect={anchorRef.current.getBoundingClientRect()}
-            onClose={() => setOpen(false)}
-          />
-        </div>
+        <ConnectionPoolPopover
+          anchorRect={anchorRef.current.getBoundingClientRect()}
+          onClose={() => setOpen(false)}
+        />
       ) : null}
-    </>
+    </span>
   );
 }

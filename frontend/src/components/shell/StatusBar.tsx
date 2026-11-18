@@ -19,6 +19,7 @@ import { useI18n } from "../../i18n";
 import { ConnectionPoolIndicator } from "./ConnectionPoolIndicator";
 import { BackgroundTasksWindow } from "./BackgroundTasksWindow";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { StatusBarMeshIndicator } from "./StatusBarMeshIndicator";
 import { StatusBarServicesIndicator } from "./StatusBarServicesIndicator";
 import { StatusBarActionBar } from "./StatusBarActionBar";
 import { StatusBarInfoBar } from "./StatusBarInfoBar";
@@ -397,6 +398,7 @@ export function StatusBar() {
       <div className="statusbar-right">
         <StatusBarInfoBar />
         <StatusBarActionBar />
+        <StatusBarMeshIndicator />
         <StatusBarServicesIndicator />
         {showWorkspaceControls ? <StatusBarWorkspaceControls /> : null}
       </div>

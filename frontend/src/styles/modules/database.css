@@ -7485,7 +7485,8 @@
         cursor: default;
     }
 
-    .db-data-table-cell--has-value-btn:hover {
+    .db-data-table-cell--has-value-btn {
+        /* 值按钮绝对定位在右侧，内边距先留出来，悬停时文字不再被挤一下。 */
         padding-right: 22px;
     }
 
