@@ -1133,10 +1133,23 @@ impl SshPool {
         let storage = self.storage.lock().await;
         if let Ok(Some(mut conn)) = storage.get_connection(resource_id) {
             if let Ok(mut config_json) = serde_json::from_str::<serde_json::Value>(&conn.config) {
-                if let Some(public_ip) = &public_ip {
-                    config_json["publicIp"] = serde_json::Value::String(public_ip.clone());
-                } else {
-                    config_json["publicIp"] = serde_json::Value::Null;
+                let next = public_ip.as_deref().filter(|ip| !ip.is_empty());
+                let current = config_json
+                    .get("publicIp")
+                    .and_then(|value| value.as_str())
+                    .filter(|ip| !ip.is_empty());
+                // 公网 IP 没变就不要整份重写。两台电脑都连上同一台主机会轮流把
+                // updatedAt 抬高，较新的那份把名字、标签和创建者一起盖掉。
+                if current == next {
+                    return;
+                }
+                match next {
+                    Some(ip) => {
+                        config_json["publicIp"] = serde_json::Value::String(ip.to_string());
+                    }
+                    None => {
+                        config_json["publicIp"] = serde_json::Value::Null;
+                    }
                 }
                 if let Ok(new_config) = serde_json::to_string(&config_json) {
                     conn.config = new_config;

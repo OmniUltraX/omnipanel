@@ -396,6 +396,79 @@ pub fn migrate_device_tags_to_creator(
     *tags != original
 }
 
+/// 创建者标签跟 `origin_device_id` 走，不再互相把设备名写进去。
+///
+/// - 创建设备就是本机：标签改回本机设备名。
+/// - 创建设备是别人，标签却是本机名：去掉本机名。
+/// - 没有创建设备字段：去掉已知设备名的创建者标签。那是同步补上去的，字段里没有依据。
+pub fn assign_creator_from_origin(
+    tags: &mut Vec<String>,
+    origin_device_id: &str,
+    device_names: &[String],
+    current_device_id: &str,
+    current_device_name: &str,
+) -> bool {
+    let origin = origin_device_id.trim();
+    let current_id = current_device_id.trim();
+    let current_name = current_device_name.trim();
+    if !origin.is_empty() && !current_id.is_empty() && origin == current_id {
+        return set_creator_name(tags, current_name);
+    }
+    let Some(current) = creator_device_name(tags) else {
+        return false;
+    };
+    let ours = !current_name.is_empty() && current.eq_ignore_ascii_case(current_name);
+    let known = ours
+        || device_names
+            .iter()
+            .any(|name| name.trim().eq_ignore_ascii_case(&current));
+    if origin.is_empty() {
+        if !known {
+            return false;
+        }
+        tags.retain(|tag| creator_name_of(tag).is_none());
+        return true;
+    }
+    if ours {
+        tags.retain(|tag| creator_name_of(tag).is_none());
+        return true;
+    }
+    false
+}
+
+fn set_creator_name(tags: &mut Vec<String>, name: &str) -> bool {
+    let name = name.trim();
+    if name.is_empty() {
+        return false;
+    }
+    let already = creator_device_name(tags)
+        .is_some_and(|existing| existing.eq_ignore_ascii_case(name))
+        && tags
+            .iter()
+            .filter(|tag| creator_name_of(tag).is_some())
+            .count()
+            == 1;
+    if already {
+        return false;
+    }
+    tags.retain(|tag| creator_name_of(tag).is_none());
+    tags.push(format!("{CREATOR_TAG_KEY}:{name}"));
+    true
+}
+
+/// 让改正后的记录比云端那份新，下一次同步才会把创建者写回去。
+pub fn next_record_stamp(updated_at: i64) -> i64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0);
+    if now > updated_at {
+        now
+    } else {
+        updated_at.saturating_add(1)
+    }
+}
+
 /// 标签节点（扁平，前端组树）。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -1206,6 +1279,13 @@ impl Storage {
         resource_id: &str,
         tag_id: &str,
     ) -> OmniResult<Vec<ResourceTagDto>> {
+        if kind == TaggableKind::Connection {
+            if let Ok(Some(tag)) = self.get_tag(tag_id) {
+                if creator_device_name(std::slice::from_ref(&tag.path)).is_some() {
+                    self.drop_connection_creator(resource_id)?;
+                }
+            }
+        }
         self.conn()
             .execute(
                 "DELETE FROM resource_tag_links
@@ -1727,8 +1807,35 @@ impl Storage {
                 projected.push(rt.tag.path);
             }
         }
+        // 系统标签补写（如采集 os）会按链接表重投影。创建者若只在 JSON 列里，
+        // 不能被这次投影删掉，否则下一轮同步会把当前设备名补成创建者。
+        if creator_device_name(&projected).is_none() {
+            if let Ok(Some(conn)) = self.get_connection(conn_id) {
+                if let Some(name) = creator_device_name(&conn.tags) {
+                    projected.push(format!("sys/creator/{name}"));
+                }
+            }
+        }
         let tags_json = serde_json::to_string(&projected).map_err(|e| {
             OmniError::new(ErrorCode::Internal, "tags 序列化失败").with_cause(e.to_string())
+        })?;
+        self.conn()
+            .execute(
+                "UPDATE connections SET tags = ?1 WHERE id = ?2",
+                rusqlite::params![tags_json, conn_id],
+            )
+            .map_err(map_sqlite)?;
+        Ok(())
+    }
+
+    fn drop_connection_creator(&self, conn_id: &str) -> OmniResult<()> {
+        let Some(conn) = self.get_connection(conn_id)? else {
+            return Ok(());
+        };
+        let mut tags = conn.tags;
+        tags.retain(|tag| creator_device_name(std::slice::from_ref(tag)).is_none());
+        let tags_json = serde_json::to_string(&tags).map_err(|err| {
+            OmniError::new(ErrorCode::Internal, "tags 序列化失败").with_cause(err.to_string())
         })?;
         self.conn()
             .execute(
@@ -2005,6 +2112,63 @@ mod tests {
             tags,
             vec!["os:Linux".to_string(), "creator:Desktop-B".to_string()]
         );
+    }
+
+    #[test]
+    fn origin_field_resets_a_wrong_creator_to_this_device() {
+        let mut tags = vec![
+            "sys/creator/MACT-HOME".to_string(),
+            "sys/os/Ubuntu".to_string(),
+        ];
+        let names = vec![
+            "MZ".to_string(),
+            "MACT-HOME".to_string(),
+            "MACT-OFFICE".to_string(),
+        ];
+        assert!(assign_creator_from_origin(
+            &mut tags,
+            "device-mz",
+            &names,
+            "device-mz",
+            "MZ",
+        ));
+        assert_eq!(creator_device_name(&tags).as_deref(), Some("MZ"));
+        assert!(tags.iter().any(|tag| tag.contains("os")));
+        assert!(!assign_creator_from_origin(
+            &mut tags,
+            "device-mz",
+            &names,
+            "device-mz",
+            "MZ",
+        ));
+    }
+
+    #[test]
+    fn missing_origin_drops_a_device_name_creator() {
+        let mut tags = vec!["sys/creator/MACT-OFFICE".to_string(), "prod".to_string()];
+        let names = vec!["MZ".to_string(), "MACT-OFFICE".to_string()];
+        assert!(assign_creator_from_origin(
+            &mut tags,
+            "",
+            &names,
+            "device-mz",
+            "MZ",
+        ));
+        assert_eq!(creator_device_name(&tags), None);
+        assert_eq!(tags, vec!["prod".to_string()]);
+    }
+
+    #[test]
+    fn other_device_origin_keeps_that_device_name() {
+        let mut tags = vec!["sys/creator/MACT-OFFICE".to_string()];
+        assert!(!assign_creator_from_origin(
+            &mut tags,
+            "device-office",
+            &["MZ".to_string(), "MACT-OFFICE".to_string()],
+            "device-mz",
+            "MZ",
+        ));
+        assert_eq!(creator_device_name(&tags).as_deref(), Some("MACT-OFFICE"));
     }
 
     #[test]

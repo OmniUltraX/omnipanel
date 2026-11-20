@@ -282,19 +282,23 @@ pub async fn docker_scan_ssh_docker_hosts(
             };
 
             docker_connection_id = Some(docker_conn.id.clone());
-            match {
-                let storage = state.storage.lock().await;
-                storage.save_connection(&docker_conn)
-            } {
-                Ok(_) => match action.as_str() {
-                    "created" => result.created += 1,
-                    "updated" => result.updated += 1,
-                    _ => result.unchanged += 1,
-                },
-                Err(e) => {
-                    result.failed += 1;
-                    action = "failed".to_string();
-                    error = Some(e.to_string());
+            if action == "unchanged" {
+                result.unchanged += 1;
+            } else {
+                match {
+                    let storage = state.storage.lock().await;
+                    storage.save_connection(&docker_conn)
+                } {
+                    Ok(_) => match action.as_str() {
+                        "created" => result.created += 1,
+                        "updated" => result.updated += 1,
+                        _ => result.unchanged += 1,
+                    },
+                    Err(e) => {
+                        result.failed += 1;
+                        action = "failed".to_string();
+                        error = Some(e.to_string());
+                    }
                 }
             }
         } else {

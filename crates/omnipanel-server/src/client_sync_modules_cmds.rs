@@ -1,4 +1,4 @@
-﻿//! 客户端选定团队「各业务模块」同步。
+//! 客户端选定团队「各业务模块」同步。
 //! 路径：团队 OSS `modules/latest.json`；上传前端到端加密（sync_key_v2），凭据随快照一并同步。
 
 use std::collections::{HashMap, HashSet};
@@ -16,9 +16,10 @@ use omnipanel_assistant::{
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
     Connection, ConnectionKind, DbConnectionConfig, HttpCollection, HttpEnvironment,
-    KnowledgeEntry, SYNC_KIND_MODULES, SavedHttpRequest, SshKeyRecord, Vault, db_password_ref,
-    load_database_connections, migrate_device_tags_to_creator, ssh_key_passphrase_ref,
-    ssh_key_private_ref, ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
+    KnowledgeEntry, SYNC_KIND_MODULES, SavedHttpRequest, SshKeyRecord, Vault,
+    assign_creator_from_origin, db_password_ref, load_database_connections,
+    migrate_device_tags_to_creator, next_record_stamp, ssh_key_passphrase_ref, ssh_key_private_ref,
+    ssh_passphrase_ref, ssh_password_ref, ssh_pem_ref,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -887,6 +888,7 @@ pub async fn client_sync_migrate_device_tags(
     request: ClientSyncMigrateDeviceTagsRequest,
 ) -> Result<ClientSyncMigrateDeviceTagsResult, OmniError> {
     let current = crate::auth_cmds::current_device_name();
+    let current_id = crate::auth_cmds::current_device_id();
     let mut device_names = request.device_names;
     if !device_names.iter().any(|n| n.trim() == current.trim()) {
         device_names.push(current.clone());
@@ -905,31 +907,40 @@ pub async fn client_sync_migrate_device_tags(
     {
         let storage = state.storage.lock().await;
         for mut conn in storage.list_connections()? {
-            if migrate_device_tags_to_creator(&mut conn.tags, &device_names, &current) {
-                storage.save_connection(&conn)?;
+            let migrated = migrate_device_tags_to_creator(&mut conn.tags, &device_names, "");
+            let reset = assign_creator_from_origin(
+                &mut conn.tags,
+                &conn.origin_device_id,
+                &device_names,
+                &current_id,
+                &current,
+            );
+            if migrated || reset {
+                conn.updated_at = next_record_stamp(conn.updated_at);
+                storage.save_connection_replacing_creator(&conn)?;
                 result.connections += 1.0;
             }
         }
         for mut entry in storage.list_knowledge(None, None)? {
-            if migrate_device_tags_to_creator(&mut entry.tags, &device_names, &current) {
+            if migrate_device_tags_to_creator(&mut entry.tags, &device_names, "") {
                 storage.save_knowledge(&entry)?;
                 result.knowledge += 1.0;
             }
         }
         for mut req in storage.http_list_requests(None)? {
-            if migrate_device_tags_to_creator(&mut req.tags, &device_names, &current) {
+            if migrate_device_tags_to_creator(&mut req.tags, &device_names, "") {
                 storage.http_save_request(&req)?;
                 result.http_requests += 1.0;
             }
         }
         for mut col in storage.http_list_collections()? {
-            if migrate_device_tags_to_creator(&mut col.tags, &device_names, &current) {
+            if migrate_device_tags_to_creator(&mut col.tags, &device_names, "") {
                 storage.http_save_collection(&col)?;
                 result.http_collections += 1.0;
             }
         }
         for mut env in storage.http_list_environments()? {
-            if migrate_device_tags_to_creator(&mut env.tags, &device_names, &current) {
+            if migrate_device_tags_to_creator(&mut env.tags, &device_names, "") {
                 storage.http_save_environment(&env)?;
                 result.http_environments += 1.0;
             }
@@ -937,7 +948,15 @@ pub async fn client_sync_migrate_device_tags(
     }
 
     for mut db in state.db_connections.list()? {
-        if migrate_device_tags_to_creator(&mut db.tags, &device_names, &current) {
+        let migrated = migrate_device_tags_to_creator(&mut db.tags, &device_names, "");
+        let reset = assign_creator_from_origin(
+            &mut db.tags,
+            &db.origin_device_id,
+            &device_names,
+            &current_id,
+            &current,
+        );
+        if migrated || reset {
             state.db_connections.save(db)?;
             result.databases += 1.0;
         }

@@ -1,5 +1,5 @@
 import { fetchDevices } from "./auth/loginApi";
-import { getCachedDeviceName, initDeviceNameCache, rememberDeviceRoster } from "./deviceIdentity";
+import { initDeviceNameCache, rememberDeviceRoster } from "./deviceIdentity";
 import { commands } from "../ipc/bindings";
 import { unwrapCommand } from "../ipc/result";
 import { useAuthStore } from "../stores/authStore";
@@ -14,8 +14,8 @@ let migratePromise: Promise<boolean> | null = null;
  * 设备标签迁移（幂等，会话内去重）。
  *
  * 旧版同步会在上传时给所有资源补当前设备名标签；现改为资源创建时打 `creator:` 标签。
- * 这里把本机资源（含 localStorage 工作区）上的旧设备名标签清掉并补上 creator 标签，
- * 随后把干净的标签回推云端，其他设备拉取后不再出现设备名标签。
+ * 这里把本机资源上的旧设备名标签收成 creator。没有创建者、也没有旧设备名时不补当前设备，
+ * 避免两台电脑同时在线时互相把创建者写成自己。
  */
 export function runDeviceTagMigration(): Promise<boolean> {
   if (!migratePromise) {
@@ -23,9 +23,9 @@ export function runDeviceTagMigration(): Promise<boolean> {
       console.warn("[device-tag-migration] migrate failed:", err);
       return false;
     });
-    // 无变化或失败时清除会话级缓存，允许后续拉取重试（迁移幂等，重复执行无副作用）
-    void p.then((changed) => {
-      if (!changed) migratePromise = null;
+    // 每次拉取后都要能再按创建设备字段改一次。上次改过也不能把这次缓存住。
+    void p.then(() => {
+      migratePromise = null;
     });
     migratePromise = p;
   }
@@ -48,8 +48,7 @@ async function migrate(): Promise<boolean> {
     { quiet: true },
   );
 
-  const fallbackCreator = getCachedDeviceName() ?? "";
-  const workspaceChanged = migrateWorkspaceTags(deviceNames, fallbackCreator);
+  const workspaceChanged = migrateWorkspaceTags(deviceNames, "");
 
   if (report.changed || workspaceChanged) {
     scheduleClientModuleSync();

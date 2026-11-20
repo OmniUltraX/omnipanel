@@ -91,6 +91,15 @@ fn default_config() -> String {
     "{}".to_string()
 }
 
+enum CreatorKeep {
+    /// 库里已有创建者就不换成另一台。
+    Stored,
+    /// 同步正文里有创建者时采用正文，没有则沿用库里的。
+    IncomingIfSet,
+    /// 正文里的创建者就是最终结果，没有就是清掉。
+    Incoming,
+}
+
 impl Storage {
     /// 列出全部连接（按更新时间倒序）。
     pub fn list_connections(&self) -> OmniResult<Vec<Connection>> {
@@ -119,6 +128,20 @@ impl Storage {
     /// 插入或更新连接（按 id upsert）。
     /// 创建设备 id 只写一次：库里已有就保留，没有则用传入值或旧 `origin:` 标签。
     pub fn save_connection(&self, conn: &Connection) -> OmniResult<()> {
+        self.save_connection_inner(conn, CreatorKeep::Stored)
+    }
+
+    /// 同步检出写回。正文里已经决出的创建者要落库，不能再被本机旧标签盖回去。
+    pub fn save_synced_connection(&self, conn: &Connection) -> OmniResult<()> {
+        self.save_connection_inner(conn, CreatorKeep::IncomingIfSet)
+    }
+
+    /// 按创建设备字段重写创建者后写回。传入的标签就是要留下的创建者，空则清掉。
+    pub fn save_connection_replacing_creator(&self, conn: &Connection) -> OmniResult<()> {
+        self.save_connection_inner(conn, CreatorKeep::Incoming)
+    }
+
+    fn save_connection_inner(&self, conn: &Connection, creator: CreatorKeep) -> OmniResult<()> {
         let mut conn = conn.clone();
         let existing = self.get_connection(&conn.id)?;
         let stored = existing
@@ -126,7 +149,14 @@ impl Storage {
             .map(|item| item.origin_device_id.clone())
             .unwrap_or_default();
         let previous_tags = existing.map(|item| item.tags);
-        crate::tag::collapse_creator_tags(&mut conn.tags, previous_tags.as_deref());
+        let previous_for_creator = match creator {
+            CreatorKeep::Incoming => None,
+            CreatorKeep::IncomingIfSet if crate::tag::creator_device_name(&conn.tags).is_some() => {
+                None
+            }
+            CreatorKeep::Stored | CreatorKeep::IncomingIfSet => previous_tags.as_deref(),
+        };
+        crate::tag::collapse_creator_tags(&mut conn.tags, previous_for_creator);
         crate::tag::canonicalize_connection_tags(&mut conn.tags);
         conn.origin_device_id =
             crate::tag::settle_origin_device_id(&stored, &conn.origin_device_id, &conn.tags);
@@ -444,6 +474,63 @@ mod tests {
                 })
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn synced_save_keeps_the_creator_chosen_by_the_other_device() {
+        let storage = Storage::open_in_memory().unwrap();
+        let mut conn = sample("creator", ConnectionKind::Ssh);
+        conn.tags = vec!["sys/creator/MACT-OFFICE".into()];
+        storage.save_connection(&conn).unwrap();
+
+        conn.tags = vec!["sys/creator/MZ".into(), "sys/os/Ubuntu".into()];
+        storage.save_synced_connection(&conn).unwrap();
+        let saved = storage.get_connection("creator").unwrap().unwrap();
+        assert!(saved.tags.iter().any(|tag| tag == "sys/creator/MZ"));
+        assert!(!saved.tags.iter().any(|tag| tag.contains("MACT-OFFICE")));
+    }
+
+    #[test]
+    fn replacing_creator_can_clear_the_stored_name() {
+        let storage = Storage::open_in_memory().unwrap();
+        let mut conn = sample("creator", ConnectionKind::Ssh);
+        conn.tags = vec!["sys/creator/MACT-HOME".into()];
+        storage.save_connection(&conn).unwrap();
+
+        conn.tags = vec!["sys/os/Ubuntu".into()];
+        storage.save_connection_replacing_creator(&conn).unwrap();
+        let saved = storage.get_connection("creator").unwrap().unwrap();
+        assert!(saved.tags.iter().all(|tag| !tag.contains("creator")));
+        assert!(saved.tags.iter().any(|tag| tag.contains("Ubuntu")));
+    }
+
+    #[test]
+    fn system_tag_projection_keeps_creator_that_only_lives_on_the_row() {
+        let storage = Storage::open_in_memory().unwrap();
+        let mut conn = sample("creator", ConnectionKind::Ssh);
+        conn.tags = vec!["sys/creator/MZ".into()];
+        storage.save_connection(&conn).unwrap();
+        storage
+            .clear_resource_tags(crate::tag::TaggableKind::Connection, "creator")
+            .unwrap();
+
+        storage
+            .resource_set_system_key(
+                crate::tag::TaggableKind::Connection,
+                "creator",
+                "os",
+                "Ubuntu 24.04.4 LTS",
+            )
+            .unwrap();
+
+        let saved = storage.get_connection("creator").unwrap().unwrap();
+        assert!(saved.tags.iter().any(|tag| tag == "sys/creator/MZ"));
+        assert!(
+            saved
+                .tags
+                .iter()
+                .any(|tag| tag == "sys/os/Ubuntu 24.04.4 LTS")
         );
     }
 }

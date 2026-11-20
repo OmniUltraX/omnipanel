@@ -1864,9 +1864,14 @@ pub async fn ssh_sync_config_hosts(
                     OmniError::new(ErrorCode::Internal, "序列化 SSH 配置失败")
                         .with_cause(e.to_string())
                 })?;
+                let group = SSH_CONFIG_SYNC_GROUP.to_string();
+                let env_tag = "unknown".to_string();
+                if conn.config == config_json && conn.group == group && conn.env_tag == env_tag {
+                    continue;
+                }
                 conn.config = config_json;
-                conn.group = SSH_CONFIG_SYNC_GROUP.to_string();
-                conn.env_tag = "unknown".to_string();
+                conn.group = group;
+                conn.env_tag = env_tag;
                 conn.updated_at = now;
                 storage.save_connection(&conn)?;
                 updated += 1;

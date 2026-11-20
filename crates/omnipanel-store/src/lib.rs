@@ -209,10 +209,11 @@ pub use sync_team_key::{
 };
 pub use tag::{
     CREATOR_TAG_KEY, ORIGIN_TAG_KEY, ResourceTagDto, SearchEverywhereHit, TagDto, TagMatchMode,
-    TagSource, TaggableKind, TaggedResourceSummary, creator_device_name, ensure_creator_tag,
-    ensure_origin_for_creator, ensure_origin_tag, migrate_device_tags_to_creator,
-    normalize_tag_path, normalize_tag_segment, origin_device_id, preserve_device_tags,
-    reconcile_device_tags, resolve_origin_device_id, settle_origin_device_id, strip_origin_tags,
+    TagSource, TaggableKind, TaggedResourceSummary, assign_creator_from_origin,
+    creator_device_name, ensure_creator_tag, ensure_origin_for_creator, ensure_origin_tag,
+    migrate_device_tags_to_creator, next_record_stamp, normalize_tag_path, normalize_tag_segment,
+    origin_device_id, preserve_device_tags, reconcile_device_tags, resolve_origin_device_id,
+    settle_origin_device_id, strip_origin_tags,
 };
 pub use task::{SaveTaskRequest, Task, TaskRisk, TaskSource, TaskStatus, TaskType};
 pub use task_events::{TaskEventFilter, TaskEventRecord};

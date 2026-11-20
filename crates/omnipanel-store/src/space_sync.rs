@@ -1059,36 +1059,38 @@ enum OneSided {
 /// 单边变化时看正文日期。变更侧更新则沿用原来的选择；更旧则留下较新的一份；
 /// 日期相同但正文不同则先用云端，本机留在冲突里。没有可比日期时不拦。
 fn gate_one_sided(local_body: &[u8], remote_body: &[u8], taking_remote: bool) -> OneSided {
-    if local_body == remote_body {
-        return OneSided::AsPicked;
-    }
-    let (Some(local_stamp), Some(remote_stamp)) =
-        (document_stamp(local_body), document_stamp(remote_body))
-    else {
-        return OneSided::AsPicked;
+    let picked = if local_body == remote_body {
+        OneSided::AsPicked
+    } else {
+        match (document_stamp(local_body), document_stamp(remote_body)) {
+            (Some(local_stamp), Some(remote_stamp)) if remote_stamp > local_stamp => {
+                if taking_remote {
+                    OneSided::AsPicked
+                } else {
+                    OneSided::Hold {
+                        official: remote_body.to_vec(),
+                        rejected: local_body.to_vec(),
+                    }
+                }
+            }
+            (Some(local_stamp), Some(remote_stamp)) if local_stamp > remote_stamp => {
+                if taking_remote {
+                    OneSided::Hold {
+                        official: local_body.to_vec(),
+                        rejected: remote_body.to_vec(),
+                    }
+                } else {
+                    OneSided::AsPicked
+                }
+            }
+            (Some(_), Some(_)) => OneSided::Hold {
+                official: remote_body.to_vec(),
+                rejected: local_body.to_vec(),
+            },
+            _ => OneSided::AsPicked,
+        }
     };
-    if remote_stamp > local_stamp {
-        if taking_remote {
-            return OneSided::AsPicked;
-        }
-        return OneSided::Hold {
-            official: remote_body.to_vec(),
-            rejected: local_body.to_vec(),
-        };
-    }
-    if local_stamp > remote_stamp {
-        if !taking_remote {
-            return OneSided::AsPicked;
-        }
-        return OneSided::Hold {
-            official: local_body.to_vec(),
-            rejected: remote_body.to_vec(),
-        };
-    }
-    OneSided::Hold {
-        official: remote_body.to_vec(),
-        rejected: local_body.to_vec(),
-    }
+    picked
 }
 
 async fn remote_head<R: SpaceRepoRemote + ?Sized>(remote: &mut R) -> OmniResult<String> {
@@ -1191,14 +1193,15 @@ async fn apply_remote_merge<R: SpaceRepoRemote + ?Sized>(
                     } else {
                         read_chunk_bytes(remote, root, key, &chunks, &mut cache).await?
                     };
-                    if let OneSided::Hold { official, rejected } =
-                        gate_one_sided(&local_body, &remote_body, !chosen_is_local)
-                    {
-                        write_conflict(root, &pick.path, &rejected, now)?;
-                        conflicts += 1;
-                        files.insert(pick.path, official);
-                        meter.tick();
-                        continue;
+                    match gate_one_sided(&local_body, &remote_body, !chosen_is_local) {
+                        OneSided::Hold { official, rejected } => {
+                            write_conflict(root, &pick.path, &rejected, now)?;
+                            conflicts += 1;
+                            files.insert(pick.path, official);
+                            meter.tick();
+                            continue;
+                        }
+                        OneSided::AsPicked => {}
                     }
                     if chosen_is_local {
                         meter.tick();
@@ -1549,7 +1552,7 @@ impl Storage {
             if local_only.contains(&format!("connections/{}.json", conn.id)) {
                 continue;
             }
-            self.save_connection(conn)?;
+            self.save_synced_connection(conn)?;
         }
         for existing in self.list_connections()? {
             let rel = format!("connections/{}.json", existing.id);
