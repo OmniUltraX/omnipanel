@@ -11059,8 +11059,6 @@ dependencies = [
 [[package]]
 name = "ts_disco_protocol"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e955f5bcbf02122508fb739b5eb8ef71f4e0a68addb5a2ea4335291c1753e42"
 dependencies = [
  "aead",
  "crypto_box",
