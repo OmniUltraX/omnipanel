@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useI18n } from "../../../../i18n";
 import { ResourceTags } from "../../../../components/ui/tags/ResourceTags";
+import { detailCreatorName } from "../../../clientSync/CreatorMark";
+import { creatorTagValue } from "../../../tags/tagKinds";
+import {
+  getDeviceIdentityRevision,
+  subscribeDeviceIdentity,
+} from "../../../../lib/deviceIdentity";
 import { useConnectionStore } from "../../../../stores/connectionStore";
 import { useSshSidebarTreeStore } from "../../../../stores/sshSidebarTreeStore";
 import { OPENSSH_CONFIG_GROUP, sshGroupLabel } from "../../../../lib/sshGroups";
@@ -38,9 +44,13 @@ type Props = {
 };
 
 function HostDetailTags({ resourceId }: { resourceId: string }) {
-  const tags = useConnectionStore(
-    (s) => s.connections.find((c) => c.id === resourceId)?.tags,
+  useSyncExternalStore(subscribeDeviceIdentity, getDeviceIdentityRevision, getDeviceIdentityRevision);
+  const connection = useConnectionStore((s) =>
+    s.connections.find((c) => c.id === resourceId),
   );
+  const tags = connection?.tags?.filter((tag) => !creatorTagValue(tag)) ?? [];
+  const creator = detailCreatorName(connection?.tags, connection?.originDeviceId);
+  if (creator) tags.push(`creator:${creator}`);
   return <ResourceTags tags={tags} variant="detail" />;
 }
 

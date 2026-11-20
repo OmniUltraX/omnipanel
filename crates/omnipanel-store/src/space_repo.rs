@@ -801,6 +801,55 @@ pub fn capture_checkout_origins(root: &Path) -> OmniResult<BTreeMap<String, Stri
     Ok(out)
 }
 
+/// 创建设备是本机时，检出里的创建者标签改回本机设备名。
+pub(crate) fn rewrite_owned_connection_creators(files: &mut BTreeMap<String, Vec<u8>>) {
+    let Some((device_id, device_name)) = crate::tag::local_device_identity() else {
+        return;
+    };
+    for (path, bytes) in files.iter_mut() {
+        if !(path.starts_with("connections/") && path.ends_with(".json")) {
+            continue;
+        }
+        if let Some(next) = rewrite_one_connection_creator(bytes, &device_id, &device_name) {
+            *bytes = next;
+        }
+    }
+}
+
+fn rewrite_one_connection_creator(
+    bytes: &[u8],
+    device_id: &str,
+    device_name: &str,
+) -> Option<Vec<u8>> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut value: Value = serde_json::from_str(text.trim()).ok()?;
+    let origin = value
+        .get("originDeviceId")
+        .and_then(|item| item.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if origin != device_id {
+        return None;
+    }
+    let tags_value = value.get_mut("tags")?;
+    let mut tags = tags_value
+        .as_array()?
+        .iter()
+        .filter_map(|item| item.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    if !crate::tag::assign_creator_from_origin(&mut tags, &origin, &[], device_id, device_name) {
+        return None;
+    }
+    crate::tag::canonicalize_connection_tags(&mut tags);
+    *tags_value = serde_json::to_value(tags).ok()?;
+    let mut out = serde_json::to_vec(&value).ok()?;
+    if text.ends_with('\n') {
+        out.push(b'\n');
+    }
+    Some(out)
+}
+
 fn stamp_origin_value(
     value: &mut Value,
     stored: &str,
@@ -1018,6 +1067,7 @@ impl Storage {
         self.save_resource_origins(&settled)?;
         self.write_local_only_file(root)?;
         preserve_equivalent_checkout(root, &mut files);
+        rewrite_owned_connection_creators(&mut files);
         build_space_repo(root, &files)
     }
 
@@ -1260,6 +1310,19 @@ mod tests {
         assert!(is_device_local_secret("__sqlcipher_master_key__"));
         assert!(is_device_local_secret("space-s3:10"));
         assert!(!is_device_local_secret("ssh-key-priv-sshkey-1"));
+    }
+
+    #[test]
+    fn owned_connection_creator_follows_this_device() {
+        let raw = br#"{"id":"conn-1","name":"3","originDeviceId":"device-mz","tags":["sys/creator/MACT-HOME","sys/os/Ubuntu"],"updatedAt":1}
+"#;
+        let next = rewrite_one_connection_creator(raw, "device-mz", "MZ").unwrap();
+        let value: Value = serde_json::from_slice(&next).unwrap();
+        let tags = value["tags"].as_array().unwrap();
+        assert!(tags.iter().any(|tag| tag == "sys/creator/MZ"));
+        assert!(tags.iter().all(|tag| tag != "sys/creator/MACT-HOME"));
+        assert!(tags.iter().any(|tag| tag == "sys/os/Ubuntu"));
+        assert!(rewrite_one_connection_creator(raw, "device-other", "MACT-HOME").is_none());
     }
 
     #[test]

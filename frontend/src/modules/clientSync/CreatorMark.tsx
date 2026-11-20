@@ -28,11 +28,26 @@ export function resolveCreatorLabel(
   if (!myId && !myName) return null;
   if (origin && myId) {
     if (origin === myId) return null;
-    return creator || deviceNameForId(origin) || UNKNOWN_CREATOR;
+    return deviceNameForId(origin) || creator || UNKNOWN_CREATOR;
   }
   if (creator && myName && creator.toLowerCase() === myName.toLowerCase()) return null;
   if (creator) return creator;
   return null;
+}
+
+/** 详情头上的创建者。创建设备字段优先于标签里的旧名字。 */
+export function detailCreatorName(
+  tags: readonly string[] | undefined | null,
+  originDeviceId: string | null | undefined,
+): string | null {
+  const creator =
+    (tags ?? []).map((tag) => creatorTagValue(tag)).find((name) => name)?.trim() ?? "";
+  const origin = originDeviceId?.trim() ?? "";
+  const myId = getCachedDeviceId()?.trim() ?? "";
+  const myName = getCachedDeviceName()?.trim() ?? "";
+  if (origin && myId && origin === myId) return myName || creator || null;
+  if (origin) return deviceNameForId(origin) || creator || null;
+  return creator || null;
 }
 
 export function CreatorMark({

@@ -161,6 +161,9 @@ impl Storage {
         conn.origin_device_id =
             crate::tag::settle_origin_device_id(&stored, &conn.origin_device_id, &conn.tags);
         crate::tag::strip_origin_tags(&mut conn.tags);
+        if crate::tag::align_creator_to_local_owner(&mut conn.tags, &conn.origin_device_id) {
+            crate::tag::canonicalize_connection_tags(&mut conn.tags);
+        }
         self.conn()
             .execute(
                 "INSERT INTO connections (id, kind, name, group_name, env_tag, tags, config, credential_ref, created_at, updated_at, origin_device_id)

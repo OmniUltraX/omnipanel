@@ -1365,6 +1365,7 @@ async fn sync_locked<R: SpaceRepoRemote>(
             continue;
         }
 
+        crate::space_repo::rewrite_owned_connection_creators(&mut files);
         let built = build_space_repo(root, &files)?;
         let index_id = built.index_id;
         if remote_head(remote).await? != head {

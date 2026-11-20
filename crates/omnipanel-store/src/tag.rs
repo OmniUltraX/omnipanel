@@ -436,6 +436,34 @@ pub fn assign_creator_from_origin(
     false
 }
 
+/// 创建设备就是本机时，把创建者标签改回本机设备名。别的设备、或没有该字段时不动。
+pub fn align_creator_to_local_owner(tags: &mut Vec<String>, origin_device_id: &str) -> bool {
+    let Some((device_id, device_name)) = local_device_identity() else {
+        return false;
+    };
+    let origin = origin_device_id.trim();
+    if origin.is_empty() || origin != device_id {
+        return false;
+    }
+    let changed = set_creator_name(tags, &device_name);
+    if changed {
+        canonicalize_connection_tags(tags);
+    }
+    changed
+}
+
+pub(crate) fn local_device_identity() -> Option<(String, String)> {
+    let path = crate::paths::module_dir("auth").ok()?.join("device.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let id = value.get("deviceId")?.as_str()?.trim().to_string();
+    let name = value.get("deviceName")?.as_str()?.trim().to_string();
+    if id.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some((id, name))
+}
+
 fn set_creator_name(tags: &mut Vec<String>, name: &str) -> bool {
     let name = name.trim();
     if name.is_empty() {
