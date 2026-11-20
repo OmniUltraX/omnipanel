@@ -23,6 +23,71 @@ function defaultShouldIgnoreClick(target: EventTarget | null): boolean {
   return Boolean((target as HTMLElement | null)?.closest(".tree-action-btn"));
 }
 
+function nearestScrollParent(node: HTMLElement): HTMLElement | null {
+  let current = node.parentElement;
+  while (current) {
+    const overflowY = getComputedStyle(current).overflowY;
+    if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
+/** 虚拟行用 absolute + translateY 摆放，布局位置全在滚动内容顶部。 */
+function rowUsesTransformScroll(row: HTMLElement): boolean {
+  const parent = row.parentElement;
+  if (!parent) return false;
+  const style = getComputedStyle(parent);
+  return style.position === "absolute" || style.transform !== "none";
+}
+
+/**
+ * 锁住当前滚动。虚拟行被 focus 时，浏览器会忽略 preventScroll，
+ * 按 top:0 把列表拽到连接/库那一头。
+ */
+function holdScrollPosition(scroller: HTMLElement): void {
+  const top = scroller.scrollTop;
+  const left = scroller.scrollLeft;
+  let restoring = false;
+  const restore = () => {
+    if (restoring) return;
+    if (scroller.scrollTop === top && scroller.scrollLeft === left) return;
+    restoring = true;
+    scroller.scrollTop = top;
+    scroller.scrollLeft = left;
+    restoring = false;
+  };
+  scroller.addEventListener("scroll", restore);
+  restore();
+  requestAnimationFrame(() => {
+    restore();
+    requestAnimationFrame(() => {
+      scroller.removeEventListener("scroll", restore);
+      restore();
+    });
+  });
+}
+
+/** 用视觉矩形判断，transform 后的位置才算数。已经在视口里就不动。 */
+function revealRowIfOutside(row: HTMLElement): void {
+  const scroller = nearestScrollParent(row);
+  if (!scroller) return;
+  const rowRect = row.getBoundingClientRect();
+  const viewRect = scroller.getBoundingClientRect();
+  if (rowRect.height <= 0 || rowRect.width <= 0) return;
+  const margin = 2;
+  if (rowRect.top >= viewRect.top + margin && rowRect.bottom <= viewRect.bottom - margin) {
+    return;
+  }
+  if (rowRect.top < viewRect.top + margin) {
+    scroller.scrollTop -= viewRect.top + margin - rowRect.top;
+  } else if (rowRect.bottom > viewRect.bottom - margin) {
+    scroller.scrollTop += rowRect.bottom - (viewRect.bottom - margin);
+  }
+}
+
 function SidebarTreeRefreshButton({
   title,
   busy,
@@ -233,12 +298,28 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
     return registerNode(treeKey, () => snapshotRef.current);
   }, [registerNode, treeKey]);
 
+  const handleMouseDown = keyboardTree
+    ? (event: TreeRowMouseEvent) => {
+        if (event.button !== 0 || resolveShouldIgnoreClick(event.target)) return;
+        if (!rowUsesTransformScroll(event.currentTarget)) return;
+        const scroller = nearestScrollParent(event.currentTarget);
+        if (scroller) holdScrollPosition(scroller);
+        // 按下就会聚焦。可拖拽行留给原生拖拽，其余行阻止这次默认聚焦。
+        if (!draggable) event.preventDefault();
+      }
+    : undefined;
+
   const handleClick = (userSelect || (treeKey && selection))
     ? (event: TreeRowMouseEvent) => {
         if (resolveShouldIgnoreClick(event.target)) return;
         if (treeKey && selection) {
+          const row = event.currentTarget;
+          if (rowUsesTransformScroll(row)) {
+            const scroller = nearestScrollParent(row);
+            if (scroller) holdScrollPosition(scroller);
+          }
           selection.handleSelect(treeKey, event);
-          event.currentTarget.focus({ preventScroll: true });
+          row.focus({ preventScroll: true });
           if (event.ctrlKey || event.metaKey || event.shiftKey) return;
         }
         userSelect?.(event);
@@ -293,10 +374,23 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
     if (!keyboardFocused) return;
     const row = rowRef.current;
     if (!row) return;
+    const parent = row.parentElement;
+    if (parent && getComputedStyle(parent).visibility === "hidden") return;
     const root = row.closest("[data-sidebar-tree-keyboard]");
     const active = document.activeElement;
     if (active && root && !root.contains(active) && active !== document.body) return;
     if (active === row) return;
+    if (rowUsesTransformScroll(row)) {
+      const scroller = nearestScrollParent(row);
+      if (scroller) holdScrollPosition(scroller);
+      row.focus({ preventScroll: true });
+      const frame = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (row.isConnected) revealRowIfOutside(row);
+        });
+      });
+      return () => cancelAnimationFrame(frame);
+    }
     row.focus({ preventScroll: true });
     row.scrollIntoView({ block: "nearest" });
   }, [keyboardFocused]);
@@ -374,6 +468,7 @@ export const SidebarTreeNode = memo(function SidebarTreeNode({
         className={rootClass}
         style={nodeStyle}
         draggable={draggable}
+        onMouseDown={handleMouseDown}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onDragStart={onDragStart}

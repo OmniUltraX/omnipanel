@@ -327,6 +327,12 @@ export function formatBackgroundTaskStatusMessage(
     task.status === "failed" && errorText
       ? `${task.title}：${errorText}`
       : task.progress.trim() || task.title;
+  if (task.total > 0 && task.status !== "failed") {
+    message += ` · ${t("shell.backgroundTasks.progressIndex", {
+      index: String(task.index),
+      total: String(task.total),
+    })}`;
+  }
   if (task.rowTotal != null && task.rowTotal > 0 && task.status !== "failed") {
     message += ` · ${t("shell.backgroundTasks.rowProgress", {
       completed: String(task.rowCompleted ?? 0),

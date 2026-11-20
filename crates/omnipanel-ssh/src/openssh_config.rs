@@ -308,10 +308,12 @@ pub fn find_ssh_config_entry(alias: &str) -> OmniResult<Option<SshConfigEntry>> 
 }
 
 fn parse_ssh_config_text(content: &str, base_dir: &Path) -> OmniResult<Vec<SshConfigEntry>> {
-    let mut out = Vec::new();
-    let mut current_hosts: Vec<String> = Vec::new();
-    let mut block = HostBlock::default();
-    let mut includes: Vec<PathBuf> = Vec::new();
+    Ok(resolve_host_blocks(&read_host_blocks(content, base_dir)?))
+}
+
+fn read_host_blocks(content: &str, base_dir: &Path) -> OmniResult<Vec<RawHostBlock>> {
+    let mut blocks = Vec::new();
+    let mut current = RawHostBlock::default();
 
     for raw in content.lines() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -327,100 +329,187 @@ fn parse_ssh_config_text(content: &str, base_dir: &Path) -> OmniResult<Vec<SshCo
 
         match key.as_str() {
             "host" => {
-                flush_block(&mut current_hosts, &mut block, &mut out);
-                current_hosts = values;
+                push_block(&mut blocks, &mut current);
+                current.patterns = values;
             }
-            "hostname" if !values.is_empty() => block.host_name = Some(values[0].clone()),
-            "user" if !values.is_empty() => block.user = Some(values[0].clone()),
+            "hostname" if !values.is_empty() => current.host_name = Some(values[0].clone()),
+            "user" if !values.is_empty() => current.user = Some(values[0].clone()),
             "port" if !values.is_empty() => {
-                block.port = values[0].parse().ok();
+                current.port = values[0].parse().ok();
             }
             "identityfile" if !values.is_empty() => {
-                block.identity_file = Some(
+                current.identity_file = Some(
                     expand_path(&values[0], base_dir)
                         .to_string_lossy()
                         .into_owned(),
                 );
             }
             "include" => {
+                push_block(&mut blocks, &mut current);
                 for value in values {
-                    includes.push(expand_path(&value, base_dir));
+                    blocks.extend(read_included_blocks(&expand_path(&value, base_dir))?);
                 }
             }
             _ => {}
         }
     }
-    flush_block(&mut current_hosts, &mut block, &mut out);
+    push_block(&mut blocks, &mut current);
+    Ok(blocks)
+}
 
-    for include_path in includes {
-        if include_path.is_file() {
-            let nested = std::fs::read_to_string(&include_path).map_err(|e| {
-                OmniError::new(ErrorCode::Io, "读取 SSH Include 文件失败").with_cause(e.to_string())
-            })?;
-            let parent = include_path.parent().unwrap_or(base_dir);
-            out.extend(parse_ssh_config_text(&nested, parent)?);
-        } else if include_path.is_dir() {
-            let Ok(read_dir) = std::fs::read_dir(&include_path) else {
+fn read_included_blocks(include_path: &Path) -> OmniResult<Vec<RawHostBlock>> {
+    if include_path.is_file() {
+        let nested = std::fs::read_to_string(include_path).map_err(|e| {
+            OmniError::new(ErrorCode::Io, "读取 SSH Include 文件失败").with_cause(e.to_string())
+        })?;
+        let parent = include_path.parent().unwrap_or(Path::new("."));
+        return read_host_blocks(&nested, parent);
+    }
+    if !include_path.is_dir() {
+        return Ok(Vec::new());
+    }
+    let Ok(read_dir) = std::fs::read_dir(include_path) else {
+        return Ok(Vec::new());
+    };
+    let mut files: Vec<PathBuf> = read_dir
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .collect();
+    files.sort();
+    let mut blocks = Vec::new();
+    for file in files {
+        if let Ok(nested) = std::fs::read_to_string(&file) {
+            let parent = file.parent().unwrap_or(include_path);
+            blocks.extend(read_host_blocks(&nested, parent)?);
+        }
+    }
+    Ok(blocks)
+}
+
+/// 同一个别名可以出现在多段 `Host` 里。OpenSSH 对每个字段取先出现的值，
+/// 所以只写私钥的总段不会盖掉后面单独写的 HostName。
+fn resolve_host_blocks(blocks: &[RawHostBlock]) -> Vec<SshConfigEntry> {
+    let mut aliases = Vec::new();
+    let mut seen = Vec::new();
+    for block in blocks {
+        for pattern in &block.patterns {
+            if !is_connectable_alias(pattern) {
                 continue;
-            };
-            let mut files: Vec<PathBuf> = read_dir
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.is_file())
-                .collect();
-            files.sort();
-            for file in files {
-                if let Ok(nested) = std::fs::read_to_string(&file) {
-                    let parent = file.parent().unwrap_or(base_dir);
-                    out.extend(parse_ssh_config_text(&nested, parent)?);
-                }
             }
+            let key = pattern.to_ascii_lowercase();
+            if seen.iter().any(|item: &String| item == &key) {
+                continue;
+            }
+            seen.push(key);
+            aliases.push(pattern.clone());
         }
     }
 
-    Ok(out)
+    aliases
+        .into_iter()
+        .map(|alias| {
+            let mut host_name = None;
+            let mut user = None;
+            let mut port = None;
+            let mut identity_file = None;
+            for block in blocks {
+                if !host_section_matches(&block.patterns, &alias) {
+                    continue;
+                }
+                if host_name.is_none() {
+                    host_name = block.host_name.clone().filter(|value| !value.is_empty());
+                }
+                if user.is_none() {
+                    user = block.user.clone().filter(|value| !value.is_empty());
+                }
+                if port.is_none() {
+                    port = block.port;
+                }
+                if identity_file.is_none() {
+                    identity_file = block
+                        .identity_file
+                        .clone()
+                        .filter(|value| !value.is_empty());
+                }
+            }
+            let host_name = host_name.unwrap_or_else(|| alias.clone());
+            SshConfigEntry {
+                alias,
+                host_name,
+                user,
+                port,
+                identity_file,
+            }
+        })
+        .collect()
+}
+
+fn host_section_matches(patterns: &[String], alias: &str) -> bool {
+    let mut matched = false;
+    for pattern in patterns {
+        if let Some(negated) = pattern.strip_prefix('!') {
+            if glob_match(negated, alias) {
+                return false;
+            }
+        } else if glob_match(pattern, alias) {
+            matched = true;
+        }
+    }
+    matched
+}
+
+fn glob_match(pattern: &str, text: &str) -> bool {
+    fn rec(pattern: &[u8], text: &[u8]) -> bool {
+        let mut pattern_index = 0;
+        let mut text_index = 0;
+        let mut star_at: Option<usize> = None;
+        let mut star_text = 0;
+        while text_index < text.len() {
+            if pattern_index < pattern.len()
+                && (pattern[pattern_index] == b'?' || pattern[pattern_index] == text[text_index])
+            {
+                pattern_index += 1;
+                text_index += 1;
+            } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+                star_at = Some(pattern_index);
+                star_text = text_index;
+                pattern_index += 1;
+            } else if let Some(star) = star_at {
+                star_text += 1;
+                text_index = star_text;
+                pattern_index = star + 1;
+            } else {
+                return false;
+            }
+        }
+        while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            pattern_index += 1;
+        }
+        pattern_index == pattern.len()
+    }
+
+    rec(
+        pattern.to_ascii_lowercase().as_bytes(),
+        text.to_ascii_lowercase().as_bytes(),
+    )
 }
 
 #[derive(Default)]
-struct HostBlock {
+struct RawHostBlock {
+    patterns: Vec<String>,
     host_name: Option<String>,
     user: Option<String>,
     port: Option<u16>,
     identity_file: Option<String>,
 }
 
-fn flush_block(hosts: &mut Vec<String>, block: &mut HostBlock, out: &mut Vec<SshConfigEntry>) {
-    if hosts.is_empty() {
-        block.clear();
+fn push_block(blocks: &mut Vec<RawHostBlock>, current: &mut RawHostBlock) {
+    if current.patterns.is_empty() {
+        *current = RawHostBlock::default();
         return;
     }
-    for alias in hosts.drain(..) {
-        if !is_connectable_alias(&alias) {
-            continue;
-        }
-        let host_name = block
-            .host_name
-            .clone()
-            .filter(|h| !h.is_empty())
-            .unwrap_or_else(|| alias.clone());
-        out.push(SshConfigEntry {
-            alias: alias.clone(),
-            host_name,
-            user: block.user.clone(),
-            port: block.port,
-            identity_file: block.identity_file.clone(),
-        });
-    }
-    block.clear();
-}
-
-impl HostBlock {
-    fn clear(&mut self) {
-        self.host_name = None;
-        self.user = None;
-        self.port = None;
-        self.identity_file = None;
-    }
+    blocks.push(std::mem::take(current));
 }
 
 /// 将配置条目转为连接用 [`crate::SshConfig`]（IdentityFile 缺失时使用 Auto 私钥选择）。
@@ -478,6 +567,59 @@ Host *
         assert_eq!(entries[0].user.as_deref(), Some("deploy"));
         assert_eq!(entries[0].port, Some(2222));
         assert_eq!(entries[1].alias, "prod-web");
+    }
+
+    #[test]
+    fn later_hostname_fills_a_shared_identity_block() {
+        let text = r#"
+Host a b
+    IdentityFile ~/.ssh/id_ed25519
+
+Host a
+    HostName 10.0.0.1
+    User root
+    Port 22
+
+Host b
+    HostName 10.0.0.2
+    User root
+"#;
+        let entries = parse_ssh_config_text(text, Path::new("/home/user/.ssh")).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].alias, "a");
+        assert_eq!(entries[0].host_name, "10.0.0.1");
+        assert_eq!(entries[0].user.as_deref(), Some("root"));
+        assert!(
+            entries[0]
+                .identity_file
+                .as_deref()
+                .unwrap()
+                .ends_with("id_ed25519")
+        );
+        assert_eq!(entries[1].alias, "b");
+        assert_eq!(entries[1].host_name, "10.0.0.2");
+    }
+
+    #[test]
+    fn first_value_wins_and_wildcard_supplies_defaults() {
+        let text = r#"
+Host web
+    HostName 10.1.1.1
+    User root
+
+Host *
+    User ubuntu
+    Port 2222
+
+Host web
+    HostName 10.9.9.9
+"#;
+        let entries = parse_ssh_config_text(text, Path::new(".")).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].alias, "web");
+        assert_eq!(entries[0].host_name, "10.1.1.1");
+        assert_eq!(entries[0].user.as_deref(), Some("root"));
+        assert_eq!(entries[0].port, Some(2222));
     }
 
     #[test]

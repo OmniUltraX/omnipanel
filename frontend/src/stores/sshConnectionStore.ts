@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { commands, type PoolStatusEvent } from "../ipc/bindings";
 import type { StatusDotStatus } from "../components/ui/primitives/StatusDot";
 import { useHostOverviewPhase } from "./sshHostStore";
+import { useSshPoolSessionStore } from "./sshPoolSessionStore";
 import { useTerminalStore, type TerminalPane } from "./terminalStore";
 
 type PoolSessionEvent = {
@@ -144,40 +145,47 @@ if (typeof window !== "undefined") {
   void loadSshPoolActiveSessions();
 }
 
-function remotePaneStatusesForHost(
+function remoteRuntimesForHost(
   resourceId: string,
   embeddedPanes: Record<string, TerminalPane>,
   tabs: ReturnType<typeof useTerminalStore.getState>["tabs"],
-): TerminalPane["status"][] {
-  const statuses: TerminalPane["status"][] = [];
+): Array<{ status: TerminalPane["status"]; backendSessionId: string | null }> {
+  const runtimes: Array<{ status: TerminalPane["status"]; backendSessionId: string | null }> = [];
   for (const pane of Object.values(embeddedPanes)) {
     if (pane.resourceId === resourceId && pane.type === "remote") {
-      statuses.push(pane.status);
+      runtimes.push({ status: pane.status, backendSessionId: pane.backendSessionId });
     }
   }
   for (const tab of tabs) {
     if (tab.session.resourceId === resourceId && tab.session.type === "remote") {
-      statuses.push(tab.status);
+      runtimes.push({ status: tab.status, backendSessionId: tab.backendSessionId });
     }
   }
-  return statuses;
+  return runtimes;
 }
 
-/** 侧栏/详情状态点：SSH 会话已建立（终端或连接池）才显示绿色。 */
+/**
+ * 侧栏/详情状态点。
+ * 绿色只表示这个页面里真有一条终端会话，或当前界面正握着这条主机的连接池会话。
+ * 刷新后池里残留的会话不再把整列主机点亮。
+ */
 export function useHostConnectionIndicatorStatus(
   resourceId: string | null,
 ): "online" | "connecting" | "offline" | "unknown" {
   const embeddedPanes = useTerminalStore((s) => s.embeddedPanes);
   const tabs = useTerminalStore((s) => s.tabs);
   const sessionActiveMap = useSshConnectionStore((s) => s.sessionActiveMap);
+  const poolHeld = useSshPoolSessionStore((s) =>
+    resourceId ? (s.refs[resourceId] ?? 0) > 0 : false,
+  );
   const overviewPhase = useHostOverviewPhase(resourceId);
 
   if (!resourceId) return "unknown";
 
-  const statuses = remotePaneStatusesForHost(resourceId, embeddedPanes, tabs);
-  if (statuses.some((s) => s === "connected")) return "online";
-  if (sessionActiveMap[resourceId]) return "online";
-  if (statuses.some((s) => s === "connecting")) return "connecting";
+  const runtimes = remoteRuntimesForHost(resourceId, embeddedPanes, tabs);
+  if (runtimes.some((item) => item.status === "connected" && item.backendSessionId)) return "online";
+  if (poolHeld && sessionActiveMap[resourceId]) return "online";
+  if (runtimes.some((item) => item.status === "connecting")) return "connecting";
   if (overviewPhase === "loading") return "connecting";
   return "offline";
 }

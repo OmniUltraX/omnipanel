@@ -868,7 +868,9 @@ export const useTerminalStore = create<TerminalState>()(
           .map((tab) => ({
             ...tab,
             backendSessionId: null,
-            status: "connecting" as const,
+            // 进程重启后没有活的 PTY。标成 connecting 会让侧栏一直显示连接中，
+            // 即使这个标签还没挂载、也没有开始握手。
+            status: "disconnected" as const,
             terminal: null,
           }));
 

@@ -7,7 +7,7 @@ import {
   getDeviceIdentityRevision,
   subscribeDeviceIdentity,
 } from "../../lib/deviceIdentity";
-import { getResourceTagValue } from "../../lib/resourceTags";
+import { creatorTagValue } from "../tags/tagKinds";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDbConnectionListStore } from "../../stores/dbConnectionListStore";
 import "./SpaceConflictMark.css";
@@ -19,7 +19,8 @@ export function resolveCreatorLabel(
   tags: readonly string[] | undefined | null,
   originDeviceId: string | null | undefined,
 ): string | null {
-  const creator = getResourceTagValue(tags ? [...tags] : undefined, "creator")?.trim() ?? "";
+  const creator =
+    (tags ?? []).map((tag) => creatorTagValue(tag)).find((name) => name)?.trim() ?? "";
   const origin = originDeviceId?.trim() ?? "";
   if (!creator && !origin) return null;
   const myId = getCachedDeviceId()?.trim() ?? "";

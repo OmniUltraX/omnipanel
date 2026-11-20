@@ -45,7 +45,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.63"
+version = "0.8.64"
 edition = "2024"
 license = "MIT"
 
@@ -126,3 +126,5 @@ strip = "symbols"
 # Null.0 无限递归；保留深度超限 panic 便于回归定位。
 [patch.crates-io]
 specta-typescript = { path = "crates/specta-typescript-patch" }
+# tailscale 0.5 的 DERP runner 在区域正常退出后会空转占满 tokio worker。
+ts_runtime = { path = "crates/ts_runtime-patch" }

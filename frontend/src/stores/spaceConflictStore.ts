@@ -15,6 +15,23 @@ interface SpaceConflictState {
   closeOverview: () => void;
 }
 
+/** 已经弹过的路径。同一批没处理完不再打开；路径消失后可以再报一次。 */
+const announcedPaths = new Set<string>();
+
+function overviewFor(items: SpaceConflict[], overviewOpen: boolean): boolean {
+  if (items.length === 0) {
+    announcedPaths.clear();
+    return false;
+  }
+  const live = new Set(items.map((item) => item.path));
+  for (const path of [...announcedPaths]) {
+    if (!live.has(path)) announcedPaths.delete(path);
+  }
+  const fresh = items.some((item) => !announcedPaths.has(item.path));
+  for (const item of items) announcedPaths.add(item.path);
+  return fresh ? true : overviewOpen;
+}
+
 export const useSpaceConflictStore = create<SpaceConflictState>((set, get) => ({
   items: [],
   byPath: {},
@@ -29,7 +46,11 @@ export const useSpaceConflictStore = create<SpaceConflictState>((set, get) => ({
       const items = Object.values(byPath).sort(
         (a, b) => b.recordedAt - a.recordedAt || a.path.localeCompare(b.path),
       );
-      set({ byPath, items, overviewOpen: items.length === 0 ? false : get().overviewOpen });
+      set({
+        byPath,
+        items,
+        overviewOpen: overviewFor(items, get().overviewOpen),
+      });
     } catch {
       // 本机库还没打开时不打断界面
     }

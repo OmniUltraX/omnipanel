@@ -1,5 +1,5 @@
 //! 空间仓库同步：按路径合并、加密块、锁和冲突历史。
-//! 远端只收缺的块；`refs/latest` 在块都写完之后才改。
+//! 远端只收缺的块；清单没变时不再下载、不再上传。`refs/latest` 在块都写完之后才改。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::space_repo::{
     REPO_DIR, SPACE_DIR, SpaceRepoIndex, build_space_repo, read_latest_index, sha256_hex,
 };
-use crate::space_stamp::{STAMP_RESOLVED, StampFold, fold_update_stamps};
+use crate::space_stamp::{STAMP_RESOLVED, StampFold, document_stamp, fold_update_stamps};
 use crate::storage::Storage;
 use crate::vault::Vault;
 
@@ -135,6 +135,17 @@ struct MergePick {
     /// None 表示这个路径从检出里删除。
     chunks: Option<Vec<String>>,
     conflict: bool,
+    /// 单边变化时，没被选中的那一边。用来比更新日期。
+    other: Option<Vec<String>>,
+}
+
+fn pick(path: String, chunks: Option<Vec<String>>, conflict: bool) -> MergePick {
+    MergePick {
+        path,
+        chunks,
+        conflict,
+        other: None,
+    }
 }
 
 pub fn layout_files(
@@ -456,6 +467,39 @@ fn read_local_only_file(root: &Path) -> BTreeSet<String> {
         .collect()
 }
 
+fn legacy_adds_prefix(
+    files: &BTreeMap<String, Vec<u8>>,
+    legacy: &BTreeMap<String, Vec<u8>>,
+) -> bool {
+    if legacy.is_empty() {
+        return false;
+    }
+    let prefixes = files
+        .keys()
+        .map(|path| prefix_of(path))
+        .collect::<BTreeSet<_>>();
+    legacy
+        .keys()
+        .any(|path| !prefixes.contains(prefix_of(path)))
+}
+
+fn unchanged_report(index_id: &str, file_count: usize) -> SpaceSyncReport {
+    SpaceSyncReport {
+        skipped: true,
+        index_id: index_id.to_string(),
+        uploaded_chunks: 0,
+        conflicts: 0,
+        applied_connections: 0,
+        file_count: u32::try_from(file_count).unwrap_or(u32::MAX),
+        ssh_sidebar_tree_json: None,
+        folder_trees_json: None,
+        custom_panels_json: None,
+        workspaces_json: None,
+        conversations_json: None,
+        settings_json: None,
+    }
+}
+
 /// 云端索引还没有的目录，用旧快照补缺。已有的目录不再回灌，避免把删掉的记录救回来。
 fn supplement_missing_prefixes(
     files: &mut BTreeMap<String, Vec<u8>>,
@@ -543,36 +587,20 @@ fn merge_paths(
         let local_chunks = chunks_of(Some(local), &path);
         let remote_chunks = chunks_of(Some(remote), &path);
         if local_only.contains(&path) {
-            picks.push(MergePick {
-                path,
-                chunks: remote_chunks,
-                conflict: false,
-            });
+            picks.push(pick(path, remote_chunks, false));
             continue;
         }
         if !owned && local_chunks.is_none() && remote_chunks.is_some() {
-            picks.push(MergePick {
-                path,
-                chunks: remote_chunks,
-                conflict: false,
-            });
+            picks.push(pick(path, remote_chunks, false));
             continue;
         }
         if !owned && remote_chunks.is_none() && local_chunks.is_some() {
-            picks.push(MergePick {
-                path,
-                chunks: local_chunks,
-                conflict: false,
-            });
+            picks.push(pick(path, local_chunks, false));
             continue;
         }
         let pick = match (base_chunks, local_chunks, remote_chunks) {
             (_, Some(local_chunks), Some(remote_chunks)) if local_chunks == remote_chunks => {
-                MergePick {
-                    path,
-                    chunks: Some(local_chunks),
-                    conflict: false,
-                }
+                pick(path, Some(local_chunks), false)
             }
             (Some(base_chunks), Some(local_chunks), Some(remote_chunks))
                 if local_chunks == base_chunks && remote_chunks != base_chunks =>
@@ -581,6 +609,7 @@ fn merge_paths(
                     path,
                     chunks: Some(remote_chunks),
                     conflict: false,
+                    other: Some(local_chunks),
                 }
             }
             (Some(base_chunks), Some(local_chunks), Some(remote_chunks))
@@ -590,42 +619,19 @@ fn merge_paths(
                     path,
                     chunks: Some(local_chunks),
                     conflict: false,
+                    other: Some(remote_chunks),
                 }
             }
-            (_, Some(_), Some(remote_chunks)) => MergePick {
-                path,
-                chunks: Some(remote_chunks),
-                conflict: true,
-            },
+            (_, Some(_), Some(remote_chunks)) => pick(path, Some(remote_chunks), true),
             (Some(base_chunks), None, Some(remote_chunks)) if remote_chunks == base_chunks => {
-                MergePick {
-                    path,
-                    chunks: None,
-                    conflict: false,
-                }
+                pick(path, None, false)
             }
-            (_, None, Some(remote_chunks)) => MergePick {
-                path,
-                chunks: Some(remote_chunks),
-                conflict: true,
-            },
+            (_, None, Some(remote_chunks)) => pick(path, Some(remote_chunks), true),
             (Some(base_chunks), Some(local_chunks), None) if local_chunks == base_chunks => {
-                MergePick {
-                    path,
-                    chunks: None,
-                    conflict: false,
-                }
+                pick(path, None, false)
             }
-            (_, Some(local_chunks), None) => MergePick {
-                path,
-                chunks: Some(local_chunks),
-                conflict: true,
-            },
-            _ => MergePick {
-                path,
-                chunks: None,
-                conflict: false,
-            },
+            (_, Some(local_chunks), None) => pick(path, Some(local_chunks), true),
+            _ => pick(path, None, false),
         };
         picks.push(pick);
     }
@@ -665,23 +671,67 @@ fn write_base(root: &Path, id: &str) -> OmniResult<()> {
 }
 
 fn write_conflict(root: &Path, path: &str, body: &[u8], now: i64) -> OmniResult<()> {
+    let encoded = B64.encode(body);
+    if let Some((id, mut record)) = find_conflict_by_path(root, path)? {
+        if record.body_b64 == encoded {
+            return Ok(());
+        }
+        record.body_b64 = encoded;
+        record.recorded_at = now;
+        return write_conflict_record(root, &id, &record);
+    }
     let record = ConflictRecord {
         path: path.to_string(),
         recorded_at: now,
-        body_b64: B64.encode(body),
+        body_b64: encoded,
     };
     let name = format!("{now}-{}", sha256_hex(path.as_bytes()));
+    write_conflict_record(root, &name, &record)
+}
+
+fn write_conflict_record(root: &Path, id: &str, record: &ConflictRecord) -> OmniResult<()> {
     let file = root
         .join(REPO_DIR)
         .join("conflicts")
-        .join(format!("{name}.json"));
+        .join(format!("{id}.json"));
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?;
     }
-    let bytes = serde_json::to_vec(&record)
+    let bytes = serde_json::to_vec(record)
         .map_err(|err| OmniError::new(ErrorCode::Internal, err.to_string()))?;
     std::fs::write(file, bytes).map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))
+}
+
+fn find_conflict_by_path(root: &Path, path: &str) -> OmniResult<Option<(String, ConflictRecord)>> {
+    let dir = root.join(REPO_DIR).join("conflicts");
+    if !dir.is_dir() {
+        return Ok(None);
+    }
+    for entry in
+        std::fs::read_dir(&dir).map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?
+    {
+        let entry = entry.map_err(|err| OmniError::new(ErrorCode::Io, err.to_string()))?;
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        let Some(id) = name.strip_suffix(".json") else {
+            continue;
+        };
+        if !safe_conflict_id(id) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(entry.path()) else {
+            continue;
+        };
+        let Ok(record) = serde_json::from_slice::<ConflictRecord>(&bytes) else {
+            continue;
+        };
+        if record.path == path {
+            return Ok(Some((id.to_string(), record)));
+        }
+    }
+    Ok(None)
 }
 
 /// 已经记下的冲突里，更新日期直接收成较新的一份。只有日期不同的记录删掉。
@@ -954,14 +1004,11 @@ async fn release_lock<R: SpaceRepoRemote + ?Sized>(remote: &mut R, device_id: &s
     }
 }
 
-async fn load_remote_index<R: SpaceRepoRemote + ?Sized>(
+async fn load_index<R: SpaceRepoRemote + ?Sized>(
     remote: &mut R,
     key: &[u8; 32],
+    id: &str,
 ) -> OmniResult<Option<SpaceRepoIndex>> {
-    let Some(raw) = remote.get("refs/latest").await? else {
-        return Ok(None);
-    };
-    let id = String::from_utf8_lossy(&raw).trim().to_string();
     if id.len() < 2 {
         return Ok(None);
     }
@@ -999,6 +1046,218 @@ async fn plaintext_chunk<R: SpaceRepoRemote + ?Sized>(
     Ok(plain)
 }
 
+const HEAD_ATTEMPTS: u32 = 3;
+
+enum OneSided {
+    AsPicked,
+    Hold {
+        official: Vec<u8>,
+        rejected: Vec<u8>,
+    },
+}
+
+/// 单边变化时看正文日期。变更侧更新则沿用原来的选择；更旧则留下较新的一份；
+/// 日期相同但正文不同则先用云端，本机留在冲突里。没有可比日期时不拦。
+fn gate_one_sided(local_body: &[u8], remote_body: &[u8], taking_remote: bool) -> OneSided {
+    if local_body == remote_body {
+        return OneSided::AsPicked;
+    }
+    let (Some(local_stamp), Some(remote_stamp)) =
+        (document_stamp(local_body), document_stamp(remote_body))
+    else {
+        return OneSided::AsPicked;
+    };
+    if remote_stamp > local_stamp {
+        if taking_remote {
+            return OneSided::AsPicked;
+        }
+        return OneSided::Hold {
+            official: remote_body.to_vec(),
+            rejected: local_body.to_vec(),
+        };
+    }
+    if local_stamp > remote_stamp {
+        if !taking_remote {
+            return OneSided::AsPicked;
+        }
+        return OneSided::Hold {
+            official: local_body.to_vec(),
+            rejected: remote_body.to_vec(),
+        };
+    }
+    OneSided::Hold {
+        official: remote_body.to_vec(),
+        rejected: local_body.to_vec(),
+    }
+}
+
+async fn remote_head<R: SpaceRepoRemote + ?Sized>(remote: &mut R) -> OmniResult<String> {
+    Ok(remote
+        .get("refs/latest")
+        .await?
+        .map(|raw| String::from_utf8_lossy(&raw).trim().to_string())
+        .unwrap_or_default())
+}
+
+async fn read_chunk_bytes<R: SpaceRepoRemote + ?Sized>(
+    remote: &mut R,
+    root: &Path,
+    key: &[u8; 32],
+    ids: &[String],
+    cache: &mut BTreeMap<String, Vec<u8>>,
+) -> OmniResult<Vec<u8>> {
+    let mut body = Vec::new();
+    for id in ids {
+        body.extend(plaintext_chunk(remote, root, key, id, cache).await?);
+    }
+    Ok(body)
+}
+
+struct SyncMeter<'a> {
+    done: u32,
+    total: u32,
+    report: &'a (dyn Fn(u32, u32) + Send + Sync),
+}
+
+impl SyncMeter<'_> {
+    fn emit(&self) {
+        if self.total == 0 {
+            return;
+        }
+        (self.report)(self.done.min(self.total), self.total);
+    }
+
+    fn set_total(&mut self, total: u32) {
+        self.total = total;
+        self.done = 0;
+        self.emit();
+    }
+
+    fn grow(&mut self, extra: u32) {
+        if extra == 0 {
+            return;
+        }
+        self.total = self.total.saturating_add(extra);
+        self.emit();
+    }
+
+    fn tick(&mut self) {
+        self.done = self.done.saturating_add(1);
+        if self.done > self.total {
+            self.total = self.done;
+        }
+        self.emit();
+    }
+}
+
+async fn apply_remote_merge<R: SpaceRepoRemote + ?Sized>(
+    root: &Path,
+    remote: &mut R,
+    key: &[u8; 32],
+    local: &SpaceRepoIndex,
+    remote_index: &SpaceRepoIndex,
+    files: &mut BTreeMap<String, Vec<u8>>,
+    managed: &BTreeSet<String>,
+    now: i64,
+    meter: &mut SyncMeter<'_>,
+) -> OmniResult<u32> {
+    let base = read_base(root);
+    let picks = merge_paths(base.as_ref(), local, remote_index, managed, root);
+    meter.set_total(u32::try_from(picks.len()).unwrap_or(u32::MAX));
+    let mut cache = BTreeMap::new();
+    let mut conflicts = 0u32;
+    for pick in picks {
+        match pick.chunks {
+            None => {
+                if pick.conflict {
+                    if let Some(body) = files.get(&pick.path) {
+                        write_conflict(root, &pick.path, body, now)?;
+                        conflicts += 1;
+                    }
+                }
+                files.remove(&pick.path);
+            }
+            Some(chunks) => {
+                let local_chunks = local
+                    .files
+                    .iter()
+                    .find(|file| file.path == pick.path)
+                    .map(|file| file.chunks.clone());
+                let chosen_is_local = local_chunks.as_ref() == Some(&chunks);
+                if let Some(other) = pick.other.as_ref() {
+                    let local_body = files.get(&pick.path).cloned().unwrap_or_default();
+                    let remote_body = if chosen_is_local {
+                        read_chunk_bytes(remote, root, key, other, &mut cache).await?
+                    } else {
+                        read_chunk_bytes(remote, root, key, &chunks, &mut cache).await?
+                    };
+                    if let OneSided::Hold { official, rejected } =
+                        gate_one_sided(&local_body, &remote_body, !chosen_is_local)
+                    {
+                        write_conflict(root, &pick.path, &rejected, now)?;
+                        conflicts += 1;
+                        files.insert(pick.path, official);
+                        meter.tick();
+                        continue;
+                    }
+                    if chosen_is_local {
+                        meter.tick();
+                        continue;
+                    }
+                } else if chosen_is_local {
+                    if pick.conflict {
+                        conflicts += 1;
+                    }
+                    meter.tick();
+                    continue;
+                }
+                let mut body = Vec::new();
+                for id in &chunks {
+                    body.extend(plaintext_chunk(remote, root, key, id, &mut cache).await?);
+                }
+                if is_layout_path(&pick.path) {
+                    if let Some(local_body) = files.get(&pick.path) {
+                        if let Some(merged) = crate::space_layout_merge::merge_layout_document(
+                            &pick.path, local_body, &body,
+                        ) {
+                            files.insert(pick.path, merged);
+                            meter.tick();
+                            continue;
+                        }
+                    }
+                }
+                if pick.conflict {
+                    if let Some(saved) = files.get(&pick.path).cloned() {
+                        match fold_update_stamps(&saved, &body) {
+                            StampFold::OnlyStamp(merged) => {
+                                files.insert(pick.path, merged);
+                                meter.tick();
+                                continue;
+                            }
+                            StampFold::Content { current, saved } => {
+                                write_conflict(root, &pick.path, &saved, now)?;
+                                conflicts += 1;
+                                files.insert(pick.path, current);
+                                meter.tick();
+                                continue;
+                            }
+                            StampFold::Untouched => {
+                                write_conflict(root, &pick.path, &saved, now)?;
+                                conflicts += 1;
+                            }
+                        }
+                    } else {
+                        conflicts += 1;
+                    }
+                }
+                files.insert(pick.path, body);
+            }
+        }
+        meter.tick();
+    }
+    Ok(conflicts)
+}
+
 pub async fn sync_local_repo<R: SpaceRepoRemote>(
     root: &Path,
     remote: &mut R,
@@ -1007,9 +1266,22 @@ pub async fn sync_local_repo<R: SpaceRepoRemote>(
     legacy: &BTreeMap<String, Vec<u8>>,
     managed: &BTreeSet<String>,
 ) -> OmniResult<SpaceSyncReport> {
+    sync_local_repo_with(root, remote, key, device_id, legacy, managed, &|_, _| {}).await
+}
+
+/// 同 `sync_local_repo`，每处理完一条就回调 `(已完成, 总数)`。
+pub async fn sync_local_repo_with<R: SpaceRepoRemote>(
+    root: &Path,
+    remote: &mut R,
+    key: &[u8; 32],
+    device_id: &str,
+    legacy: &BTreeMap<String, Vec<u8>>,
+    managed: &BTreeSet<String>,
+    report: &(dyn Fn(u32, u32) + Send + Sync),
+) -> OmniResult<SpaceSyncReport> {
     let now = now_ms();
     acquire_lock(remote, device_id, now).await?;
-    let result = sync_locked(root, remote, key, device_id, legacy, managed, now).await;
+    let result = sync_locked(root, remote, key, device_id, legacy, managed, now, report).await;
     release_lock(remote, device_id).await;
     result
 }
@@ -1022,138 +1294,142 @@ async fn sync_locked<R: SpaceRepoRemote>(
     legacy: &BTreeMap<String, Vec<u8>>,
     managed: &BTreeSet<String>,
     now: i64,
+    report: &(dyn Fn(u32, u32) + Send + Sync),
 ) -> OmniResult<SpaceSyncReport> {
     let _ = device_id;
     let local = read_latest_index(root)?;
-    let remote_index = load_remote_index(remote, key).await?;
-    let mut files = read_space_files(root)?;
-    settle_stamp_conflicts(root, Some(&mut files))?;
-    let mut conflicts = 0u32;
+    let mut base_files = read_space_files(root)?;
+    settle_stamp_conflicts(root, Some(&mut base_files))?;
+    let mut meter = SyncMeter {
+        done: 0,
+        total: 0,
+        report,
+    };
 
-    if remote_index.is_none() {
-        for (path, bytes) in legacy {
-            files.entry(path.clone()).or_insert_with(|| bytes.clone());
+    for _ in 0..HEAD_ATTEMPTS {
+        let head = remote_head(remote).await?;
+        let manifest = crate::space_repo::content_manifest_id(&base_files)?;
+        if !head.is_empty() && head == manifest && !legacy_adds_prefix(&base_files, legacy) {
+            write_base(root, &head)?;
+            meter.set_total(1);
+            meter.tick();
+            return Ok(unchanged_report(&head, base_files.len()));
         }
-    } else if let Some(remote_index) = remote_index.as_ref() {
-        let base = read_base(root);
-        let picks = merge_paths(base.as_ref(), &local, remote_index, managed, root);
-        let mut cache = BTreeMap::new();
-        for pick in picks {
-            match pick.chunks {
-                None => {
-                    if pick.conflict {
-                        if let Some(body) = files.get(&pick.path) {
-                            write_conflict(root, &pick.path, body, now)?;
-                            conflicts += 1;
-                        }
-                    }
-                    files.remove(&pick.path);
-                }
-                Some(chunks) => {
-                    let local_chunks = local
-                        .files
-                        .iter()
-                        .find(|file| file.path == pick.path)
-                        .map(|file| file.chunks.clone());
-                    if local_chunks.as_ref() == Some(&chunks) {
-                        if pick.conflict {
-                            conflicts += 1;
-                        }
-                        continue;
-                    }
-                    let mut body = Vec::new();
-                    for id in &chunks {
-                        body.extend(plaintext_chunk(remote, root, key, id, &mut cache).await?);
-                    }
-                    if is_layout_path(&pick.path) {
-                        if let Some(local_body) = files.get(&pick.path) {
-                            if let Some(merged) = crate::space_layout_merge::merge_layout_document(
-                                &pick.path, local_body, &body,
-                            ) {
-                                files.insert(pick.path, merged);
-                                continue;
-                            }
-                        }
-                    }
-                    if pick.conflict {
-                        if let Some(saved) = files.get(&pick.path).cloned() {
-                            match fold_update_stamps(&saved, &body) {
-                                StampFold::OnlyStamp(merged) => {
-                                    files.insert(pick.path, merged);
-                                    continue;
-                                }
-                                StampFold::Content { current, saved } => {
-                                    write_conflict(root, &pick.path, &saved, now)?;
-                                    conflicts += 1;
-                                    files.insert(pick.path, current);
-                                    continue;
-                                }
-                                StampFold::Untouched => {
-                                    write_conflict(root, &pick.path, &saved, now)?;
-                                    conflicts += 1;
-                                }
-                            }
-                        } else {
-                            conflicts += 1;
-                        }
-                    }
-                    files.insert(pick.path, body);
-                }
+        let remote_index = load_index(remote, key, &head).await?;
+        let mut files = base_files.clone();
+        let conflicts = if let Some(remote_index) = remote_index.as_ref() {
+            let count = apply_remote_merge(
+                root,
+                remote,
+                key,
+                &local,
+                remote_index,
+                &mut files,
+                managed,
+                now,
+                &mut meter,
+            )
+            .await?;
+            supplement_missing_prefixes(&mut files, legacy, remote_index);
+            count
+        } else {
+            for (path, bytes) in legacy {
+                files.entry(path.clone()).or_insert_with(|| bytes.clone());
             }
-        }
-        supplement_missing_prefixes(&mut files, legacy, remote_index);
-    }
-
-    let built = build_space_repo(root, &files)?;
-    let index_id = built.index_id;
-    // 远端索引里出现过的块，当时已经先于索引传完。官方 OSS 删不掉，不必再逐个询问。
-    let known_chunks = remote_index.as_ref().map(|index| {
-        index
-            .files
-            .iter()
-            .flat_map(|file| file.chunks.iter().cloned())
-            .collect::<BTreeSet<_>>()
-    });
-    let mut uploaded = 0u32;
-    for (id, plain) in chunks_of_index(root)? {
-        if known_chunks.as_ref().is_some_and(|set| set.contains(&id)) {
+            0
+        };
+        if remote_head(remote).await? != head {
             continue;
         }
-        let object = format!("objects/{}/{id}", &id[..2]);
-        if !remote.exists(&object).await? {
-            let sealed = seal_bytes(key, &plain)?;
-            remote.put(&object, &sealed).await?;
-            uploaded += 1;
-        }
-    }
-    let index = read_latest_index(root)?;
-    let index_bytes = serde_json::to_vec(&index)
-        .map_err(|err| OmniError::new(ErrorCode::Internal, err.to_string()))?;
-    let sealed_index = seal_bytes(key, &index_bytes)?;
-    remote
-        .put(&format!("indexes/{index_id}.json"), &sealed_index)
-        .await?;
-    remote
-        .put("refs/latest", format!("{index_id}\n").as_bytes())
-        .await?;
-    write_base(root, &index_id)?;
-    gc_remote(remote, &index).await?;
-    gc_local(root, &index)?;
 
-    Ok(SpaceSyncReport {
-        skipped: false,
-        index_id,
-        uploaded_chunks: uploaded,
-        conflicts,
-        applied_connections: 0,
-        file_count: u32::try_from(index.files.len()).unwrap_or(u32::MAX),
-        ssh_sidebar_tree_json: None,
-        folder_trees_json: None,
-        custom_panels_json: None,
-        workspaces_json: None,
-        conversations_json: None,
-        settings_json: None,
-    })
+        let built = build_space_repo(root, &files)?;
+        let index_id = built.index_id;
+        if remote_head(remote).await? != head {
+            continue;
+        }
+        if index_id == head {
+            write_base(root, &index_id)?;
+            return Ok(SpaceSyncReport {
+                skipped: false,
+                index_id,
+                uploaded_chunks: 0,
+                conflicts,
+                applied_connections: 0,
+                file_count: built.file_count,
+                ssh_sidebar_tree_json: None,
+                folder_trees_json: None,
+                custom_panels_json: None,
+                workspaces_json: None,
+                conversations_json: None,
+                settings_json: None,
+            });
+        }
+        let known_chunks = remote_index.as_ref().map(|index| {
+            index
+                .files
+                .iter()
+                .flat_map(|file| file.chunks.iter().cloned())
+                .collect::<BTreeSet<_>>()
+        });
+        let pending: Vec<(String, Vec<u8>)> = chunks_of_index(root)?
+            .into_iter()
+            .filter(|(id, _)| known_chunks.as_ref().is_none_or(|set| !set.contains(id)))
+            .collect();
+        let extra = u32::try_from(pending.len())
+            .unwrap_or(u32::MAX)
+            .saturating_add(1);
+        if meter.total == 0 {
+            meter.set_total(extra);
+        } else {
+            meter.grow(extra);
+        }
+        let mut uploaded = 0u32;
+        for (id, plain) in pending {
+            let object = format!("objects/{}/{id}", &id[..2]);
+            if !remote.exists(&object).await? {
+                let sealed = seal_bytes(key, &plain)?;
+                remote.put(&object, &sealed).await?;
+                uploaded += 1;
+            }
+            meter.tick();
+        }
+        if remote_head(remote).await? != head {
+            continue;
+        }
+        let index = read_latest_index(root)?;
+        let index_bytes = serde_json::to_vec(&index)
+            .map_err(|err| OmniError::new(ErrorCode::Internal, err.to_string()))?;
+        let sealed_index = seal_bytes(key, &index_bytes)?;
+        remote
+            .put(&format!("indexes/{index_id}.json"), &sealed_index)
+            .await?;
+        remote
+            .put("refs/latest", format!("{index_id}\n").as_bytes())
+            .await?;
+        meter.tick();
+        write_base(root, &index_id)?;
+        gc_remote(remote, &index).await?;
+        gc_local(root, &index)?;
+
+        return Ok(SpaceSyncReport {
+            skipped: false,
+            index_id,
+            uploaded_chunks: uploaded,
+            conflicts,
+            applied_connections: 0,
+            file_count: u32::try_from(index.files.len()).unwrap_or(u32::MAX),
+            ssh_sidebar_tree_json: None,
+            folder_trees_json: None,
+            custom_panels_json: None,
+            workspaces_json: None,
+            conversations_json: None,
+            settings_json: None,
+        });
+    }
+    Err(OmniError::new(
+        ErrorCode::Timeout,
+        "云端同步头已变化，请再同步一次",
+    ))
 }
 
 fn chunks_of_index(root: &Path) -> OmniResult<Vec<(String, Vec<u8>)>> {
@@ -1941,6 +2217,10 @@ mod tests {
     }
 
     fn conn(id: &str, name: &str) -> Connection {
+        conn_at(id, name, 1)
+    }
+
+    fn conn_at(id: &str, name: &str, updated_at: i64) -> Connection {
         Connection {
             id: id.into(),
             kind: ConnectionKind::Ssh,
@@ -1951,7 +2231,7 @@ mod tests {
             config: "{}".into(),
             credential_ref: None,
             created_at: 1,
-            updated_at: 1,
+            updated_at,
             origin_device_id: String::new(),
         }
     }
@@ -2035,6 +2315,88 @@ mod tests {
         assert!(text.contains("c1"));
     }
 
+    struct CountIndexPuts {
+        inner: DirRemote,
+        index_puts: u32,
+    }
+
+    #[async_trait]
+    impl SpaceRepoRemote for CountIndexPuts {
+        async fn get(&mut self, key: &str) -> OmniResult<Option<Vec<u8>>> {
+            self.inner.get(key).await
+        }
+        async fn put(&mut self, key: &str, bytes: &[u8]) -> OmniResult<()> {
+            if key == "refs/latest" || key.starts_with("indexes/") {
+                self.index_puts += 1;
+            }
+            self.inner.put(key, bytes).await
+        }
+        async fn delete(&mut self, key: &str) -> OmniResult<()> {
+            self.inner.delete(key).await
+        }
+        async fn list(&mut self, prefix: &str) -> OmniResult<Vec<String>> {
+            self.inner.list(prefix).await
+        }
+    }
+
+    #[tokio::test]
+    async fn same_manifest_does_not_transfer_the_index_again() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = CountIndexPuts {
+            inner: DirRemote::new(remote_dir.path()),
+            index_puts: 0,
+        };
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::open_in_memory().unwrap();
+        storage.save_connection(&conn("a", "alpha")).unwrap();
+        storage.rebuild_space_repo(root.path()).unwrap();
+        let first = sync_local_repo(
+            root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert!(!first.skipped);
+        assert_eq!(remote.index_puts, 2);
+
+        storage.rebuild_space_repo(root.path()).unwrap();
+        let second = sync_local_repo(
+            root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert!(second.skipped);
+        assert_eq!(second.uploaded_chunks, 0);
+        assert_eq!(remote.index_puts, 2);
+
+        storage
+            .save_connection(&conn_at("a", "alpha-2", 2))
+            .unwrap();
+        storage.rebuild_space_repo(root.path()).unwrap();
+        let third = sync_local_repo(
+            root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert!(!third.skipped);
+        assert_eq!(third.uploaded_chunks, 1);
+        assert_eq!(remote.index_puts, 4);
+    }
+
     #[tokio::test]
     async fn two_devices_keep_unrelated_files_and_take_the_edit() {
         let remote_dir = tempfile::tempdir().unwrap();
@@ -2071,7 +2433,7 @@ mod tests {
         b.apply_space_checkout(b_root.path()).unwrap();
         assert_eq!(b.get_connection("a").unwrap().unwrap().name, "alpha");
 
-        b.save_connection(&conn("b", "beta-2")).unwrap();
+        b.save_connection(&conn_at("b", "beta-2", 2)).unwrap();
         b.rebuild_space_repo(b_root.path()).unwrap();
         sync_local_repo(
             b_root.path(),
@@ -2149,7 +2511,9 @@ mod tests {
         .await
         .unwrap();
         store_b.apply_space_checkout(b_root.path()).unwrap();
-        store_b.save_connection(&conn("a", "from-b")).unwrap();
+        store_b
+            .save_connection(&conn_at("a", "from-b", 20))
+            .unwrap();
         store_b.rebuild_space_repo(b_root.path()).unwrap();
         sync_local_repo(
             b_root.path(),
@@ -2162,7 +2526,7 @@ mod tests {
         .await
         .unwrap();
 
-        store.save_connection(&conn("a", "from-a")).unwrap();
+        store.save_connection(&conn_at("a", "from-a", 30)).unwrap();
         store.rebuild_space_repo(a_root.path()).unwrap();
         let report = sync_local_repo(
             a_root.path(),
@@ -2412,5 +2776,369 @@ mod tests {
         assert!(view.current.contains("\"updatedAt\":9"));
         assert!(view.saved.contains("\"updatedAt\":9"));
         assert!(!view.saved.contains("\"updatedAt\":1"));
+    }
+
+    fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let dest = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_dir(&entry.path(), &dest);
+            } else {
+                std::fs::copy(entry.path(), dest).unwrap();
+            }
+        }
+    }
+
+    struct MovingHead {
+        inner: DirRemote,
+        reads: u32,
+    }
+
+    impl MovingHead {
+        fn new(root: &std::path::Path) -> Self {
+            Self {
+                inner: DirRemote::new(root),
+                reads: 0,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SpaceRepoRemote for MovingHead {
+        async fn get(&mut self, key: &str) -> OmniResult<Option<Vec<u8>>> {
+            if key == "refs/latest" {
+                self.reads += 1;
+                if self.reads % 2 == 0 {
+                    return Ok(Some(
+                        b"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+                            .to_vec(),
+                    ));
+                }
+            }
+            self.inner.get(key).await
+        }
+
+        async fn put(&mut self, key: &str, bytes: &[u8]) -> OmniResult<()> {
+            self.inner.put(key, bytes).await
+        }
+
+        async fn delete(&mut self, key: &str) -> OmniResult<()> {
+            self.inner.delete(key).await
+        }
+
+        async fn list(&mut self, prefix: &str) -> OmniResult<Vec<String>> {
+            self.inner.list(prefix).await
+        }
+    }
+
+    #[tokio::test]
+    async fn newer_remote_edit_is_taken_without_a_conflict() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = DirRemote::new(remote_dir.path());
+        let a_root = tempfile::tempdir().unwrap();
+        let a = Storage::open_in_memory().unwrap();
+        a.save_connection(&conn_at("a", "old", 10)).unwrap();
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+
+        let b_root = tempfile::tempdir().unwrap();
+        let b = Storage::open_in_memory().unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        b.apply_space_checkout(b_root.path()).unwrap();
+        b.save_connection(&conn_at("a", "new", 20)).unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        let report = sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.conflicts, 0);
+
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        a.apply_space_checkout(a_root.path()).unwrap();
+        assert_eq!(a.get_connection("a").unwrap().unwrap().name, "new");
+        assert!(list_space_conflicts(a_root.path()).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn older_local_edit_is_not_published() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = DirRemote::new(remote_dir.path());
+        let a_root = tempfile::tempdir().unwrap();
+        let a = Storage::open_in_memory().unwrap();
+        a.save_connection(&conn_at("a", "real", 20)).unwrap();
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+
+        let b_root = tempfile::tempdir().unwrap();
+        let b = Storage::open_in_memory().unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        b.apply_space_checkout(b_root.path()).unwrap();
+        b.save_connection(&conn_at("a", "alias", 10)).unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        let report = sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert!(report.conflicts >= 1);
+        let text =
+            std::fs::read_to_string(b_root.path().join(SPACE_DIR).join("connections/a.json"))
+                .unwrap();
+        assert!(text.contains("real"));
+        let conflicts = list_space_conflicts(b_root.path()).unwrap();
+        let view = read_space_conflict(b_root.path(), &conflicts[0].id).unwrap();
+        assert!(view.saved.contains("alias"));
+
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        a.apply_space_checkout(a_root.path()).unwrap();
+        assert_eq!(a.get_connection("a").unwrap().unwrap().name, "real");
+    }
+
+    #[tokio::test]
+    async fn older_remote_snapshot_does_not_replace_a_newer_local() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = DirRemote::new(remote_dir.path());
+        let a_root = tempfile::tempdir().unwrap();
+        let a = Storage::open_in_memory().unwrap();
+        a.save_connection(&conn_at("a", "alias", 10)).unwrap();
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        let snap = tempfile::tempdir().unwrap();
+        copy_dir(remote_dir.path(), snap.path());
+
+        a.save_connection(&conn_at("a", "real", 20)).unwrap();
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        copy_dir(snap.path(), remote_dir.path());
+
+        let report = sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert!(report.conflicts >= 1);
+        let text =
+            std::fs::read_to_string(a_root.path().join(SPACE_DIR).join("connections/a.json"))
+                .unwrap();
+        assert!(text.contains("real"));
+        let conflicts = list_space_conflicts(a_root.path()).unwrap();
+        let view = read_space_conflict(a_root.path(), &conflicts[0].id).unwrap();
+        assert!(view.saved.contains("alias"));
+
+        let c_root = tempfile::tempdir().unwrap();
+        let c = Storage::open_in_memory().unwrap();
+        c.rebuild_space_repo(c_root.path()).unwrap();
+        sync_local_repo(
+            c_root.path(),
+            &mut remote,
+            &key(),
+            "device-c",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        c.apply_space_checkout(c_root.path()).unwrap();
+        assert_eq!(c.get_connection("a").unwrap().unwrap().name, "real");
+    }
+
+    #[tokio::test]
+    async fn same_stamp_one_sided_edit_keeps_the_cloud_body() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = DirRemote::new(remote_dir.path());
+        let a_root = tempfile::tempdir().unwrap();
+        let a = Storage::open_in_memory().unwrap();
+        a.save_connection(&conn_at("a", "cloud", 10)).unwrap();
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+
+        let b_root = tempfile::tempdir().unwrap();
+        let b = Storage::open_in_memory().unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        b.apply_space_checkout(b_root.path()).unwrap();
+        b.save_connection(&conn_at("a", "local", 10)).unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        let report = sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        assert!(report.conflicts >= 1);
+        let text =
+            std::fs::read_to_string(b_root.path().join(SPACE_DIR).join("connections/a.json"))
+                .unwrap();
+        assert!(text.contains("cloud"));
+        let conflicts = list_space_conflicts(b_root.path()).unwrap();
+        let view = read_space_conflict(b_root.path(), &conflicts[0].id).unwrap();
+        assert!(view.saved.contains("local"));
+    }
+
+    #[tokio::test]
+    async fn moved_head_is_not_overwritten() {
+        let remote_dir = tempfile::tempdir().unwrap();
+        let mut remote = DirRemote::new(remote_dir.path());
+        let a_root = tempfile::tempdir().unwrap();
+        let a = Storage::open_in_memory().unwrap();
+        a.save_connection(&conn_at("a", "kept", 10)).unwrap();
+        a.rebuild_space_repo(a_root.path()).unwrap();
+        sync_local_repo(
+            a_root.path(),
+            &mut remote,
+            &key(),
+            "device-a",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        let before = std::fs::read(remote_dir.path().join("refs/latest")).unwrap();
+
+        let b_root = tempfile::tempdir().unwrap();
+        let b = Storage::open_in_memory().unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        sync_local_repo(
+            b_root.path(),
+            &mut remote,
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap();
+        b.apply_space_checkout(b_root.path()).unwrap();
+        b.save_connection(&conn_at("a", "racer", 30)).unwrap();
+        b.rebuild_space_repo(b_root.path()).unwrap();
+        let err = sync_local_repo(
+            b_root.path(),
+            &mut MovingHead::new(remote_dir.path()),
+            &key(),
+            "device-b",
+            &BTreeMap::new(),
+            &managed(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.code, ErrorCode::Timeout);
+        let after = std::fs::read(remote_dir.path().join("refs/latest")).unwrap();
+        assert_eq!(before, after);
     }
 }

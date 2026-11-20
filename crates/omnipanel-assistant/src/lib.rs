@@ -45,9 +45,9 @@ pub use sanitize::{
 };
 pub use space_remote::{
     SpaceLocation, fetch_space_location, publish_space_location, sync_oss_space,
-    team_repo_has_index,
+    sync_oss_space_with, team_repo_has_index,
 };
-pub use space_s3::{purge_s3_repo, sync_s3_space};
+pub use space_s3::{purge_s3_repo, sync_s3_space, sync_s3_space_with};
 pub use sts::{AuthContext, OssStsCredentials, fetch_oss_sts};
 pub use team_sync::{
     TEAM_CONVERSATIONS_LATEST_LEAF, TEAM_MODULES_LATEST_LEAF, TEAM_SHARE_INDEX_KEY,

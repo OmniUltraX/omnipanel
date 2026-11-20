@@ -6,6 +6,7 @@ import { useAuthStore } from "../stores/authStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { scheduleClientModuleSync } from "../modules/clientSync/moduleSync";
 import { uniqueTags } from "./resourceTags";
+import { creatorTagValue } from "../modules/tags/tagKinds";
 
 let migratePromise: Promise<boolean> | null = null;
 
@@ -80,18 +81,16 @@ function migrateTags(
 ): { tags: string[]; changed: boolean } {
   const original = tags ?? [];
   const names = new Set(deviceNames.map((n) => n.trim()).filter(Boolean));
-  const hasCreator = original.some((t) => t.trim().toLowerCase().startsWith("creator:"));
-  const matchedCreator = hasCreator
+  const existing = original.map((tag) => creatorTagValue(tag)).find((name) => name) ?? null;
+  const matchedCreator = existing
     ? null
-    : original.find((t) => names.has(t.trim()))?.trim() ?? null;
+    : (original.find((tag) => names.has(tag.trim()))?.trim() ?? null);
 
-  const next = uniqueTags(original.filter((t) => !names.has(t.trim())));
-  if (!hasCreator) {
-    const creator = matchedCreator ?? fallbackCreator.trim();
-    if (creator) {
-      next.push(`creator:${creator}`);
-    }
-  }
+  const next = uniqueTags(
+    original.filter((tag) => !names.has(tag.trim()) && !creatorTagValue(tag)),
+  );
+  const creator = (existing ?? matchedCreator ?? fallbackCreator).trim();
+  if (creator) next.push(`creator:${creator}`);
   return { tags: next, changed: !tagsEqual(next, original) };
 }
 

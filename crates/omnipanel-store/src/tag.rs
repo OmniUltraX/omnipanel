@@ -164,9 +164,110 @@ pub fn strip_origin_tags(tags: &mut Vec<String>) {
     });
 }
 
-/// 读取 `creator:` 标签里的设备名。
+/// 读取创建者。`creator:名称` 和 `sys/creator/名称` 是同一条标签。
 pub fn creator_device_name(tags: &[String]) -> Option<String> {
-    tag_value(tags, CREATOR_TAG_KEY)
+    tags.iter().find_map(|tag| creator_name_of(tag))
+}
+
+/// 创建者只留一条。更新时以库里已有的那条为准，不换成另一台电脑。
+///
+/// 没有旧记录时保留本次标签里的第一条。结果一律写成 `creator:名称`。
+/// 完全相同的其它标签也只留第一次出现的那条。
+pub fn collapse_creator_tags(tags: &mut Vec<String>, previous: Option<&[String]>) {
+    let kept = previous
+        .and_then(creator_device_name)
+        .or_else(|| creator_device_name(tags));
+    tags.retain(|tag| creator_name_of(tag).is_none());
+    if let Some(name) = kept {
+        tags.push(format!("{CREATOR_TAG_KEY}:{name}"));
+    }
+    dedupe_tags(tags);
+}
+
+/// 系统标签收成树路径。`os:Linux` 和 `sys/os/Linux` 都写成 `sys/os/Linux`。
+/// 创建者只留第一条。相同标签只留一条，系统标签按路径排序。
+pub fn canonicalize_connection_tags(tags: &mut Vec<String>) {
+    let mut system = Vec::new();
+    let mut users = Vec::new();
+    let mut seen_system = HashSet::new();
+    let mut seen_user = HashSet::new();
+    let mut creator_kept = false;
+    for raw in std::mem::take(tags) {
+        let text = raw.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = system_tag_key_value(text) {
+            if key == CREATOR_TAG_KEY {
+                if creator_kept {
+                    continue;
+                }
+                creator_kept = true;
+            }
+            if seen_system.insert(format!("{key}\u{0}{value}")) {
+                system.push((key, value));
+            }
+            continue;
+        }
+        if seen_user.insert(text.to_string()) {
+            users.push(text.to_string());
+        }
+    }
+    system.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+    tags.extend(
+        system
+            .into_iter()
+            .map(|(key, value)| format!("sys/{key}/{value}")),
+    );
+    tags.extend(users);
+}
+
+/// 去掉完全相同的标签，保留第一次出现的那条。
+pub fn dedupe_tags(tags: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    tags.retain(|tag| seen.insert(tag.clone()));
+}
+
+fn creator_name_of(tag: &str) -> Option<String> {
+    let text = tag.trim();
+    let value = if let Some(rest) = strip_ascii_prefix(text, "creator:") {
+        rest
+    } else if let Some(rest) = strip_ascii_prefix(text, "sys/creator/") {
+        rest
+    } else {
+        return None;
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn strip_ascii_prefix<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    if starts_with_ascii_key(text, prefix) {
+        Some(&text[prefix.len()..])
+    } else {
+        None
+    }
+}
+
+/// 系统标签的两种写法：`os:Linux` 与 `sys/os/Linux`。
+pub fn system_tag_key_value(tag: &str) -> Option<(String, String)> {
+    const KEYS: [&str; 7] = ["os", "kernel", "arch", "db", "engine", "panel", "creator"];
+    let text = tag.trim();
+    let (key, value) = if let Some(rest) = strip_ascii_prefix(text, "sys/") {
+        let (key, value) = rest.split_once('/')?;
+        (key.trim(), value.trim())
+    } else {
+        let (key, value) = text.split_once(':')?;
+        (key.trim(), value.trim())
+    };
+    if value.is_empty() || !KEYS.iter().any(|item| item.eq_ignore_ascii_case(key)) {
+        return None;
+    }
+    Some((key.to_ascii_lowercase(), value.to_string()))
 }
 
 /// 新建资源时写入创建设备 id。已有 `origin:` 时不覆盖。
@@ -208,6 +309,7 @@ pub fn reconcile_device_tags(
     if let Some(previous) = previous {
         preserve_device_tags(tags, previous);
     }
+    collapse_creator_tags(tags, previous);
     if origin_device_id(tags).is_some() {
         return;
     }
@@ -245,10 +347,7 @@ pub fn ensure_creator_tag(tags: &mut Vec<String>, device_name: &str) {
     if name.is_empty() {
         return;
     }
-    if tags
-        .iter()
-        .any(|t| t.trim().to_ascii_lowercase().starts_with("creator:"))
-    {
+    if creator_device_name(tags).is_some() {
         return;
     }
     tags.push(format!("{CREATOR_TAG_KEY}:{name}"));
@@ -257,10 +356,9 @@ pub fn ensure_creator_tag(tags: &mut Vec<String>, device_name: &str) {
 /// 将资源上的纯设备名标签迁移为 `creator:` 标签（幂等，可重复执行）。
 ///
 /// 旧版同步会在上传时给所有资源补当前设备名标签；迁移规则：
-/// - 已有 `creator:` 标签：仅移除设备名标签，不覆盖来源标记；
-/// - 无 `creator:` 标签：取第一个匹配账号设备名的标签值作为创建设备，
-///   匹配不到时回退 `fallback_creator`（当前设备名）；
-/// - 其他标签（如 `os:Ubuntu`、用户自定义标签）不受影响。
+/// - 已有创建者（`creator:` 或 `sys/creator/`）：只留这一条，不换成当前设备；
+/// - 没有创建者：取第一个匹配账号设备名的标签值，匹配不到时回退 `fallback_creator`；
+/// - 其它标签（如 `os:Ubuntu`、用户自定义标签）不受影响，重复标签只留一条。
 ///
 /// 返回 tags 是否发生变化（供调用方决定是否回写与推送云端）。
 pub fn migrate_device_tags_to_creator(
@@ -275,10 +373,8 @@ pub fn migrate_device_tags_to_creator(
         .filter(|n| !n.is_empty())
         .collect();
 
-    let has_creator = tags
-        .iter()
-        .any(|t| t.trim().to_ascii_lowercase().starts_with("creator:"));
-    let matched_creator = if has_creator {
+    let existing = creator_device_name(tags);
+    let matched_creator = if existing.is_some() {
         None
     } else {
         tags.iter()
@@ -287,13 +383,15 @@ pub fn migrate_device_tags_to_creator(
     };
 
     tags.retain(|t| !names.iter().any(|n| n == t.trim()));
+    tags.retain(|t| creator_name_of(t).is_none());
 
-    if !has_creator {
-        let creator = matched_creator.unwrap_or_else(|| fallback_creator.trim().to_string());
-        if !creator.is_empty() {
-            tags.push(format!("{CREATOR_TAG_KEY}:{creator}"));
-        }
+    let creator = existing
+        .or(matched_creator)
+        .unwrap_or_else(|| fallback_creator.trim().to_string());
+    if !creator.is_empty() {
+        tags.push(format!("{CREATOR_TAG_KEY}:{creator}"));
     }
+    dedupe_tags(tags);
 
     *tags != original
 }
@@ -1623,16 +1721,11 @@ impl Storage {
     pub(crate) fn sync_connection_tags_projection(&self, conn_id: &str) -> OmniResult<()> {
         let tags = self.resource_list_tags(TaggableKind::Connection, conn_id)?;
         let mut projected: Vec<String> = Vec::new();
+        let mut seen = BTreeSet::new();
         for rt in tags {
-            if rt.source == "system" && rt.tag.path.starts_with("sys/") {
-                // sys/os/Linux → os:Linux
-                let rest = &rt.tag.path[4..];
-                if let Some((key, value)) = rest.split_once('/') {
-                    projected.push(format!("{key}:{value}"));
-                    continue;
-                }
+            if seen.insert(rt.tag.path.clone()) {
+                projected.push(rt.tag.path);
             }
-            projected.push(rt.tag.path);
         }
         let tags_json = serde_json::to_string(&projected).map_err(|e| {
             OmniError::new(ErrorCode::Internal, "tags 序列化失败").with_cause(e.to_string())
@@ -1726,7 +1819,7 @@ fn legacy_connection_tag_to_path(tag: &str) -> (Option<String>, TagSource) {
         let key = key.trim();
         let value = value.trim();
         if !key.is_empty() && !value.is_empty() {
-            let system_keys = ["os", "kernel", "arch", "db", "engine", "panel"];
+            let system_keys = ["os", "kernel", "arch", "db", "engine", "panel", "creator"];
             if system_keys.contains(&key) {
                 if let Some(path) = normalize_tag_path(&format!("sys/{key}/{value}")) {
                     return (Some(path), TagSource::System);
@@ -1792,6 +1885,40 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_keeps_the_stored_creator_and_drops_the_second() {
+        let previous = vec!["sys/creator/MZ".to_string(), "prod".to_string()];
+        let mut tags = vec![
+            "sys/creator/MACT-HOME".to_string(),
+            "creator:MZ".to_string(),
+            "prod".to_string(),
+            "prod".to_string(),
+        ];
+        reconcile_device_tags(&mut tags, Some(&previous), "MACT-HOME", "dev-b");
+        assert_eq!(creator_device_name(&tags).as_deref(), Some("MZ"));
+        assert_eq!(
+            tags.iter()
+                .filter(|tag| creator_name_of(tag).is_some())
+                .count(),
+            1
+        );
+        assert_eq!(tags.iter().filter(|tag| *tag == "prod").count(), 1);
+        assert!(origin_device_id(&tags).is_none());
+    }
+
+    #[test]
+    fn system_path_and_colon_form_are_the_same_creator() {
+        assert_eq!(
+            creator_device_name(&["sys/creator/MZ".to_string()]).as_deref(),
+            Some("MZ")
+        );
+        assert_eq!(
+            system_tag_key_value("sys/os/Ubuntu 24.04"),
+            Some(("os".to_string(), "Ubuntu 24.04".to_string()))
+        );
+        assert!(system_tag_key_value("注意此处指向DNS服务，实际还是向内网DNS查询").is_none());
+    }
+
+    #[test]
     fn reconcile_restores_markers_wiped_by_edit_form() {
         let previous = vec![
             "origin:dev-b".to_string(),
@@ -1837,6 +1964,23 @@ mod tests {
             tags,
             vec!["os:Linux".to_string(), "creator:Laptop-A".to_string()]
         );
+    }
+
+    #[test]
+    fn migrate_collapses_two_creator_forms_and_keeps_the_first() {
+        let mut tags = vec![
+            "sys/creator/MZ".to_string(),
+            "creator:MACT-HOME".to_string(),
+            "prod".to_string(),
+            "prod".to_string(),
+        ];
+        let changed = migrate_device_tags_to_creator(
+            &mut tags,
+            &["MACT-HOME".to_string(), "MZ".to_string()],
+            "MACT-HOME",
+        );
+        assert!(changed);
+        assert_eq!(tags, vec!["prod".to_string(), "creator:MZ".to_string()]);
     }
 
     #[test]

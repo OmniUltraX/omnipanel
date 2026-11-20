@@ -858,8 +858,7 @@
         padding: 3px 8px;
         border-bottom: 1px solid var(--border);
         background: var(--bg);
-        overflow-x: auto;
-        overflow-y: hidden;
+        overflow: hidden;
     }
 
     .schema-tree-path--empty {
@@ -877,7 +876,14 @@
         display: inline-flex;
         align-items: center;
         min-width: 0;
+        flex: 0 1 auto;
+        overflow: hidden;
+    }
+
+    /* 当前节点少缩一点，祖先先让出宽度 */
+    .schema-tree-path__item:last-child {
         flex-shrink: 0;
+        max-width: 55%;
     }
 
     .schema-tree-path__sep {
@@ -889,7 +895,9 @@
     }
 
     .schema-tree-path__crumb {
-        max-width: 140px;
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 100%;
         padding: 1px 4px;
         border: none;
         border-radius: var(--r-sm);
@@ -897,6 +905,7 @@
         color: var(--muted);
         font-size: var(--db-schema-tree-font-size, 12px);
         line-height: 1.35;
+        text-align: left;
         cursor: pointer;
         overflow: hidden;
         text-overflow: ellipsis;

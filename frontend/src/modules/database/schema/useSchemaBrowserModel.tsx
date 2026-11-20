@@ -104,7 +104,6 @@ import {
   findSchemaFlatRowIndexByNodeId,
   isSchemaFlatRowIndexInViewport,
   scrollSchemaFlatRowIntoView,
-  scrollSchemaRowsToStart,
   SCHEMA_TREE_NODE_ROW_HEIGHT,
   SCHEMA_TREE_VIRTUALIZE_THRESHOLD,
   type SchemaFlatRow,
@@ -1325,62 +1324,96 @@ export function useSchemaBrowserModel({
   });
   const rowVirtualizerRef = useRef(rowVirtualizer);
   rowVirtualizerRef.current = rowVirtualizer;
-  const searchAnchorQueryRef = useRef<string | null>(null);
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  /** 用户在这次搜索里自己滚过，就不要再把列表拽回当前库。 */
+  const searchUserMovedRef = useRef("");
 
-  // 搜索时把当前表抬到连接/库吸顶头下面。列表高度未就绪时不要写成 0。
-  useEffect(() => {
+  const searchAnchorTarget = useMemo(() => {
     const query = search.trim();
-    if (!query) {
-      searchAnchorQueryRef.current = null;
-      return;
-    }
-    const contextIds = resolveSchemaSearchContextIds({
+    if (!query) return null;
+    const indexes = resolveSchemaSearchContextIds({
       activeTableKey,
       activeDatabaseKey,
       activeConnId,
-    });
-    if (contextIds.length === 0) {
+    })
+      .map((id) => findSchemaFlatRowIndexByNodeId(flatRows, id))
+      .filter((index) => index >= 0);
+    if (indexes.length === 0) return 0;
+    return computeSchemaRowsScrollTopForStart(flatRows, indexes);
+  }, [search, flatRows, activeTableKey, activeDatabaseKey, activeConnId]);
+
+  // 过滤后旧的 scrollOffset 会落在新列表外面，虚拟行对不上，视口中间就是空白。
+  // 在画出这一帧之前把偏移收到当前库，而不是等绘制后再补。
+  if (
+    useTreeVirtualization &&
+    searchAnchorTarget != null &&
+    searchUserMovedRef.current !== search.trim()
+  ) {
+    const size = schemaTreeRef.current?.clientHeight ?? 0;
+    const total = rowVirtualizer.getTotalSize();
+    const max = size > 0 ? Math.max(0, total - size) : searchAnchorTarget;
+    const target = Math.min(Math.max(0, searchAnchorTarget), max);
+    const current = rowVirtualizer.scrollOffset;
+    if (current == null || Math.abs(current - target) > 2) {
+      rowVirtualizer.scrollOffset = target;
+    }
+  }
+
+  useLayoutEffect(() => {
+    const query = search.trim();
+    if (!query || searchAnchorTarget == null) {
+      if (!query) searchUserMovedRef.current = "";
       return;
     }
-    let frames = 0;
-    let raf = 0;
-    const rowIndexesFor = (rows: typeof flatRowsRef.current) =>
-      contextIds
-        .map((id) => findSchemaFlatRowIndexByNodeId(rows, id))
-        .filter((index) => index >= 0);
-    const apply = () => {
-      const container = schemaTreeRef.current;
-      const rows = flatRowsRef.current;
-      const rowIndexes = rowIndexesFor(rows);
-      const ready =
-        container != null &&
-        rowIndexes.length > 0 &&
-        scrollSchemaRowsToStart(container, rows, rowIndexes);
-      if (ready && container) {
-        const desired = computeSchemaRowsScrollTopForStart(rows, rowIndexes);
-        searchAnchorQueryRef.current = `${query}@${desired}`;
-        return;
+    if (searchUserMovedRef.current === query) return;
+    const container = schemaTreeRef.current;
+    if (!container || container.clientHeight <= 0) return;
+    const max = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (searchAnchorTarget > 1 && max + 1 < searchAnchorTarget) {
+      const safe = Math.min(container.scrollTop, max);
+      if (Math.abs(container.scrollTop - safe) > 2) {
+        container.scrollTop = safe;
       }
-      if (frames++ < 12) {
-        raf = requestAnimationFrame(apply);
-      }
-    };
-    const initialIndexes = rowIndexesFor(flatRowsRef.current);
-    const desiredNow =
-      initialIndexes.length > 0
-        ? computeSchemaRowsScrollTopForStart(flatRowsRef.current, initialIndexes)
-        : 0;
-    const token = `${query}@${desiredNow}`;
-    // 已经停在目标位置就不要抢用户随后的滚动。被打回顶部时再补一次。
-    if (searchAnchorQueryRef.current === token) {
-      const container = schemaTreeRef.current;
-      if (container && (Math.abs(container.scrollTop - desiredNow) <= 2 || container.scrollTop > 4)) {
-        return;
-      }
+      let frames = 0;
+      let raf = 0;
+      const retry = () => {
+        if (searchRef.current.trim() !== query || searchUserMovedRef.current === query) return;
+        const node = schemaTreeRef.current;
+        if (!node || node.clientHeight <= 0) return;
+        const nextMax = Math.max(0, node.scrollHeight - node.clientHeight);
+        if (searchAnchorTarget > 1 && nextMax + 1 < searchAnchorTarget) {
+          if (frames++ < 12) raf = requestAnimationFrame(retry);
+          return;
+        }
+        const next = Math.min(nextMax, Math.max(0, searchAnchorTarget));
+        if (Math.abs(node.scrollTop - next) > 2) node.scrollTop = next;
+      };
+      raf = requestAnimationFrame(retry);
+      return () => cancelAnimationFrame(raf);
     }
-    raf = requestAnimationFrame(apply);
-    return () => cancelAnimationFrame(raf);
-  }, [search, flatRows, activeTableKey, activeDatabaseKey, activeConnId]);
+    const target = Math.min(max, Math.max(0, searchAnchorTarget));
+    if (Math.abs(container.scrollTop - target) > 2) {
+      container.scrollTop = target;
+    }
+  }, [search, searchAnchorTarget]);
+
+  useEffect(() => {
+    const el = schemaTreeRef.current;
+    if (!el) return;
+    const mark = () => {
+      const query = searchRef.current.trim();
+      if (query) searchUserMovedRef.current = query;
+    };
+    el.addEventListener("wheel", mark, { passive: true });
+    el.addEventListener("pointerdown", mark);
+    el.addEventListener("keydown", mark);
+    return () => {
+      el.removeEventListener("wheel", mark);
+      el.removeEventListener("pointerdown", mark);
+      el.removeEventListener("keydown", mark);
+    };
+  }, [useTreeVirtualization]);
 
   const virtualRows = useTreeVirtualization ? rowVirtualizer.getVirtualItems() : [];
 

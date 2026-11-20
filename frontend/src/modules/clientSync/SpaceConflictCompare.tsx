@@ -6,6 +6,7 @@ import { useI18n } from "../../i18n";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { showToast } from "../../stores/toastStore";
 import { CLIENT_SYNC_MODULES_APPLIED_EVENT } from "./moduleSync";
+import { canonicalConnectionTags } from "../tags/tagKinds";
 import { isUpdateStampField, stampOnlyDecision } from "./spaceConflictStamps";
 import { SpaceConflictTextDiff } from "./SpaceConflictTextDiff";
 import { useSpaceConflictStore } from "../../stores/spaceConflictStore";
@@ -16,6 +17,11 @@ type CompareSection =
   | { key: string; mode: "secret"; field: string }
   | { key: string; mode: "short"; field: string; current: string; saved: string }
   | { key: string; mode: "text"; field: string; current: string; saved: string };
+
+function canonicalTagField(value: unknown): unknown {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) return value;
+  return canonicalConnectionTags(value as string[]);
+}
 
 function asText(value: unknown): string {
   if (typeof value === "string") return value;
@@ -51,14 +57,16 @@ function buildSections(current: string, saved: string): CompareSection[] {
   const fields = [...new Set([...Object.keys(left), ...Object.keys(right)])].sort();
   const sections: CompareSection[] = [];
   for (const field of fields) {
-    if (JSON.stringify(left[field] ?? null) === JSON.stringify(right[field] ?? null)) continue;
+    const leftValue = field === "tags" ? canonicalTagField(left[field]) : left[field];
+    const rightValue = field === "tags" ? canonicalTagField(right[field]) : right[field];
+    if (JSON.stringify(leftValue ?? null) === JSON.stringify(rightValue ?? null)) continue;
     if (isUpdateStampField(field)) continue;
     if (SECRET.test(field)) {
       sections.push({ key: field, mode: "secret", field });
       continue;
     }
-    const currentText = asText(left[field]);
-    const savedText = asText(right[field]);
+    const currentText = asText(leftValue);
+    const savedText = asText(rightValue);
     sections.push(
       isShort(currentText) && isShort(savedText)
         ? { key: field, mode: "short", field, current: currentText, saved: savedText }
@@ -111,6 +119,23 @@ export function SpaceConflictCompare({
     () => (view ? stampOnlyDecision(view.current, view.saved) : null),
     [view],
   );
+
+  useEffect(() => {
+    if (!view || decision || decided.current || sections.length > 0) return;
+    decided.current = true;
+    setBusy(true);
+    void unwrapCommand(commands.localSpaceDeleteConflict(id))
+      .then(async () => {
+        showToast(t("app.conflict.same"));
+        await refreshConflicts();
+        onClose();
+      })
+      .catch((err: unknown) => {
+        decided.current = false;
+        setError(formatIpcError(err));
+        setBusy(false);
+      });
+  }, [decision, id, onClose, refreshConflicts, sections.length, t, view]);
 
   useEffect(() => {
     if (!view || !decision || decided.current) return;

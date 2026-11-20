@@ -643,10 +643,8 @@ pub fn build_space_repo(
         }
     }
 
-    let body = serde_json::to_vec(&listed)
-        .map_err(|err| OmniError::new(ErrorCode::Internal, err.to_string()))?;
     let index = SpaceRepoIndex {
-        id: sha256_hex(&body),
+        id: manifest_id(&listed)?,
         files: listed,
     };
     let index_bytes = json_bytes(&index)?;
@@ -667,6 +665,58 @@ pub fn build_space_repo(
         file_count: u32::try_from(files.len()).unwrap_or(u32::MAX),
         chunk_count: u32::try_from(chunk_ids.len()).unwrap_or(u32::MAX),
     })
+}
+
+/// 这份文件清单的 id。和 `build_space_repo` 写进 `refs/latest` 的是同一个值。
+pub fn content_manifest_id(files: &BTreeMap<String, Vec<u8>>) -> OmniResult<String> {
+    let mut listed = Vec::with_capacity(files.len());
+    for (path, bytes) in files {
+        if !is_safe_rel(path) {
+            return Err(OmniError::invalid_input(format!("非法空间路径: {path}")));
+        }
+        let chunks = split_chunks(bytes).into_iter().map(|(id, _)| id).collect();
+        listed.push(SpaceRepoFile {
+            path: path.clone(),
+            size: bytes.len() as u64,
+            chunks,
+        });
+    }
+    manifest_id(&listed)
+}
+
+/// 检出里已经有一份字段值相同的 JSON 时，沿用原来的字节。
+/// 重新序列化只会改键顺序，清单哈希不该因此变化。
+fn preserve_equivalent_checkout(root: &Path, files: &mut BTreeMap<String, Vec<u8>>) {
+    for (path, bytes) in files.iter_mut() {
+        if !is_safe_rel(path) {
+            continue;
+        }
+        let Ok(old) = std::fs::read(root.join(SPACE_DIR).join(path)) else {
+            continue;
+        };
+        if old.as_slice() == bytes.as_slice() {
+            continue;
+        }
+        if json_values_equal(&old, bytes) {
+            *bytes = old;
+        }
+    }
+}
+
+fn json_values_equal(left: &[u8], right: &[u8]) -> bool {
+    matches!(
+        (
+            serde_json::from_slice::<Value>(left),
+            serde_json::from_slice::<Value>(right)
+        ),
+        (Ok(left), Ok(right)) if left == right
+    )
+}
+
+fn manifest_id(listed: &[SpaceRepoFile]) -> OmniResult<String> {
+    let body = serde_json::to_vec(listed)
+        .map_err(|err| OmniError::new(ErrorCode::Internal, err.to_string()))?;
+    Ok(sha256_hex(&body))
 }
 
 pub fn read_latest_index(root: &Path) -> OmniResult<SpaceRepoIndex> {
@@ -712,7 +762,10 @@ pub fn stamp_file_origins(
             out.insert(path.clone(), origin);
         }
         if changed {
-            if let Ok(next) = serde_json::to_vec(&value) {
+            if let Ok(mut next) = serde_json::to_vec(&value) {
+                if !next.ends_with(b"\n") {
+                    next.push(b'\n');
+                }
                 *bytes = next;
             }
         }
@@ -964,6 +1017,7 @@ impl Storage {
         let settled = stamp_file_origins(&mut files, &stored, known.as_ref(), device_id);
         self.save_resource_origins(&settled)?;
         self.write_local_only_file(root)?;
+        preserve_equivalent_checkout(root, &mut files);
         build_space_repo(root, &files)
     }
 
@@ -1163,6 +1217,33 @@ mod tests {
             updated_at: 1,
             origin_device_id: String::new(),
         }
+    }
+
+    #[test]
+    fn equivalent_json_keeps_the_checkout_bytes() {
+        let root = std::env::temp_dir().join(format!("omni-preserve-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let path = root.join(SPACE_DIR).join("connections").join("a.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let old = b"{\"name\":\"a\",\"updatedAt\":1}\n".to_vec();
+        std::fs::write(&path, &old).unwrap();
+        let mut files = BTreeMap::new();
+        files.insert(
+            "connections/a.json".into(),
+            b"{\"updatedAt\":1,\"name\":\"a\"}\n".to_vec(),
+        );
+        preserve_equivalent_checkout(&root, &mut files);
+        assert_eq!(files["connections/a.json"], old);
+        files.insert(
+            "connections/a.json".into(),
+            b"{\"name\":\"b\",\"updatedAt\":1}\n".to_vec(),
+        );
+        preserve_equivalent_checkout(&root, &mut files);
+        assert_eq!(
+            files["connections/a.json"],
+            b"{\"name\":\"b\",\"updatedAt\":1}\n"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

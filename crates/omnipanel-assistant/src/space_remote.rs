@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use omnipanel_error::{ErrorCode, OmniError, OmniResult};
-use omnipanel_store::{SpaceRepoRemote, SpaceSyncReport, open_bytes, seal_bytes, sync_local_repo};
+use omnipanel_store::{
+    SpaceRepoRemote, SpaceSyncReport, open_bytes, seal_bytes, sync_local_repo_with,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::oss::{get_object_bytes_optional, strip_bucket_prefix, upload_object_bytes};
@@ -97,8 +99,31 @@ pub async fn sync_oss_space(
     legacy: &BTreeMap<String, Vec<u8>>,
     managed: &BTreeSet<String>,
 ) -> OmniResult<SpaceSyncReport> {
+    sync_oss_space_with(
+        auth,
+        team_id,
+        root,
+        key,
+        device_id,
+        legacy,
+        managed,
+        &|_, _| {},
+    )
+    .await
+}
+
+pub async fn sync_oss_space_with(
+    auth: &AuthContext,
+    team_id: i64,
+    root: &Path,
+    key: &[u8; 32],
+    device_id: &str,
+    legacy: &BTreeMap<String, Vec<u8>>,
+    managed: &BTreeSet<String>,
+    report: &(dyn Fn(u32, u32) + Send + Sync),
+) -> OmniResult<SpaceSyncReport> {
     let mut remote = OssSpaceRemote::open(auth, team_id).await?;
-    sync_local_repo(root, &mut remote, key, device_id, legacy, managed).await
+    sync_local_repo_with(root, &mut remote, key, device_id, legacy, managed, report).await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -42,20 +42,34 @@ pub(crate) fn fold_update_stamps(local: &[u8], remote: &[u8]) -> StampFold {
                 StampPair::Max(value) => updates.push((key, value)),
                 StampPair::Content => content_diff = true,
             }
+        } else if key == "tags" {
+            if !tag_values_eq(left, right) {
+                content_diff = true;
+            }
         } else if !values_eq(left, right) {
             content_diff = true;
         }
     }
-    if updates.is_empty() {
+    let remote_clean = rewrite_duplicate_tags(remote_text);
+    let local_clean = rewrite_duplicate_tags(local_text);
+    let tags_cleaned = remote_clean != remote_text || local_clean != local_text;
+    if updates.is_empty() && content_diff {
         return StampFold::Untouched;
     }
-    let Some(current) = apply_stamps(remote_text, &updates) else {
+    if updates.is_empty() {
+        if tags_cleaned {
+            return StampFold::OnlyStamp(remote_clean.into_bytes());
+        }
+        // 字段值相同，只是键顺序或空白不同。冲突记录没有可比较的内容。
+        return StampFold::OnlyStamp(remote.to_vec());
+    }
+    let Some(current) = apply_stamps(&remote_clean, &updates) else {
         return StampFold::Untouched;
     };
     if !content_diff {
         return StampFold::OnlyStamp(current.into_bytes());
     }
-    let Some(saved) = apply_stamps(local_text, &updates) else {
+    let Some(saved) = apply_stamps(&local_clean, &updates) else {
         return StampFold::Untouched;
     };
     StampFold::Content {
@@ -114,6 +128,23 @@ fn stamp_pair(local: Option<&Value>, remote: Option<&Value>) -> StampPair {
     }
 }
 
+/// 正文顶层的更新日期。没有可比的数字时返回 None，调用方沿用原来的采用规则。
+pub(crate) fn document_stamp(body: &[u8]) -> Option<i64> {
+    let text = std::str::from_utf8(body).ok()?;
+    let obj = parse_object(text)?;
+    let mut found = None;
+    for (key, value) in &obj {
+        if !is_stamp_key(key) {
+            continue;
+        }
+        let Some(number) = stamp_num(value) else {
+            continue;
+        };
+        found = Some(found.map_or(number, |current: i64| current.max(number)));
+    }
+    found
+}
+
 fn stamp_num(value: &Value) -> Option<i64> {
     if let Some(number) = value.as_i64() {
         return Some(number);
@@ -122,6 +153,52 @@ fn stamp_num(value: &Value) -> Option<i64> {
         return i64::try_from(number).ok();
     }
     value.as_str().and_then(|text| text.trim().parse().ok())
+}
+
+fn tag_values_eq(left: Option<&Value>, right: Option<&Value>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => match (canonical_tags(left), canonical_tags(right)) {
+            (Some(left_tags), Some(right_tags)) => left_tags == right_tags,
+            _ => left == right,
+        },
+        _ => false,
+    }
+}
+
+fn canonical_tags(value: &Value) -> Option<Vec<String>> {
+    let array = value.as_array()?;
+    let mut tags = Vec::new();
+    for item in array {
+        tags.push(item.as_str()?.to_string());
+    }
+    crate::tag::canonicalize_connection_tags(&mut tags);
+    Some(tags)
+}
+
+fn rewrite_duplicate_tags(raw: &str) -> String {
+    let Some(top) = scan_top_level(raw) else {
+        return raw.to_string();
+    };
+    let Some(field) = top.fields.iter().find(|field| field.key == "tags") else {
+        return raw.to_string();
+    };
+    let current = &raw[field.value_start..field.value_end];
+    let Ok(value) = serde_json::from_str::<Value>(current) else {
+        return raw.to_string();
+    };
+    let Some(tags) = canonical_tags(&value) else {
+        return raw.to_string();
+    };
+    let Ok(replacement) = serde_json::to_string(&tags) else {
+        return raw.to_string();
+    };
+    if replacement == current {
+        return raw.to_string();
+    }
+    let mut out = raw.to_string();
+    out.replace_range(field.value_start..field.value_end, &replacement);
+    out
 }
 
 fn values_eq(left: Option<&Value>, right: Option<&Value>) -> bool {
@@ -373,6 +450,57 @@ fn closer(open: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn document_stamp_reads_either_name_and_ignores_a_missing_one() {
+        assert_eq!(document_stamp(br#"{"name":"a","updatedAt":20}"#), Some(20));
+        assert_eq!(document_stamp(br#"{"name":"a","updated_at":"9"}"#), Some(9));
+        assert_eq!(document_stamp(br#"{"name":"a"}"#), None);
+    }
+
+    #[test]
+    fn sys_path_and_colon_form_are_the_same_tags() {
+        let local =
+            br#"{"tags":["creator:MACT-OFFICE","sys/os/Ubuntu 24.04.2 LTS"],"updatedAt":2}"#;
+        let remote = br#"{"tags":["os:Ubuntu 24.04.2 LTS","creator:MACT-OFFICE"],"updatedAt":2}"#;
+        match fold_update_stamps(local, remote) {
+            StampFold::OnlyStamp(body) => {
+                let text = String::from_utf8(body).unwrap();
+                assert!(
+                    text.contains(
+                        r#""tags":["sys/creator/MACT-OFFICE","sys/os/Ubuntu 24.04.2 LTS"]"#
+                    )
+                );
+                assert!(!text.contains("os:Ubuntu"));
+            }
+            other => panic!("expected the two os forms to match, got {}", kind(&other)),
+        }
+    }
+
+    #[test]
+    fn duplicate_creator_tag_is_not_a_conflict() {
+        let local =
+            br#"{"name":"a","tags":["creator:MACT-OFFICE","creator:MACT-OFFICE"],"updatedAt":2}"#;
+        let remote = br#"{"name":"a","tags":["creator:MACT-OFFICE"],"updatedAt":2}"#;
+        match fold_update_stamps(local, remote) {
+            StampFold::OnlyStamp(body) => {
+                let text = String::from_utf8(body).unwrap();
+                assert!(text.contains(r#""tags":["sys/creator/MACT-OFFICE"]"#));
+                assert!(!text.contains("MACT-OFFICE\",\"sys/creator"));
+            }
+            other => panic!("expected duplicate tags to collapse, got {}", kind(&other)),
+        }
+    }
+
+    #[test]
+    fn same_fields_in_another_key_order_are_not_a_conflict() {
+        let local = br#"{"name":"a","updatedAt":2}"#;
+        let remote = br#"{"updatedAt":2,"name":"a"}"#;
+        match fold_update_stamps(local, remote) {
+            StampFold::OnlyStamp(body) => assert_eq!(body, remote),
+            other => panic!("expected identical documents to collapse, got {}", kind(&other)),
+        }
+    }
 
     #[test]
     fn only_updated_at_keeps_the_newer_cloud_bytes() {

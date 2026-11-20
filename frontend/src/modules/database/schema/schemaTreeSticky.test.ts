@@ -87,6 +87,14 @@ describe("滚入视口时避开吸顶层", () => {
     expect(isSchemaFlatRowIndexInViewport(viewport(targetOffset, 12 * H), rows, target)).toBe(false);
   });
 
+  it("已经吸住的连接、库、分组算在视口里", () => {
+    const scrollTop = targetOffset - 6 * H;
+    const view = viewport(scrollTop, 12 * H);
+    expect(isSchemaFlatRowIndexInViewport(view, rows, 0)).toBe(true);
+    expect(isSchemaFlatRowIndexInViewport(view, rows, 1)).toBe(true);
+    expect(isSchemaFlatRowIndexInViewport(view, rows, 2)).toBe(true);
+  });
+
   it("目标已经在吸顶层下方时不再滚动", () => {
     const scrollTop = targetOffset - 6 * H;
     expect(computeSchemaFlatRowScrollTopForNearest(rows, target, 12 * H, scrollTop)).toBe(scrollTop);

@@ -120,10 +120,14 @@ impl Storage {
     /// 创建设备 id 只写一次：库里已有就保留，没有则用传入值或旧 `origin:` 标签。
     pub fn save_connection(&self, conn: &Connection) -> OmniResult<()> {
         let mut conn = conn.clone();
-        let stored = self
-            .get_connection(&conn.id)?
-            .map(|existing| existing.origin_device_id)
+        let existing = self.get_connection(&conn.id)?;
+        let stored = existing
+            .as_ref()
+            .map(|item| item.origin_device_id.clone())
             .unwrap_or_default();
+        let previous_tags = existing.map(|item| item.tags);
+        crate::tag::collapse_creator_tags(&mut conn.tags, previous_tags.as_deref());
+        crate::tag::canonicalize_connection_tags(&mut conn.tags);
         conn.origin_device_id =
             crate::tag::settle_origin_device_id(&stored, &conn.origin_device_id, &conn.tags);
         crate::tag::strip_origin_tags(&mut conn.tags);
@@ -160,23 +164,22 @@ impl Storage {
         // 同步到全局标签表
         let _ = self.clear_resource_tags(crate::tag::TaggableKind::Connection, &conn.id);
         let mut user_paths = Vec::new();
+        let mut seen_creator = false;
         for tag in &conn.tags {
-            if let Some((key, value)) = tag.split_once(':') {
-                let key = key.trim();
-                let value = value.trim();
-                if matches!(
-                    key,
-                    "os" | "kernel" | "arch" | "db" | "engine" | "panel" | "creator"
-                ) && !value.is_empty()
-                {
-                    let _ = self.resource_set_system_key(
-                        crate::tag::TaggableKind::Connection,
-                        &conn.id,
-                        key,
-                        value,
-                    );
-                    continue;
+            if let Some((key, value)) = crate::tag::system_tag_key_value(tag) {
+                if key == "creator" {
+                    if seen_creator {
+                        continue;
+                    }
+                    seen_creator = true;
                 }
+                let _ = self.resource_set_system_key(
+                    crate::tag::TaggableKind::Connection,
+                    &conn.id,
+                    &key,
+                    &value,
+                );
+                continue;
             }
             if let Some(path) = crate::tag::normalize_tag_path(tag)
                 .or_else(|| crate::tag::normalize_tag_segment(tag))
@@ -397,6 +400,50 @@ mod tests {
         storage.save_connection(&conn).unwrap();
         let again = storage.get_connection("origin").unwrap().unwrap();
         assert_eq!(again.origin_device_id, "dev-a");
-        assert!(again.tags.is_empty());
+    }
+
+    #[test]
+    fn save_keeps_one_creator_and_does_not_replace_it() {
+        let storage = Storage::open_in_memory().unwrap();
+        let mut conn = sample("creator", ConnectionKind::Ssh);
+        conn.tags = vec![
+            "sys/creator/MZ".into(),
+            "sys/creator/MACT-HOME".into(),
+            "prod".into(),
+            "prod".into(),
+        ];
+        storage.save_connection(&conn).unwrap();
+        let saved = storage.get_connection("creator").unwrap().unwrap();
+        assert_eq!(
+            saved
+                .tags
+                .iter()
+                .filter(|tag| {
+                    let text = tag.to_ascii_lowercase();
+                    text.starts_with("creator:") || text.starts_with("sys/creator/")
+                })
+                .collect::<Vec<_>>(),
+            vec!["sys/creator/MZ"]
+        );
+        assert_eq!(saved.tags.iter().filter(|tag| *tag == "prod").count(), 1);
+
+        conn.tags = vec!["creator:MACT-HOME".into(), "os:Linux".into()];
+        conn.name = "renamed".into();
+        storage.save_connection(&conn).unwrap();
+        let again = storage.get_connection("creator").unwrap().unwrap();
+        assert_eq!(again.name, "renamed");
+        assert!(again.tags.iter().any(|tag| tag == "sys/creator/MZ"));
+        assert!(!again.tags.iter().any(|tag| tag.contains("MACT-HOME")));
+        assert_eq!(
+            again
+                .tags
+                .iter()
+                .filter(|tag| {
+                    let text = tag.to_ascii_lowercase();
+                    text.starts_with("creator:") || text.starts_with("sys/creator/")
+                })
+                .count(),
+            1
+        );
     }
 }

@@ -172,7 +172,7 @@ pub use space_sync::{
     LayoutInput, SpaceConflict, SpaceConflictView, SpaceRepoRemote, SpaceSyncReport,
     SpaceSyncRequest, apply_database_files, attach_layouts, delete_space_conflict, layout_files,
     legacy_conversation_files, legacy_module_files, list_space_conflicts, open_bytes,
-    read_space_conflict, restore_space_conflict, seal_bytes, sync_local_repo,
+    read_space_conflict, restore_space_conflict, seal_bytes, sync_local_repo, sync_local_repo_with,
 };
 pub use sql_exec_log::{
     SqlExecAppend, SqlExecListFilter, SqlExecRecord, SqlExecResultPage, append_sql_execution,

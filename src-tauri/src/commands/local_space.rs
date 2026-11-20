@@ -2,8 +2,8 @@
 
 use omnipanel_assistant::{
     SpaceLocation, TEAM_CONVERSATIONS_LATEST_LEAF, TEAM_MODULES_LATEST_LEAF, fetch_space_location,
-    publish_space_location, pull_team_sync_json, purge_s3_repo, sync_oss_space, sync_s3_space,
-    team_repo_has_index,
+    publish_space_location, pull_team_sync_json, purge_s3_repo, sync_oss_space_with,
+    sync_s3_space_with, team_repo_has_index,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
@@ -18,6 +18,7 @@ use omnipanel_store::{
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
+use tauri::Emitter;
 use tauri::State;
 
 use crate::commands::assistant::build_auth_context;
@@ -120,6 +121,13 @@ async fn run_local_space_sync(
         load_legacy_modules(&auth, &me, team).await
     };
     legacy.extend(load_legacy_conversations(&auth, &me, team).await);
+    let app = state.app_handle.clone();
+    let report_progress = move |done: u32, total: u32| {
+        let _ = app.emit(
+            "space-sync-progress",
+            serde_json::json!({ "done": done, "total": total }),
+        );
+    };
     let mut report = sync_with_ready_storage(
         state,
         &auth,
@@ -129,6 +137,7 @@ async fn run_local_space_sync(
         &identity.device_id,
         &legacy,
         &managed,
+        &report_progress,
     )
     .await?;
     report.applied_connections = {
@@ -202,6 +211,7 @@ async fn sync_with_ready_storage(
     device_id: &str,
     legacy: &BTreeMap<String, Vec<u8>>,
     managed: &std::collections::BTreeSet<String>,
+    report: &(dyn Fn(u32, u32) + Send + Sync),
 ) -> Result<SpaceSyncReport, OmniError> {
     let settings = {
         let storage = state.storage.lock().await;
@@ -212,7 +222,7 @@ async fn sync_with_ready_storage(
             let storage = state.storage.lock().await;
             storage.space_s3_credentials(team_id)?
         };
-        return sync_s3_space(
+        return sync_s3_space_with(
             &settings.endpoint,
             &settings.bucket,
             &settings.region,
@@ -223,10 +233,11 @@ async fn sync_with_ready_storage(
             device_id,
             legacy,
             managed,
+            report,
         )
         .await;
     }
-    sync_oss_space(auth, team_id, root, key, device_id, legacy, managed).await
+    sync_oss_space_with(auth, team_id, root, key, device_id, legacy, managed, report).await
 }
 
 async fn load_legacy_modules(
@@ -446,7 +457,8 @@ pub async fn local_space_storage_copy(
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&state, &token, &identity.device_id).await?;
     let key = load_space_key_for_sync(team_id, true)?;
-    sync_s3_space(
+    let app = state.app_handle.clone();
+    sync_s3_space_with(
         &settings.endpoint,
         &settings.bucket,
         &settings.region,
@@ -457,6 +469,12 @@ pub async fn local_space_storage_copy(
         &identity.device_id,
         &BTreeMap::new(),
         &std::collections::BTreeSet::new(),
+        &move |done, total| {
+            let _ = app.emit(
+                "space-sync-progress",
+                serde_json::json!({ "done": done, "total": total }),
+            );
+        },
     )
     .await?;
     publish_space_location(

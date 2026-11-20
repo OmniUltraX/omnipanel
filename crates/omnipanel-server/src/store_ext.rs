@@ -8,7 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use omnipanel_assistant::{
     SpaceLocation, TEAM_CONVERSATIONS_LATEST_LEAF, TEAM_MODULES_LATEST_LEAF, fetch_oss_sts,
     fetch_space_location, get_object_bytes_optional, publish_space_location, pull_team_sync_json,
-    purge_s3_repo, sync_oss_space, sync_s3_space, team_repo_has_index, upload_object_bytes,
+    purge_s3_repo, sync_oss_space_with, sync_s3_space_with, team_repo_has_index,
+    upload_object_bytes,
 };
 use omnipanel_error::{ErrorCode, OmniError};
 use omnipanel_store::{
@@ -858,12 +859,19 @@ pub async fn local_space_sync(
         let storage = state.storage.lock().await;
         storage.space_storage_get(team_id)?
     };
+    let bus = state.bus.clone();
+    let report_progress = move |done: u32, total: u32| {
+        bus.emit(
+            "space-sync-progress",
+            serde_json::json!({ "done": done, "total": total }),
+        );
+    };
     let mut report = if settings.kind == "s3" && settings.ready {
         let (access_key_id, secret) = {
             let storage = state.storage.lock().await;
             storage.space_s3_credentials(team_id)?
         };
-        sync_s3_space(
+        sync_s3_space_with(
             &settings.endpoint,
             &settings.bucket,
             &settings.region,
@@ -874,10 +882,11 @@ pub async fn local_space_sync(
             &identity.device_id,
             &legacy,
             &managed,
+            &report_progress,
         )
         .await?
     } else {
-        sync_oss_space(
+        sync_oss_space_with(
             &auth,
             team_id,
             &root,
@@ -885,6 +894,7 @@ pub async fn local_space_sync(
             &identity.device_id,
             &legacy,
             &managed,
+            &report_progress,
         )
         .await?
     };
@@ -1032,7 +1042,8 @@ pub async fn local_space_storage_copy(
     let identity = auth_device_identity().await?;
     let auth = build_auth_context(&token, &identity.device_id).await?;
     let key = load_space_key_for_sync(team_id, true)?;
-    sync_s3_space(
+    let bus = state.bus.clone();
+    sync_s3_space_with(
         &settings.endpoint,
         &settings.bucket,
         &settings.region,
@@ -1043,6 +1054,12 @@ pub async fn local_space_storage_copy(
         &identity.device_id,
         &BTreeMap::new(),
         &std::collections::BTreeSet::new(),
+        &move |done, total| {
+            bus.emit(
+                "space-sync-progress",
+                serde_json::json!({ "done": done, "total": total }),
+            );
+        },
     )
     .await?;
     publish_space_location(

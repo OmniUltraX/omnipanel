@@ -1,4 +1,4 @@
-/** 全局资源标签键名约定（存为 `key:value` 字符串）。 */
+/** 全局资源标签。系统标签存成树路径 `sys/os/Ubuntu`，旧的 `os:Ubuntu` 仍能读。 */
 export const RESOURCE_TAG_KEYS = {
   /** 远程系统发行版，如 Ubuntu 24.04.2 LTS */
   os: "os",
@@ -14,10 +14,41 @@ export function formatResourceTag(key: string, value: string): string {
   return `${key}:${value.trim()}`;
 }
 
+const SYSTEM_TAG_KEYS = new Set([
+  "os",
+  "kernel",
+  "arch",
+  "db",
+  "engine",
+  "panel",
+  "creator",
+  "origin",
+]);
+
 export function parseResourceTag(tag: string): { key: string; value: string } {
-  const idx = tag.indexOf(":");
-  if (idx <= 0) return { key: "custom", value: tag };
-  return { key: tag.slice(0, idx), value: tag.slice(idx + 1) };
+  const text = tag.trim();
+  const lower = text.toLowerCase();
+  if (lower.startsWith("sys/")) {
+    const rest = text.slice("sys/".length);
+    const slash = rest.indexOf("/");
+    if (slash > 0) {
+      const key = rest.slice(0, slash).trim().toLowerCase();
+      const value = rest.slice(slash + 1).trim();
+      if (key && value) return { key, value };
+    }
+  }
+  const idx = text.indexOf(":");
+  if (idx <= 0) return { key: "custom", value: text };
+  return {
+    key: text.slice(0, idx).trim().toLowerCase(),
+    value: text.slice(idx + 1).trim(),
+  };
+}
+
+function storedTag(key: string, value: string): string {
+  const name = key.trim().toLowerCase();
+  if (SYSTEM_TAG_KEYS.has(name)) return `sys/${name}/${value.trim()}`;
+  return formatResourceTag(key, value);
 }
 
 export function getResourceTagValue(
@@ -25,9 +56,12 @@ export function getResourceTagValue(
   key: string,
 ): string | null {
   if (!tags?.length) return null;
-  const prefix = `${key}:`;
-  const hit = tags.find((t) => t.startsWith(prefix));
-  return hit ? hit.slice(prefix.length) : null;
+  const needle = key.trim().toLowerCase();
+  for (const tag of tags) {
+    const parsed = parseResourceTag(tag);
+    if (parsed.key === needle && parsed.value) return parsed.value;
+  }
+  return null;
 }
 
 export function upsertResourceTag(
@@ -36,9 +70,9 @@ export function upsertResourceTag(
   value: string,
 ): string[] {
   const trimmed = value.trim();
-  const prefix = `${key}:`;
-  const rest = (tags ?? []).filter((t) => !t.startsWith(prefix));
-  if (trimmed) rest.push(formatResourceTag(key, trimmed));
+  const needle = key.trim().toLowerCase();
+  const rest = (tags ?? []).filter((tag) => parseResourceTag(tag).key !== needle);
+  if (trimmed) rest.push(storedTag(key, trimmed));
   return rest;
 }
 

@@ -63,6 +63,9 @@ export const FILES_TRANSFER_PROGRESS = "files-transfer-progress" as const;
 /** 动作执行进度 */
 export const ACTION_PROGRESS = "action-progress" as const;
 
+/** 空间同步进度（payload: done + total） */
+export const SPACE_SYNC_PROGRESS = "space-sync-progress" as const;
+
 /** 任务输出 / 状态 */
 export const TASK_OUTPUT = "task-output" as const;
 export const TASK_STATUS = "task-status" as const;

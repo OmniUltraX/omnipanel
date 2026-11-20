@@ -5,7 +5,7 @@ use std::path::Path;
 
 use omnipanel_error::OmniResult;
 use omnipanel_s3::{S3Client, S3Config};
-use omnipanel_store::{SpaceRepoRemote, SpaceSyncReport, sync_local_repo};
+use omnipanel_store::{SpaceRepoRemote, SpaceSyncReport, sync_local_repo_with};
 
 pub struct S3SpaceRemote {
     client: S3Client,
@@ -105,8 +105,37 @@ pub async fn sync_s3_space(
     legacy: &BTreeMap<String, Vec<u8>>,
     managed: &BTreeSet<String>,
 ) -> OmniResult<SpaceSyncReport> {
+    sync_s3_space_with(
+        endpoint,
+        bucket,
+        region,
+        access_key_id,
+        secret,
+        root,
+        key,
+        device_id,
+        legacy,
+        managed,
+        &|_, _| {},
+    )
+    .await
+}
+
+pub async fn sync_s3_space_with(
+    endpoint: &str,
+    bucket: &str,
+    region: &str,
+    access_key_id: &str,
+    secret: &str,
+    root: &Path,
+    key: &[u8; 32],
+    device_id: &str,
+    legacy: &BTreeMap<String, Vec<u8>>,
+    managed: &BTreeSet<String>,
+    report: &(dyn Fn(u32, u32) + Send + Sync),
+) -> OmniResult<SpaceSyncReport> {
     let mut remote = S3SpaceRemote::open(endpoint, bucket, region, access_key_id, secret)?;
-    sync_local_repo(root, &mut remote, key, device_id, legacy, managed).await
+    sync_local_repo_with(root, &mut remote, key, device_id, legacy, managed, report).await
 }
 
 /// 放弃这个桶时删掉里面的空间对象。官方 OSS 没有删除接口，不走这里。

@@ -1286,7 +1286,17 @@ export function isSchemaFlatRowIndexInViewport(
   const cover = schemaStickyCoverHeight(rows, container.scrollTop);
   const top = container.scrollTop + cover;
   const bottom = container.scrollTop + container.clientHeight - marginPx;
-  return offset >= top - marginPx && offset + rowHeight <= bottom;
+  if (offset >= top - marginPx && offset + rowHeight <= bottom) {
+    return true;
+  }
+  // 祖先已经吸在视口顶部。布局偏移在滚动位置上方，按布局位置会判成不可见，
+  // 联动再滚就会把表列表拽回连接和库。
+  return (
+    schemaFlatRowIsStickyAncestor(rows[rowIndex]!) &&
+    collectViewportStickySchemaRows(rows, container.scrollTop).some(
+      (entry) => entry.rowIndex === rowIndex,
+    )
+  );
 }
 
 /** 将目标行以最小位移滚入视口（不强制居中），并避开顶部吸顶层。 */

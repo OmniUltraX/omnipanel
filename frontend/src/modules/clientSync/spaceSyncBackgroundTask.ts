@@ -2,6 +2,8 @@
  * 空间 / 团队同步接入左下角全局后台任务。
  * 多路同步（自动推送、定时对齐、手动同步、启动拉取）共用同一条任务，避免刷屏。
  */
+import { listen } from "@tauri-apps/api/event";
+import { SPACE_SYNC_PROGRESS } from "../../ipc/events";
 import { formatIpcError } from "../../ipc/result";
 import {
   upsertLocalBackgroundTask,
@@ -16,8 +18,14 @@ const KIND = "space-sync";
 let activeCount = 0;
 let startedAt = 0;
 let currentTitle = "空间同步";
+let currentPhase: SpaceSyncTaskPhase = "push";
+let currentDone = 0;
+let currentTotal = 0;
 let hadFailure = false;
 let lastError: string | null = null;
+let progressListening = false;
+let lastPaintAt = 0;
+let paintTimer: ReturnType<typeof setTimeout> | null = null;
 
 function makeTask(
   partial: Partial<BackgroundTaskInfo> &
@@ -28,8 +36,8 @@ function makeTask(
     module: MODULE,
     kind: KIND,
     title: currentTitle,
-    index: 0,
-    total: 0,
+    index: currentDone,
+    total: currentTotal,
     rowCompleted: null,
     rowTotal: null,
     startedAt: startedAt || Date.now(),
@@ -68,9 +76,14 @@ function progressForPhase(phase: SpaceSyncTaskPhase): string {
 /** 开始一次同步；可嵌套，全部结束后才标记完成。 */
 export function beginSpaceSyncTask(phase: SpaceSyncTaskPhase = "merge"): void {
   activeCount += 1;
+  currentPhase = phase;
   currentTitle = titleForPhase(phase);
+  initSpaceSyncProgress();
   if (activeCount === 1) {
     startedAt = Date.now();
+    currentDone = 0;
+    currentTotal = 0;
+    lastPaintAt = 0;
     hadFailure = false;
     lastError = null;
   }
@@ -82,6 +95,52 @@ export function beginSpaceSyncTask(phase: SpaceSyncTaskPhase = "merge"): void {
       error: null,
     }),
   );
+}
+
+function paintSyncCount(): void {
+  upsertLocalBackgroundTask(
+    makeTask({
+      status: "running",
+      progress: progressForPhase(currentPhase),
+      finishedAt: null,
+      error: null,
+    }),
+  );
+}
+
+export function updateSpaceSyncCount(done: number, total: number): void {
+  if (activeCount <= 0 || total <= 0) return;
+  currentDone = done;
+  currentTotal = total;
+  const now = Date.now();
+  const finished = done >= total;
+  if (finished || now - lastPaintAt >= 80) {
+    if (paintTimer != null) {
+      clearTimeout(paintTimer);
+      paintTimer = null;
+    }
+    lastPaintAt = now;
+    paintSyncCount();
+    return;
+  }
+  if (paintTimer != null) return;
+  paintTimer = setTimeout(() => {
+    paintTimer = null;
+    lastPaintAt = Date.now();
+    if (activeCount <= 0) return;
+    paintSyncCount();
+  }, 80);
+}
+
+export function initSpaceSyncProgress(): void {
+  if (progressListening) return;
+  progressListening = true;
+  void listen<{ done?: number; total?: number }>(SPACE_SYNC_PROGRESS, (event) => {
+    const done = Number(event.payload?.done ?? 0);
+    const total = Number(event.payload?.total ?? 0);
+    if (!Number.isFinite(done) || !Number.isFinite(total)) return;
+    updateSpaceSyncCount(done, total);
+  });
 }
 
 export function updateSpaceSyncTask(progress: string): void {
@@ -124,6 +183,10 @@ export function finishSpaceSyncTask(options?: {
     return;
   }
 
+  if (paintTimer != null) {
+    clearTimeout(paintTimer);
+    paintTimer = null;
+  }
   const failed = hadFailure;
   upsertLocalBackgroundTask(
     makeTask({
