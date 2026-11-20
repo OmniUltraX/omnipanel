@@ -136,6 +136,9 @@ version = "0.5.0"
 [dependencies.ts_keys]
 version = "0.5.0"
 
+[dependencies.stun-rs]
+version = "0.1"
+
 [dependencies.ts_netcheck]
 version = "0.5.0"
 

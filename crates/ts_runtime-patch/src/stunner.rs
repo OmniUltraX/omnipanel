@@ -1,8 +1,4 @@
-use std::{
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use kameo::{
     actor::ActorRef,
@@ -16,45 +12,28 @@ use crate::env::Env;
 /// Actor that sends STUN requests to DERP servers to get this node's public IPv4.
 pub struct Stunner {
     env: Env,
-    stun: Arc<ts_netcheck::StunProber>,
     servers: Vec<SocketAddr>,
 }
 
 impl Stunner {
     #[tracing::instrument(skip_all, fields(n_server = self.servers.len()), level = "trace")]
-    async fn try_stun(&self) {
+    async fn publish_servers(&self) {
         if self.servers.is_empty() {
             tracing::debug!("skipping stun, servers not populated yet");
             return;
         }
 
-        for &server in &self.servers {
-            if let Ok(Ok((_dur, x))) =
-                tokio::time::timeout(Duration::from_secs(3), self.stun.measure(server)).await
-            {
-                tracing::debug!(stun_addr = %x);
-
-                self.env
-                    .publish(StunAddress {
-                        addr: x.ip(),
-                        measured: Instant::now(),
-                    })
-                    .await
-                    .unwrap();
-
-                return;
-            }
-        }
-
-        tracing::warn!("failed to stun");
+        self.env
+            .publish(StunServers(Arc::from(self.servers.as_slice())))
+            .await
+            .unwrap();
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct StunAddress {
-    pub addr: IpAddr,
-    pub measured: Instant,
-}
+/// STUN servers the direct UDP socket should probe. The mapped address is only
+/// valid for the socket that sends the request.
+#[derive(Clone)]
+pub struct StunServers(pub Arc<[SocketAddr]>);
 
 #[derive(Copy, Clone)]
 struct Tick;
@@ -64,8 +43,6 @@ impl kameo::Actor for Stunner {
     type Error = crate::Error;
 
     async fn on_start(env: Self::Args, slf: ActorRef<Self>) -> Result<Self, Self::Error> {
-        // panicking in on_start is fine
-        let stun = ts_netcheck::StunProber::try_new().await.unwrap();
         env.subscribe::<Arc<ts_control::StateUpdate>>(&slf).await?;
 
         env.scheduler
@@ -84,7 +61,6 @@ impl kameo::Actor for Stunner {
         Ok(Self {
             env,
             servers: vec![],
-            stun: Arc::new(stun),
         })
     }
 }
@@ -93,7 +69,7 @@ impl Message<Tick> for Stunner {
     type Reply = ();
 
     async fn handle(&mut self, _: Tick, _ctx: &mut Context<Self, Self::Reply>) {
-        self.try_stun().await;
+        self.publish_servers().await;
     }
 }
 
@@ -144,7 +120,7 @@ impl Message<Arc<ts_control::StateUpdate>> for Stunner {
 
         if was_empty && !self.servers.is_empty() {
             tracing::trace!("stun server set became populated, trying stun now");
-            self.try_stun().await;
+            self.publish_servers().await;
         }
     }
 }

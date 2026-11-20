@@ -11317,6 +11317,7 @@ dependencies = [
  "rand 0.10.1",
  "smallvec",
  "smol_str",
+ "stun-rs",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",

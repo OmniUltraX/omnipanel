@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use kameo::{
     actor::ActorRef,
@@ -15,7 +18,7 @@ use crate::{
     Error,
     env::Env,
     multiderp::DerpTransportMap,
-    path_discoverer::{BestPathMap, BestPaths},
+    path_discoverer::{BestPathMap, BestPaths, ProbeRound},
     peer_paths,
     peer_tracker::PeerState,
 };
@@ -27,6 +30,8 @@ pub struct RouteUpdater {
     derp_transport_map: DerpTransportMap,
     peer_state: Arc<PeerState>,
     best_paths: Arc<BestPathMap>,
+    /// Peers whose last finished probe round did not find a direct UDP path.
+    no_direct: HashSet<PeerId>,
     self_node_key: Option<NodePublicKey>,
     env: Env,
 }
@@ -94,7 +99,7 @@ impl RouteUpdater {
             (
                 peer.hostname.as_str(),
                 self.best_paths.contains_key(id),
-                peer.derp_region.is_some(),
+                self.no_direct.contains(id) && peer.derp_region.is_some(),
             )
         });
         peer_paths::replace(key, peer_paths::paths_for_peers(peers));
@@ -128,6 +133,7 @@ impl kameo::Actor for RouteUpdater {
         env.subscribe::<Arc<ts_control::StateUpdate>>(&slf).await?;
         env.subscribe::<DerpTransportMap>(&slf).await?;
         env.subscribe::<BestPaths>(&slf).await?;
+        env.subscribe::<ProbeRound>(&slf).await?;
 
         env.register(None, &slf).await?;
 
@@ -136,6 +142,7 @@ impl kameo::Actor for RouteUpdater {
             derp_transport_map: Default::default(),
             peer_state: Default::default(),
             best_paths: Default::default(),
+            no_direct: Default::default(),
             self_node_key: None,
             env,
         })
@@ -245,7 +252,23 @@ impl Message<BestPaths> for RouteUpdater {
         }
 
         self.best_paths = new_bps;
+        for peer in self.best_paths.keys() {
+            self.no_direct.remove(peer);
+        }
 
         self.publish_peer_routes().await;
+    }
+}
+
+impl Message<ProbeRound> for RouteUpdater {
+    type Reply = ();
+
+    async fn handle(&mut self, msg: ProbeRound, _ctx: &mut Context<Self, Self::Reply>) {
+        if msg.found_direct || self.best_paths.contains_key(&msg.peer) {
+            self.no_direct.remove(&msg.peer);
+        } else {
+            self.no_direct.insert(msg.peer);
+        }
+        self.record_paths();
     }
 }

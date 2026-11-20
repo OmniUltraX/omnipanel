@@ -24,7 +24,8 @@ use std::{
     io,
     io::ErrorKind,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    sync::Arc,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use bytes::BytesMut;
@@ -35,7 +36,13 @@ use kameo::{
     actor::ActorRef,
     message::{Context, Message, StreamMessage},
 };
+use stun_rs::{
+    MessageClass, StunMessageBuilder,
+    attributes::stun::{Fingerprint, Software, XorMappedAddress},
+    methods::BINDING,
+};
 use tokio::net::UdpSocket;
+use tokio::sync::oneshot;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use ts_bart::RoutingTable;
 use ts_control::{Endpoint, EndpointType};
@@ -49,7 +56,7 @@ use crate::{
     env::Env,
     netmon,
     peer_tracker::{PeerDb, PeerState},
-    stunner::StunAddress,
+    stunner::StunServers,
 };
 
 pub struct DirectActor {
@@ -63,6 +70,9 @@ pub struct DirectActor {
     peers: Arc<PeerDb>,
 
     stun_addr: Option<SocketAddr>,
+    stun_servers: Vec<SocketAddr>,
+    stun_wait: Arc<Mutex<HashMap<[u8; 12], oneshot::Sender<SocketAddr>>>>,
+    probe_running: bool,
     addrs_v4: Vec<Endpoint>,
     addrs_v6: Vec<Endpoint>,
 
@@ -113,15 +123,20 @@ impl kameo::Actor for DirectActor {
             .await?;
 
         let sock4 = UdpSocket::bind("0.0.0.0:0").await.unwrap();
+        ignore_udp_connreset(&sock4);
         let sock4 = Arc::new(sock4);
         tracing::debug!(transport_id = ?id, local_addr = %sock4.local_addr().unwrap(), "direct udp4 socket bound");
 
-        slf.attach_stream(udp_rx(sock4.clone()).boxed(), (), ());
+        let stun_wait = Arc::new(Mutex::new(HashMap::new()));
+        slf.attach_stream(udp_rx(sock4.clone(), stun_wait.clone()).boxed(), (), ());
 
-        let sock6 = UdpSocket::bind("[::]:0").await.ok().map(Arc::new);
+        let sock6 = UdpSocket::bind("[::]:0").await.ok().map(|sock| {
+            ignore_udp_connreset(&sock);
+            Arc::new(sock)
+        });
         if let Some(sock6) = sock6.as_ref() {
             tracing::debug!(transport_id = ?id, local_addr = %sock6.local_addr().unwrap(), "direct udp6 socket bound");
-            slf.attach_stream(udp_rx(sock6.clone()).boxed(), (), ());
+            slf.attach_stream(udp_rx(sock6.clone(), stun_wait.clone()).boxed(), (), ());
         } else {
             tracing::debug!("could not bind ipv6 direct");
         }
@@ -129,7 +144,7 @@ impl kameo::Actor for DirectActor {
         slf.attach_stream(UnboundedReceiverStream::new(rx).map(UdpTx), (), ());
 
         env.subscribe::<Arc<PeerState>>(&slf).await?;
-        env.subscribe::<StunAddress>(&slf).await?;
+        env.subscribe::<StunServers>(&slf).await?;
         env.subscribe::<Arc<netmon::State>>(&slf).await?;
         env.subscribe::<SendDisco>(&slf).await?;
 
@@ -142,6 +157,9 @@ impl kameo::Actor for DirectActor {
             env,
             peers: Default::default(),
             stun_addr: None,
+            stun_servers: vec![],
+            stun_wait,
+            probe_running: false,
             addrs_v4: vec![],
             addrs_v6: vec![],
             reachable: Default::default(),
@@ -150,7 +168,10 @@ impl kameo::Actor for DirectActor {
     }
 }
 
-fn udp_rx(sock: impl Borrow<UdpSocket>) -> impl Stream<Item = UdpRx> {
+fn udp_rx(
+    sock: impl Borrow<UdpSocket>,
+    stun_wait: Arc<Mutex<HashMap<[u8; 12], oneshot::Sender<SocketAddr>>>>,
+) -> impl Stream<Item = UdpRx> {
     // Required capacity to receive a UDP datagram. Any smaller and data may technically be dropped
     // with a large MTU or a large fragmented packet. We keep the buffer capacity topped off to this
     // size each time we try a receive in the loop below.
@@ -158,43 +179,53 @@ fn udp_rx(sock: impl Borrow<UdpSocket>) -> impl Stream<Item = UdpRx> {
 
     let buf = BytesMut::zeroed(REQUIRED_CAPACITY);
 
-    futures_util::stream::try_unfold((sock, buf), async |(sock, mut buf)| {
-        let mut v = vec![];
+    futures_util::stream::try_unfold(
+        (sock, buf, stun_wait),
+        async |(sock, mut buf, stun_wait)| {
+            let mut v = vec![];
 
-        // Batch receive: wait until any packets are available from the socket, then try
-        // to read as many as possible until we exhaust the underlying buffer and see a wouldblock.
-        {
-            let sock = sock.borrow();
-            sock.readable().await?;
+            // Batch receive: wait until any packets are available from the socket, then try
+            // to read as many as possible until we exhaust the underlying buffer and see a wouldblock.
+            {
+                let sock = sock.borrow();
+                sock.readable().await?;
 
-            loop {
-                if buf.len() < REQUIRED_CAPACITY {
-                    buf.resize(REQUIRED_CAPACITY, 0);
-                }
-
-                let (n, who) = match sock.try_recv_from(&mut buf) {
-                    Ok((n, who)) => (n, who),
-                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                        break;
+                loop {
+                    if buf.len() < REQUIRED_CAPACITY {
+                        buf.resize(REQUIRED_CAPACITY, 0);
                     }
-                    // Windows turns an ICMP unreachable from an earlier send into
-                    // WSAECONNRESET on the next receive. The socket is still open;
-                    // ending the stream here kills hole-punching and leaves traffic on DERP.
-                    Err(e) if e.kind() == ErrorKind::ConnectionReset => {
+
+                    let (n, who) = match sock.try_recv_from(&mut buf) {
+                        Ok((n, who)) => (n, who),
+                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                            break;
+                        }
+                        // Windows turns an ICMP unreachable from an earlier send into
+                        // WSAECONNRESET on the next receive. The socket is still open;
+                        // ending the stream here kills hole-punching and leaves traffic on DERP.
+                        Err(e) if e.kind() == ErrorKind::ConnectionReset => {
+                            break;
+                        }
+                        Err(e) => return Err(e),
+                    };
+
+                    if take_stun_reply(&stun_wait, &buf[..n]) {
                         continue;
                     }
-                    Err(e) => return Err(e),
-                };
 
-                let pkt_buf = buf.split_to(n);
-                v.push((who, PacketMut::from(pkt_buf)));
-            }
-        };
+                    let pkt_buf = buf.split_to(n);
+                    v.push((who, PacketMut::from(pkt_buf)));
+                }
+            };
 
-        tracing::trace!(n_pkts = v.len(), "udp rx batch");
+            tracing::trace!(n_pkts = v.len(), "udp rx batch");
 
-        Ok(Some((v.into_iter().into_group_map(), (sock, buf))))
-    })
+            Ok(Some((
+                v.into_iter().into_group_map(),
+                (sock, buf, stun_wait),
+            )))
+        },
+    )
     .map(UdpRx)
 }
 
@@ -322,16 +353,63 @@ impl Message<Arc<netmon::State>> for DirectActor {
     }
 }
 
-impl Message<StunAddress> for DirectActor {
+#[derive(Clone, Copy)]
+struct StunMapped(SocketAddr);
+
+#[derive(Clone, Copy)]
+struct ProbeFinished;
+
+impl Message<StunServers> for DirectActor {
     type Reply = ();
 
-    async fn handle(&mut self, _msg: StunAddress, _ctx: &mut Context<Self, Self::Reply>) {
-        // TODO(npry): currently we're STUNning with the wrong socket (the global one in the
-        //  stunner), so the local addr + NAT mapping is going to be wrong. don't add the STUNned
-        //  address to our endpoints until it can actually reach this socket.
+    async fn handle(
+        &mut self,
+        StunServers(servers): StunServers,
+        ctx: &mut Context<Self, Self::Reply>,
+    ) {
+        self.stun_servers = servers.to_vec();
+        if self.probe_running || self.stun_servers.is_empty() {
+            return;
+        }
+        self.probe_running = true;
+        let sock = self.sock4.clone();
+        let wait = self.stun_wait.clone();
+        let servers = self.stun_servers.clone();
+        let slf = ctx.actor_ref().clone();
+        tokio::spawn(async move {
+            for server in servers.into_iter().filter(|addr| addr.is_ipv4()).take(3) {
+                if let Some(addr) = probe_mapped(&sock, server, &wait).await {
+                    let _ = slf.tell(StunMapped(addr)).await;
+                    break;
+                }
+            }
+            let _ = slf.tell(ProbeFinished).await;
+        });
+    }
+}
 
-        // self.stun_addr = Some(msg.addr);
-        // self.publish_endpoints().await.unwrap()
+impl Message<StunMapped> for DirectActor {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        StunMapped(addr): StunMapped,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) {
+        if self.stun_addr == Some(addr) {
+            return;
+        }
+        self.stun_addr = Some(addr);
+        tracing::info!(mapped = %addr, "组网直连地址已更新");
+        self.publish_endpoints().await.unwrap();
+    }
+}
+
+impl Message<ProbeFinished> for DirectActor {
+    type Reply = ();
+
+    async fn handle(&mut self, _: ProbeFinished, _ctx: &mut Context<Self, Self::Reply>) {
+        self.probe_running = false;
     }
 }
 
@@ -422,6 +500,119 @@ impl Message<StreamMessage<UdpRx, (), ()>> for DirectActor {
                 tracing::error!(error = %e, "unrecoverable error, die");
                 panic!()
             }
+        }
+    }
+}
+
+/// Windows reports ICMP unreachable as WSAECONNRESET on the next UDP read and
+/// then keeps the socket in that state. Direct discovery dies if that error is fatal.
+#[cfg(windows)]
+fn ignore_udp_connreset(sock: &UdpSocket) {
+    use std::os::windows::io::AsRawSocket;
+
+    const SIO_UDP_CONNRESET: u32 = 0x9800_000C;
+    #[link(name = "ws2_32")]
+    unsafe extern "system" {
+        fn WSAIoctl(
+            s: usize,
+            code: u32,
+            in_buf: *const u8,
+            in_len: u32,
+            out_buf: *mut u8,
+            out_len: u32,
+            returned: *mut u32,
+            overlapped: *mut core::ffi::c_void,
+            completion: *mut core::ffi::c_void,
+        ) -> i32;
+    }
+
+    let flag = 0u32.to_ne_bytes();
+    let mut returned = 0u32;
+    let rc = unsafe {
+        WSAIoctl(
+            sock.as_raw_socket() as usize,
+            SIO_UDP_CONNRESET,
+            flag.as_ptr(),
+            4,
+            std::ptr::null_mut(),
+            0,
+            &mut returned,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if rc != 0 {
+        tracing::warn!(rc, "关闭 UDP 连接重置失败");
+    }
+}
+
+#[cfg(not(windows))]
+fn ignore_udp_connreset(_sock: &UdpSocket) {}
+
+fn take_stun_reply(
+    wait: &Mutex<HashMap<[u8; 12], oneshot::Sender<SocketAddr>>>,
+    packet: &[u8],
+) -> bool {
+    let Some((txn, mapped)) = stun_mapped(packet) else {
+        return false;
+    };
+    if let Some(tx) = wait
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .remove(&txn)
+    {
+        let _ = tx.send(mapped);
+    }
+    true
+}
+
+fn stun_mapped(packet: &[u8]) -> Option<([u8; 12], SocketAddr)> {
+    if packet.len() < 20 || packet[4..8] != [0x21, 0x12, 0xA4, 0x42] {
+        return None;
+    }
+    let (msg, _) = stun_rs::MessageDecoderBuilder::default()
+        .build()
+        .decode(packet)
+        .ok()?;
+    let mapped = msg
+        .get::<XorMappedAddress>()?
+        .as_xor_mapped_address()
+        .ok()?;
+    let txn = packet[8..20].try_into().ok()?;
+    Some((txn, *mapped.socket_address()))
+}
+
+async fn probe_mapped(
+    sock: &UdpSocket,
+    server: SocketAddr,
+    wait: &Mutex<HashMap<[u8; 12], oneshot::Sender<SocketAddr>>>,
+) -> Option<SocketAddr> {
+    let req = StunMessageBuilder::new(BINDING, MessageClass::Request)
+        .with_attribute(Software::new("omnipanel").unwrap())
+        .with_attribute(Fingerprint::default())
+        .build();
+    let encoder = stun_rs::MessageEncoderBuilder::default().build();
+    let mut buf = BytesMut::zeroed(128);
+    let n = encoder.encode(&mut buf, &req).ok()?;
+    buf.truncate(n);
+    let txn: [u8; 12] = buf.get(8..20)?.try_into().ok()?;
+    let (tx, rx) = oneshot::channel();
+    wait.lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .insert(txn, tx);
+    if sock.send_to(&buf, server).await.is_err() {
+        wait.lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .remove(&txn);
+        return None;
+    }
+    match tokio::time::timeout(Duration::from_secs(3), rx).await {
+        Ok(Ok(addr)) => Some(addr),
+        _ => {
+            wait.lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .remove(&txn);
+            None
         }
     }
 }

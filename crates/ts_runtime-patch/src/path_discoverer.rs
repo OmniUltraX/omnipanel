@@ -56,6 +56,7 @@ use crate::{
 pub struct PathDiscoverer {
     active_peers: ActivePeers,
     best_paths: BestPathMap,
+    spawned: HashSet<PeerId>,
     env: Env,
 }
 
@@ -76,12 +77,14 @@ impl kameo::Actor for PathDiscoverer {
 
     async fn on_start(env: Env, slf: ActorRef<Self>) -> Result<Self, Self::Error> {
         env.subscribe::<ActivePeers>(&slf).await?;
+        env.subscribe::<Arc<PeerState>>(&slf).await?;
         env.subscribe::<PeerBestPath>(&slf).await?;
         env.register(None, &slf).await?;
 
         Ok(Self {
             env,
             best_paths: Default::default(),
+            spawned: Default::default(),
             active_peers: Default::default(),
         })
     }
@@ -99,6 +102,18 @@ impl kameo::Actor for PathDiscoverer {
 }
 
 impl PathDiscoverer {
+    async fn ensure_peer(&mut self, peer: PeerId, ctx: &mut Context<Self, ()>) {
+        if !self.spawned.insert(peer) {
+            return;
+        }
+        tracing::trace!(peer_id = ?peer, "spawning actor for peer");
+        let aref = PeerPd::supervise(ctx.actor_ref(), (self.env.clone(), peer))
+            .restart_policy(RestartPolicy::Transient)
+            .spawn()
+            .await;
+        aref.wait_for_startup_result().await.unwrap();
+    }
+
     async fn publish_best_paths(&self) {
         self.env
             .publish(BestPaths(Arc::new(self.best_paths.clone())))
@@ -111,28 +126,20 @@ impl Message<ActivePeers> for PathDiscoverer {
     type Reply = ();
 
     async fn handle(&mut self, msg: ActivePeers, ctx: &mut Context<Self, Self::Reply>) {
-        for &to_create in msg.difference(&self.active_peers) {
-            tracing::trace!(peer_id = ?to_create, "spawning actor for active peer");
-
-            let aref = PeerPd::supervise(ctx.actor_ref(), (self.env.clone(), to_create))
-                .restart_policy(RestartPolicy::Transient)
-                .spawn()
-                .await;
-
-            aref.wait_for_startup_result().await.unwrap();
+        for &to_create in msg.iter() {
+            self.ensure_peer(to_create, ctx).await;
         }
-
-        let mut any_deleted = false;
-        for to_delete in self.active_peers.difference(&msg) {
-            // deletions are handled by the PeerPds themselves
-            any_deleted = any_deleted || self.best_paths.remove(to_delete).is_some();
-        }
-
-        if any_deleted {
-            self.publish_best_paths().await;
-        }
-
         self.active_peers = msg;
+    }
+}
+
+impl Message<Arc<PeerState>> for PathDiscoverer {
+    type Reply = ();
+
+    async fn handle(&mut self, msg: Arc<PeerState>, ctx: &mut Context<Self, Self::Reply>) {
+        for &peer in msg.peers.peers().keys() {
+            self.ensure_peer(peer, ctx).await;
+        }
     }
 }
 
@@ -264,10 +271,9 @@ impl PeerPd {
 
         self.started_probing = true;
 
+        let had_inflight = !self.current_probes.is_empty();
         self.tx_lookup.clear();
         self.previous_probe_latencies.clear();
-
-        let latencies_was_empty = self.previous_probe_latencies.is_empty();
 
         for (ep, state) in self.current_probes.drain() {
             let ProbeState::Success { latency, transport } = state else {
@@ -280,7 +286,8 @@ impl PeerPd {
                 .insert((transport, ep), latency);
         }
 
-        if latencies_was_empty != self.previous_probe_latencies.is_empty() {
+        let found_direct = !self.previous_probe_latencies.is_empty();
+        if found_direct {
             let best = self
                 .previous_probe_latencies
                 .iter()
@@ -290,6 +297,15 @@ impl PeerPd {
                 .publish_noretain(PeerBestPath {
                     peer: self.peer_id,
                     ep: best.map(|((transport, ep), _latency)| (*transport, ep.clone())),
+                })
+                .await
+                .unwrap();
+        }
+        if had_inflight {
+            self.env
+                .publish_noretain(ProbeRound {
+                    peer: self.peer_id,
+                    found_direct,
                 })
                 .await
                 .unwrap();
@@ -411,6 +427,13 @@ impl PeerPd {
     }
 }
 
+/// One probe round finished. `found_direct` is false when every ping missed.
+#[derive(Clone, Copy)]
+pub struct ProbeRound {
+    pub peer: PeerId,
+    pub found_direct: bool,
+}
+
 /// Periodic maintenance message triggering probes.
 #[derive(Clone, Copy)]
 struct ScheduleProbe;
@@ -423,7 +446,6 @@ impl kameo::Actor for PeerPd {
         (env, peer_id): Self::Args,
         slf: ActorRef<Self>,
     ) -> Result<Self, Self::Error> {
-        env.subscribe::<ActivePeers>(&slf).await?;
         env.subscribe::<IncomingDiscoMsg>(&slf).await?;
         env.subscribe::<Arc<PeerState>>(&slf).await?;
         env.subscribe::<NewEndpoints>(&slf).await?;
@@ -520,21 +542,11 @@ impl Message<NewEndpoints> for PeerPd {
     type Reply = ();
 
     async fn handle(&mut self, msg: NewEndpoints, _ctx: &mut Context<Self, Self::Reply>) {
+        let changed = self.this_node_endpoints.as_ref() != msg.0.as_ref();
         self.this_node_endpoints = msg.0;
 
-        if !self.started_probing {
+        if !self.started_probing || changed {
             self.start_probes().await;
-        }
-    }
-}
-
-impl Message<ActivePeers> for PeerPd {
-    type Reply = ();
-
-    async fn handle(&mut self, msg: ActivePeers, ctx: &mut Context<Self, Self::Reply>) {
-        if !msg.contains(&self.peer_id) {
-            tracing::debug!(peer_id = %self.peer_id, "peer went inactive, stopping path discovery");
-            ctx.stop();
         }
     }
 }
