@@ -15,7 +15,7 @@ import {
   makeCloudAccountTabId,
   makeCloudResourceTabId,
   makeCloudResourcesTabId,
-  sanitizeCloudDockTabs,
+  repairCloudDockTabs,
   type CloudDockOpenMode,
   type CloudWorkspaceTab,
 } from "../modules/cloud/cloudWorkspaceTabs";
@@ -44,55 +44,59 @@ function reconcileActiveTabId(tabs: CloudWorkspaceTab[], activeTabId: string | n
   return tabs[tabs.length - 1]?.id ?? null;
 }
 
+function replacePreviewTab(
+  state: CloudDockState,
+  previewTab: CloudWorkspaceTab,
+  makeTab: (id: string, preview: boolean) => CloudWorkspaceTab,
+  preview: boolean,
+): Pick<CloudDockState, "tabs" | "activeTabId"> {
+  const next = makeTab("", preview);
+  const tabs =
+    next.id === previewTab.id
+      ? state.tabs.map((tab) => (tab.id === previewTab.id ? next : tab))
+      : state.tabs
+          .filter((tab) => tab.id !== next.id)
+          .map((tab) => (tab.id === previewTab.id ? next : tab));
+  return { tabs, activeTabId: next.id };
+}
+
 function openOrFocus(
   state: CloudDockState,
   mode: CloudDockOpenMode,
   existingTabId: string | undefined,
   makeTab: (id: string, preview: boolean) => CloudWorkspaceTab,
 ): Pick<CloudDockState, "tabs" | "activeTabId"> {
-  const previewTab = findPreviewDockTab(state.tabs);
+  const tabs = repairCloudDockTabs(state.tabs);
+  const repaired = tabs === state.tabs ? state : { ...state, tabs };
+  const previewTab = findPreviewDockTab(repaired.tabs);
 
   if (mode === "permanent") {
-    if (existingTabId) {
+    if (existingTabId && repaired.tabs.some((tab) => tab.id === existingTabId)) {
       return {
-        tabs: state.tabs.map((tab) => (tab.id === existingTabId ? { ...tab, preview: false } : tab)),
+        tabs: repaired.tabs.map((tab) => (tab.id === existingTabId ? { ...tab, preview: false } : tab)),
         activeTabId: existingTabId,
       };
     }
-    if (previewTab) {
-      return {
-        tabs: state.tabs.map((tab) =>
-          tab.id === previewTab.id ? makeTab(previewTab.id, false) : tab,
-        ),
-        activeTabId: previewTab.id,
-      };
-    }
+    if (previewTab) return replacePreviewTab(repaired, previewTab, makeTab, false);
     const id = makeTab("", false).id;
-    return { tabs: [...state.tabs, makeTab(id, false)], activeTabId: id };
+    return { tabs: [...repaired.tabs, makeTab(id, false)], activeTabId: id };
   }
 
   if (existingTabId) {
-    const existing = state.tabs.find((tab) => tab.id === existingTabId);
+    const existing = repaired.tabs.find((tab) => tab.id === existingTabId);
     if (existing && !existing.preview) {
-      return { tabs: state.tabs, activeTabId: existingTabId };
+      return { tabs: repaired.tabs, activeTabId: existingTabId };
     }
   }
 
-  if (previewTab) {
-    return {
-      tabs: state.tabs.map((tab) =>
-        tab.id === previewTab.id ? makeTab(previewTab.id, true) : tab,
-      ),
-      activeTabId: previewTab.id,
-    };
-  }
+  if (previewTab) return replacePreviewTab(repaired, previewTab, makeTab, true);
 
   if (existingTabId) {
-    return { tabs: state.tabs, activeTabId: existingTabId };
+    return { tabs: repaired.tabs, activeTabId: existingTabId };
   }
 
   const created = makeTab("", true);
-  return { tabs: [...state.tabs, created], activeTabId: created.id };
+  return { tabs: [...repaired.tabs, created], activeTabId: created.id };
 }
 
 export const useCloudDockStore = create<CloudDockState>()(
@@ -103,22 +107,26 @@ export const useCloudDockStore = create<CloudDockState>()(
       dockLayout: null,
 
       selectAccount: (accountId, mode = "preview") => {
-        set((state) =>
-          openOrFocus(state, mode, findTabIdForAccount(state.tabs, accountId), (id, preview) => ({
+        set((state) => {
+          const tabs = repairCloudDockTabs(state.tabs);
+          const base = tabs === state.tabs ? state : { ...state, tabs };
+          return openOrFocus(base, mode, findTabIdForAccount(base.tabs, accountId), (id, preview) => ({
             id: id || makeCloudAccountTabId(accountId),
             kind: "account",
             accountId,
             preview,
-          })),
-        );
+          }));
+        });
       },
 
       selectResources: (accountId, capability, mode = "preview") => {
-        set((state) =>
-          openOrFocus(
-            state,
+        set((state) => {
+          const tabs = repairCloudDockTabs(state.tabs);
+          const base = tabs === state.tabs ? state : { ...state, tabs };
+          return openOrFocus(
+            base,
             mode,
-            findTabIdForResources(state.tabs, accountId, capability),
+            findTabIdForResources(base.tabs, accountId, capability),
             (id, preview) => ({
               id: id || makeCloudResourcesTabId(accountId, capability),
               kind: "resources",
@@ -126,16 +134,18 @@ export const useCloudDockStore = create<CloudDockState>()(
               capability,
               preview,
             }),
-          ),
-        );
+          );
+        });
       },
 
       selectResource: (accountId, capability, resourceId, regionId = "", mode = "preview") => {
-        set((state) =>
-          openOrFocus(
-            state,
+        set((state) => {
+          const tabs = repairCloudDockTabs(state.tabs);
+          const base = tabs === state.tabs ? state : { ...state, tabs };
+          return openOrFocus(
+            base,
             mode,
-            findTabIdForResource(state.tabs, accountId, capability, resourceId),
+            findTabIdForResource(base.tabs, accountId, capability, resourceId),
             (id, preview) => ({
               id: id || makeCloudResourceTabId(accountId, capability, resourceId),
               kind: "resource",
@@ -145,8 +155,8 @@ export const useCloudDockStore = create<CloudDockState>()(
               regionId,
               preview,
             }),
-          ),
-        );
+          );
+        });
       },
 
       closeTab: (tabId) => {
@@ -178,7 +188,7 @@ export const useCloudDockStore = create<CloudDockState>()(
           return persisted as CloudDockState;
         }
         const state = persisted as CloudDockState;
-        const tabs = sanitizeCloudDockTabs(state.tabs ?? []);
+        const tabs = repairCloudDockTabs(state.tabs ?? []);
         const tabIds = tabs.map((tab) => tab.id);
         const activeId = reconcileActiveTabId(tabs, state.activeTabId ?? null) ?? tabIds[0] ?? "";
         const normalized = safeLayoutForFromJson(state.dockLayout ?? null, tabIds, activeId);

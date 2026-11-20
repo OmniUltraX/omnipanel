@@ -15,7 +15,8 @@ import type { PluginListItem } from "../../ipc/bindings";
 import { cloudCapabilitiesForPlugin, isGlobalCloudCapability, shouldShowCloudRegionFilter } from "./cloudCapabilities";
 import { usePluginRuntimeStore } from "../../stores/pluginRuntimeStore";
 import { cloudRemoteKindAliases, rdsEngineToDbType } from "./cloudResourceLinks";
-import { makeCloudTreeKey } from "./cloudWorkspaceTabs";
+import { makeCloudResourceTabId, makeCloudTreeKey, repairCloudDockTabs } from "./cloudWorkspaceTabs";
+import { useCloudDockStore } from "../../stores/cloudDockStore";
 import { fallbackCloudRegions } from "./cloudRegionDiscovery";
 import { cloudRegionLabel } from "./cloudForm";
 import { filterCloudResourceRows, matchesCloudListQuery, resolveCloudQueryRegions } from "./cloudResourceApi";
@@ -141,6 +142,46 @@ describe("cloud tree keys", () => {
         resourceId: "i-1",
       }),
     ).toBe("cloud:a1:compute:i-1");
+  });
+
+  it("预览换到另一个域名后，两条记录各自占一个标签", () => {
+    const songId = "S20260M17V479188";
+    const colorId = "S20249R0ZI568736";
+    const accountId = "acc";
+    const repaired = repairCloudDockTabs([
+      {
+        id: makeCloudResourceTabId(accountId, "domains", songId),
+        kind: "resource",
+        accountId,
+        capability: "domains",
+        resourceId: colorId,
+        regionId: "global",
+      },
+      {
+        id: makeCloudResourceTabId(accountId, "domains", songId),
+        kind: "resource",
+        accountId,
+        capability: "domains",
+        resourceId: songId,
+        regionId: "global",
+      },
+    ]);
+    expect(repaired.map((tab) => tab.id)).toEqual([
+      makeCloudResourceTabId(accountId, "domains", colorId),
+      makeCloudResourceTabId(accountId, "domains", songId),
+    ]);
+
+    useCloudDockStore.setState({ tabs: [], activeTabId: null, dockLayout: null });
+    useCloudDockStore.getState().selectResource(accountId, "domains", songId, "global", "preview");
+    useCloudDockStore.getState().selectResource(accountId, "domains", colorId, "global", "permanent");
+    useCloudDockStore.getState().selectResource(accountId, "domains", songId, "global", "permanent");
+    const tabs = useCloudDockStore.getState().tabs;
+    expect(tabs.flatMap((tab) => (tab.kind === "resource" ? [tab.resourceId] : []))).toEqual([
+      colorId,
+      songId,
+    ]);
+    expect(new Set(tabs.map((tab) => tab.id)).size).toBe(2);
+    useCloudDockStore.setState({ tabs: [], activeTabId: null, dockLayout: null });
   });
 
   it("capability i18n 避开 compute.lite 点路径", () => {

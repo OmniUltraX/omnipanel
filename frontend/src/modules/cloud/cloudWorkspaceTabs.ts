@@ -103,6 +103,35 @@ export function sanitizeCloudDockTabs(tabs: CloudWorkspaceTab[]): CloudWorkspace
   });
 }
 
+/** 预览标签换资源时必须换成这条资源自己的 id，否则两条记录挤在同一个面板上。 */
+export function canonicalCloudTabId(tab: CloudWorkspaceTab): string {
+  if (tab.kind === "account") return makeCloudAccountTabId(tab.accountId);
+  if (tab.kind === "resources") return makeCloudResourcesTabId(tab.accountId, tab.capability);
+  return makeCloudResourceTabId(tab.accountId, tab.capability, tab.resourceId);
+}
+
+export function repairCloudDockTabs(tabs: CloudWorkspaceTab[]): CloudWorkspaceTab[] {
+  const clean = sanitizeCloudDockTabs(tabs);
+  const seen = new Set<string>();
+  const out: CloudWorkspaceTab[] = [];
+  let changed = clean.length !== tabs.length;
+  for (const tab of clean) {
+    const id = canonicalCloudTabId(tab);
+    if (seen.has(id)) {
+      changed = true;
+      continue;
+    }
+    seen.add(id);
+    if (id !== tab.id) {
+      changed = true;
+      out.push({ ...tab, id });
+    } else {
+      out.push(tab);
+    }
+  }
+  return changed ? out : tabs;
+}
+
 export function capabilityHasDeclaredAction(
   actions: { id: string }[] | undefined,
   actionId: string,

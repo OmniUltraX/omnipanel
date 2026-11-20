@@ -173,6 +173,7 @@ export default {
       rr: "主机记录",
       value: "记录值",
       ttl: "TTL",
+      line: "线路",
       default: "默认值",
       method: "方式",
       startTime: "开始时间",
@@ -206,6 +207,7 @@ export default {
     },
     children: {
       empty: "暂无子资源",
+      loading: "正在向云厂商读取…",
       fields: "详情",
       kinds: {
         dnsRecord: "解析记录",
@@ -279,6 +281,7 @@ export default {
       whitelist: "白名单",
       empty: "暂无规则",
       emptyHint: "点击右上角添加，立即下发到云厂商。",
+      loading: "正在向云厂商读取规则…",
       count: "{count} 条",
       add: "添加规则",
       addHint: "写操作会要求二次确认",

@@ -15,7 +15,7 @@ import { CloudConnectionDialog } from "./CloudConnectionDialog";
 import { CloudDockPanel } from "./CloudDockPanel";
 import { CloudTreeSidebar } from "./CloudTreeSidebar";
 import { cloudBrandKind, cloudCapabilityLabel, connectionToCloudAccount, type CloudAccount } from "./cloudForm";
-import { makeCloudTreeKey, type CloudSidebarNavTarget } from "./cloudWorkspaceTabs";
+import { makeCloudTreeKey, repairCloudDockTabs, type CloudSidebarNavTarget } from "./cloudWorkspaceTabs";
 import { CONNECTION_TAG_KINDS } from "../tags/tagKinds";
 import { passTagFilter, useModuleTagFilter } from "../tags/useModuleTagFilter";
 import type { Connection } from "../../ipc/bindings";
@@ -169,6 +169,16 @@ export function CloudPanel() {
       );
     }
   }, [activeTabId, dockTabs]);
+
+  useEffect(() => {
+    const state = useCloudDockStore.getState();
+    const tabs = repairCloudDockTabs(state.tabs);
+    if (tabs === state.tabs) return;
+    const activeTabId = tabs.some((tab) => tab.id === state.activeTabId)
+      ? state.activeTabId
+      : (tabs[tabs.length - 1]?.id ?? null);
+    useCloudDockStore.setState({ tabs, activeTabId });
+  }, [dockTabs]);
 
   const handleCloseTab = useCallback(
     (tabId: string) => {

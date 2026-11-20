@@ -1,11 +1,15 @@
 import { useMemo, useState } from "react";
 import type { CloudNetworkRule } from "../../ipc/bindings";
 import { useI18n } from "../../i18n";
-import { Button } from "../../components/ui/primitives/Button";
+import { WorkbenchActionButton } from "../../components/ui/primitives/WorkbenchActionButton";
+import { WorkbenchPanelHeader } from "../../components/ui/primitives/WorkbenchPanelHeader";
+import {
+  DbTablesPanelGrid,
+  type DbTablesPanelGridColumn,
+} from "../database/workspace/DbTablesPanelGrid";
 import { TextInput } from "../../components/ui/form/TextInput";
 import { Select } from "../../components/ui/form/Select";
 import { FormDialog, FormField } from "../../components/ui/form/FormDialog";
-import { cloudPolicyTone } from "./cloudDetailUi";
 import { CloudPager } from "./CloudListPager";
 import { useCloudPaging } from "./cloudPaging";
 
@@ -17,6 +21,8 @@ export function CloudRuleEditor({
   onAuthorize,
   onRevoke,
   cidrOnly,
+  loading = false,
+  error,
 }: {
   rules: CloudNetworkRule[];
   busy?: boolean;
@@ -24,6 +30,8 @@ export function CloudRuleEditor({
   onRevoke: (rule: CloudNetworkRule) => Promise<void | boolean>;
   /** RDS 白名单只填 CIDR。 */
   cidrOnly?: boolean;
+  loading?: boolean;
+  error?: string;
 }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<RuleDirection>("ingress");
@@ -45,6 +53,78 @@ export function CloudRuleEditor({
 
   const rows = cidrOnly ? rules : grouped[tab];
   const paging = useCloudPaging(rows, cidrOnly ? "whitelist" : tab);
+  const columns = useMemo<DbTablesPanelGridColumn<CloudNetworkRule>[]>(() => {
+    const cols: DbTablesPanelGridColumn<CloudNetworkRule>[] = [
+      {
+        id: "protocol",
+        header: t("cloud.rules.protocol"),
+        defaultWidth: 90,
+        render: (rule) => (rule.protocol || "—").toUpperCase(),
+      },
+      {
+        id: "port",
+        header: t("cloud.rules.portRange"),
+        nameCell: true,
+        defaultWidth: 110,
+        render: (rule) => rule.portRange || "—",
+      },
+      {
+        id: "cidr",
+        header: t("cloud.rules.cidr"),
+        nameCell: true,
+        defaultWidth: 180,
+        render: (rule) => rule.cidr || rule.sourceGroupId || "—",
+      },
+    ];
+    if (!cidrOnly) {
+      cols.push(
+        {
+          id: "policy",
+          header: t("cloud.rules.policy"),
+          defaultWidth: 90,
+          render: (rule) =>
+            rule.policy === "drop"
+              ? t("cloud.rules.drop")
+              : rule.policy === "accept"
+                ? t("cloud.rules.accept")
+                : rule.policy || "—",
+        },
+        {
+          id: "priority",
+          header: t("cloud.rules.priority"),
+          defaultWidth: 80,
+          render: (rule) => rule.priority || "—",
+        },
+      );
+    }
+    cols.push(
+      {
+        id: "description",
+        header: t("cloud.rules.description"),
+        defaultWidth: 220,
+        render: (rule) => rule.description || "—",
+      },
+      {
+        id: "actions",
+        header: "",
+        variant: "actions",
+        defaultWidth: 72,
+        render: (rule) => (
+          <WorkbenchActionButton
+            danger
+            disabled={busy || submitting}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onRevoke(rule);
+            }}
+          >
+            {t("cloud.rules.revoke")}
+          </WorkbenchActionButton>
+        ),
+      },
+    );
+    return cols;
+  }, [busy, cidrOnly, onRevoke, submitting, t]);
 
   const openAdd = () => {
     setDirection(tab);
@@ -75,108 +155,75 @@ export function CloudRuleEditor({
     }
   };
 
+  const emptyTitle = loading
+    ? t("cloud.rules.loading")
+    : error?.trim()
+      ? error
+      : t("cloud.rules.empty");
+
   return (
     <div className="cloud-rules">
-      <section className="cloud-subpanel">
-        <div className="cloud-subpanel__bar">
-          {cidrOnly ? (
-            <span className="cloud-subpanel__title">
-              {t("cloud.rules.whitelist")}
-              <span className="cloud-chip">{t("cloud.rules.count", { count: String(rules.length) })}</span>
-            </span>
-          ) : (
-            <div className="cloud-detail__tabs cloud-subpanel__tabs" role="tablist">
-              {(["ingress", "egress"] as const).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === item}
-                  className={`cloud-detail__tab${tab === item ? " is-active" : ""}`}
-                  onClick={() => setTab(item)}
-                >
-                  {t(`cloud.rules.${item}`)}
-                  <span className="cloud-detail__tab-count">{grouped[item].length}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <Button type="button" size="sm" disabled={busy || submitting} onClick={openAdd}>
-            {t("cloud.rules.add")}
-          </Button>
-        </div>
-        <div className="cloud-table-wrap">
+      <div className="cloud-resource-list">
+        <WorkbenchPanelHeader
+          label={cidrOnly ? t("cloud.rules.whitelist") : t("cloud.detail.slots.rules")}
+          extra={
+            cidrOnly ? (
+              <span className="workbench-panel-header-tag">
+                {t("cloud.rules.count", { count: String(rules.length) })}
+              </span>
+            ) : (
+              <div className="cloud-detail__tabs" role="tablist">
+                {(["ingress", "egress"] as const).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === item}
+                    className={`cloud-detail__tab${tab === item ? " is-active" : ""}`}
+                    onClick={() => setTab(item)}
+                  >
+                    {t(`cloud.rules.${item}`)}
+                    <span className="cloud-detail__tab-count">{grouped[item].length}</span>
+                  </button>
+                ))}
+              </div>
+            )
+          }
+          actions={
+            <WorkbenchActionButton disabled={busy || submitting} onClick={openAdd}>
+              {t("cloud.rules.add")}
+            </WorkbenchActionButton>
+          }
+        />
         {rows.length === 0 ? (
-          <div className="cloud-empty">
-            <strong>{t("cloud.rules.empty")}</strong>
-            <p>{t("cloud.rules.emptyHint")}</p>
+          <div className="cloud-resource-list__empty">
+            <p>{emptyTitle}</p>
+            {!loading && !error?.trim() ? <p className="form-hint">{t("cloud.rules.emptyHint")}</p> : null}
           </div>
         ) : (
-            <table className="cloud-table">
-              <thead>
-                <tr>
-                  <th>{t("cloud.rules.protocol")}</th>
-                  <th>{t("cloud.rules.portRange")}</th>
-                  <th>{t("cloud.rules.cidr")}</th>
-                  {cidrOnly ? null : <th>{t("cloud.rules.policy")}</th>}
-                  {cidrOnly ? null : <th>{t("cloud.rules.priority")}</th>}
-                  <th>{t("cloud.rules.description")}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {paging.slice.map((rule, index) => {
-                  const policyTone = cloudPolicyTone(rule.policy);
-                  return (
-                    <tr key={rule.id || `${rule.direction}-${rule.protocol}-${rule.portRange}-${rule.cidr}-${index}`}>
-                      <td>
-                        <span className="cloud-chip">{(rule.protocol || "—").toUpperCase()}</span>
-                      </td>
-                      <td className="cloud-table__mono">{rule.portRange || "—"}</td>
-                      <td className="cloud-table__mono">{rule.cidr || rule.sourceGroupId || "—"}</td>
-                      {cidrOnly ? null : (
-                        <td>
-                          <span className={`cloud-pill cloud-pill--${policyTone}`}>
-                            {rule.policy === "drop"
-                              ? t("cloud.rules.drop")
-                              : rule.policy === "accept"
-                                ? t("cloud.rules.accept")
-                                : rule.policy || "—"}
-                          </span>
-                        </td>
-                      )}
-                      {cidrOnly ? null : <td>{rule.priority || "—"}</td>}
-                      <td className="cloud-table__desc">{rule.description || "—"}</td>
-                      <td className="cloud-table__actions">
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          disabled={busy || submitting}
-                          onClick={() => void onRevoke(rule)}
-                        >
-                          {t("cloud.rules.revoke")}
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="cloud-resource-list__body">
+            <DbTablesPanelGrid
+              columns={columns}
+              rows={paging.slice}
+              rowKey={(rule, index) =>
+                rule.id || `${rule.direction}-${rule.protocol}-${rule.portRange}-${rule.cidr}-${index}`
+              }
+              columnResizeStorageKey={cidrOnly ? "cloud-rules-whitelist" : "cloud-rules"}
+            />
+            <CloudPager
+              page={paging.page}
+              pageSize={paging.pageSize}
+              total={paging.total}
+              totalPages={paging.totalPages}
+              from={paging.from}
+              to={paging.to}
+              disabled={busy || submitting}
+              onPageChange={paging.setPage}
+              onPageSizeChange={paging.setPageSize}
+            />
+          </div>
         )}
-        </div>
-        <CloudPager
-          page={paging.page}
-          pageSize={paging.pageSize}
-          total={paging.total}
-          totalPages={paging.totalPages}
-          from={paging.from}
-          to={paging.to}
-          disabled={busy || submitting}
-          onPageChange={paging.setPage}
-          onPageSizeChange={paging.setPageSize}
-        />
-      </section>
+      </div>
 
       <FormDialog
         open={open}

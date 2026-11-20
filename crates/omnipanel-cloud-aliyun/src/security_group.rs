@@ -57,6 +57,16 @@ fn parse_security_group(item: &Value, region: &str) -> CloudSecurityGroup {
     }
 }
 
+fn rules_from_body(body: &Value) -> Vec<CloudNetworkRule> {
+    let dedicated = json_list(body, "SecurityGroupRules", "SecurityGroupRule");
+    let source = if dedicated.is_empty() {
+        json_list(body, "Permissions", "Permission")
+    } else {
+        dedicated
+    };
+    source.iter().map(parse_sg_rule).collect()
+}
+
 fn parse_sg_rule(item: &Value) -> CloudNetworkRule {
     let direction = str_field(item, &["Direction"]).to_ascii_lowercase();
     let cidr = str_field(
@@ -162,11 +172,48 @@ impl AliyunCredentials {
         if group.name.is_empty() {
             group.name = str_field(&body, &["SecurityGroupName"]);
         }
-        group.rules = json_list(&body, "Permissions", "Permission")
-            .iter()
-            .map(parse_sg_rule)
-            .collect();
+        group.rules = rules_from_body(&body);
         Ok(group)
+    }
+
+    /// `DescribeSecurityGroupAttribute` 的 Permissions 在新版安全组上经常是空的。
+    /// 规则以 `DescribeSecurityGroupRules` 为准。
+    pub async fn list_security_group_rules(
+        &self,
+        http: &Client,
+        group_id: &str,
+    ) -> Result<Vec<CloudNetworkRule>, OmniError> {
+        let region = self.region.trim();
+        let endpoint = ecs_endpoint(region)?;
+        let mut out = Vec::new();
+        let mut next_token = String::new();
+        for _ in 0..50 {
+            let mut params = BTreeMap::new();
+            params.insert("RegionId".into(), region.to_string());
+            params.insert("SecurityGroupId".into(), group_id.trim().to_string());
+            params.insert("MaxResults".into(), "100".into());
+            if !next_token.is_empty() {
+                params.insert("NextToken".into(), next_token.clone());
+            }
+            let body = self
+                .rpc_call(
+                    http,
+                    &endpoint,
+                    "2014-05-26",
+                    "DescribeSecurityGroupRules",
+                    params,
+                )
+                .await?;
+            let page = rules_from_body(&body);
+            let count = page.len();
+            out.extend(page);
+            let token = str_field(&body, &["NextToken"]);
+            if count == 0 || token.is_empty() || token == next_token {
+                break;
+            }
+            next_token = token;
+        }
+        Ok(out)
     }
 
     pub async fn list_security_group_instances(
@@ -477,5 +524,28 @@ mod tests {
         let group = parse_security_group(&item, "cn-hangzhou");
         assert_eq!(group.group_id, "sg-1");
         assert_eq!(group.instance_count, "3");
+    }
+
+    #[test]
+    fn dedicated_rule_list_wins_over_an_empty_attribute_body() {
+        let body = json!({
+            "SecurityGroupRules": {
+                "SecurityGroupRule": [{
+                    "SecurityGroupRuleId": "sgr-2",
+                    "Direction": "egress",
+                    "IpProtocol": "ALL",
+                    "PortRange": "-1/-1",
+                    "DestCidrIp": "0.0.0.0/0",
+                    "Policy": "Accept",
+                    "Priority": "1"
+                }]
+            },
+            "NextToken": ""
+        });
+        let rules = rules_from_body(&body);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "sgr-2");
+        assert_eq!(rules[0].direction, "egress");
+        assert_eq!(rules[0].cidr, "0.0.0.0/0");
     }
 }

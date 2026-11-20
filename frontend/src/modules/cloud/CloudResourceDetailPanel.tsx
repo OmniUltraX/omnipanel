@@ -471,7 +471,11 @@ export function CloudResourceDetailPanel({
   const fieldEntries = [
     ...FIELD_ORDER.filter((key) => cloudRowField(detail.fields, key)),
     ...Object.keys(detail.fields ?? {}).filter(
-      (key) => !FIELD_ORDER.includes(key) && cloudRowField(detail.fields, key),
+      (key) =>
+        key !== "rulesError" &&
+        key !== "recordsError" &&
+        !FIELD_ORDER.includes(key) &&
+        cloudRowField(detail.fields, key),
     ),
   ];
   const highlightKeys = fieldEntries.filter((key) =>
@@ -862,6 +866,8 @@ export function CloudResourceDetailPanel({
         <CloudRuleEditor
           rules={detail.rules ?? []}
           busy={busy}
+          loading={refreshing && (detail.rules?.length ?? 0) === 0}
+          error={cloudRowField(detail.fields, "rulesError")}
           cidrOnly={capability === "database" || capability === "database.cache"}
           onAuthorize={(params) => invoke("authorizeRule", params)}
           onRevoke={(rule) =>
@@ -931,6 +937,8 @@ export function CloudResourceDetailPanel({
           rows={detail.children ?? []}
           kinds={["dnsRecord"]}
           busy={busy}
+          loading={refreshing && (detail.children?.length ?? 0) === 0}
+          error={cloudRowField(detail.fields, "recordsError")}
           onAdd={(params) => invoke("addRecord", params)}
           onUpdate={(_row, params) => invoke("updateRecord", params)}
           onDelete={(row) => invoke("deleteRecord", { recordId: row.id ?? "" })}

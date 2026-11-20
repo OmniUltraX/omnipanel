@@ -271,8 +271,13 @@ async fn get_merged_domain(
         .map(|item| item.domain_name.as_str())
         .or_else(|| reg.as_ref().map(|item| item.domain_name.as_str()))
         .unwrap_or(id);
-    if let Ok(records) = creds.list_dns_records(http, zone_name).await {
-        detail.children = records;
+    match creds.list_dns_records(http, zone_name).await {
+        Ok(records) => detail.children = records,
+        Err(err) => {
+            detail
+                .fields
+                .insert("recordsError".into(), err.user_message());
+        }
     }
     Ok(detail)
 }
@@ -520,6 +525,21 @@ impl CloudProviderDriver for AliyunCloudDriver {
                 let scoped = with_region(creds, region);
                 let item = scoped.get_security_group(http, id).await?;
                 let mut detail = sg_to_detail(&item);
+                match scoped.list_security_group_rules(http, id).await {
+                    Ok(rules) if !rules.is_empty() => {
+                        detail
+                            .fields
+                            .insert("ruleCount".into(), rules.len().to_string());
+                        detail.rules = rules;
+                    }
+                    Ok(_) => {}
+                    Err(err) if detail.rules.is_empty() => {
+                        detail
+                            .fields
+                            .insert("rulesError".into(), err.user_message());
+                    }
+                    Err(_) => {}
+                }
                 if let Ok(instances) = scoped.list_security_group_instances(http, id).await {
                     if !instances.is_empty() {
                         detail

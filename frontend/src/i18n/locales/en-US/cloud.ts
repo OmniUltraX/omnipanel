@@ -173,6 +173,7 @@ export default {
       rr: "Host",
       value: "Value",
       ttl: "TTL",
+      line: "Line",
       default: "Default",
       method: "Method",
       startTime: "Start",
@@ -206,6 +207,7 @@ export default {
     },
     children: {
       empty: "No child resources",
+      loading: "Loading from the cloud…",
       fields: "Details",
       kinds: {
         dnsRecord: "DNS records",
@@ -279,6 +281,7 @@ export default {
       whitelist: "Whitelist",
       empty: "No rules",
       emptyHint: "Use Add in the corner. The rule is sent to the vendor immediately.",
+      loading: "Loading rules from the cloud…",
       count: "{count} rules",
       add: "Add rule",
       addHint: "Write actions require confirmation",

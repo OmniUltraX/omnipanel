@@ -1153,9 +1153,16 @@ line.cloud-metrics__grid {
 .cloud-children {
     display: flex;
     flex-direction: column;
-    gap: 12px;
     min-height: 0;
+    height: 100%;
     overflow: hidden;
+}
+
+.cloud-rules > .cloud-resource-list,
+.cloud-children > .cloud-resource-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
 }
 
 .cloud-logs.cloud-panel-card {
