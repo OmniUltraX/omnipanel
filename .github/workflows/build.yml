@@ -89,6 +89,108 @@ jobs:
           ALIYUN_OSS_PUBLIC_BASE_URL: ${{ secrets.ALIYUN_OSS_PUBLIC_BASE_URL }}
         run: node scripts/check-aliyun-oss.mjs
 
+  # 原先 ci.yml 在每个 tag 上再开一条流水线。检查留在这次发版里，和安装包并行，不挡住矩阵。
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglib2.0-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libudev-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+          shared-key: ci
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Check IPC command registry
+        run: npm run check:ipc-registry
+
+      - name: Check plugin manifests
+        run: npm run check:plugin-manifests
+
+      - name: Validate third-party plugin samples
+        run: npm run plugin:validate -- plugins-samples
+
+      - name: Pack plugin-sdk (dry-run)
+        working-directory: packages/plugin-sdk
+        run: |
+          npm install
+          npm run pack:check
+
+      - name: Installed-pack plugin smoke
+        run: npm run plugin:smoke
+
+      - name: DB sidecar isolation + crate tests
+        run: |
+          set -euo pipefail
+          cargo test --locked -p omnipanel-core --test linux_pty
+          cargo test -p omnipanel-db --lib
+          cargo test -p omnipanel-db --test sidecar_e2e
+          cargo test -p omnipanel-db --lib --no-default-features --features engine-clickhouse
+          cargo test -p omnipanel-plugin --lib
+          cargo build -p omnipanel-engine-clickhouse
+          cargo build -p omnipanel-engine-mongodb
+          cargo build -p omnipanel-engine-redis
+          node scripts/stage-db-engines.mjs --skip-build --conf-out /tmp/tauri.sidecar.json
+          node -e '
+            const fs = require("fs");
+            const conf = JSON.parse(fs.readFileSync("/tmp/tauri.sidecar.json", "utf8"));
+            const bins = conf.bundle.externalBin;
+            if (!Array.isArray(bins) || bins.length !== 3) process.exit(1);
+            const expect = [
+              "binaries/omnipanel-engine-clickhouse",
+              "binaries/omnipanel-engine-mongodb",
+              "binaries/omnipanel-engine-redis",
+            ];
+            if (expect.some((p) => !bins.includes(p))) process.exit(1);
+            const ext = process.platform === "win32" ? ".exe" : "";
+            const triple = process.env.OMNIPANEL_TARGET_TRIPLE || "x86_64-unknown-linux-gnu";
+            for (const stem of expect.map((p) => p.replace("binaries/", ""))) {
+              const f = `src-tauri/binaries/${stem}-${triple}${ext}`;
+              const st = fs.statSync(f);
+              if (st.size < 1024) process.exit(1);
+              console.log("ok", f, st.size);
+            }
+          '
+          tree=$(cargo tree -p omnipanel-engine-clickhouse -e normal --prefix none --format '{p}')
+          echo "$tree"
+          hits=$(echo "$tree" | awk '{print $1}' | grep -xE 'sqlx|mongodb|redis|rusqlite|omnipanel-store' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::omnipanel-engine-clickhouse 不应依赖: $hits"
+            exit 1
+          fi
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
   prepare-matrix:
     needs: check-oss
     if: github.event_name != 'workflow_dispatch' || inputs.publish_tag == ''

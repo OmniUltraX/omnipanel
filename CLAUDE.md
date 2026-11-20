@@ -137,15 +137,15 @@ cd frontend && npx tsc -b
 | Workflow | 触发条件 |
 |----------|----------|
 | **`pr-check.yml`（日常门禁）** | **PR / push master** —— `tsc -b` + `vitest run` + `check:ipc-registry` + `cargo check --workspace` |
-| `ci.yml` | push tag `v*` / 手动 |
-| `build.yml`（发版构建） | push tag `v*` / 手动 |
+| `ci.yml` | 只手动。标签发版不再单独开这条 |
+| `build.yml`（发版构建） | push tag `v*` / 手动。里面的 `verify` 作业跑原先 `ci.yml` 的插件、sidecar 和前端构建检查 |
 | `docker-web.yml` | push tag `v*` / 手动 |
 | `deploy-website.yml` | push master（`website/**`）/ 手动 |
 | `publish-plugin-registry.yml` | push master（`plugins/**`） |
 | `warm-cache.yml` | push master（依赖变更）/ 每周一 |
 | `ghcr-public.yml`、`plugin-submissions.yml` | 手动 / 定时 |
 
-`ci.yml` 只跑 **ubuntu-latest**，内容是 IPC 注册表校验、插件清单与冒烟、部分 crate 测试、前端 build——**不含** `cargo fmt --check` / `cargo clippy` / `eslint` / `vitest`。
+打 tag 时插件清单、sidecar 和前端构建检查在 `build.yml` 的 `verify` 作业里，不再另开 `ci.yml`。这套检查不含 `cargo fmt --check` / `cargo clippy` / `eslint` / `vitest`，那几项在 `pr-check.yml`。
 
 **Rust 格式规则**：仓库**没有** `rustfmt.toml`，用的是 `edition = "2024"` 默认 `style_edition`（import 排序为大写类型在前）。2026-09-10 已全量 `cargo fmt --all` 对齐过（93 个文件），`pr-check.yml` 已启用 `cargo fmt --all --check`。
 

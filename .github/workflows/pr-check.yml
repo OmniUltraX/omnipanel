@@ -1,7 +1,7 @@
 name: PR Check
 
-# 现有 ci.yml / build.yml 只在 push tag `v*` 时触发，日常提交与 PR 没有任何门禁。
-# 本 workflow 补上这一层：PR 与 master 提交必跑类型检查、单元测试与 Rust 编译检查。
+# 日常门禁：PR 与 master 提交跑类型检查、单元测试与 Rust 编译检查。
+# 打 tag 不再另开 CI。插件冒烟和 sidecar 测试在 Build & Release 的 verify 作业里。
 on:
   pull_request:
   push:

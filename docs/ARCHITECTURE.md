@@ -75,8 +75,8 @@
 ## 8. 提交与 CI
 
 - 提交信息遵循约定式提交（Conventional Commits），描述用中文，例：`feat(ssh): 新增密钥认证`。
-- **CI 分两层。** 发版链路 [`ci.yml`](../.github/workflows/ci.yml) 与 `build.yml` 只在 `push: tags: v*` 或手动 `workflow_dispatch` 时运行；日常门禁 [`pr-check.yml`](../.github/workflows/pr-check.yml) 在 **PR 与 push master** 时跑 `tsc -b`、`vitest run`、`check:ipc-registry`、`cargo check --workspace`。
-  - `ci.yml` 只跑 ubuntu-latest，内容是 IPC 注册表校验、插件清单与冒烟、部分 crate 测试、前端 build——**不含** `cargo fmt --check`、`cargo clippy`、`eslint`、`vitest`。
+- **CI 分两层。** 发版构建是 [`build.yml`](../.github/workflows/build.yml)（`push: tags: v*` 或手动）。插件清单、sidecar 和前端构建检查在它的 `verify` 作业里，不再单独启动 `ci.yml`。日常门禁 [`pr-check.yml`](../.github/workflows/pr-check.yml) 在 **PR 与 push master** 时跑 `tsc -b`、`vitest run`、`check:ipc-registry`、`cargo check --workspace`。
+  - `verify` 只跑 ubuntu-latest，**不含** `cargo fmt --check`、`cargo clippy`、`eslint`、`vitest`。`ci.yml` 只留手动重跑。
   - 在补上 `pr-check.yml` 之前，第 7 节提到的前端测试（181 个文件 / 1024 个用例）在 CI 中**从未被执行过**。
   - 本地把关仍然重要，提交前务必跑：`cd frontend && npx tsc -b`、`npx vitest run`、`cargo check --workspace`、`cargo test`。详见 `CLAUDE.md`「CI 现状」。
 - 每个里程碑结束保证整工作区可编译、可运行。

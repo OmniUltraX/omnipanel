@@ -1,9 +1,8 @@
 name: CI
 
+# 打 tag 不再启动这条。发版时同一套检查在 Build & Release 的 verify 作业里跑，
+# 避免和 master 上的 PR Check 各占一条流水线。这里只留手动重跑。
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 concurrency:
