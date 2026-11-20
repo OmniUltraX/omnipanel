@@ -97,15 +97,11 @@ impl Message<Arc<ts_control::StateUpdate>> for Stunner {
                 let addr = match server.ipv4 {
                     IpUsage::FixedAddr(a) => (a, stun_port).into(),
                     IpUsage::UseDns => {
-                        let addr = tokio::net::lookup_host((server.hostname.as_str(), stun_port))
-                            .await
-                            .ok()
-                            .and_then(|mut x| x.next());
-
-                        let Some(addr) = addr else {
+                        let Some(addr) =
+                            resolve_prefer_v4(server.hostname.as_str(), stun_port).await
+                        else {
                             continue;
                         };
-
                         addr
                     }
                     _ => continue,
@@ -116,6 +112,23 @@ impl Message<Arc<ts_control::StateUpdate>> for Stunner {
             }
         }
 
+        // Try a public IPv4 STUN server before the DERP list. A long DERP list of
+        // unresponsive ports would otherwise use up the probe budget.
+        let mut preferred = Vec::new();
+        for (host, port) in [
+            ("stun.cloudflare.com", 3478u16),
+            ("stun.l.google.com", 19302),
+        ] {
+            let Some(addr) = resolve_prefer_v4(host, port).await else {
+                continue;
+            };
+            if !preferred.contains(&addr) && !self.servers.contains(&addr) {
+                preferred.push(addr);
+            }
+        }
+        preferred.append(&mut self.servers);
+        self.servers = preferred;
+
         tracing::debug!(n_server = self.servers.len(), "updated stun servers");
 
         if was_empty && !self.servers.is_empty() {
@@ -123,4 +136,22 @@ impl Message<Arc<ts_control::StateUpdate>> for Stunner {
             self.publish_servers().await;
         }
     }
+}
+
+/// IPv4 first. Windows `lookup_host` often yields IPv6 first, and the data socket
+/// that must own the mapping is the IPv4 one.
+async fn resolve_prefer_v4(host: &str, port: u16) -> Option<SocketAddr> {
+    let mut v4 = None;
+    let mut v6 = None;
+    let Ok(iter) = tokio::net::lookup_host((host, port)).await else {
+        return None;
+    };
+    for addr in iter {
+        if addr.is_ipv4() {
+            v4.get_or_insert(addr);
+        } else if addr.is_ipv6() {
+            v6.get_or_insert(addr);
+        }
+    }
+    v4.or(v6)
 }

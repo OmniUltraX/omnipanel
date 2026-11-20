@@ -36,11 +36,7 @@ use kameo::{
     actor::ActorRef,
     message::{Context, Message, StreamMessage},
 };
-use stun_rs::{
-    MessageClass, StunMessageBuilder,
-    attributes::stun::{Fingerprint, Software, XorMappedAddress},
-    methods::BINDING,
-};
+use stun_rs::attributes::stun::XorMappedAddress;
 use tokio::net::UdpSocket;
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -73,6 +69,7 @@ pub struct DirectActor {
     stun_servers: Vec<SocketAddr>,
     stun_wait: Arc<Mutex<HashMap<[u8; 12], oneshot::Sender<SocketAddr>>>>,
     probe_running: bool,
+    pinned_ifindex: Option<u32>,
     addrs_v4: Vec<Endpoint>,
     addrs_v6: Vec<Endpoint>,
 
@@ -160,6 +157,7 @@ impl kameo::Actor for DirectActor {
             stun_servers: vec![],
             stun_wait,
             probe_running: false,
+            pinned_ifindex: None,
             addrs_v4: vec![],
             addrs_v6: vec![],
             reachable: Default::default(),
@@ -266,6 +264,113 @@ const CGNAT_RANGE: ipnet::Ipv4Net = ipnet::Ipv4Net::new_assert(Ipv4Addr::new(100
 const TS_IP6_ULA: ipnet::Ipv6Net =
     ipnet::Ipv6Net::new_assert(Ipv6Addr::new(0xfd7a, 0x115c, 0xa1e0, 0, 0, 0, 0, 0), 48);
 
+fn tunnel_name(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    [
+        "mihomo",
+        "clash",
+        "wintun",
+        "wireguard",
+        "tailscale",
+        "zerotier",
+        "tun",
+        "vpn",
+        "sing-box",
+        "singbox",
+        "vethernet",
+        "hyper-v",
+        "vmware",
+        "virtualbox",
+        "wsl",
+        "docker",
+        "npcap",
+        "loopback",
+        "bluetooth",
+    ]
+    .iter()
+    .any(|needle| n.contains(needle))
+}
+
+fn iface_rank(name: &str) -> u8 {
+    let n = name.to_ascii_lowercase();
+    if n.contains("wlan") || n.contains("wi-fi") || n.contains("wifi") || n.contains("无线") {
+        0
+    } else if n.contains("ethernet") || n.contains("以太网") {
+        1
+    } else {
+        2
+    }
+}
+
+fn physical_ifindex(state: &netmon::State) -> Option<u32> {
+    let mut best: Option<(u8, u32)> = None;
+    for (id, iface) in &state.interfaces {
+        if !iface.up || tunnel_name(&iface.name) {
+            continue;
+        }
+        let has_v4 = state.addrs.get(id).is_some_and(|addrs| {
+            addrs.keys().any(|net| {
+                matches!(net.addr(), IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_link_local() && !v4.is_unspecified())
+            })
+        });
+        if !has_v4 {
+            continue;
+        }
+        let Some(index) = luid_to_index(id.value()) else {
+            continue;
+        };
+        let rank = iface_rank(&iface.name);
+        if best.is_none_or(|(prev, _)| rank < prev) {
+            best = Some((rank, index));
+        }
+    }
+    best.map(|(_, index)| index)
+}
+
+fn pin_v4_to_physical(sock: &UdpSocket, state: &netmon::State) -> Option<u32> {
+    let index = physical_ifindex(state)?;
+    set_unicast_if(sock, index).then_some(index)
+}
+
+#[cfg(windows)]
+fn luid_to_index(luid: u64) -> Option<u32> {
+    #[link(name = "iphlpapi")]
+    unsafe extern "system" {
+        fn ConvertInterfaceLuidToIndex(luid: *const u64, index: *mut u32) -> u32;
+    }
+    let mut index = 0u32;
+    let rc = unsafe { ConvertInterfaceLuidToIndex(&luid, &mut index) };
+    (rc == 0 && index != 0).then_some(index)
+}
+
+#[cfg(not(windows))]
+fn luid_to_index(_luid: u64) -> Option<u32> {
+    None
+}
+
+#[cfg(windows)]
+fn set_unicast_if(sock: &UdpSocket, index: u32) -> bool {
+    use std::os::windows::io::AsRawSocket;
+
+    #[link(name = "ws2_32")]
+    unsafe extern "system" {
+        fn setsockopt(s: usize, level: i32, opt: i32, val: *const u8, len: i32) -> i32;
+    }
+    let be = index.to_be_bytes();
+    let rc = unsafe { setsockopt(sock.as_raw_socket() as usize, 0, 31, be.as_ptr(), 4) };
+    if rc != 0 {
+        tracing::error!(rc, index, "绑定物理网卡失败");
+        false
+    } else {
+        true
+    }
+}
+
+#[cfg(not(windows))]
+fn set_unicast_if(_sock: &UdpSocket, _index: u32) -> bool {
+    false
+}
+
 fn is_tailscale(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => CGNAT_RANGE.contains(v4),
@@ -276,12 +381,31 @@ fn is_tailscale(ip: &IpAddr) -> bool {
 impl Message<Arc<netmon::State>> for DirectActor {
     type Reply = ();
 
-    async fn handle(&mut self, msg: Arc<netmon::State>, _ctx: &mut Context<Self, Self::Reply>) {
+    async fn handle(&mut self, msg: Arc<netmon::State>, ctx: &mut Context<Self, Self::Reply>) {
         self.addrs_v4.clear();
         self.addrs_v6.clear();
         self.reachable.clear();
 
-        for (_id, addr) in msg.up_addrs() {
+        if let Some(index) = pin_v4_to_physical(&self.sock4, &msg)
+            && self.pinned_ifindex != Some(index)
+        {
+            self.pinned_ifindex = Some(index);
+            // The previous mapping was learned on the default route, which may be a
+            // userspace proxy. Drop it and probe again from the physical NIC.
+            self.stun_addr = None;
+            self.probe_running = false;
+            tracing::error!(index, "组网 UDP 改走物理网卡");
+            self.kick_stun(ctx.actor_ref().clone());
+        }
+
+        for (id, addr) in msg.up_addrs() {
+            if msg
+                .interfaces
+                .get(&id)
+                .is_some_and(|iface| tunnel_name(&iface.name))
+            {
+                continue;
+            }
             let ip = addr.addr();
 
             let invalid = match ip {
@@ -368,20 +492,49 @@ impl Message<StunServers> for DirectActor {
         ctx: &mut Context<Self, Self::Reply>,
     ) {
         self.stun_servers = servers.to_vec();
+        self.kick_stun(ctx.actor_ref().clone());
+    }
+}
+
+impl DirectActor {
+    fn kick_stun(&mut self, slf: ActorRef<Self>) {
         if self.probe_running || self.stun_servers.is_empty() {
             return;
         }
         self.probe_running = true;
-        let sock = self.sock4.clone();
+        let sock4 = self.sock4.clone();
+        let sock6 = self.sock6.clone();
         let wait = self.stun_wait.clone();
         let servers = self.stun_servers.clone();
-        let slf = ctx.actor_ref().clone();
         tokio::spawn(async move {
-            for server in servers.into_iter().filter(|addr| addr.is_ipv4()).take(3) {
+            let mut tried = 0u32;
+            let mut hit = false;
+            for server in servers.into_iter().take(8) {
+                let sock = if server.is_ipv4() {
+                    Some(sock4.clone())
+                } else {
+                    sock6.clone()
+                };
+                let Some(sock) = sock else {
+                    continue;
+                };
+                tried += 1;
                 if let Some(addr) = probe_mapped(&sock, server, &wait).await {
+                    hit = true;
                     let _ = slf.tell(StunMapped(addr)).await;
                     break;
                 }
+            }
+            if !hit {
+                tracing::error!(
+                    tried,
+                    seen = STUN_SEEN.swap(0, std::sync::atomic::Ordering::Relaxed),
+                    matched = STUN_MATCHED.swap(0, std::sync::atomic::Ordering::Relaxed),
+                    "组网 STUN 没有回包"
+                );
+            } else {
+                STUN_SEEN.swap(0, std::sync::atomic::Ordering::Relaxed);
+                STUN_MATCHED.swap(0, std::sync::atomic::Ordering::Relaxed);
             }
             let _ = slf.tell(ProbeFinished).await;
         });
@@ -400,7 +553,7 @@ impl Message<StunMapped> for DirectActor {
             return;
         }
         self.stun_addr = Some(addr);
-        tracing::info!(mapped = %addr, "组网直连地址已更新");
+        tracing::error!("组网已学到公网映射");
         self.publish_endpoints().await.unwrap();
     }
 }
@@ -542,17 +695,24 @@ fn ignore_udp_connreset(sock: &UdpSocket) {
         )
     };
     if rc != 0 {
-        tracing::warn!(rc, "关闭 UDP 连接重置失败");
+        let err = std::io::Error::last_os_error();
+        tracing::error!(rc, error = %err, "关闭 UDP 连接重置失败");
     }
 }
 
 #[cfg(not(windows))]
 fn ignore_udp_connreset(_sock: &UdpSocket) {}
 
+static STUN_SEEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static STUN_MATCHED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn take_stun_reply(
     wait: &Mutex<HashMap<[u8; 12], oneshot::Sender<SocketAddr>>>,
     packet: &[u8],
 ) -> bool {
+    if packet.len() >= 8 && packet[4..8] == [0x21, 0x12, 0xA4, 0x42] {
+        STUN_SEEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     let Some((txn, mapped)) = stun_mapped(packet) else {
         return false;
     };
@@ -561,6 +721,7 @@ fn take_stun_reply(
         .unwrap_or_else(|err| err.into_inner())
         .remove(&txn)
     {
+        STUN_MATCHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let _ = tx.send(mapped);
     }
     true
@@ -587,15 +748,16 @@ async fn probe_mapped(
     server: SocketAddr,
     wait: &Mutex<HashMap<[u8; 12], oneshot::Sender<SocketAddr>>>,
 ) -> Option<SocketAddr> {
-    let req = StunMessageBuilder::new(BINDING, MessageClass::Request)
-        .with_attribute(Software::new("omnipanel").unwrap())
-        .with_attribute(Fingerprint::default())
-        .build();
-    let encoder = stun_rs::MessageEncoderBuilder::default().build();
-    let mut buf = BytesMut::zeroed(128);
-    let n = encoder.encode(&mut buf, &req).ok()?;
-    buf.truncate(n);
-    let txn: [u8; 12] = buf.get(8..20)?.try_into().ok()?;
+    // Bare binding request. Servers answer this; a fingerprint attribute is optional
+    // and some ignore a request when that checksum does not match.
+    let txn: [u8; 12] = rand::random();
+    let mut buf = [0u8; 20];
+    buf[1] = 0x01;
+    buf[4] = 0x21;
+    buf[5] = 0x12;
+    buf[6] = 0xA4;
+    buf[7] = 0x42;
+    buf[8..20].copy_from_slice(&txn);
     let (tx, rx) = oneshot::channel();
     wait.lock()
         .unwrap_or_else(|err| err.into_inner())

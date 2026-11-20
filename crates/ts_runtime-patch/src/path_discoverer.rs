@@ -23,6 +23,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    net::{IpAddr, SocketAddr},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -37,7 +38,7 @@ use kameo_actors::scheduler::SetInterval;
 use smol_str::SmolStr;
 use tokio::time::MissedTickBehavior;
 use ts_dataplane::async_tokio::ActivePeers;
-use ts_disco_protocol::{CallMeMaybe, Ping, Pong};
+use ts_disco_protocol::{CallMeMaybe, MessageType, Ping, Pong};
 use ts_keys::DiscoPublicKey;
 use ts_transport::{DynEndpoint, PeerId, UnderlayTransportId};
 
@@ -311,6 +312,31 @@ impl PeerPd {
                 .unwrap();
         }
 
+        // Punch first so the local firewall already allows the peer's reply, then ask
+        // them to ping us. CallMeMaybe endpoints are included once a peer has sent one.
+        let mut eps = self
+            .seen_peer_endpoints
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        eps.extend(self.endpoints_cmm.iter().cloned());
+        eps.extend(self.endpoints_ctrl.iter().cloned());
+
+        for ep in eps {
+            if ep.is_disco_coordinator() {
+                continue;
+            }
+
+            Self::send_disco_ping(
+                &self.env,
+                ep.clone(),
+                disco_key,
+                &mut self.current_probes,
+                &mut self.tx_lookup,
+            )
+            .await;
+        }
+
         // Send `CallMeMaybe`s on all disco coordinator endpoints. Reminder: coord_endpoints_ctrl is
         // already filtered at reception-time by Endpoint::is_disco_coordinator.
         for ep in &self.coord_endpoints_ctrl {
@@ -339,20 +365,24 @@ impl PeerPd {
 
             tracing::trace!(?ep, sent_eps = ?self.this_node_endpoints, "sent callmemaybe");
         }
+    }
 
-        // Send pings for all non-disco-coordinator endpoints.
-        let mut eps = self.seen_peer_endpoints.keys().collect::<HashSet<_>>();
-        eps.extend(&self.endpoints_cmm);
-        eps.extend(&self.endpoints_ctrl);
+    async fn ping_announced(&mut self, endpoints: &[ts_disco_protocol::Endpoint]) {
+        let Some(disco_key) = self.disco_key else {
+            return;
+        };
 
-        for ep in eps {
-            if ep.is_disco_coordinator() {
+        self.endpoints_cmm.clear();
+        for ep in endpoints {
+            let addr = ep.socket_addr();
+            if !reachable_underlay(addr) {
                 continue;
             }
-
+            let dyn_ep = DynEndpoint::udp(addr);
+            self.endpoints_cmm.insert(dyn_ep.clone());
             Self::send_disco_ping(
                 &self.env,
-                ep.clone(),
+                dyn_ep,
                 disco_key,
                 &mut self.current_probes,
                 &mut self.tx_lookup,
@@ -562,7 +592,15 @@ impl Message<IncomingDiscoMsg> for PeerPd {
             return;
         }
 
-        self.seen_peer_endpoints.insert(msg.sender, Instant::now());
+        self.seen_peer_endpoints
+            .insert(msg.sender.clone(), Instant::now());
+
+        if pkt.ty() == Some(MessageType::CallMeMaybe)
+            && let Some(cmm) = pkt.as_msg::<CallMeMaybe>()
+        {
+            self.ping_announced(&cmm.endpoints).await;
+            return;
+        }
 
         let Some(pong) = pkt.as_msg::<Pong>() else {
             return;
@@ -593,5 +631,26 @@ impl Message<IncomingDiscoMsg> for PeerPd {
             latency: elapsed,
             transport: msg.transport,
         };
+        self.env
+            .publish_noretain(PeerBestPath {
+                peer: self.peer_id,
+                ep: Some((msg.transport, ep)),
+            })
+            .await
+            .unwrap();
+    }
+}
+
+fn reachable_underlay(addr: SocketAddr) -> bool {
+    match addr.ip() {
+        IpAddr::V4(v4) => {
+            let [a, b, _, _] = v4.octets();
+            !(v4.is_unspecified()
+                || v4.is_loopback()
+                || v4.is_multicast()
+                || v4.is_broadcast()
+                || (a == 100 && (b & 0xc0) == 64))
+        }
+        IpAddr::V6(v6) => !(v6.is_unspecified() || v6.is_loopback() || v6.is_multicast()),
     }
 }
