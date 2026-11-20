@@ -219,17 +219,17 @@ impl Message<SendDisco> for Multiderp {
         };
 
         let Some((_, peer)) = self.peer_state.get(&nodekey) else {
-            tracing::trace!(%nodekey, "no known peer");
+            tracing::trace!("组网协调消息没有发出 找不到对端");
             return;
         };
 
         let Some(derp_region) = &peer.derp_region else {
-            tracing::trace!(%nodekey, "peer had no derp region");
+            tracing::trace!("组网协调消息没有发出 对端没有中继区域");
             return;
         };
 
         let Some(transport_id) = self.region_map.get(derp_region) else {
-            tracing::trace!(%nodekey, ?derp_region, "derp region had no transport");
+            tracing::trace!("组网协调消息没有发出 中继区域没有连接");
             return;
         };
 

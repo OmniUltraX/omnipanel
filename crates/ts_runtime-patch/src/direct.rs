@@ -88,14 +88,14 @@ impl DirectActor {
     async fn publish_endpoints(&self) -> Result<(), crate::Error> {
         self.env
             .publish(NewEndpoints(
-                self.addrs_v4
-                    .iter()
-                    .copied()
-                    .chain(self.addrs_v6.iter().copied())
-                    .chain(self.stun_addr.into_iter().map(|addr| Endpoint {
+                self.stun_addr
+                    .into_iter()
+                    .map(|addr| Endpoint {
                         endpoint: addr,
                         ty: EndpointType::Stun,
-                    }))
+                    })
+                    .chain(self.addrs_v4.iter().copied())
+                    .chain(self.addrs_v6.iter().copied())
                     .collect(),
             ))
             .await
@@ -253,7 +253,7 @@ impl Message<SendDisco> for DirectActor {
         };
 
         if let Err(e) = sock.send_to(&buf, ep).await {
-            tracing::warn!(?ep, error = %e, ?sock, "sending disco msg");
+            tracing::debug!(error = %e, class = addr_class(ep), "组网探测包发送失败");
         } else {
             tracing::trace!(?ep, "sent disco msg");
         }
@@ -302,8 +302,8 @@ fn iface_rank(name: &str) -> u8 {
     }
 }
 
-fn physical_ifindex(state: &netmon::State) -> Option<u32> {
-    let mut best: Option<(u8, u32)> = None;
+fn physical_iface(state: &netmon::State) -> Option<(u32, String)> {
+    let mut best: Option<(u8, u32, String)> = None;
     for (id, iface) in &state.interfaces {
         if !iface.up || tunnel_name(&iface.name) {
             continue;
@@ -316,20 +316,29 @@ fn physical_ifindex(state: &netmon::State) -> Option<u32> {
         if !has_v4 {
             continue;
         }
-        let Some(index) = luid_to_index(id.value()) else {
+        let Some(index) = os_ifindex(id) else {
             continue;
         };
         let rank = iface_rank(&iface.name);
-        if best.is_none_or(|(prev, _)| rank < prev) {
-            best = Some((rank, index));
+        if best.as_ref().is_none_or(|(prev, _, _)| rank < *prev) {
+            best = Some((rank, index, iface.name.to_string()));
         }
     }
-    best.map(|(_, index)| index)
+    best.map(|(_, index, name)| (index, name))
 }
 
-fn pin_v4_to_physical(sock: &UdpSocket, state: &netmon::State) -> Option<u32> {
-    let index = physical_ifindex(state)?;
-    set_unicast_if(sock, index).then_some(index)
+/// Windows ids are NET_LUID values. macOS and Linux already store the interface index.
+fn os_ifindex(id: &ts_netmon::InterfaceId) -> Option<u32> {
+    if id.ty().as_ref() == "win32_iphlpapi" {
+        luid_to_index(id.value())
+    } else {
+        u32::try_from(id.value()).ok().filter(|index| *index != 0)
+    }
+}
+
+fn pin_to_physical(sock: &UdpSocket, state: &netmon::State) -> Option<u32> {
+    let (index, name) = physical_iface(state)?;
+    set_unicast_if(sock, index, &name).then_some(index)
 }
 
 #[cfg(windows)]
@@ -349,13 +358,14 @@ fn luid_to_index(_luid: u64) -> Option<u32> {
 }
 
 #[cfg(windows)]
-fn set_unicast_if(sock: &UdpSocket, index: u32) -> bool {
+fn set_unicast_if(sock: &UdpSocket, index: u32, _name: &str) -> bool {
     use std::os::windows::io::AsRawSocket;
 
     #[link(name = "ws2_32")]
     unsafe extern "system" {
         fn setsockopt(s: usize, level: i32, opt: i32, val: *const u8, len: i32) -> i32;
     }
+    // IP_UNICAST_IF takes the interface index in network byte order.
     let be = index.to_be_bytes();
     let rc = unsafe { setsockopt(sock.as_raw_socket() as usize, 0, 31, be.as_ptr(), 4) };
     if rc != 0 {
@@ -366,9 +376,66 @@ fn set_unicast_if(sock: &UdpSocket, index: u32) -> bool {
     }
 }
 
-#[cfg(not(windows))]
-fn set_unicast_if(_sock: &UdpSocket, _index: u32) -> bool {
+#[cfg(target_os = "macos")]
+fn set_unicast_if(sock: &UdpSocket, index: u32, _name: &str) -> bool {
+    use std::os::unix::io::AsRawFd;
+
+    unsafe extern "C" {
+        fn setsockopt(s: i32, level: i32, opt: i32, val: *const u8, len: u32) -> i32;
+    }
+    // IP_BOUND_IF takes the interface index in host byte order.
+    let val = index.to_ne_bytes();
+    let rc = unsafe { setsockopt(sock.as_raw_fd(), 0, 25, val.as_ptr(), 4) };
+    if rc != 0 {
+        tracing::error!(rc, index, "绑定物理网卡失败");
+        false
+    } else {
+        true
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn set_unicast_if(sock: &UdpSocket, index: u32, name: &str) -> bool {
+    use std::os::unix::io::AsRawFd;
+
+    unsafe extern "C" {
+        fn setsockopt(s: i32, level: i32, opt: i32, val: *const u8, len: u32) -> i32;
+    }
+    let mut buf = name.as_bytes().to_vec();
+    buf.push(0);
+    // SOL_SOCKET = 1, SO_BINDTODEVICE = 25.
+    let rc = unsafe { setsockopt(sock.as_raw_fd(), 1, 25, buf.as_ptr(), buf.len() as u32) };
+    if rc != 0 {
+        tracing::error!(rc, index, "绑定物理网卡失败");
+        false
+    } else {
+        true
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+fn set_unicast_if(_sock: &UdpSocket, _index: u32, _name: &str) -> bool {
     false
+}
+
+fn addr_class(addr: SocketAddr) -> &'static str {
+    match addr.ip() {
+        IpAddr::V4(v4) => {
+            let [a, b, _, _] = v4.octets();
+            if v4.is_private() {
+                "private"
+            } else if v4.is_link_local() || v4.is_loopback() || v4.is_unspecified() {
+                "local"
+            } else if a == 100 && (b & 0xc0) == 64 {
+                "cgnat"
+            } else if a == 198 && (b & 0xfe) == 18 {
+                "bench"
+            } else {
+                "public"
+            }
+        }
+        IpAddr::V6(_) => "v6",
+    }
 }
 
 fn is_tailscale(ip: &IpAddr) -> bool {
@@ -386,9 +453,12 @@ impl Message<Arc<netmon::State>> for DirectActor {
         self.addrs_v6.clear();
         self.reachable.clear();
 
-        if let Some(index) = pin_v4_to_physical(&self.sock4, &msg)
+        if let Some(index) = pin_to_physical(&self.sock4, &msg)
             && self.pinned_ifindex != Some(index)
         {
+            if let Some(sock6) = &self.sock6 {
+                let _ = pin_to_physical(sock6, &msg);
+            }
             self.pinned_ifindex = Some(index);
             // The previous mapping was learned on the default route, which may be a
             // userspace proxy. Drop it and probe again from the physical NIC.

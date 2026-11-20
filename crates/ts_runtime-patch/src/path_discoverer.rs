@@ -256,17 +256,17 @@ impl PeerPd {
 
     async fn start_probes(&mut self) {
         let Some(disco_key) = self.disco_key else {
-            tracing::trace!("no disco key known for peer, can't send pings");
+            tracing::trace!("组网探测跳过 无密钥");
             return;
         };
 
         if self.coord_endpoints_ctrl.is_empty() {
-            tracing::trace!("no disco coordinator endpoints, can't send callmemaybes");
+            tracing::trace!("组网探测跳过 无中继坐标");
             return;
         }
 
         if self.this_node_endpoints.is_empty() {
-            tracing::trace!("no node endpoints, skip");
+            tracing::trace!("组网探测跳过 本机地址为空");
             return;
         }
 
@@ -595,6 +595,24 @@ impl Message<IncomingDiscoMsg> for PeerPd {
         self.seen_peer_endpoints
             .insert(msg.sender.clone(), Instant::now());
 
+        // A ping's source is the mapping that just reached us. Probe that address now,
+        // instead of waiting for the addresses the peer advertised (those can be a proxy exit).
+        if pkt.ty() == Some(MessageType::Ping)
+            && let Some(addr) = msg.sender.as_udp()
+            && is_public_addr(addr)
+            && !self.current_probes.contains_key(&msg.sender)
+            && let Some(disco_key) = self.disco_key
+        {
+            Self::send_disco_ping(
+                &self.env,
+                msg.sender.clone(),
+                disco_key,
+                &mut self.current_probes,
+                &mut self.tx_lookup,
+            )
+            .await;
+        }
+
         if pkt.ty() == Some(MessageType::CallMeMaybe)
             && let Some(cmm) = pkt.as_msg::<CallMeMaybe>()
         {
@@ -638,6 +656,30 @@ impl Message<IncomingDiscoMsg> for PeerPd {
             })
             .await
             .unwrap();
+    }
+}
+
+fn is_public_addr(addr: SocketAddr) -> bool {
+    match addr.ip() {
+        IpAddr::V4(v4) => {
+            let [a, b, _, _] = v4.octets();
+            !(v4.is_private()
+                || v4.is_link_local()
+                || v4.is_loopback()
+                || v4.is_unspecified()
+                || v4.is_multicast()
+                || v4.is_broadcast()
+                || (a == 100 && (b & 0xc0) == 64)
+                || (a == 198 && (b & 0xfe) == 18))
+        }
+        IpAddr::V6(v6) => {
+            let seg = v6.segments()[0];
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (seg & 0xffc0) == 0xfe80
+                || (seg & 0xfe00) == 0xfc00)
+        }
     }
 }
 
