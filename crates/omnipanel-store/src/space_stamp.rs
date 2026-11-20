@@ -48,6 +48,10 @@ pub(crate) fn fold_update_stamps(local: &[u8], remote: &[u8]) -> StampFold {
             if !tag_values_eq(left, right) {
                 content_diff = true;
             }
+        } else if key == "body" {
+            if !skill_body_eq(left, right) {
+                content_diff = true;
+            }
         } else if !values_eq(left, right) {
             content_diff = true;
         }
@@ -56,27 +60,32 @@ pub(crate) fn fold_update_stamps(local: &[u8], remote: &[u8]) -> StampFold {
     let local_clean = rewrite_duplicate_tags(local_text);
     let tags_cleaned = remote_clean != remote_text || local_clean != local_text;
     if updates.is_empty() && content_diff {
+        let current = canonical_skill_checkout(remote);
+        let saved = canonical_skill_checkout(local);
+        if current.as_slice() != remote || saved.as_slice() != local {
+            return StampFold::Content { current, saved };
+        }
         return StampFold::Untouched;
     }
     if updates.is_empty() {
         if tags_cleaned {
-            return StampFold::OnlyStamp(remote_clean.into_bytes());
+            return StampFold::OnlyStamp(canonical_skill_checkout(remote_clean.as_bytes()));
         }
         // 字段值相同，只是键顺序或空白不同。冲突记录没有可比较的内容。
-        return StampFold::OnlyStamp(remote.to_vec());
+        return StampFold::OnlyStamp(canonical_skill_checkout(remote));
     }
     let Some(current) = apply_stamps(&remote_clean, &updates) else {
         return StampFold::Untouched;
     };
     if !content_diff {
-        return StampFold::OnlyStamp(current.into_bytes());
+        return StampFold::OnlyStamp(canonical_skill_checkout(current.as_bytes()));
     }
     let Some(saved) = apply_stamps(&local_clean, &updates) else {
         return StampFold::Untouched;
     };
     StampFold::Content {
-        current: current.into_bytes(),
-        saved: saved.into_bytes(),
+        current: canonical_skill_checkout(current.as_bytes()),
+        saved: canonical_skill_checkout(saved.as_bytes()),
     }
 }
 
@@ -173,10 +182,14 @@ pub(crate) fn same_except_origin(left: &[u8], right: &[u8]) -> bool {
     if left == right {
         return true;
     }
-    let Ok(mut local) = serde_json::from_slice::<Value>(left) else {
+    let (Ok(left_text), Ok(right_text)) = (std::str::from_utf8(left), std::str::from_utf8(right))
+    else {
         return false;
     };
-    let Ok(mut remote) = serde_json::from_slice::<Value>(right) else {
+    let Ok(mut local) = serde_json::from_str::<Value>(left_text.trim()) else {
+        return false;
+    };
+    let Ok(mut remote) = serde_json::from_str::<Value>(right_text.trim()) else {
         return false;
     };
     let Some(local_obj) = local.as_object_mut() else {
@@ -187,6 +200,8 @@ pub(crate) fn same_except_origin(left: &[u8], right: &[u8]) -> bool {
     };
     local_obj.retain(|key, _| !is_origin_key(key));
     remote_obj.retain(|key, _| !is_origin_key(key));
+    normalize_skill_body(local_obj);
+    normalize_skill_body(remote_obj);
     if let (Some(left_tags), Some(right_tags)) = (
         local_obj.get("tags").cloned(),
         remote_obj.get("tags").cloned(),
@@ -243,6 +258,70 @@ fn rewrite_duplicate_tags(raw: &str) -> String {
     let mut out = raw.to_string();
     out.replace_range(field.value_start..field.value_end, &replacement);
     out
+}
+
+fn skill_body_eq(left: Option<&Value>, right: Option<&Value>) -> bool {
+    match (left, right) {
+        (Some(Value::String(left)), Some(Value::String(right))) => {
+            if left == right {
+                return true;
+            }
+            if crate::skill::looks_like_skill_document(left)
+                || crate::skill::looks_like_skill_document(right)
+            {
+                return crate::skill::unwrap_skill_body(left)
+                    == crate::skill::unwrap_skill_body(right);
+            }
+            false
+        }
+        _ => values_eq(left, right),
+    }
+}
+
+fn normalize_skill_body(obj: &mut Map<String, Value>) {
+    let Some(Value::String(body)) = obj.get("body").cloned() else {
+        return;
+    };
+    if !crate::skill::looks_like_skill_document(&body) {
+        return;
+    }
+    obj.insert(
+        "body".to_string(),
+        Value::String(crate::skill::unwrap_skill_body(&body)),
+    );
+}
+
+/// 技能检出里的 `body` 如果还是整份 SKILL.md，收成正文。其它文件原样返回。
+pub(crate) fn canonical_skill_checkout(bytes: &[u8]) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return bytes.to_vec();
+    };
+    let Some(top) = scan_top_level(text) else {
+        return bytes.to_vec();
+    };
+    if !top.fields.iter().any(|field| field.key == "name") {
+        return bytes.to_vec();
+    }
+    let Some(field) = top.fields.iter().find(|field| field.key == "body") else {
+        return bytes.to_vec();
+    };
+    let raw_json = &text[field.value_start..field.value_end];
+    let Ok(Value::String(body)) = serde_json::from_str::<Value>(raw_json) else {
+        return bytes.to_vec();
+    };
+    if !crate::skill::looks_like_skill_document(&body) {
+        return bytes.to_vec();
+    }
+    let unwrapped = crate::skill::unwrap_skill_body(&body);
+    if unwrapped == body {
+        return bytes.to_vec();
+    }
+    let Ok(replacement) = serde_json::to_string(&unwrapped) else {
+        return bytes.to_vec();
+    };
+    let mut out = text.to_string();
+    out.replace_range(field.value_start..field.value_end, &replacement);
+    out.into_bytes()
 }
 
 fn values_eq(left: Option<&Value>, right: Option<&Value>) -> bool {
@@ -648,6 +727,58 @@ mod tests {
             fold_update_stamps(b"hello", b"world"),
             StampFold::Untouched
         ));
+    }
+
+    fn skill_checkout(body: &str) -> Vec<u8> {
+        let mut bytes = serde_json::to_vec(&serde_json::json!({
+            "id": "ops-db-slow-query",
+            "name": "DB 慢查询排查",
+            "enabled": true,
+            "body": body,
+        }))
+        .unwrap();
+        bytes.push(b'\n');
+        bytes
+    }
+
+    #[test]
+    fn extra_skill_frontmatter_is_not_a_conflict() {
+        let inner = "# DB 慢查询排查\n\n只读采集";
+        let once = format!("---\nname: DB 慢查询排查\nenabled: true\n---\n\n{inner}\n");
+        let twice = format!("---\nname: DB 慢查询排查\nenabled: true\n---\n\n{once}");
+        let local = skill_checkout(&twice);
+        let remote = skill_checkout(&once);
+        assert!(same_except_origin(&local, &remote));
+        match fold_update_stamps(&local, &remote) {
+            StampFold::OnlyStamp(body) => {
+                let doc: Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(doc["body"], inner);
+                assert!(!doc["body"].as_str().unwrap().contains("name:"));
+            }
+            other => panic!(
+                "expected wrapped skill copies to collapse, got {}",
+                kind(&other)
+            ),
+        }
+    }
+
+    #[test]
+    fn different_skill_markdown_stays_a_conflict() {
+        let wrapped = "---\nname: DB 慢查询排查\nenabled: true\n---\n\n# 一份\n";
+        let other = "---\nname: DB 慢查询排查\nenabled: true\n---\n\n# 另一份\n";
+        assert!(!same_except_origin(
+            &skill_checkout(wrapped),
+            &skill_checkout(other)
+        ));
+        match fold_update_stamps(&skill_checkout(wrapped), &skill_checkout(other)) {
+            StampFold::Content { current, saved } => {
+                let current: Value = serde_json::from_slice(&current).unwrap();
+                let saved: Value = serde_json::from_slice(&saved).unwrap();
+                assert_eq!(saved["body"], "# 一份");
+                assert_eq!(current["body"], "# 另一份");
+            }
+            other => panic!("expected a real skill difference, got {}", kind(&other)),
+        }
     }
 
     fn kind(fold: &StampFold) -> &'static str {

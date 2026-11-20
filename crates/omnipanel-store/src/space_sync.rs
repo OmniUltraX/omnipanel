@@ -1048,6 +1048,15 @@ async fn plaintext_chunk<R: SpaceRepoRemote + ?Sized>(
 
 const HEAD_ATTEMPTS: u32 = 3;
 
+/// 技能检出文件里的正文如果还包着整份 SKILL.md，收成真正的 Markdown。
+fn plain_skill_checkout(path: &str, bytes: &[u8]) -> Vec<u8> {
+    if path.starts_with("skills/") && path.ends_with(".json") {
+        crate::space_stamp::canonical_skill_checkout(bytes)
+    } else {
+        bytes.to_vec()
+    }
+}
+
 enum OneSided {
     AsPicked,
     Hold {
@@ -1190,12 +1199,19 @@ async fn apply_remote_merge<R: SpaceRepoRemote + ?Sized>(
                     .map(|file| file.chunks.clone());
                 let chosen_is_local = local_chunks.as_ref() == Some(&chunks);
                 if let Some(other) = pick.other.as_ref() {
-                    let local_body = files.get(&pick.path).cloned().unwrap_or_default();
-                    let remote_body = if chosen_is_local {
+                    let local_body = plain_skill_checkout(
+                        &pick.path,
+                        &files.get(&pick.path).cloned().unwrap_or_default(),
+                    );
+                    if files.contains_key(&pick.path) {
+                        files.insert(pick.path.clone(), local_body.clone());
+                    }
+                    let remote_raw = if chosen_is_local {
                         read_chunk_bytes(remote, root, key, other, &mut cache).await?
                     } else {
                         read_chunk_bytes(remote, root, key, &chunks, &mut cache).await?
                     };
+                    let remote_body = plain_skill_checkout(&pick.path, &remote_raw);
                     match gate_one_sided(&local_body, &remote_body, !chosen_is_local) {
                         OneSided::Hold { official, rejected } => {
                             write_conflict(root, &pick.path, &rejected, now)?;
@@ -1221,6 +1237,7 @@ async fn apply_remote_merge<R: SpaceRepoRemote + ?Sized>(
                 for id in &chunks {
                     body.extend(plaintext_chunk(remote, root, key, id, &mut cache).await?);
                 }
+                body = plain_skill_checkout(&pick.path, &body);
                 if is_layout_path(&pick.path) {
                     if let Some(local_body) = files.get(&pick.path) {
                         if let Some(merged) = crate::space_layout_merge::merge_layout_document(
@@ -1768,14 +1785,15 @@ fn apply_skills(storage: &Storage, root: &Path, local_only: &BTreeSet<String>) -
         if local_only.contains(&rel) {
             continue;
         }
-        if !doc.body.is_empty() {
+        let body = crate::skill::unwrap_skill_body(&doc.body);
+        if !body.is_empty() {
             write_skill_body(
                 root,
                 &doc.id,
                 &doc.name,
                 &doc.description,
                 doc.enabled,
-                &doc.body,
+                &body,
             )?;
         }
         let path = skill_checkout_path(root, &doc.id);

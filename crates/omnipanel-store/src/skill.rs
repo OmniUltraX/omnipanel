@@ -130,6 +130,36 @@ pub fn render_skill_md(frontmatter: &SkillFrontmatter, body: &str) -> String {
     format!("---\n{yaml}---\n\n{body}\n")
 }
 
+/// 正文是否还包着一层技能头（`---` 里有 `name:`）。
+pub(crate) fn looks_like_skill_document(raw: &str) -> bool {
+    let trimmed = raw.trim_start();
+    let Some(rest) = trimmed.strip_prefix("---") else {
+        return false;
+    };
+    let Some(end) = rest.find("\n---") else {
+        return false;
+    };
+    rest[..end]
+        .lines()
+        .any(|line| line.trim().starts_with("name:"))
+}
+
+/// 同步曾经把整份 SKILL.md 再写进正文，一层套一层。剥到不再是技能头。
+pub fn unwrap_skill_body(raw: &str) -> String {
+    let mut current = raw.trim_start().to_string();
+    for _ in 0..32 {
+        if !looks_like_skill_document(&current) {
+            break;
+        }
+        let next = extract_skill_body(&current);
+        if next.is_empty() || next == current {
+            break;
+        }
+        current = next;
+    }
+    current
+}
+
 /// 从原始 SKILL.md 文本提取正文（去除 frontmatter）。
 pub fn extract_skill_body(raw: &str) -> String {
     if let Some(rest) = raw.strip_prefix("---") {
@@ -198,7 +228,9 @@ pub fn write_skill(
     let dir = skill_dir(&id)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let file = dir.join(SKILL_FILE);
-    let content = render_skill_md(&frontmatter, body);
+    // 正文里若已经是整份 SKILL.md，先剥掉再包一层，避免每次保存多一层头。
+    let body = unwrap_skill_body(body);
+    let content = render_skill_md(&frontmatter, &body);
     fs::write(&file, content).map_err(|e| e.to_string())?;
     load_skill_record(&id)
 }
@@ -366,6 +398,26 @@ mod tests {
     fn extract_body_strips_frontmatter() {
         let raw = "---\nname: x\ndescription: y\n---\n\nBody here\n";
         assert_eq!(extract_skill_body(raw), "Body here");
+    }
+
+    #[test]
+    fn unwrap_stops_after_nested_frontmatter() {
+        let inner = "# DB 慢查询排查\n\n只读采集";
+        let once = format!("---\nname: DB 慢查询排查\nenabled: true\n---\n\n{inner}\n");
+        let twice = format!("---\nname: DB 慢查询排查\nenabled: true\n---\n\n{once}");
+        assert_eq!(unwrap_skill_body(&twice), inner);
+        assert_eq!(unwrap_skill_body(&once), inner);
+        assert_eq!(unwrap_skill_body(inner), inner);
+        let written = render_skill_md(
+            &SkillFrontmatter {
+                name: "DB 慢查询排查".into(),
+                description: "desc".into(),
+                enabled: true,
+            },
+            &unwrap_skill_body(&twice),
+        );
+        assert_eq!(parse_skill_md(&written).unwrap().body, inner);
+        assert_eq!(unwrap_skill_body(&written), inner);
     }
 
     #[test]

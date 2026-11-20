@@ -1136,6 +1136,7 @@ impl Storage {
             let body = crate::skill::skill_file_path(&skill.id)
                 .ok()
                 .and_then(|path| std::fs::read_to_string(path).ok())
+                .map(|raw| crate::skill::unwrap_skill_body(&raw))
                 .unwrap_or_default();
             let doc = serde_json::json!({
                 "id": skill.id,
