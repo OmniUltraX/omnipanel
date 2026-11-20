@@ -498,7 +498,10 @@ mod tests {
         let remote = br#"{"updatedAt":2,"name":"a"}"#;
         match fold_update_stamps(local, remote) {
             StampFold::OnlyStamp(body) => assert_eq!(body, remote),
-            other => panic!("expected identical documents to collapse, got {}", kind(&other)),
+            other => panic!(
+                "expected identical documents to collapse, got {}",
+                kind(&other)
+            ),
         }
     }
 

@@ -21,6 +21,11 @@ on:
           - windows
           - macos
           - linux
+      publish_tag:
+        description: '已有 tag 只补更新清单、同步 OSS 并发布，不重新构建'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -86,6 +91,7 @@ jobs:
 
   prepare-matrix:
     needs: check-oss
+    if: github.event_name != 'workflow_dispatch' || inputs.publish_tag == ''
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
@@ -296,7 +302,10 @@ jobs:
           # Publish only after every platform and OSS verification succeeds.
           releaseDraft: true
           prerelease: false
-          includeUpdaterJson: true
+          # 并行任务同时改 latest.json 会在删除旧资产时得到 404，并丢掉其他平台。
+          # 清单由 publish-oss 在全部签名上传后写一次。两个输入名都关掉，避免 action 改名后失效。
+          includeUpdaterJson: false
+          uploadUpdaterJson: false
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
@@ -376,9 +385,15 @@ jobs:
 
   # 全平台构建成功后，将 Release 资产同步到阿里云 OSS（客户端优先从此下载）
   publish-oss:
-    needs: build
-    # 仅正式 tag 发版同步 OSS；手动试构建不覆盖线上 latest.json
-    if: github.ref_type == 'tag'
+    needs: [check-oss, build]
+    # 正式 tag 在全平台成功后同步。publish_tag 用于产物已齐、只差清单和发布的补发。
+    if: >-
+      always() &&
+      needs.check-oss.result == 'success' &&
+      (
+        (github.ref_type == 'tag' && needs.build.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish_tag != '')
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -421,13 +436,29 @@ jobs:
       - name: Download GitHub Release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.publish_tag }}
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          gh release download "${{ github.ref_name }}" \
+          gh release download "$RELEASE_TAG" \
             --repo "${{ github.repository }}" \
             --dir release-assets
           ls -la release-assets
+
+      - name: Build updater manifest once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.publish_tag }}
+        run: |
+          set -euo pipefail
+          node scripts/build-updater-manifest.mjs \
+            --dir release-assets \
+            --tag "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --changelog CHANGELOG.md
+          gh release upload "$RELEASE_TAG" release-assets/latest.json \
+            --repo "${{ github.repository }}" \
+            --clobber
 
       - name: Install ali-oss
         run: npm install --no-save ali-oss@6
@@ -442,10 +473,11 @@ jobs:
         run: |
           node scripts/publish-updater-to-aliyun-oss.mjs \
             --dir release-assets \
-            --tag "${{ github.ref_name }}" \
+            --tag "${{ github.ref_type == 'tag' && github.ref_name || inputs.publish_tag }}" \
             --repo "${{ github.repository }}"
 
       - name: Publish verified release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --latest
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.publish_tag }}
+        run: gh release edit "$RELEASE_TAG" --repo "${{ github.repository }}" --draft=false --latest

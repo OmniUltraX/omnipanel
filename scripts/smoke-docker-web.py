@@ -256,7 +256,16 @@ def main():
     fake=dict(db,id='smoke-secret',name='Synthetic credential',db_type='postgres',host='127.0.0.1',port=65432,database='test-only',password='synthetic-'+secrets.token_hex(16))
     invoke('db_save_connection',{'connection':fake})
     assert invoke('db_get_connection_secret',{'id':fake['id']})==fake['password']
-    assert docker('exec',NAME,'stat','-c','%a','/data/omnipd/secrets/db-password-smoke-secret.secret').stdout.strip()=='600'
+    secret_dir='/data/omnipd/secrets'
+    plain=docker('exec',NAME,'stat','-c','%a',f'{secret_dir}/db-password-smoke-secret.secret',check=False)
+    assert plain.returncode!=0, 'plaintext credential file must not remain beside the vault'
+    bundle=docker('exec',NAME,'stat','-c','%a',f'{secret_dir}/vault.bundle')
+    assert bundle.stdout.strip()=='600', bundle.stdout
+    leaked=docker('exec',NAME,'grep','-a','-F','-q',fake['password'],f'{secret_dir}/vault.bundle',check=False)
+    assert leaked.returncode!=0, 'credential leaked into the vault bundle as plaintext'
+    master=docker('exec',NAME,'stat','-c','%a',f'{secret_dir}/__sqlcipher_master_key__.secret',check=False)
+    if master.returncode==0:
+        assert master.stdout.strip()=='600', master.stdout
     docker('exec',NAME,'sh','-c','printf marker > /data/smoke-marker')
     cli=docker('exec',NAME,'docker','--version');assert 'Docker version' in cli.stdout
     compose=docker('exec',NAME,'docker','compose','version');assert 'Compose version' in compose.stdout
