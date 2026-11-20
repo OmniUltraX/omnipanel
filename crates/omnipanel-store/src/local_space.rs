@@ -369,7 +369,8 @@ impl Storage {
         Ok(out)
     }
 
-    /// 已有创建设备 id 不覆盖。空字符串不写入。
+    /// 空字符串不写入。同步下来的正文已经带了创建设备号时，用它替换本机记下的旧值，
+    /// 否则下次重建又会盖回去，密钥这种只差设备号的记录会一直被当成冲突。
     pub fn save_resource_origins(&self, origins: &BTreeMap<String, String>) -> OmniResult<()> {
         let conn = self.conn();
         for (path, origin) in origins {
@@ -379,8 +380,7 @@ impl Storage {
             }
             conn.execute(
                 "INSERT INTO resource_origin (path, origin_device_id) VALUES (?1, ?2)
-                 ON CONFLICT(path) DO UPDATE SET origin_device_id = excluded.origin_device_id
-                 WHERE resource_origin.origin_device_id = ''",
+                 ON CONFLICT(path) DO UPDATE SET origin_device_id = excluded.origin_device_id",
                 rusqlite::params![path, origin],
             )
             .map_err(map_sqlite)?;

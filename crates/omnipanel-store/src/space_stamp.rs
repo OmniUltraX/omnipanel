@@ -42,6 +42,8 @@ pub(crate) fn fold_update_stamps(local: &[u8], remote: &[u8]) -> StampFold {
                 StampPair::Max(value) => updates.push((key, value)),
                 StampPair::Content => content_diff = true,
             }
+        } else if is_origin_key(&key) {
+            // 创建设备号不是正文。两边写了不同设备也不让人选。
         } else if key == "tags" {
             if !tag_values_eq(left, right) {
                 content_diff = true;
@@ -153,6 +155,48 @@ fn stamp_num(value: &Value) -> Option<i64> {
         return i64::try_from(number).ok();
     }
     value.as_str().and_then(|text| text.trim().parse().ok())
+}
+
+pub(crate) fn is_origin_key(key: &str) -> bool {
+    let mut name = String::new();
+    for ch in key.chars() {
+        if ch == '_' || ch == '-' {
+            continue;
+        }
+        name.push(ch.to_ascii_lowercase());
+    }
+    name == "origindeviceid"
+}
+
+/// 去掉创建设备号之后两份正文是否相同。不是 JSON 时返回 false。
+pub(crate) fn same_except_origin(left: &[u8], right: &[u8]) -> bool {
+    if left == right {
+        return true;
+    }
+    let Ok(mut local) = serde_json::from_slice::<Value>(left) else {
+        return false;
+    };
+    let Ok(mut remote) = serde_json::from_slice::<Value>(right) else {
+        return false;
+    };
+    let Some(local_obj) = local.as_object_mut() else {
+        return false;
+    };
+    let Some(remote_obj) = remote.as_object_mut() else {
+        return false;
+    };
+    local_obj.retain(|key, _| !is_origin_key(key));
+    remote_obj.retain(|key, _| !is_origin_key(key));
+    if let (Some(left_tags), Some(right_tags)) = (
+        local_obj.get("tags").cloned(),
+        remote_obj.get("tags").cloned(),
+    ) {
+        if tag_values_eq(Some(&left_tags), Some(&right_tags)) {
+            local_obj.remove("tags");
+            remote_obj.remove("tags");
+        }
+    }
+    local_obj == remote_obj
 }
 
 fn tag_values_eq(left: Option<&Value>, right: Option<&Value>) -> bool {
@@ -547,6 +591,30 @@ mod tests {
             }
             other => panic!("expected content, got {}", kind(&other)),
         }
+    }
+
+    #[test]
+    fn origin_device_alone_is_not_a_conflict() {
+        let local =
+            br#"{"name":"k","publicKey":"","updatedAt":1788877908,"originDeviceId":"device-a"}"#;
+        let remote =
+            br#"{"name":"k","publicKey":"","updatedAt":1788877908,"originDeviceId":"device-b"}"#;
+        match fold_update_stamps(local, remote) {
+            StampFold::OnlyStamp(body) => assert_eq!(body, remote),
+            other => panic!("expected origin-only to collapse, got {}", kind(&other)),
+        }
+        assert!(same_except_origin(local, remote));
+    }
+
+    #[test]
+    fn origin_device_does_not_hide_a_real_difference() {
+        let local = br#"{"name":"local","updatedAt":1,"originDeviceId":"device-a"}"#;
+        let remote = br#"{"name":"cloud","updatedAt":1,"originDeviceId":"device-b"}"#;
+        assert!(!same_except_origin(local, remote));
+        assert!(matches!(
+            fold_update_stamps(local, remote),
+            StampFold::Untouched
+        ));
     }
 
     #[test]

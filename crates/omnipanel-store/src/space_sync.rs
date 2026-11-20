@@ -1058,8 +1058,11 @@ enum OneSided {
 
 /// 单边变化时看正文日期。变更侧更新则沿用原来的选择；更旧则留下较新的一份；
 /// 日期相同但正文不同则先用云端，本机留在冲突里。没有可比日期时不拦。
+/// 只差创建设备号时不算正文不同。
 fn gate_one_sided(local_body: &[u8], remote_body: &[u8], taking_remote: bool) -> OneSided {
-    let picked = if local_body == remote_body {
+    let picked = if local_body == remote_body
+        || crate::space_stamp::same_except_origin(local_body, remote_body)
+    {
         OneSided::AsPicked
     } else {
         match (document_stamp(local_body), document_stamp(remote_body)) {
@@ -2725,6 +2728,42 @@ mod tests {
             std::fs::read_to_string(root.path().join(SPACE_DIR).join("workspaces/default.json"))
                 .unwrap();
         assert!(text.contains("1794884856297"));
+    }
+
+    #[test]
+    fn origin_only_conflict_is_dropped_and_the_checkout_stays() {
+        let root = tempfile::tempdir().unwrap();
+        write_conflict(
+            root.path(),
+            "sshkeys/k.json",
+            br#"{"name":"k","publicKey":"","updatedAt":1788877908,"originDeviceId":"device-a"}"#,
+            10,
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.path().join(SPACE_DIR).join("sshkeys")).unwrap();
+        let checkout =
+            br#"{"name":"k","publicKey":"","updatedAt":1788877908,"originDeviceId":"device-b"}"#;
+        std::fs::write(root.path().join(SPACE_DIR).join("sshkeys/k.json"), checkout).unwrap();
+        assert!(list_space_conflicts(root.path()).unwrap().is_empty());
+        let text = std::fs::read(root.path().join(SPACE_DIR).join("sshkeys/k.json")).unwrap();
+        assert_eq!(text, checkout);
+    }
+
+    #[test]
+    fn equal_stamp_origin_only_does_not_hold() {
+        let local =
+            br#"{"name":"k","publicKey":"","updatedAt":1788877908,"originDeviceId":"device-a"}"#;
+        let remote =
+            br#"{"name":"k","publicKey":"","updatedAt":1788877908,"originDeviceId":"device-b"}"#;
+        assert!(matches!(
+            gate_one_sided(local, remote, true),
+            OneSided::AsPicked
+        ));
+        let changed = br#"{"name":"other","publicKey":"","updatedAt":1788877908,"originDeviceId":"device-b"}"#;
+        assert!(matches!(
+            gate_one_sided(local, changed, true),
+            OneSided::Hold { .. }
+        ));
     }
 
     #[test]
