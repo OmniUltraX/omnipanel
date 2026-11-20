@@ -813,21 +813,60 @@ fn stun_mapped(packet: &[u8]) -> Option<([u8; 12], SocketAddr)> {
     Some((txn, *mapped.socket_address()))
 }
 
+/// CRC-32/ISO-HDLC (the IEEE 802.3 polynomial, reflected) used by the STUN
+/// FINGERPRINT attribute.
+fn crc32_ieee(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
+/// A 40-byte binding request in the format tailscale's STUN servers require:
+/// header + `SOFTWARE="tailnode"` + `FINGERPRINT`. See `tailscale.com/net/stun`.
+fn stun_request(txn: &[u8; 12]) -> [u8; 40] {
+    const SOFTWARE: &[u8; 8] = b"tailnode";
+
+    let mut buf = [0u8; 40];
+    // Header: type 0x0001, length 20 (12 software attr + 8 fingerprint), magic cookie.
+    buf[1] = 0x01;
+    buf[3] = 0x14;
+    buf[4..8].copy_from_slice(&[0x21, 0x12, 0xA4, 0x42]);
+    buf[8..20].copy_from_slice(txn);
+
+    // SOFTWARE attribute (0x8022), value "tailnode" (8 bytes, no padding).
+    buf[20..22].copy_from_slice(&[0x80, 0x22]);
+    buf[23] = SOFTWARE.len() as u8;
+    buf[24..32].copy_from_slice(SOFTWARE);
+
+    // FINGERPRINT attribute (0x8028): CRC32 of the packet so far, XOR the STUN magic.
+    buf[32..34].copy_from_slice(&[0x80, 0x28]);
+    buf[35] = 0x04;
+    let fp = crc32_ieee(&buf[..32]) ^ 0x5354_554e;
+    buf[36..40].copy_from_slice(&fp.to_be_bytes());
+
+    buf
+}
+
 async fn probe_mapped(
     sock: &UdpSocket,
     server: SocketAddr,
     wait: &Mutex<HashMap<[u8; 12], oneshot::Sender<SocketAddr>>>,
 ) -> Option<SocketAddr> {
-    // Bare binding request. Servers answer this; a fingerprint attribute is optional
-    // and some ignore a request when that checksum does not match.
+    // Tailscale-style binding request. headscale's embedded STUN (tailscale's
+    // `ParseBindingRequest`) rejects bare requests with "non-Tailscale software"
+    // unless they end in the SOFTWARE("tailnode") + FINGERPRINT attributes.
+    // Plain STUN servers (cloudflare/google) accept this form too.
     let txn: [u8; 12] = rand::random();
-    let mut buf = [0u8; 20];
-    buf[1] = 0x01;
-    buf[4] = 0x21;
-    buf[5] = 0x12;
-    buf[6] = 0xA4;
-    buf[7] = 0x42;
-    buf[8..20].copy_from_slice(&txn);
+    let buf = stun_request(&txn);
     let (tx, rx) = oneshot::channel();
     wait.lock()
         .unwrap_or_else(|err| err.into_inner())
