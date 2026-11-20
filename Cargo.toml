@@ -128,3 +128,5 @@ strip = "symbols"
 specta-typescript = { path = "crates/specta-typescript-patch" }
 # tailscale 0.5 的 DERP runner 在区域正常退出后会空转占满 tokio worker。
 ts_runtime = { path = "crates/ts_runtime-patch" }
+# 用户态 TCP 默认开着 Nagle，小包要等上一个 ACK，交互会话会按往返时间一顿一顿。
+ts_netstack_smoltcp_core = { path = "crates/ts_netstack_smoltcp_core-patch" }

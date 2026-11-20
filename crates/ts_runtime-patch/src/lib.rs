@@ -25,6 +25,7 @@ mod netmon;
 mod netstack_actor;
 mod packetfilter;
 mod path_discoverer;
+mod peer_paths;
 pub mod peer_tracker;
 mod registry;
 mod retained_bus;
@@ -36,6 +37,7 @@ mod task;
 pub(crate) use env::Env;
 pub use error::{Error, ErrorKind};
 pub use kameo::actor::{ActorRef, Spawn};
+pub use peer_paths::{PeerPath, forget_peer_paths, peer_underlay};
 pub use registry::Registry;
 pub use task::{ErasedTask, Task};
 
@@ -111,11 +113,18 @@ impl kameo::Actor for Runtime {
 
         PeerTracker::supervise(&slf, env.clone()).spawn().await;
 
+        let mut netstack_config = netstack::netcore::Config::default();
+        // 16 KiB is the upstream default. Throughput is about window/RTT, so a relay
+        // round trip of 150 ms capped transfers near 100 KB/s. 1 MiB still fits a
+        // handful of sessions. MTU stays 1280 so DERP packets are not fragmented.
+        netstack_config.tcp_buffer_size = 1024 * 1024;
+        netstack_config.command_channel_capacity = Some(256);
+
         NetstackActor::supervise(
             &slf,
             (
                 env.clone(),
-                Default::default(),
+                netstack_config,
                 netstack_id,
                 netstack_up,
                 Arc::new(Mutex::new(netstack_down)),

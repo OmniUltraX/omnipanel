@@ -36,6 +36,8 @@ pub struct MeshStatus {
 pub struct MeshPeerIp {
     pub device_id: String,
     pub ipv4: String,
+    /// `direct` 是 UDP 直连，`relay` 是仍走 DERP 中继，空字符串表示还没选出路径。
+    pub path: String,
 }
 
 pub struct MeshHandle {
@@ -360,7 +362,21 @@ pub async fn mesh_peer_ips(
             }
             _ => peer_ipv4(&device, &hostname).await,
         };
-        out.push(MeshPeerIp { device_id, ipv4 });
+        let path = if ipv4.is_empty() {
+            String::new()
+        } else {
+            self_node
+                .as_ref()
+                .filter(|node| !node.matches_name(&hostname))
+                .and_then(|node| ts_runtime::peer_underlay(&node.node_key, &hostname))
+                .map(|kind| kind.as_str().to_string())
+                .unwrap_or_default()
+        };
+        out.push(MeshPeerIp {
+            device_id,
+            ipv4,
+            path,
+        });
     }
     Ok(out)
 }
@@ -424,6 +440,9 @@ async fn shutdown_handle(handle: MeshHandle) {
         team_id,
         ..
     } = handle;
+    if let Ok(Ok(node)) = tokio::time::timeout(Duration::from_secs(1), device.self_node()).await {
+        ts_runtime::forget_peer_paths(&node.node_key);
+    }
     tokio::task::yield_now().await;
     if let Ok(dev) = Arc::try_unwrap(device) {
         let _ = tokio::time::timeout(
@@ -700,7 +719,8 @@ async fn handle_tcp_relay(
 
     write_json_line(&mut stream, &serde_json::json!({ "ok": true })).await?;
     let mut outbound = outbound;
-    let _ = tokio::io::copy_bidirectional(&mut stream, &mut outbound).await;
+    let _ = outbound.set_nodelay(true);
+    crate::mesh_relay::copy_mesh(&mut stream, &mut outbound).await;
     Ok(())
 }
 

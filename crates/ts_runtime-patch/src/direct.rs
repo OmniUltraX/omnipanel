@@ -177,6 +177,12 @@ fn udp_rx(sock: impl Borrow<UdpSocket>) -> impl Stream<Item = UdpRx> {
                     Err(e) if e.kind() == ErrorKind::WouldBlock => {
                         break;
                     }
+                    // Windows turns an ICMP unreachable from an earlier send into
+                    // WSAECONNRESET on the next receive. The socket is still open;
+                    // ending the stream here kills hole-punching and leaves traffic on DERP.
+                    Err(e) if e.kind() == ErrorKind::ConnectionReset => {
+                        continue;
+                    }
                     Err(e) => return Err(e),
                 };
 
@@ -390,7 +396,13 @@ impl Message<StreamMessage<UdpRx, (), ()>> for DirectActor {
 
         const ACCEPTABLE_ERR: &[io::ErrorKind] = {
             use io::ErrorKind::*;
-            &[NetworkDown, NetworkUnreachable, HostUnreachable, TimedOut]
+            &[
+                NetworkDown,
+                NetworkUnreachable,
+                HostUnreachable,
+                TimedOut,
+                ConnectionReset,
+            ]
         };
 
         match msg {

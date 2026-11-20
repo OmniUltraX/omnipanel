@@ -4738,6 +4738,8 @@ export type MemoryStats_Serialize = {
 export type MeshPeerIp = {
 	deviceId: string,
 	ipv4: string,
+	/** `direct` 是 UDP 直连，`relay` 是仍走 DERP 中继，空字符串表示还没选出路径。 */
+	path: string,
 };
 
 export type MeshStatus = {

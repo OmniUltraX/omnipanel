@@ -18,6 +18,7 @@ type PeerRow = {
   name: string;
   self: boolean;
   ipv4: string;
+  path: string;
 };
 
 function MeshPopover({
@@ -79,9 +80,7 @@ function MeshPopover({
               {peer.self ? `${peer.name} · ${t("shell.statusbar.meshDetail.self")}` : peer.name}
             </span>
             <span className="connection-pool-popover-counts">
-              {peer.ipv4.trim()
-                ? peer.ipv4
-                : t("shell.statusbar.meshDetail.peerOffline")}
+              {formatPeerAddress(peer, t)}
             </span>
           </li>
         ))}
@@ -131,7 +130,9 @@ export function StatusBarMeshIndicator() {
         const resolved = ids.length
           ? await unwrapCommand(commands.meshPeerIps(teamId, ids), { quiet: true })
           : [];
-        const addresses = new Map(resolved.map((item) => [item.deviceId, item.ipv4]));
+        const addresses = new Map(
+          resolved.map((item) => [item.deviceId, { ipv4: item.ipv4, path: item.path }]),
+        );
         setPeers(peerRows(devices, addresses, selfId.current));
       } catch {
         setPeers([]);
@@ -215,16 +216,35 @@ export function StatusBarMeshIndicator() {
 
 function peerRows(
   devices: AuthDevice[],
-  addresses: Map<string, string>,
+  addresses: Map<string, { ipv4: string; path: string }>,
   selfDeviceId: string,
 ): PeerRow[] {
   return devices
     .filter((device) => device.role.trim().toLowerCase() !== "assistant")
-    .map((device) => ({
-      id: device.deviceId,
-      name: device.deviceName.trim() || device.deviceId,
-      self: device.deviceId === selfDeviceId,
-      ipv4: addresses.get(device.deviceId)?.trim() ?? "",
-    }))
+    .map((device) => {
+      const found = addresses.get(device.deviceId);
+      return {
+        id: device.deviceId,
+        name: device.deviceName.trim() || device.deviceId,
+        self: device.deviceId === selfDeviceId,
+        ipv4: found?.ipv4.trim() ?? "",
+        path: found?.path ?? "",
+      };
+    })
     .sort((a, b) => Number(b.self) - Number(a.self) || a.name.localeCompare(b.name));
+}
+
+function formatPeerAddress(
+  peer: PeerRow,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (!peer.ipv4.trim()) return t("shell.statusbar.meshDetail.peerOffline");
+  if (peer.self) return peer.ipv4;
+  const path =
+    peer.path === "direct"
+      ? t("shell.statusbar.meshDetail.pathDirect")
+      : peer.path === "relay"
+        ? t("shell.statusbar.meshDetail.pathRelay")
+        : t("shell.statusbar.meshDetail.pathProbing");
+  return `${peer.ipv4} · ${path}`;
 }

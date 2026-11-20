@@ -47,6 +47,23 @@ function normalizeRole(role: string | undefined): "client" | "assistant" {
   return role?.trim().toLowerCase() === "assistant" ? "assistant" : "client";
 }
 
+function formatTailnet(
+  peer: { ipv4: string; path: string } | undefined,
+  self: boolean,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const ip = peer?.ipv4.trim() ?? "";
+  if (!ip) return "—";
+  if (self) return ip;
+  const path =
+    peer?.path === "direct"
+      ? t("shell.statusbar.meshDetail.pathDirect")
+      : peer?.path === "relay"
+        ? t("shell.statusbar.meshDetail.pathRelay")
+        : t("shell.statusbar.meshDetail.pathProbing");
+  return `${ip} · ${path}`;
+}
+
 function DeviceList({
   devices,
   localDeviceId,
@@ -63,8 +80,8 @@ function DeviceList({
   /** 本机是否已有 SyncMasterKey（与服务端 syncTrusted 互补） */
   localSyncAuthenticated: boolean;
   deletingId: string | null;
-  /** deviceId → Tailscale 内网 IPv4（当前团队 mesh 解析结果） */
-  tailnetIps: Record<string, string>;
+  /** deviceId → 当前团队 mesh 地址和路径 */
+  tailnetIps: Record<string, { ipv4: string; path: string }>;
   /** 是否有可用的 mesh 解析数据；false 时不渲染 Tailscale 行 */
   tailnetReady: boolean;
   onDelete: (device: AuthDevice) => void;
@@ -132,8 +149,8 @@ function DeviceList({
               {tailnetReady ? (
                 <div className="user-center-device-card__meta-row">
                   <dt>{t("userCenter.devices.meta.tailscaleIp")}</dt>
-                  <dd title={tailnetIps[device.deviceId]}>
-                    {tailnetIps[device.deviceId]?.trim() || "—"}
+                  <dd title={tailnetIps[device.deviceId]?.ipv4}>
+                    {formatTailnet(tailnetIps[device.deviceId], isCurrent, t)}
                   </dd>
                 </div>
               ) : null}
@@ -190,7 +207,9 @@ export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean
   const [refreshKey, setRefreshKey] = useState(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [bindOpen, setBindOpen] = useState(false);
-  const [tailnetIps, setTailnetIps] = useState<Record<string, string>>({});
+  const [tailnetIps, setTailnetIps] = useState<
+    Record<string, { ipv4: string; path: string }>
+  >({});
   const [tailnetReady, setTailnetReady] = useState(false);
 
   const refresh = useCallback(() => {
@@ -260,12 +279,12 @@ export function UserCenterDevices({ clientOnly = false }: { clientOnly?: boolean
                 { quiet: true },
               );
               if (abort.signal.aborted) return;
-              const map: Record<string, string> = {};
+              const map: Record<string, { ipv4: string; path: string }> = {};
               for (const item of resolved) {
-                map[item.deviceId] = item.ipv4;
+                map[item.deviceId] = { ipv4: item.ipv4, path: item.path };
               }
               setTailnetIps(map);
-              setTailnetReady(Object.values(map).some((ip) => ip.trim() !== ""));
+              setTailnetReady(Object.values(map).some((item) => item.ipv4.trim() !== ""));
             } catch {
               if (abort.signal.aborted) return;
               setTailnetReady(false);

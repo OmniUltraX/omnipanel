@@ -242,8 +242,8 @@ async fn ensure_docker_forward(team_id: i64, origin: &str) -> Result<u16, OmniEr
                     let origin = origin.clone();
                     tokio::spawn(async move {
                         if let Ok(mut upstream) = open_docker_proxy(team_id, &origin).await {
-                            let _ =
-                                tokio::io::copy_bidirectional(&mut inbound, &mut upstream).await;
+                            let _ = inbound.set_nodelay(true);
+                            crate::mesh_relay::copy_mesh(&mut inbound, &mut upstream).await;
                         }
                     });
                 }
@@ -317,7 +317,7 @@ pub(crate) async fn handle_docker_mesh_op(
         match open_local_engine().await {
             Ok(mut engine) => {
                 write_mesh(&mut stream, &serde_json::json!({ "ok": true })).await?;
-                let _ = tokio::io::copy_bidirectional(&mut stream, &mut engine).await;
+                crate::mesh_relay::copy_mesh(&mut stream, &mut engine).await;
             }
             Err(e) => {
                 write_mesh(&mut stream, &serde_json::json!({ "ok": false, "error": e })).await?;

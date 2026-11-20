@@ -316,8 +316,20 @@ async fn splice_one(
     port: u16,
 ) -> Result<(), OmniError> {
     let mut upstream = open_tcp_relay(team_id, origin, host, port).await?;
-    let _ = tokio::io::copy_bidirectional(&mut inbound, &mut upstream).await;
+    let _ = inbound.set_nodelay(true);
+    copy_mesh(&mut inbound, &mut upstream).await;
     Ok(())
+}
+
+pub(crate) const MESH_COPY_BUF: usize = 64 * 1024;
+
+/// 两边各用 64 KiB 缓冲搬运。默认 8 KiB 在 1 MiB 窗口下会把时间耗在来回切换上。
+pub(crate) async fn copy_mesh(
+    left: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
+    right: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
+) {
+    let _ =
+        tokio::io::copy_bidirectional_with_sizes(left, right, MESH_COPY_BUF, MESH_COPY_BUF).await;
 }
 
 pub(crate) async fn connect_team_peer(

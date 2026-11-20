@@ -5,6 +5,7 @@ use kameo::{
     message::{Context, Message},
 };
 use ts_bart::RoutingTable;
+use ts_keys::NodePublicKey;
 use ts_overlay_router::{
     inbound::RouteAction as InboundRouteAction, outbound::RouteAction as OutboundRouteAction,
 };
@@ -15,6 +16,7 @@ use crate::{
     env::Env,
     multiderp::DerpTransportMap,
     path_discoverer::{BestPathMap, BestPaths},
+    peer_paths,
     peer_tracker::PeerState,
 };
 
@@ -25,6 +27,7 @@ pub struct RouteUpdater {
     derp_transport_map: DerpTransportMap,
     peer_state: Arc<PeerState>,
     best_paths: Arc<BestPathMap>,
+    self_node_key: Option<NodePublicKey>,
     env: Env,
 }
 
@@ -83,6 +86,20 @@ impl RouteUpdater {
         routes
     }
 
+    fn record_paths(&self) {
+        let Some(key) = self.self_node_key.clone() else {
+            return;
+        };
+        let peers = self.peer_state.peers.peers().iter().map(|(id, peer)| {
+            (
+                peer.hostname.as_str(),
+                self.best_paths.contains_key(id),
+                peer.derp_region.is_some(),
+            )
+        });
+        peer_paths::replace(key, peer_paths::paths_for_peers(peers));
+    }
+
     async fn publish_peer_routes(&mut self) {
         let new_routes = self.build_peer_routes();
 
@@ -95,6 +112,7 @@ impl RouteUpdater {
         {
             tracing::error!(error = %e, "publishing peer route update");
         }
+        self.record_paths();
     }
 }
 
@@ -118,6 +136,7 @@ impl kameo::Actor for RouteUpdater {
             derp_transport_map: Default::default(),
             peer_state: Default::default(),
             best_paths: Default::default(),
+            self_node_key: None,
             env,
         })
     }
@@ -156,6 +175,7 @@ impl Message<Arc<PeerState>> for RouteUpdater {
         {
             tracing::error!(error = %e, "publishing peer route update");
         }
+        self.record_paths();
     }
 }
 
@@ -185,6 +205,7 @@ impl Message<Arc<ts_control::StateUpdate>> for RouteUpdater {
         let Some(node) = msg.node.as_ref() else {
             return;
         };
+        self.self_node_key = Some(node.node_key.clone());
 
         let mut out = ts_bart::Table::default();
 
@@ -206,6 +227,7 @@ impl Message<Arc<ts_control::StateUpdate>> for RouteUpdater {
         {
             tracing::error!(error = %e, "publishing self route update");
         }
+        self.record_paths();
     }
 }
 
