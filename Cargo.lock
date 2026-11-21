@@ -11032,8 +11032,6 @@ dependencies = [
 [[package]]
 name = "ts_derp"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589539f8c80460eeb3ecaaa7364388f92f80c70b7bb9c4be935f4e7f42602c6f"
 dependencies = [
  "bytes",
  "crypto_box",

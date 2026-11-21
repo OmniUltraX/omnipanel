@@ -132,3 +132,6 @@ ts_runtime = { path = "crates/ts_runtime-patch" }
 ts_netstack_smoltcp_core = { path = "crates/ts_netstack_smoltcp_core-patch" }
 # CallMeMaybe 把 IPv6 的每个 16 位字按本机端序写入，小端上通告地址是反的。
 ts_disco_protocol = { path = "crates/ts_disco_protocol-patch" }
+# DERP 升级请求的 Host 用了拨号 IP（FixedAddr/解析后的 IP），经按域名分流的
+# 反代（如 headscale 前挂 nginx）会落到默认站点，拿不到 101。
+ts_derp = { path = "crates/ts_derp-patch" }
