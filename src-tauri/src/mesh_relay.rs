@@ -426,9 +426,14 @@ pub(crate) async fn exchange_with_sibling(
         } else {
             format!("{base}-{i}")
         };
+        tracing::info!(team_id, %hostname, "尝试同级设备后缀");
         let mut stream = match connect_team_peer_by_hostname(team_id, &hostname).await {
-            Ok(s) => s,
+            Ok(s) => {
+                tracing::info!(team_id, %hostname, "同级设备 TCP 已连通，发送团队校验");
+                s
+            }
             Err(e) => {
+                tracing::info!(team_id, %hostname, error = %e, "同级设备后缀连不通，换下一个");
                 last_err = e;
                 continue;
             }
@@ -436,11 +441,13 @@ pub(crate) async fn exchange_with_sibling(
         let resp = match send_mesh_request(&mut stream, req).await {
             Ok(resp) => resp,
             Err(e) => {
+                tracing::info!(team_id, %hostname, error = %e, "同级设备无响应，换下一个");
                 last_err = e;
                 continue;
             }
         };
         if resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+            tracing::info!(team_id, %hostname, "同级设备接受本团队，记住后缀");
             suffix_hint().lock().await.insert(key.clone(), i);
             return Ok(SiblingReply {
                 stream: Some(stream),

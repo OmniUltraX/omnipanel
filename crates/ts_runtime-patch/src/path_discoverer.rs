@@ -606,15 +606,8 @@ impl Message<IncomingDiscoMsg> for PeerPd {
         // A ping's source is the mapping that just reached us. Probe that address now,
         // instead of waiting for the addresses the peer advertised (those can be a proxy exit).
         if pkt.ty() == Some(MessageType::Ping) && msg.sender.as_udp().is_some_and(is_public_addr) {
-            // Their packet reached this socket. Send later traffic back to that source
-            // instead of waiting for a probe of the address they advertised.
-            self.env
-                .publish_noretain(PeerBestPath {
-                    peer: self.peer_id,
-                    ep: Some((msg.transport, msg.sender.clone())),
-                })
-                .await
-                .unwrap();
+            // 单向可达不等于双向可达：只发探测，不定路由（定路由必须等 pong，
+            // 否则隧道会被钉死在直连黑洞且无回退）。
             if !self.current_probes.contains_key(&msg.sender)
                 && let Some(disco_key) = self.disco_key
             {
