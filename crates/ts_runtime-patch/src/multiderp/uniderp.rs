@@ -248,6 +248,13 @@ struct Runner {
 impl Runner {
     const INACTIVITY_TIMEOUT: Duration = Duration::from_secs(10);
 
+    /// 连接/传输失败后的重试间隔。
+    ///
+    /// 以前这里是 `?` 直接退出 actor：DERP 服务端重启、反代短暂异常或网络抖动
+    /// 都会让该区域的传输永久消失，之后所有需要中继的流量被静默丢进黑洞，
+    /// 只能重启应用才恢复（表现为「中继突然不通、直连对端仍在」）。
+    const RECONNECT_DELAY: Duration = Duration::from_secs(5);
+
     #[tracing::instrument(skip_all, fields(region_id = %self.region_id))]
     async fn run(&mut self) -> Result<(), ts_derp::Error> {
         loop {
@@ -255,10 +262,34 @@ impl Runner {
                 tracing::debug!(region_id = %self.region_id, "derp runner stopped");
                 return Ok(());
             };
-            let transport = self.connect(pending).await?;
-            if !self.run_transport(transport).await? {
-                tracing::debug!(region_id = %self.region_id, "derp runner stopped");
-                return Ok(());
+
+            let transport = match self.connect(pending).await {
+                Ok(transport) => transport,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        region_id = %self.region_id,
+                        "failed to establish derp connection; retrying"
+                    );
+                    tokio::time::sleep(Self::RECONNECT_DELAY).await;
+                    continue;
+                }
+            };
+
+            match self.run_transport(transport).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::debug!(region_id = %self.region_id, "derp runner stopped");
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        region_id = %self.region_id,
+                        "derp connection lost; reconnecting"
+                    );
+                    tokio::time::sleep(Self::RECONNECT_DELAY).await;
+                }
             }
         }
     }
