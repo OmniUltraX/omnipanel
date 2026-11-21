@@ -1,4 +1,5 @@
 use core::net::{Ipv4Addr, Ipv6Addr};
+use core::time::Duration;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -77,16 +78,37 @@ impl kameo::Actor for ControlRunner {
     type Error = ControlRunnerError;
 
     async fn on_start(params: Params, slf: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let client = params
-            .env
-            .ask::<DialerActor, _>(
-                None,
-                DialNext {
-                    url: params.config.server_url.clone(),
-                },
-                true,
-            )
-            .await?;
+        // 控制面短暂不可用（服务端重启、网络抖动）时，拨号一次失败就退出 actor
+        // 会让 kameo 监督立即重启，默认预算 5 次 / 5 秒——一个普通的服务端维护
+        // 窗口就会烧光预算，之后 ControlRunner 永久死亡，组网静默下线，只能重启
+        // 应用才能恢复。改为在 actor 内带退避地重试拨号，监督重启只留给真正的
+        // 崩溃。
+        let mut backoff = Duration::from_secs(2);
+        let client = loop {
+            match params
+                .env
+                .ask::<DialerActor, _>(
+                    None,
+                    DialNext {
+                        url: params.config.server_url.clone(),
+                    },
+                    true,
+                )
+                .await
+            {
+                Ok(client) => break client,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        server = %params.config.server_url,
+                        retry_in = ?backoff,
+                        "control server unreachable; retrying"
+                    );
+                    tokio::time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(60));
+                }
+            }
+        };
 
         Task::supervise_with(&slf, {
             let aref = slf.downgrade();
