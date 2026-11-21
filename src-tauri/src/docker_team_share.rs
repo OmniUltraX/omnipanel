@@ -12,7 +12,7 @@ use specta::Type;
 use tauri::{AppHandle, Manager, State};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-use crate::mesh_relay::{connect_team_peer, read_json_line, write_json_line};
+use crate::mesh_relay::exchange_with_sibling;
 use crate::state::AppState;
 
 const FILE_NAME: &str = "docker-team-share.json";
@@ -152,14 +152,15 @@ async fn query_one(
     device_id: &str,
     fallback_name: &str,
 ) -> Option<DockerConnectionInfo> {
-    let mut stream = connect_team_peer(team_id, device_id).await.ok()?;
     let req = serde_json::json!({
         "v": 1,
         "op": "docker-share-status",
         "teamId": team_id,
     });
-    write_json_line(&mut stream, &req).await.ok()?;
-    let resp = read_json_line(&mut stream).await.ok()?;
+    let reply = exchange_with_sibling(team_id, device_id, &req)
+        .await
+        .ok()?;
+    let resp = reply.resp;
     if resp.get("ok").and_then(|v| v.as_bool()) != Some(true) {
         return None;
     }
@@ -260,17 +261,16 @@ async fn open_docker_proxy(
     team_id: i64,
     origin: &str,
 ) -> Result<tailscale::netstack::TcpStream, OmniError> {
-    let mut stream = connect_team_peer(team_id, origin).await?;
     let req = serde_json::json!({
         "v": 1,
         "op": "docker-proxy",
         "teamId": team_id,
     });
-    write_json_line(&mut stream, &req).await?;
-    let resp = read_json_line(&mut stream).await?;
-    if resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+    let reply = exchange_with_sibling(team_id, origin, &req).await?;
+    if let Some(stream) = reply.stream {
         return Ok(stream);
     }
+    let resp = reply.resp;
     Err(OmniError::new(
         ErrorCode::Connection,
         resp.get("error")

@@ -332,9 +332,9 @@ pub(crate) async fn copy_mesh(
         tokio::io::copy_bidirectional_with_sizes(left, right, MESH_COPY_BUF, MESH_COPY_BUF).await;
 }
 
-pub(crate) async fn connect_team_peer(
+pub(crate) async fn connect_team_peer_by_hostname(
     team_id: i64,
-    origin: &str,
+    hostname: &str,
 ) -> Result<tailscale::netstack::TcpStream, OmniError> {
     let device = {
         let map = mesh_devices().lock().await;
@@ -342,10 +342,9 @@ pub(crate) async fn connect_team_peer(
             .cloned()
             .ok_or_else(|| OmniError::new(ErrorCode::Connection, "本机尚未加入该团队 mesh"))?
     };
-    let hostname = mesh_hostname(origin);
     let mut peer = None;
     for attempt in 0..5 {
-        peer = device.peer_by_name(&hostname).await.map_err(|e| {
+        peer = device.peer_by_name(hostname).await.map_err(|e| {
             OmniError::new(ErrorCode::Connection, "查找添加设备失败").with_cause(e.to_string())
         })?;
         if peer.is_some() {
@@ -371,13 +370,115 @@ pub(crate) async fn connect_team_peer(
     })
 }
 
+/// 与同级设备一次请求往返的结果。`stream` 仅在对端接受（`ok: true`）时为
+/// `Some`；明确拒绝时只带回响应，由调用方按原有文案报错。
+pub(crate) struct SiblingReply {
+    pub stream: Option<tailscale::netstack::TcpStream>,
+    pub resp: serde_json::Value,
+}
+
+/// 对端明确表示 team 对不上的拒绝。注意 docker 类操作的远端把“team 不对”
+/// 和“分享已关”回成同一个 `docker share off`，见下文处理。
+fn is_team_mismatch_message(resp: &serde_json::Value) -> bool {
+    matches!(
+        resp.get("error").and_then(|v| v.as_str()),
+        Some("team mismatch") | Some("docker share off")
+    )
+}
+
+/// 记住每个 (team, origin) 上次命中的后缀下标：同一台设备重连时注册顺序
+/// 不变，命中结果稳定，免得每次都从 base 撞起（省一次握手往返）。
+static SUFFIX_HINT: OnceLock<Mutex<HashMap<(i64, String), usize>>> = OnceLock::new();
+
+fn suffix_hint() -> &'static Mutex<HashMap<(i64, String), usize>> {
+    SUFFIX_HINT.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 同一台物理设备在每个团队各有一个 mesh 身份；Headscale 给后注册的同名
+/// 主机自动加 `-1`/`-2` 后缀，而 origin 设备 id 只能算出基础主机名（`peer_by_name`
+/// 是精确匹配）。按 `[上次命中的后缀, base, base-1, base-2, base-3]`（去重）逐个
+/// 尝试：连上后发出请求并读回响应，对端接受即返回并记住后缀；明确 team 不
+/// 匹配就试下一个后缀；其他拒绝一定来自 team 正确的那台，直接返回；
+/// 连不上则试下一个。
+///
+/// 不按后缀轮询的话，命中哪个团队身份完全取决于两端各表的注册顺序：
+/// 对上就通、对不上就永远 `team mismatch`，且与隧道本身好坏无关。
+pub(crate) async fn exchange_with_sibling(
+    team_id: i64,
+    origin: &str,
+    req: &serde_json::Value,
+) -> Result<SiblingReply, OmniError> {
+    let base = mesh_hostname(origin);
+    let key = (team_id, origin.to_string());
+    let hint = suffix_hint().lock().await.get(&key).copied().unwrap_or(0);
+    let mut order = Vec::with_capacity(5);
+    order.push(hint);
+    for i in 0..4 {
+        if i != hint {
+            order.push(i);
+        }
+    }
+    let mut last_err = OmniError::new(ErrorCode::Connection, "添加该资源的设备不在线");
+    let mut saw_mismatch = false;
+    for i in order {
+        let hostname = if i == 0 {
+            base.clone()
+        } else {
+            format!("{base}-{i}")
+        };
+        let mut stream = match connect_team_peer_by_hostname(team_id, &hostname).await {
+            Ok(s) => s,
+            Err(e) => {
+                last_err = e;
+                continue;
+            }
+        };
+        let resp = match send_mesh_request(&mut stream, req).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                last_err = e;
+                continue;
+            }
+        };
+        if resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+            suffix_hint().lock().await.insert(key.clone(), i);
+            return Ok(SiblingReply {
+                stream: Some(stream),
+                resp,
+            });
+        }
+        if is_team_mismatch_message(&resp) {
+            // team 校验在远端各操作处理的最前面：这个后缀命中的是同台设备
+            // 的另一个团队身份，换下一个后缀。
+            saw_mismatch = true;
+            continue;
+        }
+        // 其他拒绝（目标拨号失败等）一定来自 team 正确的那台：就是本次要报的错。
+        return Ok(SiblingReply { stream: None, resp });
+    }
+    if saw_mismatch {
+        return Err(OmniError::new(
+            ErrorCode::Connection,
+            "添加该资源的设备尚未加入当前团队 mesh（仅加入了其他团队）",
+        ));
+    }
+    Err(last_err)
+}
+
+async fn send_mesh_request(
+    stream: &mut tailscale::netstack::TcpStream,
+    req: &serde_json::Value,
+) -> Result<serde_json::Value, OmniError> {
+    write_json_line(stream, req).await?;
+    read_json_line(stream).await
+}
+
 async fn open_tcp_relay(
     team_id: i64,
     origin: &str,
     host: &str,
     port: u16,
 ) -> Result<tailscale::netstack::TcpStream, OmniError> {
-    let mut stream = connect_team_peer(team_id, origin).await?;
     let req = serde_json::json!({
         "v": 1,
         "op": "tcp-relay",
@@ -385,14 +486,15 @@ async fn open_tcp_relay(
         "host": host,
         "port": port,
     });
-    write_json_line(&mut stream, &req).await?;
-    let resp = read_json_line(&mut stream).await?;
-    if resp.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+    let reply = exchange_with_sibling(team_id, origin, &req).await?;
+    if let Some(stream) = reply.stream {
         return Ok(stream);
     }
     Err(OmniError::new(
         ErrorCode::Connection,
-        resp.get("error")
+        reply
+            .resp
+            .get("error")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or("添加设备拒绝转发")

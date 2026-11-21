@@ -813,6 +813,8 @@ impl SshSession {
             inactivity_timeout: Some(Duration::from_secs(3600)),
             // 每 30s 发送 keepalive，防止 NAT / 防火墙 / 服务器空闲超时断连。
             // 连续 3 次未收到回复则判定连接已死（russh 默认 keepalive_max = 3）。
+            // 禁用 Nagle：交互式 SSH 小包多，Nagle + 延迟 ACK 会把每次回显拖慢几百毫秒。
+            nodelay: true,
             keepalive_interval: Some(Duration::from_secs(30)),
             ..Default::default()
         });
@@ -921,6 +923,8 @@ impl SshSession {
         let client_config = Arc::new(client::Config {
             inactivity_timeout: Some(Duration::from_secs(3600)),
             // 每 30s 发送 keepalive，防止 NAT / 防火墙 / 服务器空闲超时断连。
+            // 禁用 Nagle：交互式 SSH 小包多，Nagle + 延迟 ACK 会把每次回显拖慢几百毫秒。
+            nodelay: true,
             keepalive_interval: Some(Duration::from_secs(30)),
             ..Default::default()
         });
