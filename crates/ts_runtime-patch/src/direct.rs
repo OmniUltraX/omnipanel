@@ -336,9 +336,9 @@ fn os_ifindex(id: &ts_netmon::InterfaceId) -> Option<u32> {
     }
 }
 
-fn pin_to_physical(sock: &UdpSocket, state: &netmon::State) -> Option<u32> {
+fn pin_socket(sock: &UdpSocket, state: &netmon::State, v6: bool) -> Option<u32> {
     let (index, name) = physical_iface(state)?;
-    set_unicast_if(sock, index, &name).then_some(index)
+    set_bound_if(sock, index, &name, v6).then_some(index)
 }
 
 #[cfg(windows)]
@@ -358,18 +358,26 @@ fn luid_to_index(_luid: u64) -> Option<u32> {
 }
 
 #[cfg(windows)]
-fn set_unicast_if(sock: &UdpSocket, index: u32, _name: &str) -> bool {
+fn set_bound_if(sock: &UdpSocket, index: u32, _name: &str, v6: bool) -> bool {
     use std::os::windows::io::AsRawSocket;
 
     #[link(name = "ws2_32")]
     unsafe extern "system" {
         fn setsockopt(s: usize, level: i32, opt: i32, val: *const u8, len: i32) -> i32;
+        fn WSAGetLastError() -> i32;
     }
-    // IP_UNICAST_IF takes the interface index in network byte order.
-    let be = index.to_be_bytes();
-    let rc = unsafe { setsockopt(sock.as_raw_socket() as usize, 0, 31, be.as_ptr(), 4) };
+    // IPv4 IP_UNICAST_IF wants the index in network order. IPv6 IPV6_UNICAST_IF wants
+    // host order, and it has to be set on IPPROTO_IPV6 — the IPv4 option fails on an
+    // IPv6 socket with SOCKET_ERROR.
+    let (level, bytes) = if v6 {
+        (41, index.to_ne_bytes())
+    } else {
+        (0, index.to_be_bytes())
+    };
+    let rc = unsafe { setsockopt(sock.as_raw_socket() as usize, level, 31, bytes.as_ptr(), 4) };
     if rc != 0 {
-        tracing::error!(rc, index, "绑定物理网卡失败");
+        let err = unsafe { WSAGetLastError() };
+        tracing::error!(err, index, v6, "绑定物理网卡失败");
         false
     } else {
         true
@@ -377,17 +385,18 @@ fn set_unicast_if(sock: &UdpSocket, index: u32, _name: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn set_unicast_if(sock: &UdpSocket, index: u32, _name: &str) -> bool {
+fn set_bound_if(sock: &UdpSocket, index: u32, _name: &str, v6: bool) -> bool {
     use std::os::unix::io::AsRawFd;
 
     unsafe extern "C" {
         fn setsockopt(s: i32, level: i32, opt: i32, val: *const u8, len: u32) -> i32;
     }
-    // IP_BOUND_IF takes the interface index in host byte order.
+    // IP_BOUND_IF is 25 on IPPROTO_IP. IPV6_BOUND_IF is 125 on IPPROTO_IPV6.
+    let (level, opt) = if v6 { (41, 125) } else { (0, 25) };
     let val = index.to_ne_bytes();
-    let rc = unsafe { setsockopt(sock.as_raw_fd(), 0, 25, val.as_ptr(), 4) };
+    let rc = unsafe { setsockopt(sock.as_raw_fd(), level, opt, val.as_ptr(), 4) };
     if rc != 0 {
-        tracing::error!(rc, index, "绑定物理网卡失败");
+        tracing::error!(rc, index, v6, "绑定物理网卡失败");
         false
     } else {
         true
@@ -395,12 +404,13 @@ fn set_unicast_if(sock: &UdpSocket, index: u32, _name: &str) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn set_unicast_if(sock: &UdpSocket, index: u32, name: &str) -> bool {
+fn set_bound_if(sock: &UdpSocket, index: u32, name: &str, v6: bool) -> bool {
     use std::os::unix::io::AsRawFd;
 
     unsafe extern "C" {
         fn setsockopt(s: i32, level: i32, opt: i32, val: *const u8, len: u32) -> i32;
     }
+    let _ = v6;
     let mut buf = name.as_bytes().to_vec();
     buf.push(0);
     // SOL_SOCKET = 1, SO_BINDTODEVICE = 25.
@@ -414,7 +424,7 @@ fn set_unicast_if(sock: &UdpSocket, index: u32, name: &str) -> bool {
 }
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-fn set_unicast_if(_sock: &UdpSocket, _index: u32, _name: &str) -> bool {
+fn set_bound_if(_sock: &UdpSocket, _index: u32, _name: &str, _v6: bool) -> bool {
     false
 }
 
@@ -453,11 +463,11 @@ impl Message<Arc<netmon::State>> for DirectActor {
         self.addrs_v6.clear();
         self.reachable.clear();
 
-        if let Some(index) = pin_to_physical(&self.sock4, &msg)
+        if let Some(index) = pin_socket(&self.sock4, &msg, false)
             && self.pinned_ifindex != Some(index)
         {
             if let Some(sock6) = &self.sock6 {
-                let _ = pin_to_physical(sock6, &msg);
+                let _ = pin_socket(sock6, &msg, true);
             }
             self.pinned_ifindex = Some(index);
             // The previous mapping was learned on the default route, which may be a

@@ -246,6 +246,9 @@ struct PeerPd {
     /// sent by control or in a `CallMeMaybe`.
     seen_peer_endpoints: HashMap<DynEndpoint, Instant>,
 
+    /// One log after a probe round finishes with no pong, so a firewall block is visible.
+    miss_logged: bool,
+
     env: Env,
 }
 
@@ -288,6 +291,10 @@ impl PeerPd {
         }
 
         let found_direct = !self.previous_probe_latencies.is_empty();
+        if had_inflight && !found_direct && !self.miss_logged {
+            self.miss_logged = true;
+            tracing::error!("组网打洞没有回包，请允许本程序的 UDP 入站");
+        }
         if found_direct {
             let best = self
                 .previous_probe_latencies
@@ -503,6 +510,7 @@ impl kameo::Actor for PeerPd {
             coord_endpoints_ctrl: Default::default(),
             endpoints_ctrl: Default::default(),
             seen_peer_endpoints: Default::default(),
+            miss_logged: false,
         })
     }
 }
@@ -597,20 +605,28 @@ impl Message<IncomingDiscoMsg> for PeerPd {
 
         // A ping's source is the mapping that just reached us. Probe that address now,
         // instead of waiting for the addresses the peer advertised (those can be a proxy exit).
-        if pkt.ty() == Some(MessageType::Ping)
-            && let Some(addr) = msg.sender.as_udp()
-            && is_public_addr(addr)
-            && !self.current_probes.contains_key(&msg.sender)
-            && let Some(disco_key) = self.disco_key
-        {
-            Self::send_disco_ping(
-                &self.env,
-                msg.sender.clone(),
-                disco_key,
-                &mut self.current_probes,
-                &mut self.tx_lookup,
-            )
-            .await;
+        if pkt.ty() == Some(MessageType::Ping) && msg.sender.as_udp().is_some_and(is_public_addr) {
+            // Their packet reached this socket. Send later traffic back to that source
+            // instead of waiting for a probe of the address they advertised.
+            self.env
+                .publish_noretain(PeerBestPath {
+                    peer: self.peer_id,
+                    ep: Some((msg.transport, msg.sender.clone())),
+                })
+                .await
+                .unwrap();
+            if !self.current_probes.contains_key(&msg.sender)
+                && let Some(disco_key) = self.disco_key
+            {
+                Self::send_disco_ping(
+                    &self.env,
+                    msg.sender.clone(),
+                    disco_key,
+                    &mut self.current_probes,
+                    &mut self.tx_lookup,
+                )
+                .await;
+            }
         }
 
         if pkt.ty() == Some(MessageType::CallMeMaybe)

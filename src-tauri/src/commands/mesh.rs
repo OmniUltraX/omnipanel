@@ -18,6 +18,73 @@ use crate::commands::sync_team_key::sync_team_key_wrap_for_relay;
 use crate::state::AppState;
 
 pub const MESH_LISTEN_PORT: u16 = 42424;
+
+/// Best-effort inbound allow for the dev/debug exe. Installed builds usually
+/// already have a rule; a blocked UDP inbound leaves STUN working and the path on relay.
+fn allow_mesh_udp() {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::sync::OnceLock;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        static STARTED: OnceLock<()> = OnceLock::new();
+        if STARTED.set(()).is_err() {
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let program = exe.display().to_string();
+        let exe_name = exe
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let mut show = std::process::Command::new("netsh");
+        show.args([
+            "advfirewall",
+            "firewall",
+            "show",
+            "rule",
+            "name=all",
+            "dir=in",
+        ]);
+        show.creation_flags(CREATE_NO_WINDOW);
+        if let Ok(out) = show.output() {
+            let text = String::from_utf8_lossy(&out.stdout).to_ascii_lowercase();
+            if !exe_name.is_empty() && text.contains(&exe_name) {
+                return;
+            }
+        }
+        let mut cmd = std::process::Command::new("netsh");
+        cmd.args([
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            "name=OmniPanel Mesh UDP",
+            "dir=in",
+            "action=allow",
+            "protocol=UDP",
+            "profile=any",
+            "enable=yes",
+        ]);
+        cmd.arg(format!("program={program}"));
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        match cmd.output() {
+            Ok(out) if out.status.success() => {
+                tracing::info!("已放行组网 UDP 入站");
+            }
+            Ok(_) => {
+                tracing::error!("组网 UDP 入站未能放行，请允许本程序通过防火墙");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "组网 UDP 入站放行失败");
+            }
+        }
+    }
+}
 const TS_RS_EXPERIMENT: &str = "this_is_unstable_software";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -165,6 +232,7 @@ pub async fn mesh_start(
         })?;
     config.control_server_url = control_url;
     config.requested_hostname = Some(hostname.clone());
+    allow_mesh_udp();
     config.ephemeral = true;
     config.client_name = Some("omnipanel".into());
 
