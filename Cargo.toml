@@ -135,3 +135,6 @@ ts_disco_protocol = { path = "crates/ts_disco_protocol-patch" }
 # DERP 升级请求的 Host 用了拨号 IP（FixedAddr/解析后的 IP），经按域名分流的
 # 反代（如 headscale 前挂 nginx）会落到默认站点，拿不到 101。
 ts_derp = { path = "crates/ts_derp-patch" }
+# 会话轮换时每个来包都会重开一个新握手并覆盖在途状态，轮换永远完不成，
+# 会话 180 秒后过期断流；补上与发送路径一致的 in-flight 保护。
+ts_tunnel = { path = "crates/ts_tunnel-patch" }

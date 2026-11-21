@@ -11377,8 +11377,6 @@ dependencies = [
 [[package]]
 name = "ts_tunnel"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "708b499248cd70449a8d2a34b65aee776b2097bdf16234003b669f6c76245e1e"
 dependencies = [
  "aead",
  "blake2",
